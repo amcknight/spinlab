@@ -2,6 +2,7 @@ emulator:
   path: "C:/path/to/Mesen.exe"
   type: mesen2
   lua_script: "lua/spinlab.lua"
+  script_data_dir: "C:/Users/<you>/Documents/Mesen2/LuaScriptData/spinlab"  # where Lua writes its files
 
 rom:
   path: ""  # Optional — leave empty to load ROM from Mesen UI
