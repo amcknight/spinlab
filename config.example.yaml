@@ -1,0 +1,24 @@
+emulator:
+  path: "C:/path/to/Mesen.exe"
+  type: mesen2
+  lua_script: "lua/spinlab.lua"
+
+rom:
+  path: ""  # Optional — leave empty to load ROM from Mesen UI
+
+game:
+  id: smw_cod
+  name: "SMW: City of Dreams"
+  category: "any%"
+
+network:
+  port: 15482
+  host: "127.0.0.1"
+
+scheduler:
+  algorithm: sm2
+  base_interval_minutes: 5
+  auto_rate_passive: false
+
+data:
+  dir: "data"
