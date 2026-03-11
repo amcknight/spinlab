@@ -29,7 +29,7 @@ def pair_events(
     Unpaired entrances (run abandoned) are silently dropped.
     Deaths and other events are ignored.
     """
-    pairs: list[tuple[dict, dict]] = []
+    pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     pending: dict[tuple[int, int], dict] = {}  # (level, room) -> entrance event
 
     for event in events:

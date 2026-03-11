@@ -100,3 +100,23 @@ def test_build_manifest_split_fields():
     assert split["goal"] == "key"
     assert split["state_path"] == "C:/states/smw_cod_105_1.mss"
     assert split["reference_time_ms"] == 8100
+
+
+def test_pair_events_re_entrance_takes_latest_state():
+    """If a level is entered twice before exit, the most recent entrance is used."""
+    events = [
+        entrance(105, 1, state_path="states/first.mss"),
+        entrance(105, 1, state_path="states/second.mss"),
+        exit_event(105, 1, "normal", 5000),
+    ]
+    pairs = pair_events(events)
+    assert len(pairs) == 1
+    assert pairs[0][0]["state_path"] == "states/second.mss"
+
+
+def test_parse_log_empty():
+    assert parse_log([]) == []
+
+
+def test_pair_events_empty():
+    assert pair_events([]) == []
