@@ -111,7 +111,7 @@ local function to_json(t)
   for k, v in pairs(t) do
     local val
     if type(v) == "string" then
-      val = '"' .. v:gsub('"', '\\"') .. '"'
+      val = '"' .. v:gsub('\\', '\\\\'):gsub('"', '\\"') .. '"'
     elseif type(v) == "boolean" then
       val = tostring(v)
     else
