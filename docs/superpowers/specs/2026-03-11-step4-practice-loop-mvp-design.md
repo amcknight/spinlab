@@ -63,17 +63,21 @@ JSON payload (matches `SplitCommand.to_dict()`):
 practice_stop\n
 ```
 
-Exits practice mode, returns Lua to passive recording.
+Exits practice mode, returns Lua to passive recording. Lua responds with `ok\n` before
+transitioning back to IDLE.
 
 ### New events (Lua → Python, pushed)
 
 ```json
 {"event": "attempt_result", "split_id": "smw_cod:5:0:normal", "completed": true, "time_ms": 11234, "goal": "normal", "rating": "good"}
-{"event": "attempt_result", "split_id": "smw_cod:5:0:normal", "completed": false, "time_ms": null, "goal": "normal", "rating": "again"}
+{"event": "attempt_result", "split_id": "smw_cod:5:0:normal", "completed": false, "time_ms": 5400, "goal": "normal", "rating": "again"}
 ```
 
 `completed=false` means the player aborted (start+select). Rating is always present
-(set by L+D-pad input; no timeout — waits indefinitely).
+(set by L+D-pad input; no timeout — waits indefinitely). `time_ms` is always tracked
+(time from state load to exit trigger), even for aborted attempts — useful for future
+analysis. Rating string values are the `Rating` enum strings: `"again"`, `"hard"`,
+`"good"`, `"easy"`. Python must coerce with `Rating(result["rating"])`.
 
 ---
 
@@ -90,9 +94,13 @@ LOADING → set pending_load → cpuExec fires → state loaded
   ▼
 PLAYING
   ├── overlay: "Level X | Goal: Y | 0:08.4 | ref: 0:12.0"
-  ├── death detected → set pending_load (same state) → stay PLAYING (auto-retry)
-  ├── abort detected (exit_mode != 0, goal="abort") → go to RATING, completed=false
-  └── clear detected (exit_mode != 0, goal != "abort") → go to RATING, completed=true
+  ├── death detected (player_anim == 9, prev != 9) → set pending_load (same state) → stay PLAYING (auto-retry)
+  │     NOTE: death is checked BEFORE exit_mode — a simultaneous death+exit_mode edge
+  │     case is treated as death (auto-retry), not abort.
+  ├── abort detected (exit_mode != 0, goal_type()="abort", no death this frame)
+  │     → go to RATING, completed=false
+  └── clear detected (exit_mode != 0, goal_type() != "abort", no death this frame)
+        → go to RATING, completed=true
   ▼
 RATING
   ├── emu.pause() called
@@ -120,7 +128,7 @@ SpinLab [PRACTICE] Lv5 goal:normal 0:08.4 ref:0:12.0
 
 **RATING state** (shown while paused):
 ```
-Line 1: "Clear! 0:11.2 (ref 0:12.0)"   -- or "Abort." if completed=false
+Line 1: "Clear! 0:11.2 (ref 0:12.0)"   -- or "Abort 0:05.4" if completed=false
 Line 2: "L+<again  L+v hard  L+>good  L+^easy"
 ```
 
@@ -142,7 +150,11 @@ python -m spinlab.orchestrator
 
 ### Startup Sequence
 
-1. Read `config.yaml` (game_id, host, port, scheduler settings, data dir)
+1. Read `config.yaml`:
+   - `config["game"]["id"]` — game_id
+   - `config["network"]["host"]` / `config["network"]["port"]` — TCP connection
+   - `config["scheduler"]["base_interval_minutes"]` — SM-2 base interval
+   - `config["data"]["dir"]` — data directory root
 2. Find latest manifest in `data/captures/*_manifest.yaml` (most recent by filename)
 3. Open/create SQLite DB at `data/spinlab.db`
 4. Upsert game record, upsert all splits from manifest, ensure schedule entries exist
@@ -154,12 +166,22 @@ python -m spinlab.orchestrator
 
 ```python
 while True:
-    cmd = scheduler.pick_next()       # SplitCommand
+    cmd = scheduler.pick_next()       # Optional[SplitCommand]
+    if cmd is None:
+        print("No splits available — exiting.")
+        break
+    if cmd.state_path and not os.path.exists(cmd.state_path):
+        log warning, continue  # skip missing state files
     send("practice_load:" + json.dumps(cmd.to_dict()))
-    result = recv_until_attempt_result()  # blocking, no timeout
-    log_attempt(result)
-    scheduler.process_rating(result.split_id, result.rating)
+    result = recv_until_attempt_result()  # blocking, no timeout; returns dict
+    rating = Rating(result["rating"])
+    log_attempt(result, rating)
+    scheduler.process_rating(result["split_id"], rating)
 ```
+
+Note: `recv_until_attempt_result()` must buffer partial TCP reads and return only when
+a complete `\n`-terminated line is received with `"event": "attempt_result"`. Other
+pushed lines (e.g., `ok:queued`) must be discarded or logged.
 
 ### Shutdown
 
@@ -169,7 +191,8 @@ Ctrl+C → send `practice_stop` → `end_session()` in DB → exit.
 
 - TCP disconnect during a session: log error, attempt reconnect once, then exit cleanly.
 - No splits in DB after manifest load: exit with helpful message.
-- Missing state file: skip that split (log warning), pick next.
+- Missing state file: Python checks `os.path.exists(cmd.state_path)` before sending
+  `practice_load`; skips the split and picks next if absent.
 
 ---
 
@@ -179,7 +202,7 @@ Ctrl+C → send `practice_stop` → `end_session()` in DB → exit.
 |------|--------|
 | `lua/spinlab.lua` | Add practice mode state machine, new TCP commands, overlay, controller input, emu.pause/resume |
 | `python/spinlab/orchestrator.py` | New file — full orchestrator implementation |
-| `python/spinlab/__init__.py` | Add `orchestrator` module export if needed |
+| `python/spinlab/__init__.py` | No change needed — `-m spinlab.orchestrator` works without export |
 | `pyproject.toml` | Add `spinlab.orchestrator` as a script entry point (optional) |
 
 No changes to `db.py`, `scheduler.py`, `models.py`, `capture.py` — they're already correct.
