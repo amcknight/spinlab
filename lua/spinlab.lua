@@ -1,6 +1,6 @@
 -- SpinLab — Mesen2 Lua Script
 -- Steps 1+2 complete: Save State PoC + Passive Recorder
--- Step 3 next: save state on level_entrance events (reference capture)
+-- Step 3: save state on level_entrance events (reference capture) — in progress
 --
 -- Keyboard (manual testing):
 --   T = save state to test file
@@ -185,6 +185,9 @@ local function detect_transitions(curr)
       level_start_frame = frame_counter
       local state_fname = GAME_ID .. "_" .. curr.level_num .. "_" .. curr.room_num .. ".mss"
       local state_path  = STATE_DIR .. "/" .. state_fname
+      if pending_save then
+        log("WARNING: pending_save overwritten (was: " .. pending_save .. ")")
+      end
       pending_save = state_path
       log_jsonl({
         event      = "level_entrance",
@@ -195,6 +198,7 @@ local function detect_transitions(curr)
         session    = "passive",
         state_path = state_path,
       })
+      -- Note: state_path is logged optimistically; save may fail (on_cpu_exec logs errors)
       log("Level entrance: " .. curr.level_num .. " -> queued state save: " .. state_fname)
     else
       -- Quick retry respawn — reset died flag, don't log as entrance
@@ -315,18 +319,6 @@ end
 -----------------------------------------------------------------------
 local function on_start_frame()
   if not initialized then
-    -- TEMP PROBE: dump emu API and enum tables to file
-    local f = io.open("C:/Users/thedo/git/spinlib/emu_probe.txt", "w")
-    if f then
-      for k, v in pairs(emu) do f:write(k .. " = " .. type(v) .. "\n") end
-      f:write("\n-- memType values:\n")
-      for k, v in pairs(emu.memType) do f:write("memType." .. k .. " = " .. tostring(v) .. "\n") end
-      f:write("\n-- callbackType values:\n")
-      for k, v in pairs(emu.callbackType) do f:write("callbackType." .. k .. " = " .. tostring(v) .. "\n") end
-      f:close()
-    end
-    -- END TEMP PROBE
-
     ensure_dir(STATE_DIR)
     init_tcp()
     emu.addMemoryCallback(on_cpu_exec, emu.callbackType.exec, 0x0000, 0xFFFF)
