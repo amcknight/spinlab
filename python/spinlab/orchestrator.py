@@ -147,6 +147,7 @@ def run(config_path: Path = Path("config.yaml")) -> None:
     port: int = config["network"]["port"]
     base_interval: float = float(config["scheduler"]["base_interval_minutes"])
     data_dir = Path(config["data"]["dir"])
+    state_file = data_dir / "orchestrator_state.json"
 
     # -- Manifest → DB --
     manifest_path = find_latest_manifest(data_dir)
@@ -177,6 +178,7 @@ def run(config_path: Path = Path("config.yaml")) -> None:
     # -- Session --
     session_id = uuid.uuid4().hex
     db.create_session(session_id, game_id)
+    session_started_at = datetime.utcnow().isoformat() + "Z"
     splits_attempted = 0
     splits_completed = 0
     # Track splits skipped this session due to missing state files.
@@ -199,6 +201,9 @@ def run(config_path: Path = Path("config.yaml")) -> None:
                 continue
 
             send_line(sock, "practice_load:" + json.dumps(cmd.to_dict()))
+            queue = scheduler.peek_next_n(3)
+            queue = [q for q in queue if q != cmd.id][:2]
+            write_state_file(state_file, session_id, session_started_at, cmd.id, queue)
             result = recv_until_attempt_result(sock)
 
             rating = Rating(result["rating"])
@@ -233,6 +238,7 @@ def run(config_path: Path = Path("config.yaml")) -> None:
             pass
         sock.close()
         db.end_session(session_id, splits_attempted, splits_completed)
+        clear_state_file(state_file)
         db.close()
         print(f"Session ended: {splits_attempted} attempts, {splits_completed} completed.")
 
