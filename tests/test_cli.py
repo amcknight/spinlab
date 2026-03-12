@@ -27,3 +27,9 @@ def test_practice_calls_orchestrator_run():
 def test_capture_calls_capture_main():
     from spinlab import capture
     assert hasattr(capture, "main")
+
+
+def test_dashboard_subcommand_imports():
+    """Dashboard subcommand is registered and dashboard module is importable."""
+    from spinlab import dashboard
+    assert hasattr(dashboard, "create_app")

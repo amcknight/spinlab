@@ -25,6 +25,15 @@ def main(args: list[str] | None = None) -> None:
     # stats
     sub.add_parser("stats", help="Show practice statistics (coming soon)")
 
+    # dashboard
+    p_dash = sub.add_parser("dashboard", help="Start the web dashboard")
+    p_dash.add_argument(
+        "--config", default="config.yaml", help="Path to config.yaml"
+    )
+    p_dash.add_argument(
+        "--port", type=int, default=15483, help="Dashboard port"
+    )
+
     # lua-cmd
     p_lua = sub.add_parser("lua-cmd", help="Send raw commands to the Lua TCP server")
     p_lua.add_argument("commands", nargs="+", help="Commands to send (e.g. practice_stop reset)")
@@ -42,6 +51,22 @@ def main(args: list[str] | None = None) -> None:
     elif parsed.command == "stats":
         print("Stats coming in a future step.")
         sys.exit(0)
+
+    elif parsed.command == "dashboard":
+        import uvicorn
+        import yaml
+        from spinlab.dashboard import create_app
+        from spinlab.db import Database
+
+        with open(parsed.config, encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+        game_id = config["game"]["id"]
+        data_dir = Path(config["data"]["dir"])
+        db = Database(data_dir / "spinlab.db")
+        state_file = data_dir / "orchestrator_state.json"
+        app = create_app(db=db, game_id=game_id, state_file=state_file)
+        print(f"SpinLab Dashboard: http://localhost:{parsed.port}")
+        uvicorn.run(app, host="127.0.0.1", port=parsed.port, log_level="warning")
 
     elif parsed.command == "lua-cmd":
         import socket
