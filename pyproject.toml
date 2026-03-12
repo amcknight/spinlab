@@ -6,10 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "spinlab"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["pyyaml"]
+dependencies = ["pyyaml", "fastapi", "uvicorn"]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "httpx"]
 
 [project.scripts]
 spinlab = "spinlab.cli:main"
