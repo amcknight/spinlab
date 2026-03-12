@@ -1,32 +1,171 @@
-"""SpinLab scheduler — legacy SM-2 stub (superseded by Kalman allocator)."""
+"""Scheduler coordinator: wires an estimator + allocator together.
 
-from typing import Optional
+Exposes pick_next(), process_attempt(), peek_next_n() to the orchestrator.
+Same interface surface as the old SM-2 scheduler, different internals.
+"""
+from __future__ import annotations
 
-from .db import Database
-from .models import Split, SplitCommand
+import json
+from typing import TYPE_CHECKING
+
+from spinlab.allocators import SplitWithModel, get_allocator, list_allocators
+from spinlab.allocators.greedy import GreedyAllocator  # ensure registered
+from spinlab.allocators.random import RandomAllocator
+from spinlab.allocators.round_robin import RoundRobinAllocator
+from spinlab.estimators import get_estimator, list_estimators
+from spinlab.estimators.kalman import KalmanEstimator  # ensure registered
+
+if TYPE_CHECKING:
+    from spinlab.allocators import Allocator
+    from spinlab.db import Database
+    from spinlab.estimators import Estimator
 
 
 class Scheduler:
-    """Legacy SM-2 scheduler stub.
-
-    The SM-2 scheduling logic and Rating/Schedule types have been removed in
-    favour of the Kalman-filter-based allocator.  This class is kept as a thin
-    shim so that any existing code that instantiates it doesn't crash; it will
-    be deleted once the Kalman allocator is wired into the orchestrator.
-    """
-
-    def __init__(self, db: Database, game_id: str, base_interval: float = 5.0):
+    def __init__(
+        self,
+        db: "Database",
+        game_id: str,
+        estimator_name: str = "kalman",
+        allocator_name: str = "greedy",
+    ) -> None:
         self.db = db
         self.game_id = game_id
-        self.base_interval = base_interval
+        self.estimator: Estimator = get_estimator(estimator_name)
+        self.allocator: Allocator = get_allocator(allocator_name)
 
-    def pick_next(self) -> Optional[SplitCommand]:
-        """Return None — callers should use the Kalman allocator instead."""
-        return None
+    def _load_splits_with_model(self) -> list[SplitWithModel]:
+        """Load all active splits and hydrate with estimator state."""
+        rows = self.db.get_all_splits_with_model(self.game_id)
+        all_states = []
+        splits = []
+
+        for row in rows:
+            state = None
+            mr = 0.0
+            di = {}
+            n_completed = 0
+            n_attempts = 0
+            gold_ms = None
+
+            if row["state_json"]:
+                from spinlab.estimators.kalman import KalmanState
+
+                state = KalmanState.from_dict(json.loads(row["state_json"]))
+                mr = self.estimator.marginal_return(state)
+                di = self.estimator.drift_info(state)
+                n_completed = state.n_completed
+                n_attempts = state.n_attempts
+                gold_ms = int(state.gold * 1000) if state.gold != float("inf") else None
+                all_states.append(state)
+
+            splits.append(
+                SplitWithModel(
+                    split_id=row["id"],
+                    game_id=row["game_id"],
+                    level_number=row["level_number"],
+                    room_id=row["room_id"],
+                    goal=row["goal"],
+                    description=row["description"],
+                    strat_version=row["strat_version"],
+                    reference_time_ms=row["reference_time_ms"],
+                    state_path=row["state_path"],
+                    active=bool(row["active"]),
+                    estimator_state=state,
+                    marginal_return=mr,
+                    drift_info=di,
+                    n_completed=n_completed,
+                    n_attempts=n_attempts,
+                    gold_ms=gold_ms,
+                )
+            )
+        return splits
+
+    def pick_next(self) -> SplitWithModel | None:
+        """Pick next split to practice."""
+        splits = self._load_splits_with_model()
+        if not splits:
+            return None
+        split_id = self.allocator.pick_next(splits)
+        if split_id is None:
+            return None
+        return next((s for s in splits if s.split_id == split_id), None)
+
+    def process_attempt(
+        self, split_id: str, time_ms: int, completed: bool
+    ) -> None:
+        """Process a completed or incomplete attempt."""
+        observed_time = time_ms / 1000.0 if completed else None
+
+        # Load existing state
+        row = self.db.load_model_state(split_id)
+        if row and row["state_json"]:
+            from spinlab.estimators.kalman import KalmanState
+
+            state = KalmanState.from_dict(json.loads(row["state_json"]))
+            state = self.estimator.process_attempt(state, observed_time)
+        else:
+            if observed_time is not None:
+                # First completed attempt — initialize
+                all_rows = self.db.load_all_model_states(self.game_id)
+                from spinlab.estimators.kalman import KalmanState
+
+                all_states = [
+                    KalmanState.from_dict(json.loads(r["state_json"]))
+                    for r in all_rows
+                    if r["state_json"]
+                ]
+                priors = self.estimator.get_population_priors(all_states)
+                state = self.estimator.init_state(observed_time, priors)
+            else:
+                # First attempt is incomplete — create minimal state
+                from spinlab.estimators.kalman import KalmanState
+
+                state = KalmanState(n_attempts=1)
+                self.db.save_model_state(
+                    split_id,
+                    self.estimator.name,
+                    json.dumps(state.to_dict()),
+                    0.0,
+                )
+                return
+
+        mr = self.estimator.marginal_return(state)
+        self.db.save_model_state(
+            split_id, self.estimator.name, json.dumps(state.to_dict()), mr
+        )
 
     def peek_next_n(self, n: int) -> list[str]:
-        """Return empty list — callers should use the Kalman allocator instead."""
-        return []
+        """Preview next N split IDs."""
+        splits = self._load_splits_with_model()
+        return self.allocator.peek_next_n(splits, n)
 
-    def reset_strat(self, split_id: str) -> None:
-        self.db.increment_strat_version(split_id)
+    def get_all_model_states(self) -> list[SplitWithModel]:
+        """Get all splits with model state for dashboard."""
+        return self._load_splits_with_model()
+
+    def switch_allocator(self, name: str) -> None:
+        self.allocator = get_allocator(name)
+        self.db.save_allocator_config("allocator", name)
+
+    def switch_estimator(self, name: str) -> None:
+        self.estimator = get_estimator(name)
+        self.db.save_allocator_config("estimator", name)
+
+    def rebuild_all_states(self) -> None:
+        """Replay all attempts to reconstruct model_state table."""
+        splits = self.db.get_all_splits_with_model(self.game_id)
+        for row in splits:
+            split_id = row["id"]
+            attempts_raw = self.db.get_split_attempts(split_id)
+            if not attempts_raw:
+                continue
+            times = [
+                a["time_ms"] / 1000.0 if a["completed"] else None
+                for a in attempts_raw
+            ]
+            state = self.estimator.rebuild_state(times)
+            mr = self.estimator.marginal_return(state)
+            self.db.save_model_state(
+                split_id, self.estimator.name, json.dumps(state.to_dict()), mr
+            )
