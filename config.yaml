@@ -1,0 +1,26 @@
+emulator:
+  path: "C:/Apps/Mesen/Mesen 2.1.1/Mesen.exe"
+  type: mesen2
+  lua_script: "lua/spinlab.lua"
+  script_data_dir: "C:/Users/thedo/Documents/Mesen2/LuaScriptData/spinlab"
+
+rom:
+  path: "C:/Users/thedo/Dropbox/SNES/SMW Hacks/Love Yourself.smc"
+  # alt: "C:/Users/thedo/Dropbox/SNES/SMW Hacks/Nightmare cafe 10.smc"
+
+game:
+  id: smw_cod
+  name: "SMW: City of Dreams"
+  category: "any%"
+
+network:
+  port: 15482
+  host: "127.0.0.1"
+
+scheduler:
+  estimator: kalman
+  allocator: greedy
+  auto_advance_delay_s: 2.0
+
+data:
+  dir: "data"
