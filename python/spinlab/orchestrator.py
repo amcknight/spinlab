@@ -24,6 +24,8 @@ def write_state_file(
     started_at: str,
     current_split_id: str,
     queue: list[str],
+    allocator: str = "greedy",
+    estimator: str = "kalman",
 ) -> None:
     """Atomically write orchestrator state for dashboard consumption."""
     state = {
@@ -31,6 +33,8 @@ def write_state_file(
         "started_at": started_at,
         "current_split_id": current_split_id,
         "queue": queue,
+        "allocator": allocator,
+        "estimator": estimator,
         "updated_at": datetime.utcnow().isoformat() + "Z",
     }
     tmp = path.with_suffix(".json.tmp")
@@ -80,11 +84,7 @@ def load_manifest(path: Path) -> dict:
 
 
 def seed_db_from_manifest(db: Database, manifest: dict, game_name: str) -> None:
-    """Upsert game + all splits from manifest into the DB.
-
-    Does NOT create schedule entries — that is Scheduler.init_schedules()'s job,
-    called separately in run() after seeding.
-    """
+    """Upsert game + all splits from manifest into the DB."""
     game_id: str = manifest["game_id"]
     category: str = manifest.get("category", "any%")
     db.upsert_game(game_id, game_name, category)
@@ -145,7 +145,7 @@ def run(config_path: Path = Path("config.yaml")) -> None:
     game_name: str = config["game"]["name"]
     host: str = config["network"]["host"]
     port: int = config["network"]["port"]
-    base_interval: float = float(config["scheduler"]["base_interval_minutes"])
+    sched_cfg = config.get("scheduler", {})
     data_dir = Path(config["data"]["dir"])
     state_file = data_dir / "orchestrator_state.json"
 
@@ -158,8 +158,13 @@ def run(config_path: Path = Path("config.yaml")) -> None:
     manifest = load_manifest(manifest_path)
     seed_db_from_manifest(db, manifest, game_name)
 
-    scheduler = Scheduler(db, game_id, base_interval)
-    scheduler.init_schedules()
+    scheduler = Scheduler(
+        db, game_id,
+        estimator_name=sched_cfg.get("estimator", "kalman"),
+        allocator_name=sched_cfg.get("allocator", "greedy"),
+    )
+    auto_advance_delay_s = sched_cfg.get("auto_advance_delay_s", 2.0)
+    auto_advance_delay_ms = int(auto_advance_delay_s * 1000)
 
     if not db.get_active_splits(game_id):
         sys.exit("No active splits in DB — check manifest.")
@@ -187,10 +192,19 @@ def run(config_path: Path = Path("config.yaml")) -> None:
 
     try:
         while True:
-            cmd = scheduler.pick_next()
-            if cmd is None:
+            picked = scheduler.pick_next()
+            if picked is None:
                 print("No splits available — exiting.")
                 break
+
+            cmd = SplitCommand(
+                id=picked.split_id,
+                state_path=picked.state_path,
+                goal=picked.goal,
+                description=picked.description,
+                reference_time_ms=picked.reference_time_ms,
+                auto_advance_delay_ms=auto_advance_delay_ms,
+            )
 
             if cmd.state_path and not os.path.exists(cmd.state_path):
                 session_skipped.add(cmd.id)
@@ -203,21 +217,28 @@ def run(config_path: Path = Path("config.yaml")) -> None:
             send_line(sock, "practice_load:" + json.dumps(cmd.to_dict()))
             queue = scheduler.peek_next_n(3)
             queue = [q for q in queue if q != cmd.id][:2]
-            write_state_file(state_file, session_id, session_started_at, cmd.id, queue)
+            write_state_file(
+                state_file, session_id, session_started_at, cmd.id,
+                queue,
+                allocator=scheduler.allocator.name,
+                estimator=scheduler.estimator.name,
+            )
             result = recv_until_attempt_result(sock)
 
-            rating = Rating(result["rating"])
             attempt = Attempt(
                 split_id=result["split_id"],
                 session_id=session_id,
                 completed=result["completed"],
                 time_ms=result.get("time_ms"),
                 goal_matched=(result.get("goal") == cmd.goal) if result.get("completed") else None,
-                rating=rating,
                 source="practice",
             )
             db.log_attempt(attempt)
-            scheduler.process_rating(result["split_id"], rating)
+            scheduler.process_attempt(
+                result["split_id"],
+                time_ms=result.get("time_ms", 0),
+                completed=result["completed"],
+            )
 
             splits_attempted += 1
             if result["completed"]:
@@ -225,8 +246,7 @@ def run(config_path: Path = Path("config.yaml")) -> None:
 
             status = "✓" if result["completed"] else "✗"
             label = cmd.description if cmd.description else result["split_id"]
-            print(f"{status} {label}  {rating.value}  "
-                  f"{result.get('time_ms', '?')}ms")
+            print(f"{status} {label}  {result.get('time_ms', '?')}ms")
 
     except KeyboardInterrupt:
         print("\nStopping...")
