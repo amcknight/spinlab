@@ -1,0 +1,129 @@
+/* SpinLab dark theme, 320px narrow */
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --card: #0f3460;
+  --text: #e0e0e0;
+  --text-dim: #8888aa;
+  --accent: #00d2ff;
+  --green: #4caf50;
+  --yellow: #ffc107;
+  --red: #f44336;
+  --orange: #ff9800;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Consolas', 'Monaco', monospace;
+  background: var(--bg);
+  color: var(--text);
+  width: 320px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+header {
+  background: var(--surface);
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--card);
+}
+
+header h1 {
+  font-size: 16px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.header-stat {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.status-msg {
+  text-align: center;
+  padding: 32px 12px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.sub-stat {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.card {
+  margin: 6px 8px;
+  padding: 8px 10px;
+  background: var(--card);
+  border-radius: 6px;
+}
+
+.card-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
+}
+
+.cs-goal {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cs-difficulty {
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.cs-attempts {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.mi-line {
+  font-size: 12px;
+}
+
+#queue-list, #recent-list {
+  list-style: none;
+}
+
+#queue-list li, #recent-list li {
+  font-size: 11px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  display: flex;
+  justify-content: space-between;
+}
+
+#queue-list li:last-child, #recent-list li:last-child {
+  border-bottom: none;
+}
+
+footer {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+  border-top: 1px solid var(--card);
+}
+
+/* Difficulty tier colors */
+.tier-new { color: var(--text-dim); }
+.tier-struggling { color: var(--red); }
+.tier-normal { color: var(--yellow); }
+.tier-strong { color: var(--green); }
+
+/* Rating colors */
+.rating-easy, .rating-good { color: var(--green); }
+.rating-hard { color: var(--yellow); }
+.rating-again { color: var(--red); }
+
+.mode-panel[hidden] { display: none; }
