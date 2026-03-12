@@ -37,6 +37,30 @@ class Scheduler:
 
         return None
 
+    def peek_next_n(self, n: int) -> list[str]:
+        """Return the next N split IDs in priority order, without side effects.
+
+        Used by the dashboard to show the upcoming queue.
+        """
+        now = datetime.utcnow()
+
+        # Overdue first, then upcoming
+        due = self.db.get_due_splits(self.game_id, now)
+        if len(due) >= n:
+            return [d["id"] for d in due[:n]]
+
+        ids = [d["id"] for d in due]
+
+        # Fill remaining from upcoming (all splits ordered by next_review)
+        if len(ids) < n:
+            for sid in self.db.get_all_scheduled_split_ids(self.game_id):
+                if sid not in ids:
+                    ids.append(sid)
+                    if len(ids) >= n:
+                        break
+
+        return ids[:n]
+
     def process_rating(self, split_id: str, rating: Rating) -> None:
         """Update schedule based on player's rating."""
         if rating == Rating.SKIP:

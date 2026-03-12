@@ -321,6 +321,17 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_all_scheduled_split_ids(self, game_id: str) -> list[str]:
+        """All active split IDs ordered by next_review (soonest first)."""
+        rows = self.conn.execute(
+            """SELECT s.id FROM splits s
+               JOIN schedule sch ON s.id = sch.split_id
+               WHERE s.game_id = ? AND s.active = 1
+               ORDER BY sch.next_review ASC""",
+            (game_id,),
+        ).fetchall()
+        return [row["id"] for row in rows]
+
     # -- Helpers --
 
     @staticmethod
