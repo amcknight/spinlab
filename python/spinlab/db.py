@@ -84,7 +84,7 @@ class Database:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.db_path))
+        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
@@ -331,6 +331,34 @@ class Database:
             (game_id,),
         ).fetchall()
         return [row["id"] for row in rows]
+
+    def get_split_with_schedule(self, split_id: str) -> Optional[dict]:
+        """Single split joined with its schedule data."""
+        row = self.conn.execute(
+            """SELECT s.*, sch.ease_factor, sch.interval_minutes,
+                      sch.repetitions, sch.next_review
+               FROM splits s
+               LEFT JOIN schedule sch ON s.id = sch.split_id
+               WHERE s.id = ?""",
+            (split_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_splits_summary_by_ids(self, split_ids: list[str]) -> list[dict]:
+        """Get summary dicts for a list of split IDs, preserving order."""
+        if not split_ids:
+            return []
+        placeholders = ",".join("?" for _ in split_ids)
+        rows = self.conn.execute(
+            f"""SELECT s.id, s.goal, s.description, s.level_number,
+                       sch.ease_factor, sch.repetitions
+                FROM splits s
+                LEFT JOIN schedule sch ON s.id = sch.split_id
+                WHERE s.id IN ({placeholders})""",
+            split_ids,
+        ).fetchall()
+        by_id = {r["id"]: dict(r) for r in rows}
+        return [by_id[sid] for sid in split_ids if sid in by_id]
 
     # -- Helpers --
 
