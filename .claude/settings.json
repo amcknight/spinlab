@@ -2,7 +2,18 @@
   "permissions": {
     "allow": [
       "WebSearch",
-      "WebFetch(domain:www.mesen.ca)"
+      "WebFetch(domain:www.mesen.ca)",
+      "Bash(pytest tests/test_capture.py -v)",
+      "Bash(python -m pytest tests/test_capture.py -v)",
+      "Bash(pytest -q)",
+      "Bash(python -m pytest tests/test_orchestrator.py -v)",
+      "Bash(git -C \"c:/Users/thedo/git/spinlib\" add python/spinlab/orchestrator.py tests/test_orchestrator.py)",
+      "Bash(git -C \"c:/Users/thedo/git/spinlib\" commit -m \"feat\\(orchestrator\\): add TCP buffer parser with tests\")",
+      "Bash(python -m pytest -v)",
+      "Bash(git -C \"c:/Users/thedo/git/spinlib\" add python/spinlab/orchestrator.py)",
+      "Bash(git -C \"c:/Users/thedo/git/spinlib\" commit -m \"feat\\(orchestrator\\): add manifest loading and DB seeding\")",
+      "Bash(git -C \"c:/Users/thedo/git/spinlib\" commit -m \"feat\\(orchestrator\\): add TCP helpers and main practice loop\")",
+      "Read(//c/Users/thedo/Documents/Mesen2/LuaScriptData/spinlab/**)"
     ]
   }
 }

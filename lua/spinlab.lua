@@ -44,9 +44,10 @@ local server    = nil   -- TCP server socket
 local client    = nil   -- connected TCP client
 local initialized = false
 
--- cpuExec-deferred save/load
-local pending_save = nil
-local pending_load = nil
+-- cpuExec-deferred save/load/reset
+local pending_save  = nil
+local pending_load  = nil
+local pending_reset = false
 
 -- Keyboard debounce
 local key_was_pressed = {}
@@ -315,15 +316,7 @@ local function detect_transitions(curr)
   -- Death: player animation transitions to 9
   if curr.player_anim == 9 and prev.player_anim ~= 9 then
     died_flag = true
-    log_jsonl({
-      event   = "death",
-      level   = curr.level_num,
-      room    = curr.room_num,
-      frame   = frame_counter,
-      ts_ms   = ts_ms(),
-      session = "passive",
-    })
-    log("Death at level " .. curr.level_num)
+    log("Death at level " .. curr.level_num .. " (not logged to JSONL)")
   end
 
   -- Level entrance: gameMode transitions to 18 (GmPrepareLevel)
@@ -440,17 +433,45 @@ local function init_tcp()
   return true
 end
 
+local heartbeat_counter = 0
+local HEARTBEAT_INTERVAL = 60  -- frames between heartbeat pings (~1 second)
+
 local function handle_tcp()
   if not client then
     local c = server:accept()
     if c then
       c:settimeout(0)
       client = c
+      heartbeat_counter = 0
       log("TCP client connected")
     end
   end
 
   if client then
+    -- Periodic heartbeat: send() detects dead connections that receive() misses
+    heartbeat_counter = heartbeat_counter + 1
+    if heartbeat_counter >= HEARTBEAT_INTERVAL then
+      heartbeat_counter = 0
+      local _, send_err = client:send("heartbeat\n")
+      if send_err then
+        log("TCP heartbeat failed: " .. tostring(send_err) .. " — client is dead")
+        pcall(function() client:close() end)
+        client = nil
+        if practice_mode then
+          practice_mode     = false
+          practice_state    = PSTATE_IDLE
+          practice_split    = nil
+          pending_load      = nil
+          pending_save      = nil
+          died_flag         = false
+          rating_input_last = {}
+          pending_reset     = true
+          log("Practice auto-cleared on disconnect — reset queued")
+        end
+        return
+      end
+    end
+
     local line, err = client:receive("*l")
     if line then
       log("TCP received: " .. line)
@@ -483,6 +504,17 @@ local function handle_tcp()
         rating_input_last = {}   -- clear debounce state
         client:send("ok\n")
         log("Practice mode stopped")
+      elseif line == "reset" then
+        practice_mode     = false
+        practice_state    = PSTATE_IDLE
+        practice_split    = nil
+        pending_load      = nil
+        pending_save      = nil
+        died_flag         = false  -- clear so first post-reset entrance is recorded
+        rating_input_last = {}
+        pending_reset     = true
+        client:send("ok\n")
+        log("Reset queued: practice cleared, SNES reset on next cpuExec")
       elseif line == "ping" then
         client:send("pong\n")
       elseif line == "quit" then
@@ -493,9 +525,23 @@ local function handle_tcp()
       else
         client:send("err:unknown_command\n")
       end
-    elseif err == "closed" then
-      log("TCP client disconnected")
+    elseif err ~= "timeout" then
+      -- any error other than "no data yet" = connection gone (closed, reset, etc.)
+      log("TCP client disconnected: " .. tostring(err))
+      pcall(function() client:close() end)  -- safe close, may already be dead
       client = nil
+      if practice_mode then
+        -- Orchestrator died while practice was active — auto-clear and reset
+        practice_mode     = false
+        practice_state    = PSTATE_IDLE
+        practice_split    = nil
+        pending_load      = nil
+        pending_save      = nil
+        died_flag         = false
+        rating_input_last = {}
+        pending_reset     = true
+        log("Practice auto-cleared on disconnect — reset queued")
+      end
     end
   end
 end
@@ -526,6 +572,11 @@ local function on_cpu_exec(address)
     local path = pending_load
     pending_load = nil
     load_state_from_file(path)
+  end
+  if pending_reset then
+    pending_reset = false
+    emu.reset()
+    log("SNES reset executed")
   end
 end
 

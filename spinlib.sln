@@ -1,0 +1,38 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "reference", "reference", "{BDE35A5A-67E2-89B5-F696-3D963A037A75}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "kaizosplits-main", "kaizosplits-main", "{C0FC61B7-4828-AA96-91D4-FCF9636972AE}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Components", "Components", "{9BFC6C82-D69F-3755-179B-D8BFC4A3A925}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SMW", "SMW", "{6904BF67-C03E-CD37-2C37-607DA8C458A1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SMW", "reference\kaizosplits-main\Components\SMW\SMW\SMW.csproj", "{E9447C51-7C76-E4D8-0E09-B5F36150D878}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E9447C51-7C76-E4D8-0E09-B5F36150D878}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E9447C51-7C76-E4D8-0E09-B5F36150D878}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E9447C51-7C76-E4D8-0E09-B5F36150D878}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E9447C51-7C76-E4D8-0E09-B5F36150D878}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{C0FC61B7-4828-AA96-91D4-FCF9636972AE} = {BDE35A5A-67E2-89B5-F696-3D963A037A75}
+		{9BFC6C82-D69F-3755-179B-D8BFC4A3A925} = {C0FC61B7-4828-AA96-91D4-FCF9636972AE}
+		{6904BF67-C03E-CD37-2C37-607DA8C458A1} = {9BFC6C82-D69F-3755-179B-D8BFC4A3A925}
+		{E9447C51-7C76-E4D8-0E09-B5F36150D878} = {6904BF67-C03E-CD37-2C37-607DA8C458A1}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {118322A5-41F6-48FA-92D2-68ABD0DC4CC4}
+	EndGlobalSection
+EndGlobal
