@@ -120,3 +120,14 @@ def test_parse_log_empty():
 
 def test_pair_events_empty():
     assert pair_events([]) == []
+
+
+def test_build_manifest_includes_name_field():
+    entrance_ = {"event": "level_entrance", "level": 14, "room": 0,
+                 "state_path": "/states/smw_cod_14_0.mss"}
+    exit_    = {"event": "level_exit", "level": 14, "room": 0,
+                "goal": "normal_exit", "elapsed_ms": 4100}
+    manifest = build_manifest([(entrance_, exit_)], game_id="smw_cod", category="any%")
+    split = manifest["splits"][0]
+    assert "name" in split
+    assert split["name"] == ""

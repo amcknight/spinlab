@@ -59,6 +59,7 @@ def build_manifest(
         )
         splits.append(
             {
+                "name": "",
                 "id": split_id,
                 "level_number": entr["level"],
                 "room_id": entr["room"],
