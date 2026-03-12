@@ -18,21 +18,35 @@ StopPractice() {
     return false
 }
 
-; Ctrl+Alt+W — three-state cycle:
-;   idle  →  reference run (launch Mesen, passive recorder)
-;   reference run  →  practice mode (start orchestrator)
-;   practice mode  →  reference run (stop orchestrator, Mesen stays open)
+; Ctrl+Alt+W — launch Mesen (reference mode)
+; Ctrl+Alt+P — toggle practice on/off (requires Mesen already running)
 ^!w:: {
+    if ProcessExist("Mesen.exe") {
+        Flash "Mesen already running — reference mode active"
+    } else {
+        Run 'cmd /c "' A_ScriptDir '\launch.bat"',, 'Hide'
+        Flash("Launching Mesen2 — reference run mode", 3000)
+    }
+    ; Start dashboard if not already running
+    try {
+        whr := ComObject("WinHttp.WinHttpRequest.5.1")
+        whr.Open("GET", "http://localhost:15483/api/state", false)
+        whr.Send()
+    } catch {
+        Run 'cmd /c spinlab dashboard', A_ScriptDir '\..',  'Min'
+        Flash("Dashboard starting on :15483", 2000)
+    }
+}
+
+^!p:: {
     global spinlabPID
     if StopPractice() {
-        ; Lua detects the dropped connection and auto-clears practice + resets game
-        Flash "Practice stopped — resetting to reference run"
+        Flash "Practice stopped — back to reference mode"
     } else if ProcessExist("Mesen.exe") {
         Run 'spinlab practice', A_ScriptDir '\..',  'Min', &spinlabPID
         Flash "Practice started (PID " spinlabPID ")"
     } else {
-        Run 'cmd /c "' A_ScriptDir '\launch.bat"',, 'Hide'
-        Flash("Launching Mesen2 — reference run mode", 3000)
+        Flash "Launch Mesen first (Ctrl+Alt+W)"
     }
 }
 
