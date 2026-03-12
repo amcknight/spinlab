@@ -265,6 +265,62 @@ class Database:
         )
         self.conn.commit()
 
+    def get_current_session(self, game_id: str) -> Optional[dict]:
+        """Get active session (ended_at IS NULL)."""
+        row = self.conn.execute(
+            "SELECT * FROM sessions WHERE game_id = ? AND ended_at IS NULL "
+            "ORDER BY started_at DESC LIMIT 1",
+            (game_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_split_attempt_count(self, split_id: str, session_id: str) -> int:
+        """Count attempts on a split in a specific session."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM attempts "
+            "WHERE split_id = ? AND session_id = ?",
+            (split_id, session_id),
+        ).fetchone()
+        return row["cnt"]
+
+    def get_recent_attempts(self, game_id: str, limit: int = 8) -> list[dict]:
+        """Last N attempts joined with split info, most recent first."""
+        rows = self.conn.execute(
+            """SELECT a.*, s.goal, s.description, s.level_number,
+                      s.reference_time_ms
+               FROM attempts a
+               JOIN splits s ON a.split_id = s.id
+               WHERE s.game_id = ?
+               ORDER BY a.created_at DESC
+               LIMIT ?""",
+            (game_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_all_splits_with_schedule(self, game_id: str) -> list[dict]:
+        """All splits joined with schedule, ordered by level_number."""
+        rows = self.conn.execute(
+            """SELECT s.*, sch.ease_factor, sch.interval_minutes,
+                      sch.repetitions, sch.next_review
+               FROM splits s
+               LEFT JOIN schedule sch ON s.id = sch.split_id
+               WHERE s.game_id = ?
+               ORDER BY s.level_number, s.room_id""",
+            (game_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_session_history(self, game_id: str, limit: int = 10) -> list[dict]:
+        """Recent sessions, most recent first."""
+        rows = self.conn.execute(
+            """SELECT * FROM sessions
+               WHERE game_id = ?
+               ORDER BY started_at DESC
+               LIMIT ?""",
+            (game_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     # -- Helpers --
 
     @staticmethod
