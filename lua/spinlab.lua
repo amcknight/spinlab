@@ -1,16 +1,18 @@
 -- SpinLab — Mesen2 Lua Script
 -- Steps 1+2 complete: Save State PoC + Passive Recorder
--- Step 3: save state on level_entrance events (reference capture) — in progress
+-- Step 4: Practice loop MVP
 --
 -- Keyboard (manual testing):
 --   T = save state to test file
 --   Y = load state from test file
--- TCP commands: ping, save, load, save:<path>, load:<path>, quit
+-- TCP commands: ping, save, load, save:<path>, load:<path>,
+--               practice_load:<json>, practice_stop, quit
 --
 -- Mesen2 API notes:
 --   emu.createSavestate() / emu.loadSavestate(data) -- must call from cpuExec callback
 --   emu.read(addr, emu.memType.snesMemory, false)    -- byte read, SNES bus
 --   emu.addMemoryCallback(fn, emu.callbackType.exec, 0x0000, 0xFFFF)
+--   emu.getInput(0) fields: l, r, up, down, left, right, a, b, x, y, start, select
 --   Permissions required: IO functions, OS functions, Network access
 
 local socket = require("socket.core")
@@ -56,6 +58,20 @@ local level_start_frame = 0  -- frame when current level entrance was logged
 local frame_counter = 0      -- increments every startFrame
 local script_start_ms = os.clock() * 1000
 
+-- Practice mode state
+local PSTATE_IDLE    = "idle"
+local PSTATE_LOADING = "loading"
+local PSTATE_PLAYING = "playing"
+local PSTATE_RATING  = "rating"
+
+local practice_mode       = false   -- true while in practice mode
+local practice_state      = PSTATE_IDLE
+local practice_split      = nil     -- current split info table
+local practice_start_ms   = 0       -- ts_ms() when current attempt started
+local practice_elapsed_ms = 0       -- elapsed at clear/abort (for display + result)
+local practice_completed  = false   -- true if clear, false if abort
+local rating_input_last   = {}      -- for debouncing L+D-pad
+
 -----------------------------------------------------------------------
 -- HELPERS
 -----------------------------------------------------------------------
@@ -99,6 +115,85 @@ local function load_state_from_file(path)
   emu.loadSavestate(data)
   log("Loaded state from: " .. path .. " (" .. #data .. " bytes)")
   return true
+end
+
+-- Extract a string field from a flat JSON object string.
+-- Handles backslash-escaped backslashes (e.g. Windows paths).
+local function json_get_str(json_str, key)
+  local raw = json_str:match('"' .. key .. '"%s*:%s*"(.-)"[%s,}%]]')
+  if not raw then return nil end
+  -- unescape in the correct order: \\ -> \ first, then \" -> "
+  return (raw:gsub('\\\\', '\\'):gsub('\\"', '"'))
+end
+
+-- Extract a number field from a flat JSON object string.
+local function json_get_num(json_str, key)
+  return tonumber(json_str:match('"' .. key .. '"%s*:%s*(%d+)'))
+end
+
+-- Parse practice_load JSON payload into a table.
+local function parse_practice_split(json_str)
+  return {
+    id                = json_get_str(json_str, "id") or "",
+    state_path        = json_get_str(json_str, "state_path") or "",
+    goal              = json_get_str(json_str, "goal") or "",
+    description       = json_get_str(json_str, "description") or "",
+    reference_time_ms = json_get_num(json_str, "reference_time_ms"),
+  }
+end
+
+-- Returns rating string if L+D-pad combo detected (debounced), else nil.
+-- L+Left=again, L+Down=hard, L+Right=good, L+Up=easy
+local function check_rating_input()
+  local inp = emu.getInput(0)
+  if not inp or not inp.l then
+    rating_input_last = {}
+    return nil
+  end
+  -- Debounce: only fire on the first frame a combo is detected
+  local combo = (inp.left  and "again")
+             or (inp.down  and "hard")
+             or (inp.right and "good")
+             or (inp.up    and "easy")
+  if combo and not rating_input_last[combo] then
+    rating_input_last = { [combo] = true }
+    return combo
+  end
+  if not combo then rating_input_last = {} end
+  return nil
+end
+
+local function ms_to_display(ms)
+  -- Format milliseconds as M:SS.d (e.g. 75340 -> "1:15.3")
+  if not ms then return "?" end
+  local total_s = math.floor(ms / 100) / 10
+  local m = math.floor(total_s / 60)
+  local s = total_s - m * 60
+  return string.format("%d:%04.1f", m, s)
+end
+
+local function draw_practice_overlay()
+  if not practice_mode then return end
+
+  if practice_state == PSTATE_PLAYING or practice_state == PSTATE_LOADING then
+    local elapsed = ts_ms() - practice_start_ms
+    local ref = practice_split.reference_time_ms
+    local ref_str = ref and ms_to_display(ref) or "?"
+    emu.drawString(2, 2,
+      "[PRACTICE] " .. (practice_split.goal or "?")
+      .. " " .. ms_to_display(elapsed)
+      .. " ref:" .. ref_str,
+      0xFFFFFF, 0x000000, 1)
+
+  elseif practice_state == PSTATE_RATING then
+    local prefix = practice_completed and "Clear!" or "Abort"
+    emu.drawString(2, 2,
+      prefix .. " " .. ms_to_display(practice_elapsed_ms),
+      0xFFFFFF, 0x000000, 1)
+    emu.drawString(2, 12,
+      "L+< again  L+v hard  L+> good  L+^ easy",
+      0xFFFFFF, 0x000000, 1)
+  end
 end
 
 -----------------------------------------------------------------------
@@ -226,6 +321,57 @@ local function detect_transitions(curr)
 end
 
 -----------------------------------------------------------------------
+-- PRACTICE MODE STATE MACHINE
+-----------------------------------------------------------------------
+local function handle_practice(curr)
+  if practice_state == PSTATE_LOADING then
+    -- pending_load was queued; by next frame cpuExec will have fired.
+    -- Transition to PLAYING and start the timer.
+    practice_state    = PSTATE_PLAYING
+    practice_start_ms = ts_ms()
+
+  elseif practice_state == PSTATE_PLAYING then
+    -- Death check first (higher priority than exit_mode)
+    if curr.player_anim == 9 and prev.player_anim ~= 9 then
+      pending_load      = practice_split.state_path
+      practice_start_ms = ts_ms()
+      log("Practice: death — reloading state")
+      -- stay in PSTATE_PLAYING
+
+    elseif curr.exit_mode ~= 0 and prev.exit_mode == 0 then
+      local goal = goal_type(curr)
+      practice_elapsed_ms = ts_ms() - practice_start_ms
+      practice_completed  = (goal ~= "abort")
+      practice_state      = PSTATE_RATING
+      log("Practice: " .. (practice_completed and "clear" or "abort")
+          .. " goal=" .. goal .. " elapsed=" .. practice_elapsed_ms .. "ms")
+    end
+
+  elseif practice_state == PSTATE_RATING then
+    local rating = check_rating_input()
+    if rating then
+      -- Send result to Python
+      local result = {
+        event      = "attempt_result",
+        split_id   = practice_split.id,
+        completed  = practice_completed,
+        time_ms    = practice_elapsed_ms,
+        goal       = practice_split.goal,
+        rating     = rating,
+      }
+      if client then
+        client:send(to_json(result) .. "\n")
+        log("Practice: sent attempt_result rating=" .. rating)
+      end
+      -- Reset
+      practice_mode  = false
+      practice_state = PSTATE_IDLE
+      practice_split = nil
+    end
+  end
+end
+
+-----------------------------------------------------------------------
 -- TCP SERVER
 -----------------------------------------------------------------------
 local function init_tcp()
@@ -268,6 +414,23 @@ local function handle_tcp()
       elseif line:sub(1, 5) == "save:" then
         pending_save = line:sub(6)
         client:send("ok:queued\n")
+      elseif line:sub(1, 14) == "practice_load:" then
+        local json_str = line:sub(15)
+        practice_split    = parse_practice_split(json_str)
+        practice_mode     = true
+        practice_state    = PSTATE_LOADING
+        pending_load      = practice_split.state_path
+        practice_start_ms = ts_ms()
+        client:send("ok:queued\n")
+        log("Practice load queued: " .. (practice_split.id or "?"))
+      elseif line == "practice_stop" then
+        practice_mode     = false
+        practice_state    = PSTATE_IDLE
+        practice_split    = nil
+        pending_load      = nil  -- prevent ghost reload if stopped mid-death-retry
+        rating_input_last = {}   -- clear debounce state
+        client:send("ok\n")
+        log("Practice mode stopped")
       elseif line == "ping" then
         client:send("pong\n")
       elseif line == "quit" then
@@ -333,13 +496,20 @@ local function on_start_frame()
   frame_counter = frame_counter + 1
 
   local curr = read_mem()
-  detect_transitions(curr)
+  if practice_mode then
+    handle_practice(curr)
+  else
+    detect_transitions(curr)
+  end
   prev = curr
 
   check_keyboard()
   handle_tcp()
 
-  emu.drawString(2, 2, "SpinLab", 0xFFFFFF, 0x000000, 1)
+  if not practice_mode then
+    emu.drawString(2, 2, "SpinLab", 0xFFFFFF, 0x000000, 1)
+  end
+  draw_practice_overlay()
 end
 
 -- Register callbacks
