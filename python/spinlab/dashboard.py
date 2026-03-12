@@ -53,20 +53,25 @@ def create_app(
         mode = "practice" if orch_state else "reference"
 
         current_split = None
-        queue = []
+        queue: list[dict] = []
         if orch_state:
             split_id = orch_state.get("current_split_id")
             if split_id:
-                row = db.get_split_with_schedule(split_id)
-                if row:
-                    row["attempt_count"] = db.get_split_attempt_count(
+                row = db.load_model_state(split_id)
+                # Fall back to split data if no model state yet
+                splits = db.get_all_splits_with_model(game_id)
+                split_map = {s["id"]: s for s in splits}
+                if split_id in split_map:
+                    current_split = split_map[split_id]
+                    current_split["attempt_count"] = db.get_split_attempt_count(
                         split_id, session["id"]
                     )
-                    current_split = row
 
-            queue = db.get_splits_summary_by_ids(
-                orch_state.get("queue", [])
-            )
+            queue_ids: list[str] = orch_state.get("queue", [])
+            if queue_ids:
+                splits = db.get_all_splits_with_model(game_id)
+                split_map = {s["id"]: s for s in splits}
+                queue = [split_map[sid] for sid in queue_ids if sid in split_map]
 
         recent = db.get_recent_attempts(game_id, limit=8)
 
@@ -80,7 +85,7 @@ def create_app(
 
     @app.get("/api/splits")
     def api_splits():
-        splits = db.get_all_splits_with_schedule(game_id)
+        splits = db.get_all_splits_with_model(game_id)
         return {"splits": splits}
 
     @app.get("/api/sessions")

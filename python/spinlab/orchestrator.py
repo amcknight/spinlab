@@ -14,7 +14,7 @@ import yaml
 from datetime import datetime
 
 from .db import Database
-from .models import Attempt, Rating, Split, SplitCommand
+from .models import Attempt, Split, SplitCommand
 from .scheduler import Scheduler
 
 

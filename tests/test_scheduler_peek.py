@@ -1,4 +1,4 @@
-"""Tests for Scheduler.peek_next_n()."""
+"""Tests for legacy Scheduler stub (SM-2 replaced by Kalman allocator)."""
 import pytest
 from spinlab.db import Database
 from spinlab.models import Split
@@ -17,32 +17,17 @@ def seed_splits(db, n):
         s = Split(id=f"s{i}", game_id="test_game", level_number=i,
                   room_id=0, goal="normal", state_path=f"/state_{i}.mss")
         db.upsert_split(s)
-        db.ensure_schedule(s.id)
 
 
-def test_peek_returns_requested_count(db):
+def test_peek_returns_empty_stub(db):
+    """Legacy scheduler stub always returns empty — use Kalman allocator."""
     seed_splits(db, 5)
-    sched = Scheduler(db, "test_game")
-    result = sched.peek_next_n(3)
-    assert len(result) == 3
-
-
-def test_peek_returns_less_if_fewer_available(db):
-    seed_splits(db, 2)
-    sched = Scheduler(db, "test_game")
-    result = sched.peek_next_n(5)
-    assert len(result) == 2
-
-
-def test_peek_returns_empty_with_no_splits(db):
     sched = Scheduler(db, "test_game")
     result = sched.peek_next_n(3)
     assert result == []
 
 
-def test_peek_returns_split_ids(db):
+def test_pick_next_returns_none_stub(db):
     seed_splits(db, 3)
     sched = Scheduler(db, "test_game")
-    result = sched.peek_next_n(3)
-    assert all(isinstance(sid, str) for sid in result)
-    assert all(sid.startswith("s") for sid in result)
+    assert sched.pick_next() is None

@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from .models import Split, Schedule, Attempt, Rating
+from .models import Split, Attempt
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS games (
@@ -27,15 +27,6 @@ CREATE TABLE IF NOT EXISTS splits (
   strat_version INTEGER DEFAULT 1,
   active INTEGER DEFAULT 1,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS schedule (
-  split_id TEXT PRIMARY KEY REFERENCES splits(id),
-  ease_factor REAL DEFAULT 2.5,
-  interval_minutes REAL DEFAULT 5.0,
-  repetitions INTEGER DEFAULT 0,
-  next_review TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 
@@ -75,7 +66,6 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS idx_attempts_split ON attempts(split_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_attempts_session ON attempts(session_id);
-CREATE INDEX IF NOT EXISTS idx_schedule_next ON schedule(next_review);
 CREATE INDEX IF NOT EXISTS idx_transitions_game ON transitions(game_id, created_at);
 """
 
@@ -92,6 +82,34 @@ class Database:
 
     def _init_schema(self) -> None:
         self.conn.executescript(SCHEMA)
+        self.conn.commit()
+
+        # --- Migration: drop old SM-2 schedule table ---
+        cur = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='schedule'"
+        )
+        if cur.fetchone() is not None:
+            self.conn.execute("DROP TABLE schedule")
+
+        # Drop the schedule index if it exists
+        self.conn.execute("DROP INDEX IF EXISTS idx_schedule_next")
+
+        # --- New tables ---
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS model_state (
+                split_id TEXT PRIMARY KEY REFERENCES splits(id),
+                estimator TEXT NOT NULL,
+                state_json TEXT NOT NULL,
+                marginal_return REAL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS allocator_config (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
         self.conn.commit()
 
     def close(self) -> None:
@@ -149,68 +167,6 @@ class Database:
         )
         self.conn.commit()
 
-    # -- Schedule --
-
-    def ensure_schedule(self, split_id: str) -> None:
-        """Create schedule entry if it doesn't exist."""
-        now = datetime.utcnow().isoformat()
-        self.conn.execute(
-            """INSERT OR IGNORE INTO schedule
-               (split_id, ease_factor, interval_minutes, repetitions, next_review, updated_at)
-               VALUES (?, 2.5, 5.0, 0, ?, ?)""",
-            (split_id, now, now),
-        )
-        self.conn.commit()
-
-    def get_due_splits(self, game_id: str, now: Optional[datetime] = None) -> list[dict]:
-        """Get splits due for review, most overdue first."""
-        if now is None:
-            now = datetime.utcnow()
-        rows = self.conn.execute(
-            """SELECT s.*, sch.ease_factor, sch.interval_minutes, sch.repetitions, sch.next_review
-               FROM splits s
-               JOIN schedule sch ON s.id = sch.split_id
-               WHERE s.game_id = ? AND s.active = 1 AND sch.next_review <= ?
-               ORDER BY sch.next_review ASC""",
-            (game_id, now.isoformat()),
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-    def get_next_due(self, game_id: str) -> Optional[dict]:
-        """Get the split that will be due soonest."""
-        row = self.conn.execute(
-            """SELECT s.*, sch.ease_factor, sch.interval_minutes, sch.repetitions, sch.next_review
-               FROM splits s
-               JOIN schedule sch ON s.id = sch.split_id
-               WHERE s.game_id = ? AND s.active = 1
-               ORDER BY sch.next_review ASC LIMIT 1""",
-            (game_id,),
-        ).fetchone()
-        return dict(row) if row else None
-
-    def update_schedule(self, schedule: Schedule) -> None:
-        now = datetime.utcnow().isoformat()
-        self.conn.execute(
-            """UPDATE schedule SET ease_factor = ?, interval_minutes = ?,
-               repetitions = ?, next_review = ?, updated_at = ?
-               WHERE split_id = ?""",
-            (schedule.ease_factor, schedule.interval_minutes,
-             schedule.repetitions, schedule.next_review.isoformat(),
-             now, schedule.split_id),
-        )
-        self.conn.commit()
-
-    def reset_schedule(self, split_id: str) -> None:
-        """Reset schedule to new-card state (for strat changes)."""
-        now = datetime.utcnow().isoformat()
-        self.conn.execute(
-            """UPDATE schedule SET ease_factor = 2.5, interval_minutes = 5.0,
-               repetitions = 0, next_review = ?, updated_at = ?
-               WHERE split_id = ?""",
-            (now, now, split_id),
-        )
-        self.conn.commit()
-
     # -- Attempts --
 
     def log_attempt(self, attempt: Attempt) -> None:
@@ -221,7 +177,7 @@ class Database:
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (attempt.split_id, attempt.session_id, int(attempt.completed),
              attempt.time_ms, attempt.goal_matched,
-             attempt.rating.value if attempt.rating else None,
+             attempt.rating,
              attempt.strat_version, attempt.source,
              attempt.created_at.isoformat()),
         )
@@ -297,19 +253,6 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_all_splits_with_schedule(self, game_id: str) -> list[dict]:
-        """All splits joined with schedule, ordered by level_number."""
-        rows = self.conn.execute(
-            """SELECT s.*, sch.ease_factor, sch.interval_minutes,
-                      sch.repetitions, sch.next_review
-               FROM splits s
-               LEFT JOIN schedule sch ON s.id = sch.split_id
-               WHERE s.game_id = ?
-               ORDER BY s.level_number, s.room_id""",
-            (game_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-
     def get_session_history(self, game_id: str, limit: int = 10) -> list[dict]:
         """Recent sessions, most recent first."""
         rows = self.conn.execute(
@@ -321,44 +264,98 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_all_scheduled_split_ids(self, game_id: str) -> list[str]:
-        """All active split IDs ordered by next_review (soonest first)."""
-        rows = self.conn.execute(
-            """SELECT s.id FROM splits s
-               JOIN schedule sch ON s.id = sch.split_id
-               WHERE s.game_id = ? AND s.active = 1
-               ORDER BY sch.next_review ASC""",
-            (game_id,),
-        ).fetchall()
-        return [row["id"] for row in rows]
+    # -- Model state --
 
-    def get_split_with_schedule(self, split_id: str) -> Optional[dict]:
-        """Single split joined with its schedule data."""
-        row = self.conn.execute(
-            """SELECT s.*, sch.ease_factor, sch.interval_minutes,
-                      sch.repetitions, sch.next_review
-               FROM splits s
-               LEFT JOIN schedule sch ON s.id = sch.split_id
-               WHERE s.id = ?""",
+    def save_model_state(
+        self, split_id: str, estimator: str, state_json: str, marginal_return: float
+    ) -> None:
+        now = datetime.utcnow().isoformat() + "Z"
+        self.conn.execute(
+            """INSERT INTO model_state (split_id, estimator, state_json, marginal_return, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(split_id) DO UPDATE SET
+                 estimator=excluded.estimator,
+                 state_json=excluded.state_json,
+                 marginal_return=excluded.marginal_return,
+                 updated_at=excluded.updated_at""",
+            (split_id, estimator, state_json, marginal_return, now),
+        )
+        self.conn.commit()
+
+    def load_model_state(self, split_id: str) -> dict | None:
+        cur = self.conn.execute(
+            "SELECT split_id, estimator, state_json, marginal_return, updated_at "
+            "FROM model_state WHERE split_id = ?",
             (split_id,),
-        ).fetchone()
-        return dict(row) if row else None
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "split_id": row[0],
+            "estimator": row[1],
+            "state_json": row[2],
+            "marginal_return": row[3],
+            "updated_at": row[4],
+        }
 
-    def get_splits_summary_by_ids(self, split_ids: list[str]) -> list[dict]:
-        """Get summary dicts for a list of split IDs, preserving order."""
-        if not split_ids:
-            return []
-        placeholders = ",".join("?" for _ in split_ids)
-        rows = self.conn.execute(
-            f"""SELECT s.id, s.goal, s.description, s.level_number,
-                       sch.ease_factor, sch.repetitions
-                FROM splits s
-                LEFT JOIN schedule sch ON s.id = sch.split_id
-                WHERE s.id IN ({placeholders})""",
-            split_ids,
-        ).fetchall()
-        by_id = {r["id"]: dict(r) for r in rows}
-        return [by_id[sid] for sid in split_ids if sid in by_id]
+    def load_all_model_states(self, game_id: str) -> list[dict]:
+        cur = self.conn.execute(
+            """SELECT m.split_id, m.estimator, m.state_json, m.marginal_return, m.updated_at
+               FROM model_state m
+               JOIN splits s ON m.split_id = s.id
+               WHERE s.game_id = ? AND s.active = 1
+               ORDER BY m.marginal_return DESC""",
+            (game_id,),
+        )
+        cols = ["split_id", "estimator", "state_json", "marginal_return", "updated_at"]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    def save_allocator_config(self, key: str, value: str) -> None:
+        self.conn.execute(
+            "INSERT INTO allocator_config (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        self.conn.commit()
+
+    def load_allocator_config(self, key: str) -> str | None:
+        cur = self.conn.execute(
+            "SELECT value FROM allocator_config WHERE key = ?", (key,)
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+
+    def get_all_splits_with_model(self, game_id: str) -> list[dict]:
+        """Get all active splits LEFT JOIN model_state."""
+        cur = self.conn.execute(
+            """SELECT s.id, s.game_id, s.level_number, s.room_id, s.goal,
+                      s.description, s.strat_version, s.reference_time_ms,
+                      s.state_path, s.active,
+                      m.estimator, m.state_json, m.marginal_return
+               FROM splits s
+               LEFT JOIN model_state m ON s.id = m.split_id
+               WHERE s.game_id = ? AND s.active = 1
+               ORDER BY s.level_number, s.room_id""",
+            (game_id,),
+        )
+        cols = [
+            "id", "game_id", "level_number", "room_id", "goal",
+            "description", "strat_version", "reference_time_ms",
+            "state_path", "active",
+            "estimator", "state_json", "marginal_return",
+        ]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    def get_split_attempts(self, split_id: str) -> list[dict]:
+        """Get all attempts for a split, ordered by created_at."""
+        cur = self.conn.execute(
+            "SELECT split_id, completed, time_ms, created_at "
+            "FROM attempts WHERE split_id = ? ORDER BY created_at",
+            (split_id,),
+        )
+        cols = ["split_id", "completed", "time_ms", "created_at"]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
 
     # -- Helpers --
 
