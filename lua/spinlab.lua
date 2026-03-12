@@ -143,6 +143,7 @@ local function parse_practice_split(json_str)
     goal              = json_get_str(json_str, "goal") or "",
     description       = json_get_str(json_str, "description") or "",
     reference_time_ms = json_get_num(json_str, "reference_time_ms"),
+    difficulty        = json_get_num(json_str, "difficulty") or 0,
   }
 end
 
@@ -189,18 +190,35 @@ end
 local function draw_practice_overlay()
   if not practice_mode then return end
 
-  -- Background box (covers all rows)
-  emu.drawRectangle(0, 0, 246, 62, 0xCC000000, true, 1)
+  -- Background box: tinted by result state
+  local box_color
+  if   practice_state == PSTATE_RATING and practice_completed then
+    box_color = 0xCC002800  -- dark green tint (clear)
+  elseif practice_state == PSTATE_RATING then
+    box_color = 0xCC280000  -- dark red tint (abort)
+  else
+    box_color = 0xCC000000  -- neutral dark (loading / playing)
+  end
+  emu.drawRectangle(0, 0, 246, 62, box_color, true, 1)
 
   local label = (practice_split and practice_split.description ~= "" and practice_split.description)
                 or (practice_split and practice_split.id) or "?"
+
+  -- Split name color by difficulty tier (from SM-2 ease factor)
+  local d = practice_split and practice_split.difficulty or 0
+  local name_color
+  if     d == 1 then name_color = 0xFFFF9900  -- amber  (struggling)
+  elseif d == 2 then name_color = 0xFFCCCCCC  -- gray   (normal)
+  elseif d == 3 then name_color = 0xFF44CCFF  -- cyan   (strong)
+  else               name_color = 0xFFFFFFFF  -- white  (new)
+  end
 
   if practice_state == PSTATE_PLAYING or practice_state == PSTATE_LOADING then
     local elapsed = ts_ms() - practice_start_ms
     local ref     = practice_split.reference_time_ms
 
-    -- Row 1: split name
-    draw_text(4, 6, label, 0xFFCCCCCC, 0x00000000)
+    -- Row 1: split name (colored by difficulty)
+    draw_text(4, 6, label, name_color, 0x00000000)
 
     -- Row 2: timer / reference, color-coded
     local timer_color
@@ -215,8 +233,8 @@ local function draw_practice_overlay()
   elseif practice_state == PSTATE_RATING then
     local prefix = practice_completed and "Clear!" or "Abort"
 
-    -- Row 1: split name
-    draw_text(4, 6, label, 0xFFCCCCCC, 0x00000000)
+    -- Row 1: split name (colored by difficulty)
+    draw_text(4, 6, label, name_color, 0x00000000)
 
     -- Row 2: result time / reference (mirrors PLAYING layout)
     local ref = practice_split.reference_time_ms

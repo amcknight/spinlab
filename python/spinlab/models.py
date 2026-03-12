@@ -113,6 +113,7 @@ class SplitCommand:
     goal: str
     description: str
     reference_time_ms: Optional[int]
+    difficulty: int = 0  # 0=new, 1=struggling, 2=normal, 3=strong
 
     def to_dict(self) -> dict:
         return {
@@ -121,4 +122,5 @@ class SplitCommand:
             "goal": self.goal,
             "description": self.description,
             "reference_time_ms": self.reference_time_ms,
+            "difficulty": self.difficulty,
         }

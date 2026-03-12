@@ -94,10 +94,21 @@ class Scheduler:
 
     @staticmethod
     def _split_dict_to_command(d: dict) -> SplitCommand:
+        ef = d.get("ease_factor") or 2.5
+        reps = d.get("repetitions") or 0
+        if reps == 0:
+            difficulty = 0  # new — no signal yet
+        elif ef < 1.8:
+            difficulty = 1  # struggling
+        elif ef < 2.5:
+            difficulty = 2  # normal
+        else:
+            difficulty = 3  # strong
         return SplitCommand(
             id=d["id"],
             state_path=d["state_path"] or "",
             goal=d["goal"],
             description=d["description"] or "",
             reference_time_ms=d["reference_time_ms"],
+            difficulty=difficulty,
         )
