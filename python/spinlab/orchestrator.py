@@ -67,6 +67,7 @@ def seed_db_from_manifest(db: Database, manifest: dict, game_name: str) -> None:
             level_number=entry["level_number"],
             room_id=entry.get("room_id"),
             goal=entry["goal"],
+            description=entry.get("name", ""),
             state_path=entry.get("state_path"),
             reference_time_ms=entry.get("reference_time_ms"),
         )
@@ -189,7 +190,8 @@ def run(config_path: Path = Path("config.yaml")) -> None:
                 splits_completed += 1
 
             status = "✓" if result["completed"] else "✗"
-            print(f"{status} {result['split_id']}  {rating.value}  "
+            label = cmd.description if cmd.description else result["split_id"]
+            print(f"{status} {label}  {rating.value}  "
                   f"{result.get('time_ms', '?')}ms")
 
     except KeyboardInterrupt:
