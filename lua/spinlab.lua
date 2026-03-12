@@ -189,12 +189,15 @@ end
 local function draw_practice_overlay()
   if not practice_mode then return end
 
+  local label = (practice_split.description ~= "" and practice_split.description)
+                or practice_split.id or "?"
+
   if practice_state == PSTATE_PLAYING or practice_state == PSTATE_LOADING then
     local elapsed = ts_ms() - practice_start_ms
     local ref = practice_split.reference_time_ms
     local ref_str = ref and ms_to_display(ref) or "?"
     draw_text(2, 2,
-      "[PRACTICE] " .. (practice_split.goal or "?")
+      "[PRACTICE] " .. label
       .. " " .. ms_to_display(elapsed)
       .. " ref:" .. ref_str,
       0xFFFFFF, 0x000000)
