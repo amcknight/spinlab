@@ -79,6 +79,10 @@ local function log(msg)
   emu.log("[SpinLab] " .. msg)
 end
 
+local function ts_ms()
+  return math.floor(os.clock() * 1000 - script_start_ms)
+end
+
 local function ensure_dir(path)
   os.execute('mkdir -p "' .. path .. '"')
 end
@@ -163,6 +167,16 @@ local function check_rating_input()
   return nil
 end
 
+-- drawString renders one char per row vertically in Mesen2 — work around it
+-- by drawing one character at a time with manual x offsets.
+local CHAR_W = 6  -- measureString("A", 1).width
+
+local function draw_text(x, y, text, fg, bg)
+  for i = 1, #text do
+    emu.drawString(x + (i - 1) * CHAR_W, y, text:sub(i, i), fg, bg, 1)
+  end
+end
+
 local function ms_to_display(ms)
   -- Format milliseconds as M:SS.d (e.g. 75340 -> "1:15.3")
   if not ms then return "?" end
@@ -179,20 +193,20 @@ local function draw_practice_overlay()
     local elapsed = ts_ms() - practice_start_ms
     local ref = practice_split.reference_time_ms
     local ref_str = ref and ms_to_display(ref) or "?"
-    emu.drawString(2, 2,
+    draw_text(2, 2,
       "[PRACTICE] " .. (practice_split.goal or "?")
       .. " " .. ms_to_display(elapsed)
       .. " ref:" .. ref_str,
-      0xFFFFFF, 0x000000, 1)
+      0xFFFFFF, 0x000000)
 
   elseif practice_state == PSTATE_RATING then
     local prefix = practice_completed and "Clear!" or "Abort"
-    emu.drawString(2, 2,
+    draw_text(2, 2,
       prefix .. " " .. ms_to_display(practice_elapsed_ms),
-      0xFFFFFF, 0x000000, 1)
-    emu.drawString(2, 12,
+      0xFFFFFF, 0x000000)
+    draw_text(2, 2 + 18,
       "L+< again  L+v hard  L+> good  L+^ easy",
-      0xFFFFFF, 0x000000, 1)
+      0xFFFFFF, 0x000000)
   end
 end
 
@@ -242,10 +256,6 @@ local function read_mem()
     io_port     = emu.read(ADDR_IO,          SNES, false),
     fanfare     = emu.read(ADDR_FANFARE,     SNES, false),
   }
-end
-
-local function ts_ms()
-  return math.floor(os.clock() * 1000 - script_start_ms)
 end
 
 -----------------------------------------------------------------------
@@ -431,6 +441,21 @@ local function handle_tcp()
         rating_input_last = {}   -- clear debounce state
         client:send("ok\n")
         log("Practice mode stopped")
+      elseif line == "measure_string" then
+        local result = emu.measureString("A", 1)
+        local info = "type=" .. type(result)
+        if type(result) == "table" then
+          info = info .. " w=" .. tostring(result.width)
+                     .. " h=" .. tostring(result.height)
+                     .. " 1=" .. tostring(result[1])
+                     .. " 2=" .. tostring(result[2])
+        end
+        client:send(info .. "\n")
+      elseif line == "get_log" then
+        local log_text = emu.getLogWindowLog() or ""
+        -- Send last ~2000 chars to stay within recv buffer
+        local tail = log_text:sub(-2000)
+        client:send(tail .. "\n---END---\n")
       elseif line == "ping" then
         client:send("pong\n")
       elseif line == "quit" then
@@ -507,7 +532,7 @@ local function on_start_frame()
   handle_tcp()
 
   if not practice_mode then
-    emu.drawString(2, 2, "SpinLab", 0xFFFFFF, 0x000000, 1)
+    draw_text(2, 2, "SpinLab", 0xFFFFFF, 0x000000)
   end
   draw_practice_overlay()
 end
