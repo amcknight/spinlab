@@ -147,10 +147,10 @@ local function parse_practice_split(json_str)
 end
 
 -- Returns rating string if L+D-pad combo detected (debounced), else nil.
--- L+Left=again, L+Down=hard, L+Right=good, L+Up=easy
+-- R+Left=again, R+Down=hard, R+Right=good, R+Up=easy
 local function check_rating_input()
   local inp = emu.getInput(0)
-  if not inp or not inp.l then
+  if not inp or not inp.r then
     rating_input_last = {}
     return nil
   end
@@ -205,7 +205,7 @@ local function draw_practice_overlay()
       prefix .. " " .. ms_to_display(practice_elapsed_ms),
       0xFFFFFF, 0x000000)
     draw_text(2, 2 + 18,
-      "L+< again  L+v hard  L+> good  L+^ easy",
+      "R+< again  R+v hard  R+> good  R+^ easy",
       0xFFFFFF, 0x000000)
   end
 end
