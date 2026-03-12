@@ -63,7 +63,7 @@ local script_start_ms = os.clock() * 1000
 local PSTATE_IDLE    = "idle"
 local PSTATE_LOADING = "loading"
 local PSTATE_PLAYING = "playing"
-local PSTATE_RATING  = "rating"
+local PSTATE_RESULT  = "RESULT"
 
 local practice_mode       = false   -- true while in practice mode
 local practice_state      = PSTATE_IDLE
@@ -71,7 +71,8 @@ local practice_split      = nil     -- current split info table
 local practice_start_ms   = 0       -- ts_ms() when current attempt started
 local practice_elapsed_ms = 0       -- elapsed at clear/abort (for display + result)
 local practice_completed  = false   -- true if clear, false if abort
-local rating_input_last   = {}      -- for debouncing L+D-pad
+local practice_result_start_ms = 0          -- when RESULT state began
+local practice_auto_advance_ms = 2000       -- delay before auto-advancing (from load command)
 
 -----------------------------------------------------------------------
 -- HELPERS
@@ -139,34 +140,13 @@ end
 -- Parse practice_load JSON payload into a table.
 local function parse_practice_split(json_str)
   return {
-    id                = json_get_str(json_str, "id") or "",
-    state_path        = json_get_str(json_str, "state_path") or "",
-    goal              = json_get_str(json_str, "goal") or "",
-    description       = json_get_str(json_str, "description") or "",
-    reference_time_ms = json_get_num(json_str, "reference_time_ms"),
-    difficulty        = json_get_num(json_str, "difficulty") or 0,
+    id                     = json_get_str(json_str, "id") or "",
+    state_path             = json_get_str(json_str, "state_path") or "",
+    goal                   = json_get_str(json_str, "goal") or "",
+    description            = json_get_str(json_str, "description") or "",
+    reference_time_ms      = json_get_num(json_str, "reference_time_ms"),
+    auto_advance_delay_ms  = json_get_num(json_str, "auto_advance_delay_ms") or 2000,
   }
-end
-
--- Returns rating string if L+D-pad combo detected (debounced), else nil.
--- R+Left=again, R+Down=hard, R+Right=good, R+Up=easy
-local function check_rating_input()
-  local inp = emu.getInput(0)
-  if not inp or not inp.r then
-    rating_input_last = {}
-    return nil
-  end
-  -- Debounce: only fire on the first frame a combo is detected
-  local combo = (inp.left  and "again")
-             or (inp.down  and "hard")
-             or (inp.right and "good")
-             or (inp.up    and "easy")
-  if combo and not rating_input_last[combo] then
-    rating_input_last = { [combo] = true }
-    return combo
-  end
-  if not combo then rating_input_last = {} end
-  return nil
 end
 
 -- drawString renders one char per row vertically in Mesen2 — work around it
@@ -188,38 +168,22 @@ local function ms_to_display(ms)
   return string.format("%d:%04.1f", m, s)
 end
 
+local function format_goal(goal)
+  if not goal or goal == "" then return "?" end
+  return "Exit: " .. goal:sub(1, 1):upper() .. goal:sub(2)
+end
+
 local function draw_practice_overlay()
   if not practice_mode then return end
 
-  -- Background box: tinted by result state
-  local box_color
-  if   practice_state == PSTATE_RATING and practice_completed then
-    box_color = 0xCC002800  -- dark green tint (clear)
-  elseif practice_state == PSTATE_RATING then
-    box_color = 0xCC280000  -- dark red tint (abort)
-  else
-    box_color = 0xCC000000  -- neutral dark (loading / playing)
-  end
-  emu.drawRectangle(0, 0, 246, 62, box_color, true, 1)
-
-  local label = (practice_split and practice_split.description ~= "" and practice_split.description)
-                or (practice_split and practice_split.id) or "?"
-
-  -- Split name color by difficulty tier (from SM-2 ease factor)
-  local d = practice_split and practice_split.difficulty or 0
-  local name_color
-  if     d == 1 then name_color = 0xFFFF9900  -- amber  (struggling)
-  elseif d == 2 then name_color = 0xFFCCCCCC  -- gray   (normal)
-  elseif d == 3 then name_color = 0xFF44CCFF  -- cyan   (strong)
-  else               name_color = 0xFFFFFFFF  -- white  (new)
-  end
+  local label = practice_split and format_goal(practice_split.goal) or "?"
 
   if practice_state == PSTATE_PLAYING or practice_state == PSTATE_LOADING then
     local elapsed = ts_ms() - practice_start_ms
     local ref     = practice_split.reference_time_ms
 
-    -- Row 1: split name (colored by difficulty)
-    draw_text(4, 6, label, name_color, 0x00000000)
+    -- Row 1: goal label
+    draw_text(4, 2, label, 0x00000000, 0xFFFFFFFF)
 
     -- Row 2: timer / reference, color-coded
     local timer_color
@@ -229,15 +193,15 @@ local function draw_practice_overlay()
       timer_color = 0xFFFFFFFF
     end
     local ref_str = ref and ms_to_display(ref) or "?"
-    draw_text(4, 24, ms_to_display(elapsed) .. " / " .. ref_str, timer_color, 0x00000000)
+    draw_text(4, 12, ms_to_display(elapsed) .. " / " .. ref_str, 0x00000000, timer_color)
 
-  elseif practice_state == PSTATE_RATING then
+  elseif practice_state == PSTATE_RESULT then
     local prefix = practice_completed and "Clear!" or "Abort"
 
-    -- Row 1: split name (colored by difficulty)
-    draw_text(4, 6, label, name_color, 0x00000000)
+    -- Row 1: goal label
+    draw_text(4, 2, label, 0x00000000, 0xFFFFFFFF)
 
-    -- Row 2: result time / reference (mirrors PLAYING layout)
+    -- Row 2: result time / reference
     local ref = practice_split.reference_time_ms
     local timer_color
     if ref then
@@ -246,10 +210,12 @@ local function draw_practice_overlay()
       timer_color = 0xFFFFFFFF
     end
     local ref_str2 = ref and ms_to_display(ref) or "?"
-    draw_text(4, 24, prefix .. "  " .. ms_to_display(practice_elapsed_ms) .. " / " .. ref_str2, timer_color, 0x00000000)
+    draw_text(4, 12, prefix .. "  " .. ms_to_display(practice_elapsed_ms) .. " / " .. ref_str2, 0x00000000, timer_color)
 
-    -- Row 3: rating prompt
-    draw_text(4, 42, "R+< again  R+v hard  R+> good  R+^ easy", 0xFFFFFF00, 0x00000000)
+    -- Row 3: countdown to auto-advance
+    local remaining = practice_auto_advance_ms - (ts_ms() - practice_result_start_ms)
+    local secs = string.format("%.1f", math.max(0, remaining / 1000))
+    draw_text(4, 22, "Next in " .. secs .. "s", 0x00000000, 0xFF888888)
   end
 end
 
@@ -376,42 +342,40 @@ local function handle_practice(curr)
     practice_start_ms = ts_ms()
 
   elseif practice_state == PSTATE_PLAYING then
-    -- Death check first (higher priority than exit_mode)
+    -- Death check (higher priority than exit_mode)
     if curr.player_anim == 9 and prev.player_anim ~= 9 then
-      pending_load      = practice_split.state_path
-      practice_start_ms = ts_ms()
+      pending_load = practice_split.state_path
       log("Practice: death — reloading state")
-      -- stay in PSTATE_PLAYING
 
     elseif curr.exit_mode ~= 0 and prev.exit_mode == 0 then
       local goal = goal_type(curr)
       practice_elapsed_ms = ts_ms() - practice_start_ms
       practice_completed  = (goal ~= "abort")
-      practice_state      = PSTATE_RATING
-      log("Practice: " .. (practice_completed and "clear" or "abort")
-          .. " goal=" .. goal .. " elapsed=" .. practice_elapsed_ms .. "ms")
+      practice_state      = PSTATE_RESULT
+      practice_result_start_ms = ts_ms()
+      log("Practice: RESULT (" .. goal .. ") — " .. practice_elapsed_ms .. "ms")
     end
 
-  elseif practice_state == PSTATE_RATING then
-    local rating = check_rating_input()
-    if rating then
-      -- Send result to Python
-      local result = {
+  elseif practice_state == PSTATE_RESULT then
+    -- Auto-advance after delay
+    local elapsed_in_result = ts_ms() - practice_result_start_ms
+    if elapsed_in_result >= practice_auto_advance_ms then
+      -- Send result to orchestrator
+      local result = to_json({
         event      = "attempt_result",
         split_id   = practice_split.id,
         completed  = practice_completed,
-        time_ms    = practice_elapsed_ms,
+        time_ms    = math.floor(practice_elapsed_ms),
         goal       = practice_split.goal,
-        rating     = rating,
-      }
+      })
       if client then
-        client:send(to_json(result) .. "\n")
-        log("Practice: sent attempt_result rating=" .. rating)
+        client:send(result .. "\n")
       end
-      -- Reset
-      practice_mode  = false
+      -- Reset state
       practice_state = PSTATE_IDLE
+      practice_mode  = false
       practice_split = nil
+      log("Practice: auto-advanced, sent result")
     end
   end
 end
@@ -464,7 +428,6 @@ local function handle_tcp()
           pending_load      = nil
           pending_save      = nil
           died_flag         = false
-          rating_input_last = {}
           pending_reset     = true
           log("Practice auto-cleared on disconnect — reset queued")
         end
@@ -489,11 +452,12 @@ local function handle_tcp()
         client:send("ok:queued\n")
       elseif line:sub(1, 14) == "practice_load:" then
         local json_str = line:sub(15)
-        practice_split    = parse_practice_split(json_str)
-        practice_mode     = true
-        practice_state    = PSTATE_LOADING
-        pending_load      = practice_split.state_path
-        practice_start_ms = ts_ms()
+        practice_split           = parse_practice_split(json_str)
+        practice_auto_advance_ms = practice_split.auto_advance_delay_ms or 2000
+        practice_mode            = true
+        practice_state           = PSTATE_LOADING
+        pending_load             = practice_split.state_path
+        practice_start_ms        = ts_ms()
         client:send("ok:queued\n")
         log("Practice load queued: " .. (practice_split.id or "?"))
       elseif line == "practice_stop" then
@@ -501,7 +465,6 @@ local function handle_tcp()
         practice_state    = PSTATE_IDLE
         practice_split    = nil
         pending_load      = nil  -- prevent ghost reload if stopped mid-death-retry
-        rating_input_last = {}   -- clear debounce state
         client:send("ok\n")
         log("Practice mode stopped")
       elseif line == "reset" then
@@ -511,7 +474,6 @@ local function handle_tcp()
         pending_load      = nil
         pending_save      = nil
         died_flag         = false  -- clear so first post-reset entrance is recorded
-        rating_input_last = {}
         pending_reset     = true
         client:send("ok\n")
         log("Reset queued: practice cleared, SNES reset on next cpuExec")
@@ -538,7 +500,6 @@ local function handle_tcp()
         pending_load      = nil
         pending_save      = nil
         died_flag         = false
-        rating_input_last = {}
         pending_reset     = true
         log("Practice auto-cleared on disconnect — reset queued")
       end
@@ -609,9 +570,6 @@ local function on_start_frame()
   check_keyboard()
   handle_tcp()
 
-  if not practice_mode then
-    draw_text(2, 2, "SpinLab", 0xFF888888, 0x00000000)
-  end
   draw_practice_overlay()
 end
 
