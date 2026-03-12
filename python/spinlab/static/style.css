@@ -76,21 +76,6 @@ header h1 {
   font-weight: 600;
 }
 
-.cs-difficulty {
-  font-size: 11px;
-  margin-top: 2px;
-}
-
-.cs-attempts {
-  font-size: 11px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
-
-.mi-line {
-  font-size: 12px;
-}
-
 #queue-list, #recent-list {
   list-style: none;
 }
@@ -115,15 +100,117 @@ footer {
   border-top: 1px solid var(--card);
 }
 
-/* Difficulty tier colors */
-.tier-new { color: var(--text-dim); }
-.tier-struggling { color: var(--red); }
-.tier-normal { color: var(--yellow); }
-.tier-strong { color: var(--green); }
+/* Dim text */
+.dim { color: var(--text-dim); }
 
-/* Rating colors */
-.rating-easy, .rating-good { color: var(--green); }
-.rating-hard { color: var(--yellow); }
-.rating-again { color: var(--red); }
+/* Tabs */
+nav#tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--card);
+  margin-bottom: 12px;
+}
+.tab {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 8px 16px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  font-size: 14px;
+  font-family: inherit;
+}
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
 
-.mode-panel[hidden] { display: none; }
+/* Split header */
+.split-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.goal-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Model table */
+#model-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+#model-table th {
+  text-align: left;
+  color: var(--text-dim);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--card);
+}
+#model-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--surface);
+}
+
+/* Drift colors */
+.drift-improving { color: var(--green); }
+.drift-regressing { color: var(--red); }
+.drift-flat { color: var(--text-dim); }
+
+/* Insight card */
+.insight-card {
+  padding: 8px;
+  background: var(--surface);
+  border-radius: 4px;
+  margin-top: 8px;
+}
+
+/* Allocator row */
+.allocator-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px;
+}
+.allocator-row select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--card);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: inherit;
+}
+
+/* Model header */
+.model-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 8px;
+}
+.model-header select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--card);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: inherit;
+}
+
+/* Result colors */
+.ahead { color: var(--green); }
+.behind { color: var(--red); }
+
+/* Queue and recent list styling */
+#queue, #recent {
+  list-style: none;
+  margin: 0 8px;
+}
+#queue li, #recent li {
+  font-size: 11px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}

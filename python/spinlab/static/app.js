@@ -1,136 +1,181 @@
-// SpinLab dashboard polling logic
-(function () {
-  "use strict";
+const POLL_MS = 1000;
 
-  var POLL_MS = 1000;
+// === Tab switching ===
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'model') fetchModel();
+  });
+});
 
-  // DOM refs
-  var modeIdle = document.getElementById("mode-idle");
-  var modeRef = document.getElementById("mode-reference");
-  var modePractice = document.getElementById("mode-practice");
-  var sessionTimer = document.getElementById("session-timer");
-  var csGoal = document.getElementById("cs-goal");
-  var csDifficulty = document.getElementById("cs-difficulty");
-  var csAttempts = document.getElementById("cs-attempts");
-  var miTier = document.getElementById("mi-tier");
-  var queueList = document.getElementById("queue-list");
-  var recentList = document.getElementById("recent-list");
-  var statsLine = document.getElementById("stats-line");
+// === Allocator switch ===
+document.getElementById('allocator-select').addEventListener('change', async (e) => {
+  await fetch('/api/allocator', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: e.target.value }),
+  });
+});
 
-  function showMode(mode) {
-    modeIdle.hidden = mode !== "idle";
-    modeRef.hidden = mode !== "reference";
-    modePractice.hidden = mode !== "practice";
-  }
+// === Estimator switch ===
+document.getElementById('estimator-select').addEventListener('change', async (e) => {
+  await fetch('/api/estimator', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: e.target.value }),
+  });
+  fetchModel();
+});
 
-  function tierClass(ef, reps) {
-    if (!reps || reps === 0) return "tier-new";
-    if (ef < 1.8) return "tier-struggling";
-    if (ef < 2.5) return "tier-normal";
-    return "tier-strong";
-  }
+// === Live tab polling ===
+async function poll() {
+  try {
+    const res = await fetch('/api/state');
+    const data = await res.json();
+    updateLive(data);
+  } catch (_) {}
+  setTimeout(poll, POLL_MS);
+}
 
-  function tierLabel(ef, reps) {
-    if (!reps || reps === 0) return "New";
-    if (ef < 1.8) return "Struggling";
-    if (ef < 2.5) return "Normal";
-    return "Strong";
-  }
+function updateLive(data) {
+  const idle = document.getElementById('mode-idle');
+  const ref = document.getElementById('mode-reference');
+  const practice = document.getElementById('mode-practice');
 
-  function ratingClass(rating) {
-    if (!rating) return "";
-    return "rating-" + rating;
-  }
+  if (data.mode === 'practice') {
+    idle.style.display = 'none';
+    ref.style.display = 'none';
+    practice.style.display = 'block';
 
-  function formatTime(ms) {
-    if (!ms) return "\u2014";
-    return (ms / 1000).toFixed(1) + "s";
-  }
-
-  function elapsedStr(startedAt) {
-    if (!startedAt) return "";
-    // DB stores UTC without "Z" suffix — append it so JS parses as UTC
-    var ts = startedAt.endsWith("Z") ? startedAt : startedAt + "Z";
-    var start = new Date(ts);
-    var diff = Math.max(0, Math.floor((Date.now() - start.getTime()) / 1000));
-    var m = Math.floor(diff / 60);
-    var s = diff % 60;
-    return m + ":" + (s < 10 ? "0" : "") + s;
-  }
-
-  function update(data) {
-    showMode(data.mode);
-
-    // Session timer
-    if (data.session && data.session.started_at) {
-      sessionTimer.textContent = elapsedStr(data.session.started_at);
-    } else {
-      sessionTimer.textContent = "";
-    }
-
-    if (data.mode !== "practice") return;
-
-    // Current split
-    var cs = data.current_split;
+    const cs = data.current_split;
     if (cs) {
-      var label = cs.description || cs.id;
-      csGoal.textContent = label + (cs.goal && cs.goal !== "normal" ? " (" + cs.goal + ")" : "");
-      var tc = tierClass(cs.ease_factor, cs.repetitions);
-      csDifficulty.className = "cs-difficulty " + tc;
-      csDifficulty.textContent = tierLabel(cs.ease_factor, cs.repetitions);
-      csAttempts.textContent = "Attempts: " + (cs.attempt_count || 0);
+      document.getElementById('current-goal').textContent = cs.description || cs.goal || '';
+      document.getElementById('current-attempts').textContent =
+        'Attempt ' + (cs.attempt_count || 0);
 
-      // Model insight: ease factor + repetitions
-      miTier.className = "mi-line " + tc;
-      miTier.textContent = tierLabel(cs.ease_factor, cs.repetitions) +
-        " \u2014 Ease " + (cs.ease_factor || 2.5).toFixed(2) +
-        ", " + (cs.repetitions || 0) + " reps";
+      // Insight card
+      const insight = document.getElementById('insight');
+      if (cs.drift_info) {
+        const arrow = cs.drift_info.drift < 0 ? '↓' : cs.drift_info.drift > 0 ? '↑' : '→';
+        const rate = Math.abs(cs.drift_info.drift).toFixed(2);
+        insight.innerHTML =
+          '<span class="drift-' + cs.drift_info.label + '">' +
+          arrow + ' ' + rate + ' s/run</span>' +
+          ' <span class="dim">(' + cs.drift_info.confidence + ')</span>';
+      } else {
+        insight.textContent = 'No data yet';
+      }
     }
 
     // Queue
-    queueList.innerHTML = "";
-    (data.queue || []).forEach(function (q) {
-      var li = document.createElement("li");
-      var name = document.createElement("span");
-      name.textContent = q.description || q.goal || q.id;
-      var diff = document.createElement("span");
-      diff.className = tierClass(q.ease_factor, q.repetitions);
-      diff.textContent = tierLabel(q.ease_factor, q.repetitions);
-      li.appendChild(name);
-      li.appendChild(diff);
-      queueList.appendChild(li);
+    const queue = document.getElementById('queue');
+    queue.innerHTML = '';
+    (data.queue || []).forEach(q => {
+      const li = document.createElement('li');
+      li.textContent = q.description || q.split_id || q;
+      queue.appendChild(li);
     });
 
-    // Recent results
-    recentList.innerHTML = "";
-    (data.recent || []).forEach(function (r) {
-      var li = document.createElement("li");
-      var name = document.createElement("span");
-      name.textContent = r.description || r.goal;
-      var info = document.createElement("span");
-      info.className = ratingClass(r.rating);
-      info.textContent = formatTime(r.time_ms) + " " + (r.rating || "");
-      li.appendChild(name);
-      li.appendChild(info);
-      recentList.appendChild(li);
+    // Recent
+    const recent = document.getElementById('recent');
+    recent.innerHTML = '';
+    (data.recent || []).forEach(r => {
+      const li = document.createElement('li');
+      const time = formatTime(r.time_ms);
+      const refTime = r.reference_time_ms ? formatTime(r.reference_time_ms) : '—';
+      const cls = r.reference_time_ms && r.time_ms <= r.reference_time_ms ? 'ahead' : 'behind';
+      li.innerHTML = '<span class="' + cls + '">' + time + '</span> / ' + refTime +
+        ' <span class="dim">' + (r.description || r.goal || '') + '</span>';
+      recent.appendChild(li);
     });
 
     // Session stats
+    const stats = document.getElementById('session-stats');
     if (data.session) {
-      var sa = data.session.splits_attempted || 0;
-      var sc = data.session.splits_completed || 0;
-      statsLine.textContent = sc + "/" + sa + " cleared | " +
+      stats.textContent = (data.session.splits_completed || 0) + '/' +
+        (data.session.splits_attempted || 0) + ' cleared | ' +
         elapsedStr(data.session.started_at);
     }
+
+    // Allocator dropdown
+    if (data.allocator) {
+      document.getElementById('allocator-select').value = data.allocator;
+    }
+
+  } else if (data.mode === 'reference') {
+    idle.style.display = 'none';
+    ref.style.display = 'block';
+    practice.style.display = 'none';
+    document.getElementById('ref-sections').textContent =
+      'Sections: ' + (data.sections_captured || 0);
+
+  } else {
+    idle.style.display = 'block';
+    ref.style.display = 'none';
+    practice.style.display = 'none';
   }
 
-  function poll() {
-    fetch("/api/state")
-      .then(function (r) { return r.json(); })
-      .then(update)
-      .catch(function () { /* silently retry next tick */ });
+  // Session timer
+  if (data.session && data.session.started_at) {
+    document.getElementById('session-timer').textContent = elapsedStr(data.session.started_at);
   }
+}
 
-  poll();
-  setInterval(poll, POLL_MS);
-})();
+// === Model tab ===
+async function fetchModel() {
+  try {
+    const res = await fetch('/api/model');
+    const data = await res.json();
+    updateModel(data);
+  } catch (_) {}
+}
+
+function updateModel(data) {
+  const body = document.getElementById('model-body');
+  body.innerHTML = '';
+  (data.splits || []).forEach(s => {
+    const tr = document.createElement('tr');
+    const driftClass = s.drift_info?.label || 'flat';
+    const arrow = s.drift !== null
+      ? (s.drift < 0 ? '↓' : s.drift > 0 ? '↑' : '→')
+      : '—';
+    tr.className = 'drift-row-' + driftClass;
+    const conf = s.drift_info?.confidence || '—';
+    tr.innerHTML =
+      '<td>' + (s.description || s.goal) + '</td>' +
+      '<td>' + (s.mu !== null ? s.mu.toFixed(1) : '—') + '</td>' +
+      '<td class="drift-' + driftClass + '">' + arrow + ' ' +
+        (s.drift !== null ? Math.abs(s.drift).toFixed(2) : '—') + '</td>' +
+      '<td>' + conf + '</td>' +
+      '<td>' + (s.marginal_return ? s.marginal_return.toFixed(4) : '—') + '</td>' +
+      '<td>' + s.n_completed + '</td>' +
+      '<td>' + (s.gold_ms !== null ? formatTime(s.gold_ms) : '—') + '</td>';
+    body.appendChild(tr);
+  });
+
+  if (data.estimator) {
+    document.getElementById('estimator-select').value = data.estimator;
+  }
+}
+
+// === Utilities ===
+function formatTime(ms) {
+  if (ms == null) return '—';
+  const s = ms / 1000;
+  return s.toFixed(1) + 's';
+}
+
+function elapsedStr(startedAt) {
+  if (!startedAt) return '';
+  const start = new Date(startedAt.endsWith('Z') ? startedAt : startedAt + 'Z');
+  const diff = Math.floor((Date.now() - start.getTime()) / 1000);
+  const m = Math.floor(diff / 60);
+  const s = diff % 60;
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+// === Init ===
+poll();
