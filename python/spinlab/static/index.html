@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=320">
+  <title>SpinLab</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>SpinLab</h1>
+      <div id="session-timer" class="header-stat"></div>
+    </header>
+
+    <section id="mode-idle" class="mode-panel">
+      <p class="status-msg">No active session</p>
+    </section>
+
+    <section id="mode-reference" class="mode-panel" hidden>
+      <p class="status-msg">Reference Run</p>
+      <p id="ref-count" class="sub-stat"></p>
+    </section>
+
+    <section id="mode-practice" class="mode-panel" hidden>
+      <div id="current-split" class="card">
+        <div class="card-label">Current</div>
+        <div id="cs-goal" class="cs-goal"></div>
+        <div id="cs-difficulty" class="cs-difficulty"></div>
+        <div id="cs-attempts" class="cs-attempts"></div>
+      </div>
+
+      <div id="model-insight" class="card">
+        <div class="card-label">Insight</div>
+        <div id="mi-tier" class="mi-line"></div>
+      </div>
+
+      <div id="up-next" class="card">
+        <div class="card-label">Up Next</div>
+        <ul id="queue-list"></ul>
+      </div>
+
+      <div id="recent-results" class="card">
+        <div class="card-label">Recent</div>
+        <ul id="recent-list"></ul>
+      </div>
+    </section>
+
+    <footer id="session-stats">
+      <span id="stats-line"></span>
+    </footer>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

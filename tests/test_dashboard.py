@@ -82,3 +82,9 @@ def test_api_sessions_returns_history(client, db):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["sessions"]) == 2
+
+
+def test_root_serves_html(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "SpinLab" in resp.text

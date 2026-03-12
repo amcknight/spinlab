@@ -30,6 +30,12 @@ def create_app(
     if static_dir.is_dir():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
+    from fastapi.responses import FileResponse
+
+    @app.get("/")
+    def root():
+        return FileResponse(str(static_dir / "index.html"))
+
     @app.get("/api/state")
     def api_state():
         orch_state = _read_state_file(state_file)
