@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SpinLab</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
   <header>
@@ -76,12 +76,17 @@
       </table>
     </section>
 
-    <!-- Manage Tab (placeholder) -->
+    <!-- Manage Tab -->
     <section id="tab-manage" class="tab-content">
-      <p class="dim">Coming soon</p>
+      <div class="manage-section">
+        <h3>Data</h3>
+        <p class="dim">Clear all session history, attempts, and model state. Keeps splits and game config.</p>
+        <button id="btn-reset" class="btn-danger">Clear All Data</button>
+        <p id="reset-status" class="dim"></p>
+      </div>
     </section>
   </main>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=3"></script>
 </body>
 </html>

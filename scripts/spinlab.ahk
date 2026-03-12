@@ -9,6 +9,34 @@ Flash(msg, ms := 2000) {
     SetTimer () => ToolTip(), -ms
 }
 
+FindDashPID() {
+    ; Find PID listening on port 15483 via netstat
+    try {
+        tmpFile := A_Temp "\spinlab_port.txt"
+        RunWait 'cmd /c "netstat -ano | findstr :15483 | findstr LISTENING > ' tmpFile '"',, "Hide"
+        line := Trim(FileRead(tmpFile))
+        FileDelete tmpFile
+        if (line != "") {
+            parts := StrSplit(line, " ")
+            pid := parts[parts.Length]
+            if (pid > 0)
+                return Integer(pid)
+        }
+    }
+    return 0
+}
+
+StopDashboard() {
+    global dashPID
+    pid := (dashPID != 0 && ProcessExist(dashPID)) ? dashPID : FindDashPID()
+    if (pid != 0 && ProcessExist(pid)) {
+        Run "taskkill /PID " pid " /T /F",, "Hide"
+        dashPID := 0
+        return true
+    }
+    return false
+}
+
 StopPractice() {
     global spinlabPID
     if (spinlabPID != 0 && ProcessExist(spinlabPID)) {
@@ -40,7 +68,9 @@ StopPractice() {
 ; Ctrl+Alt+D — start/check dashboard
 ^!d:: {
     global dashPID
-    if (dashPID != 0 && ProcessExist(dashPID)) {
+    existingPID := (dashPID != 0 && ProcessExist(dashPID)) ? dashPID : FindDashPID()
+    if (existingPID != 0) {
+        dashPID := existingPID
         Flash("Dashboard already running on :15483", 2000)
     } else {
         Run 'spinlab dashboard', A_ScriptDir '\..',  'Min', &dashPID
@@ -61,9 +91,6 @@ StopPractice() {
     Run 'cmd /c spinlab lua-cmd practice_stop', A_ScriptDir '\..',  'Hide'
     if ProcessExist("Mesen.exe")
         Run 'taskkill /IM Mesen.exe /F',, "Hide"
-    if (dashPID != 0 && ProcessExist(dashPID)) {
-        Run "taskkill /PID " dashPID " /T /F",, "Hide"
-        dashPID := 0
-    }
+    StopDashboard()
     Flash "SpinLab — stopped"
 }

@@ -139,20 +139,24 @@ nav#tabs {
 }
 
 /* Model table */
+#tab-model {
+  overflow-x: auto;
+}
 #model-table {
-  width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 11px;
 }
 #model-table th {
   text-align: left;
   color: var(--text-dim);
-  padding: 4px 8px;
+  padding: 4px 5px;
   border-bottom: 1px solid var(--card);
+  white-space: nowrap;
 }
 #model-table td {
-  padding: 6px 8px;
+  padding: 4px 5px;
   border-bottom: 1px solid var(--surface);
+  white-space: nowrap;
 }
 
 /* Drift colors */
@@ -203,6 +207,35 @@ nav#tabs {
 /* Result colors */
 .ahead { color: var(--green); }
 .behind { color: var(--red); }
+
+/* Manage tab */
+.manage-section {
+  margin: 8px;
+  padding: 12px;
+  background: var(--surface);
+  border-radius: 6px;
+}
+.manage-section h3 {
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+.manage-section p {
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.btn-danger {
+  background: var(--red);
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+.btn-danger:hover {
+  opacity: 0.85;
+}
 
 /* Queue and recent list styling */
 #queue, #recent {

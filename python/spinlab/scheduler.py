@@ -31,8 +31,11 @@ class Scheduler:
     ) -> None:
         self.db = db
         self.game_id = game_id
-        self.estimator: Estimator = get_estimator(estimator_name)
-        self.allocator: Allocator = get_allocator(allocator_name)
+        # Load persisted choices from DB, falling back to provided defaults
+        saved_alloc = db.load_allocator_config("allocator")
+        saved_est = db.load_allocator_config("estimator")
+        self.estimator: Estimator = get_estimator(saved_est or estimator_name)
+        self.allocator: Allocator = get_allocator(saved_alloc or allocator_name)
 
     def _load_splits_with_model(self) -> list[SplitWithModel]:
         """Load all active splits and hydrate with estimator state."""

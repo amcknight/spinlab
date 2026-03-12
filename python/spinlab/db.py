@@ -357,6 +357,20 @@ class Database:
         cols = ["split_id", "completed", "time_ms", "created_at"]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
+    # -- Reset --
+
+    def reset_all_data(self) -> None:
+        """Delete all attempts, sessions, model state, and allocator config.
+
+        Keeps splits and games intact so the manifest doesn't need re-import.
+        """
+        self.conn.execute("DELETE FROM attempts")
+        self.conn.execute("DELETE FROM sessions")
+        self.conn.execute("DELETE FROM model_state")
+        self.conn.execute("DELETE FROM allocator_config")
+        self.conn.execute("DELETE FROM transitions")
+        self.conn.commit()
+
     # -- Helpers --
 
     @staticmethod

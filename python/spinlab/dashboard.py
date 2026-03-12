@@ -33,6 +33,16 @@ def create_app(
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     from fastapi.responses import FileResponse
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    class NoCacheStaticMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            response = await call_next(request)
+            if request.url.path.startswith("/static/"):
+                response.headers["Cache-Control"] = "no-cache, must-revalidate"
+            return response
+
+    app.add_middleware(NoCacheStaticMiddleware)
 
     # Lazy-init scheduler for API calls that need it
     _scheduler = None
@@ -59,7 +69,13 @@ def create_app(
                 "queue": [],
                 "recent": [],
                 "session": None,
+                "allocator": _get_scheduler().allocator.name,
             }
+
+        # Validate state file matches active session (if session_id present)
+        state_sid = orch_state.get("session_id") if orch_state else None
+        if state_sid and state_sid != session["id"]:
+            orch_state = None  # stale state file from old session
 
         mode = "practice" if orch_state else "reference"
 
@@ -96,14 +112,15 @@ def create_app(
 
         recent = db.get_recent_attempts(game_id, limit=8)
 
+        sched = _get_scheduler()
         return {
             "mode": mode,
             "current_split": current_split,
             "queue": queue,
             "recent": recent,
             "session": dict(session),
-            "allocator": orch_state.get("allocator") if orch_state else None,
-            "estimator": orch_state.get("estimator") if orch_state else None,
+            "allocator": sched.allocator.name,
+            "estimator": sched.estimator.name,
         }
 
     @app.get("/api/model")
@@ -146,6 +163,17 @@ def create_app(
         sched = _get_scheduler()
         sched.switch_estimator(name)
         return {"estimator": name}
+
+    @app.post("/api/reset")
+    def reset_data():
+        """Clear all session data (attempts, sessions, model state)."""
+        nonlocal _scheduler
+        db.reset_all_data()
+        _scheduler = None  # force re-init with fresh defaults
+        # Remove stale state file
+        if state_file.exists():
+            state_file.unlink()
+        return {"status": "ok"}
 
     @app.get("/api/splits")
     def api_splits():

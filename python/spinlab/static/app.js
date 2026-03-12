@@ -143,7 +143,8 @@ function updateModel(data) {
       ? (s.drift < 0 ? '↓' : s.drift > 0 ? '↑' : '→')
       : '—';
     tr.className = 'drift-row-' + driftClass;
-    const conf = s.drift_info?.confidence || '—';
+    const confMap = { confident: 'high', moderate: 'mod', uncertain: 'unc' };
+    const conf = confMap[s.drift_info?.confidence] || s.drift_info?.confidence || '—';
     tr.innerHTML =
       '<td>' + (s.description || s.goal) + '</td>' +
       '<td>' + (s.mu !== null ? s.mu.toFixed(1) : '—') + '</td>' +
@@ -176,6 +177,19 @@ function elapsedStr(startedAt) {
   const s = diff % 60;
   return m + ':' + String(s).padStart(2, '0');
 }
+
+// === Reset button ===
+document.getElementById('btn-reset').addEventListener('click', async () => {
+  if (!confirm('Clear all session data? This cannot be undone.')) return;
+  try {
+    const res = await fetch('/api/reset', { method: 'POST' });
+    const data = await res.json();
+    document.getElementById('reset-status').textContent =
+      data.status === 'ok' ? 'Data cleared.' : 'Error clearing data.';
+  } catch (_) {
+    document.getElementById('reset-status').textContent = 'Error clearing data.';
+  }
+});
 
 // === Init ===
 poll();

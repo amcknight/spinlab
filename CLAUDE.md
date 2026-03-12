@@ -46,6 +46,8 @@ spinlab/
 
 4. **Launch Script** (`scripts/launch.sh`): Starts Mesen2 with the ROM and Lua script. Takes care of paths so the user never manually loads scripts.
 
+5. **Dashboard** (`python/spinlab/dashboard.py`): FastAPI web app on `http://localhost:15483`. Run with `spinlab dashboard`. Lua TCP server is on port `15482`.
+
 ### IPC: TCP Socket (via Mesen2's built-in LuaSocket)
 
 Mesen2 has LuaSocket compiled in. The Lua script runs a lightweight TCP server. The Python orchestrator connects as a client. Messages are newline-delimited JSON.
