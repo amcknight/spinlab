@@ -189,27 +189,48 @@ end
 local function draw_practice_overlay()
   if not practice_mode then return end
 
-  local label = (practice_split.description ~= "" and practice_split.description)
-                or practice_split.id or "?"
+  -- Background box (covers all rows)
+  emu.drawRectangle(0, 0, 246, 62, 0xCC000000, true, 1)
+
+  local label = (practice_split and practice_split.description ~= "" and practice_split.description)
+                or (practice_split and practice_split.id) or "?"
 
   if practice_state == PSTATE_PLAYING or practice_state == PSTATE_LOADING then
     local elapsed = ts_ms() - practice_start_ms
-    local ref = practice_split.reference_time_ms
+    local ref     = practice_split.reference_time_ms
+
+    -- Row 1: split name
+    draw_text(4, 6, label, 0xFFCCCCCC, 0x00000000)
+
+    -- Row 2: timer / reference, color-coded
+    local timer_color
+    if ref then
+      timer_color = (elapsed < ref) and 0xFF44FF44 or 0xFFFF4444
+    else
+      timer_color = 0xFFFFFFFF
+    end
     local ref_str = ref and ms_to_display(ref) or "?"
-    draw_text(2, 2,
-      "[PRACTICE] " .. label
-      .. " " .. ms_to_display(elapsed)
-      .. " ref:" .. ref_str,
-      0xFFFFFF, 0x000000)
+    draw_text(4, 24, ms_to_display(elapsed) .. " / " .. ref_str, timer_color, 0x00000000)
 
   elseif practice_state == PSTATE_RATING then
     local prefix = practice_completed and "Clear!" or "Abort"
-    draw_text(2, 2,
-      prefix .. " " .. ms_to_display(practice_elapsed_ms),
-      0xFFFFFF, 0x000000)
-    draw_text(2, 2 + 18,
-      "R+< again  R+v hard  R+> good  R+^ easy",
-      0xFFFFFF, 0x000000)
+
+    -- Row 1: split name
+    draw_text(4, 6, label, 0xFFCCCCCC, 0x00000000)
+
+    -- Row 2: result time / reference (mirrors PLAYING layout)
+    local ref = practice_split.reference_time_ms
+    local timer_color
+    if ref then
+      timer_color = (practice_elapsed_ms < ref) and 0xFF44FF44 or 0xFFFF4444
+    else
+      timer_color = 0xFFFFFFFF
+    end
+    local ref_str2 = ref and ms_to_display(ref) or "?"
+    draw_text(4, 24, prefix .. "  " .. ms_to_display(practice_elapsed_ms) .. " / " .. ref_str2, timer_color, 0x00000000)
+
+    -- Row 3: rating prompt
+    draw_text(4, 42, "R+< again  R+v hard  R+> good  R+^ easy", 0xFFFFFF00, 0x00000000)
   end
 end
 
@@ -520,7 +541,7 @@ local function on_start_frame()
   handle_tcp()
 
   if not practice_mode then
-    draw_text(2, 2, "SpinLab", 0xFFFFFF, 0x000000)
+    draw_text(2, 2, "SpinLab", 0xFF888888, 0x00000000)
   end
   draw_practice_overlay()
 end
