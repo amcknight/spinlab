@@ -2,6 +2,7 @@
 #SingleInstance Force
 
 global spinlabPID := 0
+global dashPID := 0
 
 Flash(msg, ms := 2000) {
     ToolTip msg
@@ -28,12 +29,11 @@ StopPractice() {
         Flash("Launching Mesen2 — reference run mode", 3000)
     }
     ; Start dashboard if not already running
-    try {
-        whr := ComObject("WinHttp.WinHttpRequest.5.1")
-        whr.Open("GET", "http://localhost:15483/api/state", false)
-        whr.Send()
-    } catch {
-        Run 'cmd /c spinlab dashboard', A_ScriptDir '\..',  'Min'
+    global dashPID
+    if (dashPID != 0 && ProcessExist(dashPID)) {
+        Flash("Dashboard already running on :15483", 2000)
+    } else {
+        Run 'spinlab dashboard', A_ScriptDir '\..',  'Min', &dashPID
         Flash("Dashboard starting on :15483", 2000)
     }
 }
@@ -56,11 +56,16 @@ StopPractice() {
     Flash "SpinLab — running capture..."
 }
 
-; Ctrl+Alt+X — kill everything (orchestrator + Mesen)
+; Ctrl+Alt+X — kill everything (orchestrator + Mesen + dashboard)
 ^!x:: {
+    global dashPID
     StopPractice()
     Run 'cmd /c spinlab lua-cmd practice_stop', A_ScriptDir '\..',  'Hide'
     if ProcessExist("Mesen.exe")
         Run 'taskkill /IM Mesen.exe /F',, "Hide"
+    if (dashPID != 0 && ProcessExist(dashPID)) {
+        Run "taskkill /PID " dashPID " /T /F",, "Hide"
+        dashPID := 0
+    }
     Flash "SpinLab — stopped"
 }
