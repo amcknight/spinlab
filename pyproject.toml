@@ -11,6 +11,9 @@ dependencies = ["pyyaml"]
 [project.optional-dependencies]
 dev = ["pytest"]
 
+[project.scripts]
+spinlab = "spinlab.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["python"]
 
