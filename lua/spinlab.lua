@@ -441,21 +441,6 @@ local function handle_tcp()
         rating_input_last = {}   -- clear debounce state
         client:send("ok\n")
         log("Practice mode stopped")
-      elseif line == "measure_string" then
-        local result = emu.measureString("A", 1)
-        local info = "type=" .. type(result)
-        if type(result) == "table" then
-          info = info .. " w=" .. tostring(result.width)
-                     .. " h=" .. tostring(result.height)
-                     .. " 1=" .. tostring(result[1])
-                     .. " 2=" .. tostring(result[2])
-        end
-        client:send(info .. "\n")
-      elseif line == "get_log" then
-        local log_text = emu.getLogWindowLog() or ""
-        -- Send last ~2000 chars to stay within recv buffer
-        local tail = log_text:sub(-2000)
-        client:send(tail .. "\n---END---\n")
       elseif line == "ping" then
         client:send("pong\n")
       elseif line == "quit" then
