@@ -11,10 +11,39 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+from datetime import datetime
 
 from .db import Database
 from .models import Attempt, Rating, Split, SplitCommand
 from .scheduler import Scheduler
+
+
+def write_state_file(
+    path: Path,
+    session_id: str,
+    started_at: str,
+    current_split_id: str,
+    queue: list[str],
+) -> None:
+    """Atomically write orchestrator state for dashboard consumption."""
+    state = {
+        "session_id": session_id,
+        "started_at": started_at,
+        "current_split_id": current_split_id,
+        "queue": queue,
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+    }
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(state), encoding="utf-8")
+    tmp.replace(path)
+
+
+def clear_state_file(path: Path) -> None:
+    """Remove state file when session ends."""
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
 
 
 def _parse_attempt_result_from_buffer(buf: str) -> tuple[Optional[dict], str]:
