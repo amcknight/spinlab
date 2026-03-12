@@ -49,8 +49,10 @@
 
   function elapsedStr(startedAt) {
     if (!startedAt) return "";
-    var start = new Date(startedAt);
-    var diff = Math.floor((Date.now() - start.getTime()) / 1000);
+    // DB stores UTC without "Z" suffix — append it so JS parses as UTC
+    var ts = startedAt.endsWith("Z") ? startedAt : startedAt + "Z";
+    var start = new Date(ts);
+    var diff = Math.max(0, Math.floor((Date.now() - start.getTime()) / 1000));
     var m = Math.floor(diff / 60);
     var s = diff % 60;
     return m + ":" + (s < 10 ? "0" : "") + s;
@@ -71,17 +73,18 @@
     // Current split
     var cs = data.current_split;
     if (cs) {
-      var label = cs.description || cs.goal;
-      csGoal.textContent = label + " \u2014 " + (cs.goal || "");
+      var label = cs.description || cs.id;
+      csGoal.textContent = label + (cs.goal && cs.goal !== "normal" ? " (" + cs.goal + ")" : "");
       var tc = tierClass(cs.ease_factor, cs.repetitions);
       csDifficulty.className = "cs-difficulty " + tc;
       csDifficulty.textContent = tierLabel(cs.ease_factor, cs.repetitions);
       csAttempts.textContent = "Attempts: " + (cs.attempt_count || 0);
 
-      // Model insight placeholder: show tier from ease factor
+      // Model insight: ease factor + repetitions
       miTier.className = "mi-line " + tc;
-      miTier.textContent = "EF: " + (cs.ease_factor || 2.5).toFixed(2) +
-        " | Reps: " + (cs.repetitions || 0);
+      miTier.textContent = tierLabel(cs.ease_factor, cs.repetitions) +
+        " \u2014 Ease " + (cs.ease_factor || 2.5).toFixed(2) +
+        ", " + (cs.repetitions || 0) + " reps";
     }
 
     // Queue
