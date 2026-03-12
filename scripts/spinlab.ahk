@@ -21,6 +21,7 @@ StopPractice() {
 
 ; Ctrl+Alt+W — launch Mesen (reference mode)
 ; Ctrl+Alt+P — toggle practice on/off (requires Mesen already running)
+; Ctrl+Alt+D — start/check dashboard
 ^!w:: {
     if ProcessExist("Mesen.exe") {
         Flash "Mesen already running — reference mode active"
@@ -28,7 +29,9 @@ StopPractice() {
         Run 'cmd /c "' A_ScriptDir '\launch.bat"',, 'Hide'
         Flash("Launching Mesen2 — reference run mode", 3000)
     }
-    ; Start dashboard if not already running
+}
+
+^!d:: {
     global dashPID
     if (dashPID != 0 && ProcessExist(dashPID)) {
         Flash("Dashboard already running on :15483", 2000)
