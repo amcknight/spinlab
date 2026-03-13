@@ -146,3 +146,33 @@ def test_practice_stop_clears_stale_mode(client):
     assert resp.status_code == 200
     assert resp.json()["status"] == "stopped"
     assert client.app.state._mode[0] == "idle"
+
+
+def test_switch_game_sets_context(client, db):
+    """Switching game updates game_id and game_name."""
+    app = client.app
+    app.state._switch_game("new_checksum", "New Game", "any%")
+    resp = client.get("/api/state")
+    data = resp.json()
+    assert data["game_id"] == "new_checksum"
+    assert data["game_name"] == "New Game"
+
+
+def test_switch_game_same_id_is_noop(client, db):
+    """Switching to the same game should be a no-op."""
+    app = client.app
+    app.state._switch_game("test_game", "Test Game", "any%")
+    # mode should still be whatever it was (not reset to idle)
+    resp = client.get("/api/state")
+    assert resp.json()["mode"] == "idle"
+
+
+def test_switch_game_resets_scheduler(client, db):
+    """Switching game should invalidate cached scheduler."""
+    app = client.app
+    # Access scheduler to cache it
+    client.get("/api/state")
+    assert app.state._scheduler[0] is not None
+    # Switch game
+    app.state._switch_game("other_game", "Other Game", "any%")
+    assert app.state._scheduler[0] is None

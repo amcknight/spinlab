@@ -145,6 +145,36 @@ def create_app(
                 if event is None:
                     continue
 
+                # Handle rom_info: auto-discover game from ROM filename
+                if event.get("event") == "rom_info":
+                    filename = event.get("filename", "")
+                    if rom_dir and filename:
+                        rom_path = rom_dir / filename
+                        if rom_path.exists():
+                            from spinlab.romid import rom_checksum, game_name_from_filename
+                            checksum = rom_checksum(rom_path)
+                            name = game_name_from_filename(filename)
+                            _switch_game(checksum, name, default_category)
+                            tcp.send(json.dumps({
+                                "event": "game_context",
+                                "game_id": checksum,
+                                "game_name": name,
+                            }))
+                        else:
+                            from spinlab.romid import game_name_from_filename
+                            name = game_name_from_filename(filename)
+                            fallback_id = f"file_{name.lower().replace(' ', '_')}"
+                            _switch_game(fallback_id, name, default_category)
+                            tcp.send(json.dumps({
+                                "event": "game_context",
+                                "game_id": fallback_id,
+                                "game_name": name,
+                            }))
+                            logger.warning(
+                                "ROM not found in rom_dir: %s — using filename as ID", filename
+                            )
+                    continue
+
                 # Only capture events in reference mode
                 if _mode[0] != "reference":
                     continue
