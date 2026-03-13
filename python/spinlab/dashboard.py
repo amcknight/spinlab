@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 def create_app(
     db: Database,
     rom_dir: Path | None = None,
-    state_file: Path | None = None,  # deprecated, ignored
     host: str = "127.0.0.1",
     port: int = 15482,
     config: dict | None = None,

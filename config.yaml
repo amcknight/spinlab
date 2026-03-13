@@ -5,12 +5,9 @@ emulator:
   script_data_dir: "C:/Users/thedo/Documents/Mesen2/LuaScriptData/spinlab"
 
 rom:
-  path: "C:/Users/thedo/Dropbox/SNES/SMW Hacks/Love Yourself.smc"
-  # alt: "C:/Users/thedo/Dropbox/SNES/SMW Hacks/Nightmare cafe 10.smc"
+  dir: "C:/Users/thedo/Dropbox/SNES/SMW Hacks"
 
 game:
-  id: smw_cod
-  name: "SMW: City of Dreams"
   category: "any%"
 
 network:
