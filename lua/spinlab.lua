@@ -32,12 +32,10 @@ local TEST_STATE_FILE = STATE_DIR .. "/test_state.mss"
 -- Get ROM filename from Mesen
 local function get_rom_filename()
     local info = emu.getRomInfo()
-    if info and info.fileName then
-        return info.fileName
+    if info and info.name then
+        return info.name
     end
-    -- Fallback: try other API
-    local name = emu.getRomName and emu.getRomName() or "unknown"
-    return name .. ".sfc"
+    return "unknown.sfc"
 end
 
 -- Memory addresses (ported from kaizosplits/Memory.cs)
