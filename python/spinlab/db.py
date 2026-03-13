@@ -400,6 +400,25 @@ class Database:
         self.conn.execute("DELETE FROM transitions")
         self.conn.commit()
 
+    def reset_game_data(self, game_id: str) -> None:
+        """Delete attempts, sessions, model state for a specific game.
+
+        Keeps splits, games, and global allocator_config intact.
+        """
+        self.conn.execute(
+            "DELETE FROM attempts WHERE split_id IN"
+            " (SELECT id FROM splits WHERE game_id = ?)",
+            (game_id,),
+        )
+        self.conn.execute(
+            "DELETE FROM model_state WHERE split_id IN"
+            " (SELECT id FROM splits WHERE game_id = ?)",
+            (game_id,),
+        )
+        self.conn.execute("DELETE FROM sessions WHERE game_id = ?", (game_id,))
+        self.conn.execute("DELETE FROM transitions WHERE game_id = ?", (game_id,))
+        self.conn.commit()
+
     # -- Capture Runs --
 
     def create_capture_run(self, run_id: str, game_id: str, name: str) -> None:

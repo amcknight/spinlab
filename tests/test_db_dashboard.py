@@ -1,6 +1,7 @@
 """Tests for dashboard-specific DB queries."""
 import pytest
 from spinlab.db import Database
+from spinlab.models import Split, Attempt
 
 
 @pytest.fixture
@@ -8,6 +9,11 @@ def db(tmp_path):
     d = Database(tmp_path / "test.db")
     d.upsert_game("test_game", "Test Game", "any%")
     return d
+
+
+@pytest.fixture
+def tmp_db(tmp_path):
+    return Database(tmp_path / "test.db")
 
 
 def test_get_current_session_returns_active(db):
@@ -155,3 +161,26 @@ class TestModelStateDB:
         from spinlab.db import Database
         db = Database(str(tmp_path / "test.db"))
         assert db.load_model_state("nonexistent") is None
+
+
+def test_reset_game_data_scoped(tmp_db):
+    """reset_game_data should only delete data for the specified game."""
+    tmp_db.upsert_game("g1", "Game 1", "any%")
+    tmp_db.upsert_game("g2", "Game 2", "any%")
+    s1 = Split(id="g1:1:1:normal", game_id="g1", level_number=1, room_id=1, goal="normal")
+    s2 = Split(id="g2:1:1:normal", game_id="g2", level_number=1, room_id=1, goal="normal")
+    tmp_db.upsert_split(s1)
+    tmp_db.upsert_split(s2)
+    tmp_db.create_session("s1", "g1")
+    tmp_db.create_session("s2", "g2")
+    tmp_db.log_attempt(Attempt(split_id="g1:1:1:normal", time_ms=5000, completed=True, session_id="s1"))
+    tmp_db.log_attempt(Attempt(split_id="g2:1:1:normal", time_ms=6000, completed=True, session_id="s2"))
+
+    tmp_db.reset_game_data("g1")
+
+    # g1 data gone
+    assert tmp_db.get_recent_attempts("g1") == []
+    assert tmp_db.get_session_history("g1") == []
+    # g2 data intact
+    assert len(tmp_db.get_recent_attempts("g2")) == 1
+    assert len(tmp_db.get_session_history("g2")) == 1
