@@ -42,13 +42,23 @@ async function poll() {
 }
 
 function updateLive(data) {
+  const disconnected = document.getElementById('mode-disconnected');
   const idle = document.getElementById('mode-idle');
   const ref = document.getElementById('mode-reference');
   const practice = document.getElementById('mode-practice');
 
+  // Hide all first
+  disconnected.style.display = 'none';
+  idle.style.display = 'none';
+  ref.style.display = 'none';
+  practice.style.display = 'none';
+
+  if (!data.tcp_connected) {
+    disconnected.style.display = 'block';
+    return;
+  }
+
   if (data.mode === 'practice') {
-    idle.style.display = 'none';
-    ref.style.display = 'none';
     practice.style.display = 'block';
 
     const cs = data.current_split;
@@ -57,7 +67,6 @@ function updateLive(data) {
       document.getElementById('current-attempts').textContent =
         'Attempt ' + (cs.attempt_count || 0);
 
-      // Insight card
       const insight = document.getElementById('insight');
       if (cs.drift_info) {
         const arrow = cs.drift_info.drift < 0 ? '↓' : cs.drift_info.drift > 0 ? '↑' : '→';
@@ -71,7 +80,6 @@ function updateLive(data) {
       }
     }
 
-    // Queue
     const queue = document.getElementById('queue');
     queue.innerHTML = '';
     (data.queue || []).forEach(q => {
@@ -80,7 +88,6 @@ function updateLive(data) {
       queue.appendChild(li);
     });
 
-    // Recent
     const recent = document.getElementById('recent');
     recent.innerHTML = '';
     (data.recent || []).forEach(r => {
@@ -93,7 +100,6 @@ function updateLive(data) {
       recent.appendChild(li);
     });
 
-    // Session stats
     const stats = document.getElementById('session-stats');
     if (data.session) {
       stats.textContent = (data.session.splits_completed || 0) + '/' +
@@ -101,30 +107,20 @@ function updateLive(data) {
         elapsedStr(data.session.started_at);
     }
 
-    // Allocator dropdown
     if (data.allocator) {
       document.getElementById('allocator-select').value = data.allocator;
     }
 
   } else if (data.mode === 'reference') {
-    idle.style.display = 'none';
     ref.style.display = 'block';
-    practice.style.display = 'none';
     document.getElementById('ref-sections').textContent =
       'Sections: ' + (data.sections_captured || 0);
 
   } else {
+    // idle
     idle.style.display = 'block';
-    ref.style.display = 'none';
-    practice.style.display = 'none';
-    // TCP status in idle mode
-    const tcpEl = document.getElementById('tcp-status');
-    if (tcpEl) {
-      tcpEl.textContent = data.tcp_connected ? 'Emulator connected' : 'Waiting for emulator...';
-    }
   }
 
-  // Session timer
   if (data.session && data.session.started_at) {
     document.getElementById('session-timer').textContent = elapsedStr(data.session.started_at);
   }
@@ -302,7 +298,21 @@ document.getElementById('btn-reset').addEventListener('click', async () => {
   }
 });
 
-// === Practice start/stop ===
+// === Mode control buttons ===
+document.getElementById('btn-launch-emu')?.addEventListener('click', async () => {
+  const res = await fetch('/api/emulator/launch', { method: 'POST' });
+  const data = await res.json();
+  if (data.status === 'error') alert(data.message);
+});
+
+document.getElementById('btn-ref-start')?.addEventListener('click', async () => {
+  await fetch('/api/reference/start', { method: 'POST' });
+});
+
+document.getElementById('btn-ref-stop')?.addEventListener('click', async () => {
+  await fetch('/api/reference/stop', { method: 'POST' });
+});
+
 document.getElementById('btn-practice-start')?.addEventListener('click', async () => {
   await fetch('/api/practice/start', { method: 'POST' });
 });
