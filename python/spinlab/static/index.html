@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SpinLab</title>
-  <link rel="stylesheet" href="/static/style.css?v=6">
+  <link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 <body>
 <div id="app">
@@ -22,14 +22,19 @@
   <main>
     <!-- Live Tab -->
     <section id="tab-live" class="tab-content active">
-      <div id="mode-idle">
-        <p class="dim">No active session</p>
-        <p class="dim" id="tcp-status"></p>
+      <div id="mode-disconnected">
+        <p class="dim">Waiting for emulator...</p>
+        <button id="btn-launch-emu" class="btn-primary">Launch Emulator</button>
+      </div>
+      <div id="mode-idle" style="display:none">
+        <p class="dim">Emulator connected &mdash; ready</p>
+        <button id="btn-ref-start" class="btn-primary">Start Reference Run</button>
+        <button id="btn-practice-start" class="btn-primary">Start Practice</button>
       </div>
       <div id="mode-reference" style="display:none">
         <h2>Reference Run</h2>
         <p id="ref-sections">Sections: 0</p>
-        <button id="btn-practice-start" class="btn-primary">Start Practice</button>
+        <button id="btn-ref-stop" class="btn-danger">Stop Reference Run</button>
       </div>
       <div id="mode-practice" style="display:none">
         <div class="card" id="current-split">
@@ -116,7 +121,7 @@
     </section>
   </main>
 
-  <script src="/static/app.js?v=6"></script>
+  <script src="/static/app.js?v=7"></script>
 </div>
 </body>
 </html>

@@ -75,3 +75,59 @@ def test_practice_stop_not_running(client):
     resp = client.post("/api/practice/stop")
     assert resp.status_code == 200
     assert resp.json()["status"] == "not_running"
+
+
+def test_reference_start_not_connected(client):
+    resp = client.post("/api/reference/start")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "not_connected"
+
+
+def test_reference_stop_not_in_reference(client):
+    resp = client.post("/api/reference/stop")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "not_in_reference"
+
+
+def test_reset_clears_mode_state(client, db):
+    db.create_session("s1", "test_game")
+    db.end_session("s1", 5, 3)
+    resp = client.post("/api/reset")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+
+
+def test_launch_emulator_no_config(client):
+    resp = client.post("/api/emulator/launch")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "error"
+
+
+def test_fresh_db_reference_start_creates_game(tmp_path):
+    """Reference start on a fresh DB should not FK-crash (game row auto-created)."""
+    from unittest.mock import PropertyMock, patch
+    from spinlab.dashboard import create_app
+
+    fresh_db = Database(tmp_path / "fresh.db")
+    # Don't call upsert_game — create_app should handle it
+    config = {"game": {"name": "Test Game", "category": "any%"}}
+    app = create_app(
+        db=fresh_db, game_id="test_game", host="127.0.0.1", port=59999,
+        config=config,
+    )
+    # Simulate TCP connected so reference start doesn't bail early
+    with patch.object(type(app.state.tcp), "is_connected", new_callable=PropertyMock, return_value=True):
+        c = TestClient(app)
+        resp = c.post("/api/reference/start")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "started"
+
+
+def test_practice_stop_clears_stale_mode(client):
+    """If practice self-terminates, stop should still reset mode to idle."""
+    # Manually set mode to practice (simulating a self-terminated session)
+    client.app.state._mode[0] = "practice"
+    resp = client.post("/api/practice/stop")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "stopped"
+    assert client.app.state._mode[0] == "idle"

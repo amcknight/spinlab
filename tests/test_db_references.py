@@ -2,7 +2,7 @@
 import pytest
 from spinlab.db import Database
 from spinlab.models import Split
-from spinlab.orchestrator import seed_db_from_manifest
+from spinlab.manifest import seed_db_from_manifest
 
 
 @pytest.fixture

@@ -13,15 +13,6 @@ def main(args: list[str] | None = None) -> None:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # practice
-    p_practice = sub.add_parser("practice", help="Start a practice session")
-    p_practice.add_argument(
-        "--config", default="config.yaml", help="Path to config.yaml"
-    )
-
-    # capture
-    sub.add_parser("capture", help="Process passive log into a manifest")
-
     # stats
     sub.add_parser("stats", help="Show practice statistics (coming soon)")
 
@@ -40,15 +31,7 @@ def main(args: list[str] | None = None) -> None:
 
     parsed = parser.parse_args(args)
 
-    if parsed.command == "practice":
-        from spinlab import orchestrator
-        orchestrator.run(Path(parsed.config))
-
-    elif parsed.command == "capture":
-        from spinlab.capture import main as capture_main
-        capture_main()
-
-    elif parsed.command == "stats":
+    if parsed.command == "stats":
         print("Stats coming in a future step.")
         sys.exit(0)
 
@@ -57,6 +40,7 @@ def main(args: list[str] | None = None) -> None:
         import yaml
         from spinlab.dashboard import create_app
         from spinlab.db import Database
+        from spinlab.manifest import find_latest_manifest, load_manifest, seed_db_from_manifest
 
         config_path = Path(parsed.config)
         with config_path.open(encoding="utf-8") as f:
@@ -68,14 +52,13 @@ def main(args: list[str] | None = None) -> None:
         db = Database(data_dir / "spinlab.db")
 
         # Seed DB from manifest if splits are empty
-        from spinlab.orchestrator import find_latest_manifest, load_manifest, seed_db_from_manifest
         if not db.get_active_splits(game_id):
             manifest_path = find_latest_manifest(data_dir)
             if manifest_path:
                 manifest = load_manifest(manifest_path)
                 seed_db_from_manifest(db, manifest, config["game"]["name"])
 
-        app = create_app(db=db, game_id=game_id, host=host, port=port)
+        app = create_app(db=db, game_id=game_id, host=host, port=port, config=config)
         print(f"SpinLab Dashboard: http://localhost:{parsed.port}")
         uvicorn.run(app, host="0.0.0.0", port=parsed.port, log_level="warning")
 
@@ -86,7 +69,7 @@ def main(args: list[str] | None = None) -> None:
                 for cmd in parsed.commands:
                     s.sendall((cmd + "\n").encode())
         except OSError:
-            pass  # Lua not running — nothing to do
+            pass
 
 
 if __name__ == "__main__":
