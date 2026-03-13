@@ -16,11 +16,21 @@
 
 body {
   font-family: 'Consolas', 'Monaco', monospace;
-  background: var(--bg);
+  background: #111;
   color: var(--text);
-  width: 320px;
+  display: flex;
+  justify-content: center;
   min-height: 100vh;
   overflow-x: hidden;
+}
+
+/* Dashboard container (#11) */
+#app {
+  width: 320px;
+  min-height: 100vh;
+  background: var(--bg);
+  border-left: 1px solid var(--card);
+  border-right: 1px solid var(--card);
 }
 
 header {
@@ -244,6 +254,18 @@ nav#tabs {
 }
 #queue li, #recent li {
   font-size: 11px;
-  padding: 3px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  padding: 5px 8px;
+  margin-bottom: 3px;
+  background: var(--surface);
+  border: 1px solid var(--card);
+  border-radius: 4px;
+}
+
+/* Section labels */
+h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  margin: 10px 8px 4px;
 }

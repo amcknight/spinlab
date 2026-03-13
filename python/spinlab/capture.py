@@ -39,7 +39,10 @@ def pair_events(
             pending[key] = event
         elif evt == "level_exit":
             key = (event["level"], event["room"])
-            if key in pending:
+            if event.get("goal") == "abort":
+                # start+select / death exits have no valid end state — discard
+                pending.pop(key, None)
+            elif key in pending:
                 pairs.append((pending.pop(key), event))
 
     return pairs

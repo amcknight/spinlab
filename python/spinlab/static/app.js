@@ -52,7 +52,7 @@ function updateLive(data) {
 
     const cs = data.current_split;
     if (cs) {
-      document.getElementById('current-goal').textContent = cs.description || cs.goal || '';
+      document.getElementById('current-goal').textContent = splitName(cs);
       document.getElementById('current-attempts').textContent =
         'Attempt ' + (cs.attempt_count || 0);
 
@@ -75,7 +75,7 @@ function updateLive(data) {
     queue.innerHTML = '';
     (data.queue || []).forEach(q => {
       const li = document.createElement('li');
-      li.textContent = q.description || q.split_id || q;
+      li.textContent = splitName(q);
       queue.appendChild(li);
     });
 
@@ -88,7 +88,7 @@ function updateLive(data) {
       const refTime = r.reference_time_ms ? formatTime(r.reference_time_ms) : '—';
       const cls = r.reference_time_ms && r.time_ms <= r.reference_time_ms ? 'ahead' : 'behind';
       li.innerHTML = '<span class="' + cls + '">' + time + '</span> / ' + refTime +
-        ' <span class="dim">' + (r.description || r.goal || '') + '</span>';
+        ' <span class="dim">' + splitName(r) + '</span>';
       recent.appendChild(li);
     });
 
@@ -143,14 +143,19 @@ function updateModel(data) {
       ? (s.drift < 0 ? '↓' : s.drift > 0 ? '↑' : '→')
       : '—';
     tr.className = 'drift-row-' + driftClass;
-    const confMap = { confident: 'high', moderate: 'mod', uncertain: 'unc' };
-    const conf = confMap[s.drift_info?.confidence] || s.drift_info?.confidence || '—';
+    // Quantitative confidence: show CI range
+    let confCell = '—';
+    if (s.drift_info && s.drift_info.ci_lower != null) {
+      const lo = s.drift_info.ci_lower.toFixed(2);
+      const hi = s.drift_info.ci_upper.toFixed(2);
+      confCell = '<span class="dim">[' + lo + ', ' + hi + ']</span>';
+    }
     tr.innerHTML =
-      '<td>' + (s.description || s.goal) + '</td>' +
+      '<td>' + splitName(s) + '</td>' +
       '<td>' + (s.mu !== null ? s.mu.toFixed(1) : '—') + '</td>' +
       '<td class="drift-' + driftClass + '">' + arrow + ' ' +
         (s.drift !== null ? Math.abs(s.drift).toFixed(2) : '—') + '</td>' +
-      '<td>' + conf + '</td>' +
+      '<td>' + confCell + '</td>' +
       '<td>' + (s.marginal_return ? s.marginal_return.toFixed(4) : '—') + '</td>' +
       '<td>' + s.n_completed + '</td>' +
       '<td>' + (s.gold_ms !== null ? formatTime(s.gold_ms) : '—') + '</td>';
@@ -163,6 +168,14 @@ function updateModel(data) {
 }
 
 // === Utilities ===
+function splitName(s) {
+  if (s.description) return s.description;
+  // Build from level number + goal when description is empty
+  let name = 'L' + (s.level_number != null ? s.level_number : '?');
+  if (s.goal && s.goal !== 'normal') name += ' (' + s.goal + ')';
+  return name;
+}
+
 function formatTime(ms) {
   if (ms == null) return '—';
   const s = ms / 1000;

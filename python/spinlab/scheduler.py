@@ -37,6 +37,18 @@ class Scheduler:
         self.estimator: Estimator = get_estimator(saved_est or estimator_name)
         self.allocator: Allocator = get_allocator(saved_alloc or allocator_name)
 
+    def _sync_config_from_db(self) -> None:
+        """Re-read allocator/estimator config from DB.
+
+        Allows dashboard config changes to take effect in a running orchestrator.
+        """
+        saved_alloc = self.db.load_allocator_config("allocator")
+        if saved_alloc and saved_alloc != self.allocator.name:
+            self.allocator = get_allocator(saved_alloc)
+        saved_est = self.db.load_allocator_config("estimator")
+        if saved_est and saved_est != self.estimator.name:
+            self.estimator = get_estimator(saved_est)
+
     def _load_splits_with_model(self) -> list[SplitWithModel]:
         """Load all active splits and hydrate with estimator state."""
         rows = self.db.get_all_splits_with_model(self.game_id)
@@ -86,6 +98,7 @@ class Scheduler:
 
     def pick_next(self) -> SplitWithModel | None:
         """Pick next split to practice."""
+        self._sync_config_from_db()
         splits = self._load_splits_with_model()
         if not splits:
             return None
