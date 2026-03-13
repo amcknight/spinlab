@@ -122,6 +122,8 @@ Worktrees live in `.worktrees/{name}/` with branch `worktree/{name}`.
 - **Main checkout (not in a worktree):** Full access to dashboard, TCP ports, emulator, Playwright tests. No need to ask.
 - **In a worktree:** Editing code and running unit tests is always OK (tests use in-memory DBs). Binding ports (dashboard, TCP), running Playwright, or launching the emulator requires **asking the user first** — another session may be using those resources.
 
+**Pip editable installs:** `pip install -e` is path-bound. The worktree shares the same virtualenv but the editable install still resolves to whichever checkout was last installed. This is fine for unit tests (they use `sys.path` manipulation), but if imports fail in a worktree, re-run `pip install -e python/` from the worktree root.
+
 **Cleanup lifecycle:**
 
 1. When a worktree branch is merged or abandoned, remove the worktree: `git worktree remove .worktrees/{name}`
