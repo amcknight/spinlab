@@ -2,7 +2,7 @@ emulator:
   path: "C:/path/to/Mesen.exe"
   type: mesen2
   lua_script: "lua/spinlab.lua"
-  script_data_dir: "C:/Users/<you>/Documents/Mesen2/LuaScriptData/spinlab"  # where Lua writes its files
+  script_data_dir: "C:/Users/<you>/Documents/Mesen2/LuaScriptData/spinlab"
 
 rom:
   path: ""  # Optional — leave empty to load ROM from Mesen UI
@@ -17,9 +17,9 @@ network:
   host: "127.0.0.1"
 
 scheduler:
-  algorithm: sm2
-  base_interval_minutes: 5
-  auto_rate_passive: false
+  estimator: kalman
+  allocator: greedy
+  auto_advance_delay_s: 2.0
 
 data:
   dir: "data"
