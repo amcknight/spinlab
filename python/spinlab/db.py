@@ -166,6 +166,7 @@ class Database:
                  description=excluded.description,
                  ordinal=excluded.ordinal,
                  reference_id=excluded.reference_id,
+                 active=excluded.active,
                  updated_at=excluded.updated_at""",
             (split.id, split.game_id, split.level_number, split.room_id,
              split.goal, split.description, split.state_path,
