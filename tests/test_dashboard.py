@@ -75,3 +75,29 @@ def test_practice_stop_not_running(client):
     resp = client.post("/api/practice/stop")
     assert resp.status_code == 200
     assert resp.json()["status"] == "not_running"
+
+
+def test_reference_start_not_connected(client):
+    resp = client.post("/api/reference/start")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "not_connected"
+
+
+def test_reference_stop_not_in_reference(client):
+    resp = client.post("/api/reference/stop")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "not_in_reference"
+
+
+def test_reset_clears_mode_state(client, db):
+    db.create_session("s1", "test_game")
+    db.end_session("s1", 5, 3)
+    resp = client.post("/api/reset")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+
+
+def test_launch_emulator_no_config(client):
+    resp = client.post("/api/emulator/launch")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "error"
