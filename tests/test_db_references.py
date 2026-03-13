@@ -12,6 +12,19 @@ def db(tmp_path):
     return d
 
 
+@pytest.fixture
+def tmp_db(tmp_path):
+    return Database(tmp_path / "tmp.db")
+
+
+def test_upsert_game_preserves_existing_name(tmp_db):
+    """upsert_game should not overwrite name if game already exists."""
+    tmp_db.upsert_game("g1", "Original Name", "any%")
+    tmp_db.upsert_game("g1", "New Name", "any%")
+    row = tmp_db.conn.execute("SELECT name FROM games WHERE id = ?", ("g1",)).fetchone()
+    assert row[0] == "Original Name"
+
+
 class TestCaptureRunCRUD:
     def test_create_and_list(self, db):
         db.create_capture_run("ref1", "g", "First Run")

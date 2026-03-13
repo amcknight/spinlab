@@ -145,7 +145,8 @@ class Database:
     def upsert_game(self, game_id: str, name: str, category: str) -> None:
         now = datetime.utcnow().isoformat()
         self.conn.execute(
-            "INSERT OR REPLACE INTO games (id, name, category, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO games (id, name, category, created_at) VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(id) DO NOTHING",
             (game_id, name, category, now),
         )
         self.conn.commit()
