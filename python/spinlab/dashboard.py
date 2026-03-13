@@ -32,6 +32,12 @@ def create_app(
     app = FastAPI(title="SpinLab Dashboard")
     app.state.config = config or {}
 
+    # Ensure game row exists (FK target for capture_runs, splits, etc.)
+    cfg = config or {}
+    game_name = cfg.get("game", {}).get("name", game_id)
+    category = cfg.get("game", {}).get("category", "any%")
+    db.upsert_game(game_id, game_name, category)
+
     static_dir = Path(__file__).parent / "static"
     if static_dir.is_dir():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
@@ -256,6 +262,9 @@ def create_app(
         ps = PracticeSession(tcp=tcp, db=db, game_id=game_id)
         _practice[0] = ps
         _practice_task[0] = asyncio.create_task(ps.run_loop())
+        _practice_task[0].add_done_callback(
+            lambda _: _mode.__setitem__(0, "idle") if _mode[0] == "practice" else None
+        )
         _mode[0] = "practice"
         return {"status": "started", "session_id": ps.session_id}
 
@@ -268,6 +277,10 @@ def create_app(
                     await asyncio.wait_for(_practice_task[0], timeout=5)
                 except asyncio.TimeoutError:
                     _practice_task[0].cancel()
+            _mode[0] = "idle"
+            return {"status": "stopped"}
+        # Session already self-terminated but mode stuck — clean up
+        if _mode[0] == "practice":
             _mode[0] = "idle"
             return {"status": "stopped"}
         return {"status": "not_running"}
