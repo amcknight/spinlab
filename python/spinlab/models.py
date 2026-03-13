@@ -25,6 +25,7 @@ class Split:
     reference_time_ms: Optional[int] = None
     strat_version: int = 1
     active: bool = True
+    ordinal: Optional[int] = None
 
     @staticmethod
     def make_id(game_id: str, level: int, room: int, goal: str) -> str:

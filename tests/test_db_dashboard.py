@@ -74,6 +74,26 @@ def test_get_all_splits_with_model(db):
     assert "estimator" in results[0]  # LEFT JOIN column exists
 
 
+def test_splits_ordered_by_ordinal(tmp_path):
+    """get_all_splits_with_model should return splits ordered by ordinal."""
+    from spinlab.db import Database
+    from spinlab.models import Split
+
+    db = Database(tmp_path / "test.db")
+    db.upsert_game("g", "Game", "any%")
+
+    # Insert splits with ordinals out of level_number order
+    for level, ordinal in [(30, 1), (10, 2), (20, 3)]:
+        s = Split(id=f"g:{level}:0:normal", game_id="g",
+                  level_number=level, room_id=0, goal="normal",
+                  ordinal=ordinal)
+        db.upsert_split(s)
+
+    rows = db.get_all_splits_with_model("g")
+    levels = [r["level_number"] for r in rows]
+    assert levels == [30, 10, 20], f"Expected ordinal order [30,10,20], got {levels}"
+
+
 def test_get_session_history(db):
     db.create_session("sess1", "test_game")
     db.end_session("sess1", 10, 8)

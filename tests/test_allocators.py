@@ -85,3 +85,32 @@ class TestRoundRobinAllocator:
         splits = [_make_split("a", 0.0), _make_split("b", 0.0), _make_split("c", 0.0)]
         result = alloc.peek_next_n(splits, 2)
         assert result == ["a", "b"]
+
+
+def _make_split_with_ordinal(split_id: str, ordinal: int) -> SplitWithModel:
+    return SplitWithModel(
+        split_id=split_id,
+        game_id="test",
+        level_number=ordinal * 10,
+        room_id=None,
+        goal="normal",
+        description=f"Split {split_id}",
+        strat_version=1,
+        reference_time_ms=None,
+        state_path=None,
+        active=True,
+        marginal_return=0.0,
+    )
+
+
+class TestRoundRobinOrdinalOrder:
+    def test_cycles_in_list_order(self):
+        """Round Robin should iterate in the order splits are provided."""
+        alloc = RoundRobinAllocator()
+        splits = [
+            _make_split_with_ordinal("c", 1),
+            _make_split_with_ordinal("a", 2),
+            _make_split_with_ordinal("b", 3),
+        ]
+        results = [alloc.pick_next(splits) for _ in range(3)]
+        assert results == ["c", "a", "b"]

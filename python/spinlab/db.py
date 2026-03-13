@@ -110,6 +110,11 @@ class Database:
                 value TEXT
             )
         """)
+        # --- Migration: add ordinal column to splits ---
+        cur = self.conn.execute("PRAGMA table_info(splits)")
+        col_names = [row[1] for row in cur.fetchall()]
+        if "ordinal" not in col_names:
+            self.conn.execute("ALTER TABLE splits ADD COLUMN ordinal INTEGER")
         self.conn.commit()
 
     def close(self) -> None:
@@ -131,17 +136,18 @@ class Database:
         now = datetime.utcnow().isoformat()
         self.conn.execute(
             """INSERT INTO splits (id, game_id, level_number, room_id, goal, description,
-               state_path, reference_time_ms, strat_version, active, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               state_path, reference_time_ms, strat_version, active, ordinal, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  state_path=excluded.state_path,
                  reference_time_ms=excluded.reference_time_ms,
                  description=excluded.description,
+                 ordinal=excluded.ordinal,
                  updated_at=excluded.updated_at""",
             (split.id, split.game_id, split.level_number, split.room_id,
              split.goal, split.description, split.state_path,
              split.reference_time_ms, split.strat_version, int(split.active),
-             now, now),
+             split.ordinal, now, now),
         )
         self.conn.commit()
 
@@ -327,22 +333,22 @@ class Database:
         return row[0] if row else None
 
     def get_all_splits_with_model(self, game_id: str) -> list[dict]:
-        """Get all active splits LEFT JOIN model_state."""
+        """Get all active splits LEFT JOIN model_state, ordered by ordinal."""
         cur = self.conn.execute(
             """SELECT s.id, s.game_id, s.level_number, s.room_id, s.goal,
                       s.description, s.strat_version, s.reference_time_ms,
-                      s.state_path, s.active,
+                      s.state_path, s.active, s.ordinal,
                       m.estimator, m.state_json, m.marginal_return
                FROM splits s
                LEFT JOIN model_state m ON s.id = m.split_id
                WHERE s.game_id = ? AND s.active = 1
-               ORDER BY s.level_number, s.room_id""",
+               ORDER BY s.ordinal, s.level_number, s.room_id""",
             (game_id,),
         )
         cols = [
             "id", "game_id", "level_number", "room_id", "goal",
             "description", "strat_version", "reference_time_ms",
-            "state_path", "active",
+            "state_path", "active", "ordinal",
             "estimator", "state_json", "marginal_return",
         ]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
@@ -386,4 +392,5 @@ class Database:
             reference_time_ms=row["reference_time_ms"],
             strat_version=row["strat_version"],
             active=bool(row["active"]),
+            ordinal=row["ordinal"] if "ordinal" in row.keys() else None,
         )

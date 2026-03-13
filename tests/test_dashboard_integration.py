@@ -136,9 +136,11 @@ class TestLiveState:
         assert drift["drift"] == pytest.approx(-0.15)
 
     def test_queue_contains_next_splits(self, active_client):
+        """Queue is now computed server-side: peek 3, exclude current, cap at 2."""
         data = active_client.get("/api/state").json()
         queue_ids = [s["id"] for s in data["queue"]]
-        assert queue_ids == ["s2", "s3", "s4"]
+        assert len(queue_ids) == 2
+        assert "s1" not in queue_ids  # current split excluded
 
     def test_recent_attempts_ordered_newest_first(self, active_client):
         data = active_client.get("/api/state").json()

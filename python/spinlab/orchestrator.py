@@ -89,7 +89,7 @@ def seed_db_from_manifest(db: Database, manifest: dict, game_name: str) -> None:
     category: str = manifest.get("category", "any%")
     db.upsert_game(game_id, game_name, category)
 
-    for entry in manifest["splits"]:
+    for idx, entry in enumerate(manifest["splits"], start=1):
         split = Split(
             id=entry["id"],
             game_id=game_id,
@@ -99,6 +99,7 @@ def seed_db_from_manifest(db: Database, manifest: dict, game_name: str) -> None:
             description=entry.get("name", ""),
             state_path=entry.get("state_path"),
             reference_time_ms=entry.get("reference_time_ms"),
+            ordinal=idx,
         )
         db.upsert_split(split)
 
