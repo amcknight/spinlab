@@ -54,3 +54,25 @@ def test_leaves_partial_second_message_in_buffer():
     result, remaining = _parse_attempt_result_from_buffer(buf)
     assert result == GOOD_RESULT
     assert remaining == partial
+
+
+def test_split_command_includes_expected_time_ms():
+    from spinlab.models import SplitCommand
+    cmd = SplitCommand(
+        id="s1", state_path="/tmp/s.mss", goal="normal",
+        description="Test", reference_time_ms=5000,
+        expected_time_ms=4200,
+    )
+    d = cmd.to_dict()
+    assert d["expected_time_ms"] == 4200
+    assert d["reference_time_ms"] == 5000
+
+
+def test_split_command_expected_time_defaults_none():
+    from spinlab.models import SplitCommand
+    cmd = SplitCommand(
+        id="s1", state_path="/tmp/s.mss", goal="normal",
+        description="Test", reference_time_ms=5000,
+    )
+    d = cmd.to_dict()
+    assert d["expected_time_ms"] is None

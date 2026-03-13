@@ -197,6 +197,13 @@ def run(config_path: Path = Path("config.yaml")) -> None:
                 print("No splits available — exiting.")
                 break
 
+            # Compute expected time from estimator μ, fall back to reference
+            expected_time_ms = None
+            if (picked.estimator_state is not None
+                    and hasattr(picked.estimator_state, "mu")
+                    and picked.estimator_state.mu > 0):
+                expected_time_ms = int(picked.estimator_state.mu * 1000)
+
             cmd = SplitCommand(
                 id=picked.split_id,
                 state_path=picked.state_path,
@@ -204,6 +211,7 @@ def run(config_path: Path = Path("config.yaml")) -> None:
                 description=picked.description,
                 reference_time_ms=picked.reference_time_ms,
                 auto_advance_delay_ms=auto_advance_delay_ms,
+                expected_time_ms=expected_time_ms,
             )
 
             if cmd.state_path and not os.path.exists(cmd.state_path):

@@ -146,6 +146,7 @@ local function parse_practice_split(json_str)
     description            = json_get_str(json_str, "description") or "",
     reference_time_ms      = json_get_num(json_str, "reference_time_ms"),
     auto_advance_delay_ms  = json_get_num(json_str, "auto_advance_delay_ms") or 2000,
+    expected_time_ms       = json_get_num(json_str, "expected_time_ms"),
   }
 end
 
@@ -177,23 +178,27 @@ local function draw_practice_overlay()
   if not practice_mode then return end
 
   local label = practice_split and format_goal(practice_split.goal) or "?"
+  -- Use expected time (Kalman μ) for comparison, fall back to reference time
+  local compare_time = nil
+  if practice_split then
+    compare_time = practice_split.expected_time_ms or practice_split.reference_time_ms
+  end
 
   if practice_state == PSTATE_PLAYING or practice_state == PSTATE_LOADING then
     local elapsed = ts_ms() - practice_start_ms
-    local ref     = practice_split.reference_time_ms
 
     -- Row 1: goal label
     draw_text(4, 2, label, 0x00000000, 0xFFFFFFFF)
 
-    -- Row 2: timer / reference, color-coded
+    -- Row 2: timer / compare_time, color-coded
     local timer_color
-    if ref then
-      timer_color = (elapsed < ref) and 0xFF44FF44 or 0xFFFF4444
+    if compare_time then
+      timer_color = (elapsed < compare_time) and 0xFF44FF44 or 0xFFFF4444
     else
       timer_color = 0xFFFFFFFF
     end
-    local ref_str = ref and ms_to_display(ref) or "?"
-    draw_text(4, 12, ms_to_display(elapsed) .. " / " .. ref_str, 0x00000000, timer_color)
+    local cmp_str = compare_time and ms_to_display(compare_time) or "?"
+    draw_text(4, 12, ms_to_display(elapsed) .. " / " .. cmp_str, 0x00000000, timer_color)
 
   elseif practice_state == PSTATE_RESULT then
     local prefix = practice_completed and "Clear!" or "Abort"
@@ -201,16 +206,15 @@ local function draw_practice_overlay()
     -- Row 1: goal label
     draw_text(4, 2, label, 0x00000000, 0xFFFFFFFF)
 
-    -- Row 2: result time / reference
-    local ref = practice_split.reference_time_ms
+    -- Row 2: result time / compare_time
     local timer_color
-    if ref then
-      timer_color = (practice_elapsed_ms < ref) and 0xFF44FF44 or 0xFFFF4444
+    if compare_time then
+      timer_color = (practice_elapsed_ms < compare_time) and 0xFF44FF44 or 0xFFFF4444
     else
       timer_color = 0xFFFFFFFF
     end
-    local ref_str2 = ref and ms_to_display(ref) or "?"
-    draw_text(4, 12, prefix .. "  " .. ms_to_display(practice_elapsed_ms) .. " / " .. ref_str2, 0x00000000, timer_color)
+    local cmp_str2 = compare_time and ms_to_display(compare_time) or "?"
+    draw_text(4, 12, prefix .. "  " .. ms_to_display(practice_elapsed_ms) .. " / " .. cmp_str2, 0x00000000, timer_color)
 
     -- Row 3: countdown to auto-advance
     local remaining = practice_auto_advance_ms - (ts_ms() - practice_result_start_ms)
