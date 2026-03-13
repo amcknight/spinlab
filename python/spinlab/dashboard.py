@@ -25,10 +25,12 @@ def create_app(
     state_file: Path | None = None,  # deprecated, ignored
     host: str = "127.0.0.1",
     port: int = 15482,
+    config: dict | None = None,
 ) -> FastAPI:
     from spinlab.scheduler import Scheduler
 
     app = FastAPI(title="SpinLab Dashboard")
+    app.state.config = config or {}
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.is_dir():
@@ -52,11 +54,13 @@ def create_app(
     _practice: list = [None]   # PracticeSession | None
     _practice_task: list = [None]  # asyncio.Task | None
     _reconnect_task: list = [None]
+    _mode: list[str] = ["idle"]  # "idle" | "reference" | "practice"
 
     # Expose internal state for testing
     app.state.tcp = tcp
     app.state._practice = _practice
     app.state._scheduler = _scheduler
+    app.state._mode = _mode
 
     def _get_scheduler() -> Scheduler:
         if _scheduler[0] is None:
@@ -64,11 +68,7 @@ def create_app(
         return _scheduler[0]
 
     def _current_mode() -> str:
-        if _practice[0] and _practice[0].is_running:
-            return "practice"
-        if tcp.is_connected:
-            return "reference"
-        return "idle"
+        return _mode[0]
 
     # -- Reference capture state --
     _ref_pending: dict[tuple, dict] = {}  # (level, room) -> entrance event
@@ -80,8 +80,15 @@ def create_app(
         _ref_pending.clear()
         _ref_splits_count[0] = 0
         _ref_capture_run_id[0] = None
+        _mode[0] = "idle"
 
-    tcp.on_disconnect = _clear_ref_state
+    def _on_disconnect():
+        """Handle TCP disconnect: stop practice if running, clear ref state."""
+        if _practice[0] and _practice[0].is_running:
+            _practice[0].is_running = False
+        _clear_ref_state()
+
+    tcp.on_disconnect = _on_disconnect
 
     # -- TCP auto-reconnect --
     async def _reconnect_loop():
@@ -101,8 +108,8 @@ def create_app(
                 if event is None:
                     continue
 
-                # During practice, PracticeSession reads from the same queue
-                if _practice[0] and _practice[0].is_running:
+                # Only capture events in reference mode
+                if _mode[0] != "reference":
                     continue
 
                 # Reference mode: pair transition events into splits
@@ -110,14 +117,6 @@ def create_app(
                 if evt_type == "level_entrance":
                     key = (event["level"], event["room"])
                     _ref_pending[key] = event
-
-                    # Create capture_run on first entrance event
-                    if _ref_capture_run_id[0] is None:
-                        run_id = f"live_{uuid.uuid4().hex[:8]}"
-                        run_name = f"Live {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
-                        db.create_capture_run(run_id, game_id, run_name)
-                        db.set_active_capture_run(run_id)
-                        _ref_capture_run_id[0] = run_id
 
                 elif evt_type == "level_exit":
                     key = (event["level"], event["room"])
@@ -221,6 +220,28 @@ def create_app(
             "estimator": sched.estimator.name,
         }
 
+    @app.post("/api/reference/start")
+    def reference_start():
+        if _mode[0] == "practice":
+            return {"status": "practice_active"}
+        if not tcp.is_connected:
+            return {"status": "not_connected"}
+        _clear_ref_state()  # reset any stale state
+        run_id = f"live_{uuid.uuid4().hex[:8]}"
+        run_name = f"Live {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
+        db.create_capture_run(run_id, game_id, run_name)
+        db.set_active_capture_run(run_id)
+        _ref_capture_run_id[0] = run_id
+        _mode[0] = "reference"
+        return {"status": "started", "run_id": run_id, "run_name": run_name}
+
+    @app.post("/api/reference/stop")
+    def reference_stop():
+        if _mode[0] != "reference":
+            return {"status": "not_in_reference"}
+        _clear_ref_state()  # resets mode to idle
+        return {"status": "stopped"}
+
     @app.post("/api/practice/start")
     async def practice_start():
         if _practice[0] and _practice[0].is_running:
@@ -228,21 +249,26 @@ def create_app(
         if not tcp.is_connected:
             return {"status": "not_connected"}
 
+        # Clean up reference state if transitioning from reference mode
+        if _mode[0] == "reference":
+            _clear_ref_state()
+
         ps = PracticeSession(tcp=tcp, db=db, game_id=game_id)
         _practice[0] = ps
         _practice_task[0] = asyncio.create_task(ps.run_loop())
+        _mode[0] = "practice"
         return {"status": "started", "session_id": ps.session_id}
 
     @app.post("/api/practice/stop")
     async def practice_stop():
         if _practice[0] and _practice[0].is_running:
             _practice[0].is_running = False
-            # Wait briefly for clean shutdown
             if _practice_task[0]:
                 try:
                     await asyncio.wait_for(_practice_task[0], timeout=5)
                 except asyncio.TimeoutError:
                     _practice_task[0].cancel()
+            _mode[0] = "idle"
             return {"status": "stopped"}
         return {"status": "not_running"}
 
@@ -289,9 +315,18 @@ def create_app(
         return {"estimator": name}
 
     @app.post("/api/reset")
-    def reset_data():
+    async def reset_data():
+        # Stop active practice session if running
+        if _practice[0] and _practice[0].is_running:
+            _practice[0].is_running = False
+            if _practice_task[0]:
+                try:
+                    await asyncio.wait_for(_practice_task[0], timeout=5)
+                except asyncio.TimeoutError:
+                    _practice_task[0].cancel()
+        _clear_ref_state()  # resets mode, ref state
         db.reset_all_data()
-        _scheduler[0] = None  # force re-init with fresh defaults
+        _scheduler[0] = None
         return {"status": "ok"}
 
     @app.get("/api/splits")
@@ -348,6 +383,29 @@ def create_app(
     @app.delete("/api/splits/{split_id}")
     def delete_split(split_id: str):
         db.soft_delete_split(split_id)
+        return {"status": "ok"}
+
+    # -- Emulator launch --
+
+    @app.post("/api/emulator/launch")
+    def launch_emulator():
+        import subprocess
+        cfg = app.state.config
+        emu_path = cfg.get("emulator", {}).get("path", "")
+        if not emu_path or not Path(emu_path).exists():
+            return {"status": "error", "message": f"Emulator not found: {emu_path}"}
+        rom_path = cfg.get("rom", {}).get("path", "")
+        lua_script = cfg.get("emulator", {}).get("lua_script", "")
+        cmd = [emu_path]
+        if rom_path and Path(rom_path).exists():
+            cmd.append(rom_path)
+        if lua_script:
+            script_path = Path(lua_script)
+            if not script_path.is_absolute():
+                script_path = Path.cwd() / script_path
+            if script_path.exists():
+                cmd.append(str(script_path))
+        subprocess.Popen(cmd)
         return {"status": "ok"}
 
     # -- Manifest import --
