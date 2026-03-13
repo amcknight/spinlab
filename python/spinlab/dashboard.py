@@ -154,7 +154,7 @@ def create_app(
                             checksum = rom_checksum(rom_path)
                             name = game_name_from_filename(filename)
                             _switch_game(checksum, name, default_category)
-                            tcp.send(json.dumps({
+                            await tcp.send(json.dumps({
                                 "event": "game_context",
                                 "game_id": checksum,
                                 "game_name": name,
@@ -164,7 +164,7 @@ def create_app(
                             name = game_name_from_filename(filename)
                             fallback_id = f"file_{name.lower().replace(' ', '_')}"
                             _switch_game(fallback_id, name, default_category)
-                            tcp.send(json.dumps({
+                            await tcp.send(json.dumps({
                                 "event": "game_context",
                                 "game_id": fallback_id,
                                 "game_name": name,
