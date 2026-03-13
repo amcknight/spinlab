@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Callable
 
 from .models import Attempt, SplitCommand
@@ -36,7 +36,7 @@ class PracticeSession:
 
         self.scheduler = Scheduler(db, game_id)
         self.session_id = uuid.uuid4().hex
-        self.started_at = datetime.utcnow().isoformat() + "Z"
+        self.started_at = datetime.now(UTC).isoformat() + "Z"
 
         self.is_running = False
         self.current_split_id: str | None = None

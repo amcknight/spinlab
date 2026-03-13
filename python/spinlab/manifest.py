@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -35,7 +35,7 @@ def seed_db_from_manifest(db: Database, manifest: dict, game_name: str) -> None:
     db.upsert_game(game_id, game_name, category)
 
     # Create a capture_run for this manifest
-    captured_at = manifest.get("captured_at", datetime.utcnow().isoformat())
+    captured_at = manifest.get("captured_at", datetime.now(UTC).isoformat())
     run_id = f"manifest_{uuid.uuid4().hex[:8]}"
     run_name = f"Capture {captured_at[:10]}"
     db.create_capture_run(run_id, game_id, run_name)

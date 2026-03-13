@@ -1,7 +1,7 @@
 """SpinLab data models."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 
@@ -43,7 +43,7 @@ class Attempt:
     rating: str | None = None
     strat_version: int = 1
     source: str = "practice"
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass

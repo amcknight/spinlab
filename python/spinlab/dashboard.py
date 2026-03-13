@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -317,7 +317,7 @@ def create_app(
         gid = _require_game()
         _clear_ref_state()  # reset any stale state
         run_id = f"live_{uuid.uuid4().hex[:8]}"
-        run_name = f"Live {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
+        run_name = f"Live {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')}"
         db.create_capture_run(run_id, gid, run_name)
         db.set_active_capture_run(run_id)
         _ref_capture_run_id[0] = run_id

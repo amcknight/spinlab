@@ -1,7 +1,7 @@
 """SpinLab database layer — SQLite."""
 
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -143,7 +143,7 @@ class Database:
     # -- Games --
 
     def upsert_game(self, game_id: str, name: str, category: str) -> None:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             "INSERT INTO games (id, name, category, created_at) VALUES (?, ?, ?, ?)"
             " ON CONFLICT(id) DO NOTHING",
@@ -154,7 +154,7 @@ class Database:
     # -- Splits --
 
     def upsert_split(self, split: Split) -> None:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             """INSERT INTO splits (id, game_id, level_number, room_id, goal, description,
                state_path, reference_time_ms, strat_version, active, ordinal, reference_id,
@@ -181,7 +181,7 @@ class Database:
         return [self._row_to_split(r) for r in rows]
 
     def deactivate_split(self, split_id: str) -> None:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             "UPDATE splits SET active = 0, updated_at = ? WHERE id = ?",
             (now, split_id),
@@ -189,7 +189,7 @@ class Database:
         self.conn.commit()
 
     def increment_strat_version(self, split_id: str) -> None:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             "UPDATE splits SET strat_version = strat_version + 1, updated_at = ? WHERE id = ?",
             (now, split_id),
@@ -234,7 +234,7 @@ class Database:
     # -- Sessions --
 
     def create_session(self, session_id: str, game_id: str) -> None:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             "INSERT INTO sessions (id, game_id, started_at) VALUES (?, ?, ?)",
             (session_id, game_id, now),
@@ -242,7 +242,7 @@ class Database:
         self.conn.commit()
 
     def end_session(self, session_id: str, splits_attempted: int, splits_completed: int) -> None:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             """UPDATE sessions SET ended_at = ?, splits_attempted = ?, splits_completed = ?
                WHERE id = ?""",
@@ -298,7 +298,7 @@ class Database:
     def save_model_state(
         self, split_id: str, estimator: str, state_json: str, marginal_return: float
     ) -> None:
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(UTC).isoformat() + "Z"
         self.conn.execute(
             """INSERT INTO model_state (split_id, estimator, state_json, marginal_return, updated_at)
                VALUES (?, ?, ?, ?, ?)
@@ -422,7 +422,7 @@ class Database:
     # -- Capture Runs --
 
     def create_capture_run(self, run_id: str, game_id: str, name: str) -> None:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             "INSERT INTO capture_runs (id, game_id, name, created_at, active) "
             "VALUES (?, ?, ?, ?, 0)",
@@ -461,7 +461,7 @@ class Database:
 
     def delete_capture_run(self, run_id: str) -> None:
         """Soft-delete: deactivate all splits in the run, null FK, remove the record."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             "UPDATE splits SET active = 0, reference_id = NULL, updated_at = ? "
             "WHERE reference_id = ?",
@@ -492,7 +492,7 @@ class Database:
             return
         if "active" in updates:
             updates["active"] = int(updates["active"])
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).isoformat()
         sets = ", ".join(f"{k} = ?" for k in updates)
         vals = list(updates.values()) + [now, split_id]
         self.conn.execute(
