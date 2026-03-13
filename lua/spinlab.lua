@@ -22,6 +22,7 @@ local socket = require("socket.core")
 -----------------------------------------------------------------------
 local TCP_PORT   = 15482
 local TCP_HOST   = "127.0.0.1"
+local JSONL_LOGGING = false  -- set true to enable passive_log.jsonl (debugging)
 local game_id    = nil  -- set dynamically from dashboard via game_context
 local DATA_DIR   = emu.getScriptDataFolder()
 local STATE_DIR  = DATA_DIR .. "/states"
@@ -331,7 +332,9 @@ local function detect_transitions(curr)
         session    = "passive",
         state_path = state_path or "",
       }
-      log_jsonl(event_data)
+      if JSONL_LOGGING then
+        log_jsonl(event_data)
+      end
       -- Forward over TCP for live reference capture
       if client and not practice_mode then
         client:send(to_json(event_data) .. "\n")
@@ -358,7 +361,9 @@ local function detect_transitions(curr)
       ts_ms      = ts_ms(),
       session    = "passive",
     }
-    log_jsonl(event_data)
+    if JSONL_LOGGING then
+      log_jsonl(event_data)
+    end
     -- Forward over TCP for live reference capture
     if client and not practice_mode then
       client:send(to_json(event_data) .. "\n")
