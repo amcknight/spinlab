@@ -5,12 +5,10 @@ emulator:
   script_data_dir: "C:/Users/<you>/Documents/Mesen2/LuaScriptData/spinlab"
 
 rom:
-  path: ""  # Optional — leave empty to load ROM from Mesen UI
+  dir: "C:/path/to/your/romhacks"  # directory containing ROM files (.sfc/.smc)
 
 game:
-  id: smw_cod
-  name: "SMW: City of Dreams"
-  category: "any%"
+  category: "any%"  # default category for auto-discovered games
 
 network:
   port: 15482

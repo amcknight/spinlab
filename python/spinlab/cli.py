@@ -40,25 +40,26 @@ def main(args: list[str] | None = None) -> None:
         import yaml
         from spinlab.dashboard import create_app
         from spinlab.db import Database
-        from spinlab.manifest import find_latest_manifest, load_manifest, seed_db_from_manifest
 
         config_path = Path(parsed.config)
         with config_path.open(encoding="utf-8") as f:
             config = yaml.safe_load(f)
-        game_id = config["game"]["id"]
         data_dir = Path(config["data"]["dir"])
         host = config.get("network", {}).get("host", "127.0.0.1")
         port = config.get("network", {}).get("port", 15482)
+        rom_dir_str = config.get("rom", {}).get("dir", "")
+        rom_dir = Path(rom_dir_str) if rom_dir_str else None
+        default_category = config.get("game", {}).get("category", "any%")
         db = Database(data_dir / "spinlab.db")
 
-        # Seed DB from manifest if splits are empty
-        if not db.get_active_splits(game_id):
-            manifest_path = find_latest_manifest(data_dir)
-            if manifest_path:
-                manifest = load_manifest(manifest_path)
-                seed_db_from_manifest(db, manifest, config["game"]["name"])
-
-        app = create_app(db=db, game_id=game_id, host=host, port=port, config=config)
+        app = create_app(
+            db=db,
+            rom_dir=rom_dir,
+            host=host,
+            port=port,
+            config=config,
+            default_category=default_category,
+        )
         print(f"SpinLab Dashboard: http://localhost:{parsed.port}")
         uvicorn.run(app, host="0.0.0.0", port=parsed.port, log_level="warning")
 
