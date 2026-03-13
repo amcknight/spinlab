@@ -97,7 +97,12 @@ local function ts_ms()
 end
 
 local function ensure_dir(path)
-  os.execute('mkdir -p "' .. path .. '"')
+  if package.config:sub(1, 1) == "\\" then
+    -- Windows: mkdir creates parent dirs by default, 2>NUL suppresses "already exists"
+    os.execute('mkdir "' .. path:gsub("/", "\\") .. '" 2>NUL')
+  else
+    os.execute('mkdir -p "' .. path .. '" 2>/dev/null')
+  end
 end
 
 local function save_state_to_file(path)
