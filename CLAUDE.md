@@ -110,6 +110,23 @@ Extract these from the kaizosplits source and define them in a config section in
 
 Red-Green TDD. After tests pass, remove trivial/scaffolding tests and clean up — keep only tests that document behavior or catch regressions. For Lua, use Mesen2's `--testRunner` headless mode where possible; otherwise manual testing in-emulator.
 
+## Worktrees
+
+Worktrees live in `.worktrees/{name}/` with branch `worktree/{name}`.
+
+**Detection:** `git rev-parse --show-toplevel` — if it contains `.worktrees/`, you're in a worktree.
+
+**Resource policy:**
+
+- **Main checkout (not in a worktree):** Full access to dashboard, TCP ports, emulator, Playwright tests. No need to ask.
+- **In a worktree:** Editing code and running unit tests is always OK (tests use in-memory DBs). Binding ports (dashboard, TCP), running Playwright, or launching the emulator requires **asking the user first** — another session may be using those resources.
+
+**Cleanup lifecycle:**
+
+1. When a worktree branch is merged or abandoned, remove the worktree: `git worktree remove .worktrees/{name}`
+2. If the branch was merged, delete it: `git branch -d worktree/{name}`
+3. Prune stale worktree references: `git worktree prune`
+
 ## Things NOT To Build Yet
 
 - MCP server for Mesen2 (separate project, cool but deferred)
