@@ -127,10 +127,7 @@ Worktrees live in `.worktrees/{name}/` with branch `worktree/{name}`.
 2. If the branch was merged, delete it: `git branch -d worktree/{name}`
 3. Prune stale worktree references: `git worktree prune`
 
-## Things NOT To Build Yet
+## Superpowers Visual Companion (Windows)
 
-- MCP server for Mesen2 (separate project, cool but deferred)
-- Web UI for analytics (TUI is sufficient for now)
-- Data-driven VoI optimizer (keep the scheduler interface flexible for this later)
-- Multi-game support (design for it in the schema, but only implement SMW initially)
-- Video recording integration
+The brainstorming visual companion server must be launched with `--foreground` and `run_in_background: true` on Windows — background mode dies immediately. The `.superpowers/` directory is gitignored.
+
