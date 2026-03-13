@@ -298,7 +298,7 @@ class Database:
     def save_model_state(
         self, split_id: str, estimator: str, state_json: str, marginal_return: float
     ) -> None:
-        now = datetime.now(UTC).isoformat() + "Z"
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             """INSERT INTO model_state (split_id, estimator, state_json, marginal_return, updated_at)
                VALUES (?, ?, ?, ?, ?)

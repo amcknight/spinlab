@@ -36,7 +36,7 @@ class PracticeSession:
 
         self.scheduler = Scheduler(db, game_id)
         self.session_id = uuid.uuid4().hex
-        self.started_at = datetime.now(UTC).isoformat() + "Z"
+        self.started_at = datetime.now(UTC).isoformat()
 
         self.is_running = False
         self.current_split_id: str | None = None

@@ -193,7 +193,8 @@ function formatTime(ms) {
 
 function elapsedStr(startedAt) {
   if (!startedAt) return '';
-  const start = new Date(startedAt.endsWith('Z') ? startedAt : startedAt + 'Z');
+  const start = new Date(startedAt);
+  if (isNaN(start.getTime())) return '';
   const diff = Math.floor((Date.now() - start.getTime()) / 1000);
   const m = Math.floor(diff / 60);
   const s = diff % 60;
