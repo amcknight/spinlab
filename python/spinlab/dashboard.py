@@ -140,6 +140,11 @@ def create_app(
                 await asyncio.sleep(1)
                 continue
             try:
+                # In practice mode, the practice loop consumes events — don't compete
+                if _mode[0] == "practice":
+                    await asyncio.sleep(0.5)
+                    continue
+
                 event = await tcp.recv_event(timeout=1.0)
                 if event is None:
                     continue
