@@ -59,17 +59,19 @@ class PracticeSession:
         """Run one pick-send-receive cycle. Returns False if no splits available."""
         import os
 
-        picked = self.scheduler.pick_next()
+        # Try picking a split with a valid state file
+        picked = None
+        for _ in range(50):  # bound attempts to avoid infinite loop
+            candidate = self.scheduler.pick_next()
+            if candidate is None:
+                return False
+            if candidate.state_path and os.path.exists(candidate.state_path):
+                picked = candidate
+                break
+            self._skipped.add(candidate.split_id)
+
         if picked is None:
             return False
-
-        # Skip splits with no state file or missing state file
-        if not picked.state_path or not os.path.exists(picked.state_path):
-            self._skipped.add(picked.split_id)
-            active = self.db.get_active_splits(self.game_id)
-            if all(s.id in self._skipped for s in active):
-                return False
-            return True  # skip but continue
 
         # Compute expected time
         expected_time_ms = None
