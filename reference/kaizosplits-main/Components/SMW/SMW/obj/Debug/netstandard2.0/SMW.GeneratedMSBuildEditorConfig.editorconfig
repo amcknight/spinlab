@@ -1,0 +1,8 @@
+is_global = true
+build_property.RootNamespace = SMW
+build_property.ProjectDir = C:\Users\thedo\git\spinlab\reference\kaizosplits-main\Components\SMW\SMW\
+build_property.EnableComHosting = 
+build_property.EnableGeneratedComInterfaceComImportInterop = 
+build_property.CsWinRTUseWindowsUIXamlProjections = false
+build_property.EffectiveAnalysisLevelStyle = 
+build_property.EnableCodeStyleSeverity = 
