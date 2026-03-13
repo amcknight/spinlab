@@ -511,10 +511,19 @@ local function handle_tcp()
         practice_auto_advance_ms = practice_split.auto_advance_delay_ms or 2000
         practice_mode            = true
         practice_state           = PSTATE_LOADING
-        pending_load             = practice_split.state_path
-        practice_start_ms        = ts_ms()
-        client:send("ok:queued\n")
-        log("Practice load queued: " .. (practice_split.id or "?"))
+        local sp = practice_split.state_path
+        if not sp or sp == "" then
+          log("ERROR: No valid state_path for split " .. (practice_split.id or "?"))
+          client:send("err:no_state_path\n")
+          practice_mode  = false
+          practice_state = PSTATE_IDLE
+          practice_split = nil
+        else
+          pending_load      = sp
+          practice_start_ms = ts_ms()
+          client:send("ok:queued\n")
+          log("Practice load queued: " .. (practice_split.id or "?"))
+        end
       elseif line == "practice_stop" then
         practice_mode     = false
         practice_state    = PSTATE_IDLE

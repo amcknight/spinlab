@@ -63,8 +63,8 @@ class PracticeSession:
         if picked is None:
             return False
 
-        # Skip missing state files
-        if picked.state_path and not os.path.exists(picked.state_path):
+        # Skip splits with no state file or missing state file
+        if not picked.state_path or not os.path.exists(picked.state_path):
             self._skipped.add(picked.split_id)
             active = self.db.get_active_splits(self.game_id)
             if all(s.id in self._skipped for s in active):
