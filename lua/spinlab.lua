@@ -22,11 +22,22 @@ local socket = require("socket.core")
 -----------------------------------------------------------------------
 local TCP_PORT   = 15482
 local TCP_HOST   = "127.0.0.1"
-local GAME_ID    = "smw_cod"   -- TODO: read from config.yaml in Step 6
+local game_id    = nil  -- set dynamically from dashboard via game_context
 local DATA_DIR   = emu.getScriptDataFolder()
 local STATE_DIR  = DATA_DIR .. "/states"
 local LOG_FILE   = DATA_DIR .. "/passive_log.jsonl"
 local TEST_STATE_FILE = STATE_DIR .. "/test_state.mss"
+
+-- Get ROM filename from Mesen
+local function get_rom_filename()
+    local info = emu.getRomInfo()
+    if info and info.fileName then
+        return info.fileName
+    end
+    -- Fallback: try other API
+    local name = emu.getRomName and emu.getRomName() or "unknown"
+    return name .. ".sfc"
+end
 
 -- Memory addresses (ported from kaizosplits/Memory.cs)
 local ADDR_GAME_MODE   = 0x0100  -- game mode: 18=prepare level, 20=in level
@@ -293,12 +304,19 @@ local function detect_transitions(curr)
   if curr.game_mode == 18 and prev.game_mode ~= 18 then
     if not died_flag then
       level_start_frame = frame_counter
-      local state_fname = GAME_ID .. "_" .. curr.level_num .. "_" .. curr.room_num .. ".mss"
-      local state_path  = STATE_DIR .. "/" .. state_fname
-      if pending_save then
-        log("WARNING: pending_save overwritten (was: " .. pending_save .. ")")
+      -- Determine state path and whether to save (requires game_id)
+      local state_path
+      if not game_id then
+        log("No game context yet, skipping state save")
+        pending_save = nil
+      else
+        local state_fname = curr.level_num .. "_" .. curr.room_num .. ".mss"
+        state_path  = STATE_DIR .. "/" .. game_id .. "/" .. state_fname
+        if pending_save then
+          log("WARNING: pending_save overwritten (was: " .. pending_save .. ")")
+        end
+        pending_save = state_path
       end
-      pending_save = state_path
       local event_data = {
         event      = "level_entrance",
         level      = curr.level_num,
@@ -306,14 +324,14 @@ local function detect_transitions(curr)
         frame      = frame_counter,
         ts_ms      = ts_ms(),
         session    = "passive",
-        state_path = state_path,
+        state_path = state_path or "",
       }
       log_jsonl(event_data)
       -- Forward over TCP for live reference capture
       if client and not practice_mode then
         client:send(to_json(event_data) .. "\n")
       end
-      log("Level entrance: " .. curr.level_num .. " -> queued state save: " .. state_fname)
+      log("Level entrance: " .. curr.level_num .. " -> " .. (state_path and ("queued state save: " .. state_path) or "no game context, save skipped"))
     else
       -- Quick retry respawn — reset died flag, don't log as entrance
       died_flag = false
@@ -421,6 +439,10 @@ local function handle_tcp()
       client = c
       heartbeat_counter = 0
       log("TCP client connected")
+      -- Send ROM info for game auto-discovery
+      local rom_fname = get_rom_filename()
+      c:send(to_json({event = "rom_info", filename = rom_fname}) .. "\n")
+      log("Sent rom_info: " .. rom_fname)
     end
   end
 
@@ -451,7 +473,19 @@ local function handle_tcp()
     local line, err = client:receive("*l")
     if line then
       log("TCP received: " .. line)
-      if line == "save" then
+      if line:sub(1, 1) == "{" then
+        -- Handle JSON messages from dashboard
+        local decoded_event = json_get_str(line, "event")
+        if decoded_event == "game_context" then
+          game_id = json_get_str(line, "game_id")
+          local gname = json_get_str(line, "game_name") or game_id or "unknown"
+          if game_id then
+            ensure_dir(STATE_DIR .. "/" .. game_id)
+          end
+          log("Game context: " .. gname .. " (" .. (game_id or "nil") .. ")")
+        end
+        -- Don't fall through to text command parsing for JSON messages
+      elseif line == "save" then
         pending_save = TEST_STATE_FILE
         client:send("ok:queued\n")
       elseif line == "load" then
