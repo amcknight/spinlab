@@ -58,15 +58,26 @@ def main(args: list[str] | None = None) -> None:
         from spinlab.dashboard import create_app
         from spinlab.db import Database
 
-        with open(parsed.config, encoding="utf-8") as f:
+        config_path = Path(parsed.config)
+        with config_path.open(encoding="utf-8") as f:
             config = yaml.safe_load(f)
         game_id = config["game"]["id"]
         data_dir = Path(config["data"]["dir"])
+        host = config.get("network", {}).get("host", "127.0.0.1")
+        port = config.get("network", {}).get("port", 15482)
         db = Database(data_dir / "spinlab.db")
-        state_file = data_dir / "orchestrator_state.json"
-        app = create_app(db=db, game_id=game_id, state_file=state_file)
+
+        # Seed DB from manifest if splits are empty
+        from spinlab.orchestrator import find_latest_manifest, load_manifest, seed_db_from_manifest
+        if not db.get_active_splits(game_id):
+            manifest_path = find_latest_manifest(data_dir)
+            if manifest_path:
+                manifest = load_manifest(manifest_path)
+                seed_db_from_manifest(db, manifest, config["game"]["name"])
+
+        app = create_app(db=db, game_id=game_id, host=host, port=port)
         print(f"SpinLab Dashboard: http://localhost:{parsed.port}")
-        uvicorn.run(app, host="127.0.0.1", port=parsed.port, log_level="warning")
+        uvicorn.run(app, host="0.0.0.0", port=parsed.port, log_level="warning")
 
     elif parsed.command == "lua-cmd":
         import socket

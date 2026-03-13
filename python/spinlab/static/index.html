@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SpinLab</title>
-  <link rel="stylesheet" href="/static/style.css?v=5">
+  <link rel="stylesheet" href="/static/style.css?v=6">
 </head>
 <body>
 <div id="app">
@@ -24,10 +24,12 @@
     <section id="tab-live" class="tab-content active">
       <div id="mode-idle">
         <p class="dim">No active session</p>
+        <p class="dim" id="tcp-status"></p>
       </div>
       <div id="mode-reference" style="display:none">
         <h2>Reference Run</h2>
         <p id="ref-sections">Sections: 0</p>
+        <button id="btn-practice-start" class="btn-primary">Start Practice</button>
       </div>
       <div id="mode-practice" style="display:none">
         <div class="card" id="current-split">
@@ -50,6 +52,7 @@
         <h3>Recent</h3>
         <ul id="recent"></ul>
         <footer id="session-stats" class="dim"></footer>
+        <button id="btn-practice-stop" class="btn-danger" style="margin:8px">Stop Practice</button>
       </div>
     </section>
 
@@ -113,7 +116,7 @@
     </section>
   </main>
 
-  <script src="/static/app.js?v=5"></script>
+  <script src="/static/app.js?v=6"></script>
 </div>
 </body>
 </html>

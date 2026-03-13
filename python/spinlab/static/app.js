@@ -117,6 +117,11 @@ function updateLive(data) {
     idle.style.display = 'block';
     ref.style.display = 'none';
     practice.style.display = 'none';
+    // TCP status in idle mode
+    const tcpEl = document.getElementById('tcp-status');
+    if (tcpEl) {
+      tcpEl.textContent = data.tcp_connected ? 'Emulator connected' : 'Waiting for emulator...';
+    }
   }
 
   // Session timer
@@ -295,6 +300,15 @@ document.getElementById('btn-reset').addEventListener('click', async () => {
   } catch (_) {
     document.getElementById('reset-status').textContent = 'Error clearing data.';
   }
+});
+
+// === Practice start/stop ===
+document.getElementById('btn-practice-start')?.addEventListener('click', async () => {
+  await fetch('/api/practice/start', { method: 'POST' });
+});
+
+document.getElementById('btn-practice-stop')?.addEventListener('click', async () => {
+  await fetch('/api/practice/stop', { method: 'POST' });
 });
 
 // === Init ===

@@ -149,6 +149,13 @@ def recv_until_attempt_result(sock: socket.socket) -> dict:
 
 
 def run(config_path: Path = Path("config.yaml")) -> None:
+    import warnings
+    warnings.warn(
+        "Standalone orchestrator is deprecated. Use 'spinlab dashboard' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    print("[DEPRECATED] Use 'spinlab dashboard' — the dashboard now manages practice sessions.")
     # -- Config --
     with config_path.open(encoding="utf-8") as f:
         config = yaml.safe_load(f)

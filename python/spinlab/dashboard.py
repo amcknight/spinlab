@@ -1,28 +1,30 @@
-"""SpinLab dashboard — FastAPI web app for live stats and management."""
+"""SpinLab dashboard — FastAPI web app, session manager, TCP client."""
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import uuid
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from .db import Database
+from .tcp_manager import TcpManager
+from .practice import PracticeSession
 
-
-def _read_state_file(path: Path) -> Optional[dict]:
-    """Read orchestrator state file, returning None if missing/invalid."""
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None
+logger = logging.getLogger(__name__)
 
 
 def create_app(
     db: Database,
     game_id: str,
-    state_file: Path,
+    state_file: Path | None = None,  # deprecated, ignored
+    host: str = "127.0.0.1",
+    port: int = 15482,
 ) -> FastAPI:
     from spinlab.scheduler import Scheduler
 
@@ -44,14 +46,121 @@ def create_app(
 
     app.add_middleware(NoCacheStaticMiddleware)
 
-    # Lazy-init scheduler for API calls that need it
-    _scheduler = None
+    # -- Shared state --
+    tcp = TcpManager(host, port)
+    _scheduler: list = [None]  # mutable container for nonlocal
+    _practice: list = [None]   # PracticeSession | None
+    _practice_task: list = [None]  # asyncio.Task | None
+    _reconnect_task: list = [None]
 
-    def _get_scheduler():
-        nonlocal _scheduler
-        if _scheduler is None:
-            _scheduler = Scheduler(db, game_id)
-        return _scheduler
+    # Expose internal state for testing
+    app.state.tcp = tcp
+    app.state._practice = _practice
+    app.state._scheduler = _scheduler
+
+    def _get_scheduler() -> Scheduler:
+        if _scheduler[0] is None:
+            _scheduler[0] = Scheduler(db, game_id)
+        return _scheduler[0]
+
+    def _current_mode() -> str:
+        if _practice[0] and _practice[0].is_running:
+            return "practice"
+        if tcp.is_connected:
+            return "reference"
+        return "idle"
+
+    # -- Reference capture state --
+    _ref_pending: dict[tuple, dict] = {}  # (level, room) -> entrance event
+    _ref_splits_count: list[int] = [0]
+    _ref_capture_run_id: list[str | None] = [None]
+
+    def _clear_ref_state():
+        """Clear reference capture state on disconnect or mode change."""
+        _ref_pending.clear()
+        _ref_splits_count[0] = 0
+        _ref_capture_run_id[0] = None
+
+    tcp.on_disconnect = _clear_ref_state
+
+    # -- TCP auto-reconnect --
+    async def _reconnect_loop():
+        while True:
+            await asyncio.sleep(3)
+            if not tcp.is_connected:
+                await tcp.connect(timeout=2)
+
+    async def _event_dispatch_loop():
+        """Single event consumer: dispatches to reference capture when not practicing."""
+        while True:
+            if not tcp.is_connected:
+                await asyncio.sleep(1)
+                continue
+            try:
+                event = await tcp.recv_event(timeout=1.0)
+                if event is None:
+                    continue
+
+                # During practice, PracticeSession reads from the same queue
+                if _practice[0] and _practice[0].is_running:
+                    continue
+
+                # Reference mode: pair transition events into splits
+                evt_type = event.get("event")
+                if evt_type == "level_entrance":
+                    key = (event["level"], event["room"])
+                    _ref_pending[key] = event
+
+                    # Create capture_run on first entrance event
+                    if _ref_capture_run_id[0] is None:
+                        run_id = f"live_{uuid.uuid4().hex[:8]}"
+                        run_name = f"Live {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
+                        db.create_capture_run(run_id, game_id, run_name)
+                        db.set_active_capture_run(run_id)
+                        _ref_capture_run_id[0] = run_id
+
+                elif evt_type == "level_exit":
+                    key = (event["level"], event["room"])
+                    goal = event.get("goal", "abort")
+                    if goal == "abort":
+                        _ref_pending.pop(key, None)
+                        continue
+                    entrance = _ref_pending.pop(key, None)
+                    if entrance:
+                        _ref_splits_count[0] += 1
+                        from .models import Split
+                        split_id = Split.make_id(
+                            game_id, entrance["level"], entrance["room"], goal
+                        )
+                        split = Split(
+                            id=split_id,
+                            game_id=game_id,
+                            level_number=entrance["level"],
+                            room_id=entrance["room"],
+                            goal=goal,
+                            state_path=entrance.get("state_path"),
+                            reference_time_ms=event.get("elapsed_ms"),
+                            ordinal=_ref_splits_count[0],
+                            reference_id=_ref_capture_run_id[0],
+                        )
+                        db.upsert_split(split)
+            except Exception:
+                await asyncio.sleep(1)
+
+    @app.on_event("startup")
+    async def startup():
+        _reconnect_task[0] = asyncio.create_task(_reconnect_loop())
+        asyncio.create_task(_event_dispatch_loop())
+
+    @app.on_event("shutdown")
+    async def shutdown():
+        if _reconnect_task[0]:
+            _reconnect_task[0].cancel()
+        if _practice_task[0]:
+            _practice_task[0].cancel()
+        await tcp.disconnect()
+
+    # -- Endpoints --
 
     @app.get("/")
     def root():
@@ -59,40 +168,30 @@ def create_app(
 
     @app.get("/api/state")
     def api_state():
-        orch_state = _read_state_file(state_file)
-        session = db.get_current_session(game_id)
-
-        if not session:
-            return {
-                "mode": "idle",
-                "current_split": None,
-                "queue": [],
-                "recent": [],
-                "session": None,
-                "allocator": _get_scheduler().allocator.name,
-            }
-
-        # Validate state file matches active session (if session_id present)
-        state_sid = orch_state.get("session_id") if orch_state else None
-        if state_sid and state_sid != session["id"]:
-            orch_state = None  # stale state file from old session
-
-        mode = "practice" if orch_state else "reference"
+        mode = _current_mode()
+        sched = _get_scheduler()
 
         current_split = None
         queue: list[dict] = []
-        if orch_state:
-            split_id = orch_state.get("current_split_id")
-            if split_id:
+        session_dict = None
+
+        if mode == "practice" and _practice[0]:
+            ps = _practice[0]
+            session_dict = {
+                "id": ps.session_id,
+                "started_at": ps.started_at,
+                "splits_attempted": ps.splits_attempted,
+                "splits_completed": ps.splits_completed,
+            }
+            if ps.current_split_id:
                 splits = db.get_all_splits_with_model(game_id)
                 split_map = {s["id"]: s for s in splits}
-                if split_id in split_map:
-                    current_split = split_map[split_id]
+                if ps.current_split_id in split_map:
+                    current_split = split_map[ps.current_split_id]
                     current_split["attempt_count"] = db.get_split_attempt_count(
-                        split_id, session["id"]
+                        ps.current_split_id, ps.session_id
                     )
-                    # Add drift info from model state
-                    model_row = db.load_model_state(split_id)
+                    model_row = db.load_model_state(ps.current_split_id)
                     if model_row and model_row["state_json"]:
                         from spinlab.estimators.kalman import KalmanState
                         from spinlab.estimators import get_estimator
@@ -100,37 +199,57 @@ def create_app(
                         est = get_estimator(model_row["estimator"])
                         current_split["drift_info"] = est.drift_info(state)
 
-            # Pass allocator/estimator from state file
-            if orch_state.get("allocator"):
-                pass  # returned in response below
-
-        # Compute queue server-side from scheduler (bypasses stale state file)
-        sched = _get_scheduler()
-        queue_ids = sched.peek_next_n(3)
-        # Exclude current split from queue
-        current_id = current_split["id"] if current_split else None
-        queue_ids = [q for q in queue_ids if q != current_id][:2]
-        if queue_ids:
+            # Queue from scheduler
+            queue_ids = sched.peek_next_n(3)
+            if ps.current_split_id:
+                queue_ids = [q for q in queue_ids if q != ps.current_split_id][:2]
             splits_all = db.get_all_splits_with_model(game_id)
-            split_map = {s["id"]: s for s in splits_all}
-            queue = [split_map[sid] for sid in queue_ids if sid in split_map]
+            smap = {s["id"]: s for s in splits_all}
+            queue = [smap[sid] for sid in queue_ids if sid in smap]
 
         recent = db.get_recent_attempts(game_id, limit=8)
 
-        sched = _get_scheduler()
         return {
             "mode": mode,
+            "tcp_connected": tcp.is_connected,
             "current_split": current_split,
             "queue": queue,
             "recent": recent,
-            "session": dict(session),
+            "session": session_dict,
+            "sections_captured": _ref_splits_count[0],
             "allocator": sched.allocator.name,
             "estimator": sched.estimator.name,
         }
 
+    @app.post("/api/practice/start")
+    async def practice_start():
+        if _practice[0] and _practice[0].is_running:
+            return {"status": "already_running"}
+        if not tcp.is_connected:
+            return {"status": "not_connected"}
+
+        ps = PracticeSession(tcp=tcp, db=db, game_id=game_id)
+        _practice[0] = ps
+        _practice_task[0] = asyncio.create_task(ps.run_loop())
+        return {"status": "started", "session_id": ps.session_id}
+
+    @app.post("/api/practice/stop")
+    async def practice_stop():
+        if _practice[0] and _practice[0].is_running:
+            _practice[0].is_running = False
+            # Wait briefly for clean shutdown
+            if _practice_task[0]:
+                try:
+                    await asyncio.wait_for(_practice_task[0], timeout=5)
+                except asyncio.TimeoutError:
+                    _practice_task[0].cancel()
+            return {"status": "stopped"}
+        return {"status": "not_running"}
+
+    # -- Model / allocator / estimator --
+
     @app.get("/api/model")
     def api_model():
-        """All splits with full estimator state for Model tab."""
         sched = _get_scheduler()
         splits = sched.get_all_model_states()
         return {
@@ -171,13 +290,8 @@ def create_app(
 
     @app.post("/api/reset")
     def reset_data():
-        """Clear all session data (attempts, sessions, model state)."""
-        nonlocal _scheduler
         db.reset_all_data()
-        _scheduler = None  # force re-init with fresh defaults
-        # Remove stale state file
-        if state_file.exists():
-            state_file.unlink()
+        _scheduler[0] = None  # force re-init with fresh defaults
         return {"status": "ok"}
 
     @app.get("/api/splits")
@@ -198,7 +312,6 @@ def create_app(
 
     @app.post("/api/references")
     def create_reference(body: dict):
-        import uuid
         run_id = f"ref_{uuid.uuid4().hex[:8]}"
         name = body.get("name", "Untitled")
         db.create_capture_run(run_id, game_id, name)
@@ -228,7 +341,7 @@ def create_app(
     # -- Split editing --
 
     @app.patch("/api/splits/{split_id}")
-    def update_split(split_id: str, body: dict):
+    def update_split_endpoint(split_id: str, body: dict):
         db.update_split(split_id, **body)
         return {"status": "ok"}
 

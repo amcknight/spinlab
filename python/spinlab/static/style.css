@@ -233,6 +233,18 @@ nav#tabs {
   margin-bottom: 8px;
   font-size: 12px;
 }
+.btn-primary {
+  background: var(--accent);
+  color: #000;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+.btn-primary:hover { opacity: 0.85; }
 .btn-danger {
   background: var(--red);
   color: #fff;

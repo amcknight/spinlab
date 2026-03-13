@@ -299,7 +299,7 @@ local function detect_transitions(curr)
         log("WARNING: pending_save overwritten (was: " .. pending_save .. ")")
       end
       pending_save = state_path
-      log_jsonl({
+      local event_data = {
         event      = "level_entrance",
         level      = curr.level_num,
         room       = curr.room_num,
@@ -307,8 +307,12 @@ local function detect_transitions(curr)
         ts_ms      = ts_ms(),
         session    = "passive",
         state_path = state_path,
-      })
-      -- Note: state_path is logged optimistically; save may fail (on_cpu_exec logs errors)
+      }
+      log_jsonl(event_data)
+      -- Forward over TCP for live reference capture
+      if client and not practice_mode then
+        client:send(to_json(event_data) .. "\n")
+      end
       log("Level entrance: " .. curr.level_num .. " -> queued state save: " .. state_fname)
     else
       -- Quick retry respawn — reset died flag, don't log as entrance
@@ -321,7 +325,7 @@ local function detect_transitions(curr)
   if curr.exit_mode ~= 0 and prev.exit_mode == 0 then
     local elapsed = math.floor((frame_counter - level_start_frame) / 60.0 * 1000)
     local goal = goal_type(curr)
-    log_jsonl({
+    local event_data = {
       event      = "level_exit",
       level      = curr.level_num,
       room       = curr.room_num,
@@ -330,7 +334,12 @@ local function detect_transitions(curr)
       frame      = frame_counter,
       ts_ms      = ts_ms(),
       session    = "passive",
-    })
+    }
+    log_jsonl(event_data)
+    -- Forward over TCP for live reference capture
+    if client and not practice_mode then
+      client:send(to_json(event_data) .. "\n")
+    end
     log("Level exit: " .. curr.level_num .. " goal=" .. goal .. " elapsed=" .. elapsed .. "ms")
   end
 end

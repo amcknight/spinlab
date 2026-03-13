@@ -74,34 +74,35 @@ def seeded_db(tmp_path):
 
 
 @pytest.fixture
-def state_file(tmp_path):
-    return tmp_path / "orchestrator_state.json"
-
-
-@pytest.fixture
-def active_state_file(state_file):
-    """State file simulating an active practice session."""
-    state_file.write_text(json.dumps({
-        "current_split_id": "s1",
-        "queue": ["s2", "s3", "s4"],
-        "allocator": "greedy",
-        "estimator": "kalman",
-    }))
-    return state_file
-
-
-@pytest.fixture
-def client(seeded_db, state_file):
+def client(seeded_db):
     from spinlab.dashboard import create_app
-    app = create_app(db=seeded_db, game_id=GAME_ID, state_file=state_file)
+    app = create_app(db=seeded_db, game_id=GAME_ID, host="127.0.0.1", port=59999)
     return TestClient(app)
 
 
 @pytest.fixture
-def active_client(seeded_db, active_state_file):
-    """Client with an active orchestrator state (practice mode)."""
+def active_client(seeded_db):
+    """Client with a simulated active practice session (practice mode).
+
+    Injects a PracticeSession into the app's exposed state to simulate
+    a running practice session without needing a real TCP connection.
+    """
     from spinlab.dashboard import create_app
-    app = create_app(db=seeded_db, game_id=GAME_ID, state_file=active_state_file)
+    from spinlab.practice import PracticeSession
+    from unittest.mock import AsyncMock
+
+    app = create_app(db=seeded_db, game_id=GAME_ID, host="127.0.0.1", port=59999)
+
+    mock_tcp = AsyncMock()
+    mock_tcp.is_connected = True
+    ps = PracticeSession(tcp=mock_tcp, db=seeded_db, game_id=GAME_ID)
+    ps.is_running = True
+    ps.current_split_id = "s1"
+    ps.session_id = "sess1"  # match the session already in DB
+
+    # Inject into the app's exposed state lists
+    app.state._practice[0] = ps
+
     return TestClient(app)
 
 
@@ -157,8 +158,8 @@ class TestLiveState:
 
     def test_session_info_present(self, active_client):
         data = active_client.get("/api/state").json()
+        assert data["session"] is not None
         assert data["session"]["id"] == "sess1"
-        assert data["session"]["game_id"] == GAME_ID
 
     def test_allocator_and_estimator_reported(self, active_client):
         data = active_client.get("/api/state").json()
