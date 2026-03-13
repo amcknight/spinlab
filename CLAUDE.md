@@ -31,7 +31,7 @@ spinlab/
 ├── reference/              # kaizosplits source for memory address extraction
 ├── scripts/
 │   └── launch.sh           # Launches Mesen2 with Lua script auto-loaded
-└── config.yaml             # User config: ROM path, emulator path, game-specific settings
+└── config.yaml             # User config: ROM dir, emulator path, scheduler settings
 ```
 
 ### Component Roles
@@ -67,7 +67,8 @@ SQLite. Single file. Schema in `docs/DESIGN.md` § Database Schema.
 ## Key Design Decisions
 
 - **Save states are binary blobs written to files.** Mesen2's `saveSavestate()` returns a binary string; we write it to disk via `io.open`. To load, we read the file and call `loadSavestate(data)`. This must happen inside a `startFrame` or `cpuExec` callback.
-- **Split IDs are deterministic from game state**, not sequence-based. Derived from (level_number, room_id, goal_type). This means the same section always gets the same ID regardless of run order, enabling reference run diffing.
+- **Games are auto-discovered from ROM checksums.** Lua sends the ROM filename over TCP on connect. Python computes a truncated SHA-256 (16 hex chars) as the game ID. No manual game configuration needed — just open any ROM in Mesen2 and SpinLab tracks it automatically. Save states are organized in per-game subdirectories.
+- **Split IDs are deterministic from game state**, not sequence-based. Derived from (game_id, level_number, room_id, goal_type). This means the same section always gets the same ID regardless of run order, enabling reference run diffing.
 - **The Lua script does NOT poll files.** It either: (a) in passive mode, just watches memory on frame callbacks with zero overhead, or (b) in practice mode, listens on a TCP socket which LuaSocket handles efficiently with non-blocking receives.
 - **Controller input for ratings uses L + D-pad** combo to avoid interfering with gameplay. Only checked during the post-completion "liminal" state.
 - **Identical starts with different goals** are handled by having the same save state file but different split entries with a `goal` field displayed on overlay.
@@ -104,7 +105,7 @@ The kaizosplits code contains SMW memory address definitions. Key addresses to p
 - Player state (alive, dead, transitioning)
 - Overworld position
 
-Extract these from the kaizosplits source and define them in a config section in the Lua script, parameterized per-game in `config.yaml`.
+Extract these from the kaizosplits source and define them in a config section in the Lua script. All SMW romhacks share the same memory layout.
 
 ## Testing Approach
 
