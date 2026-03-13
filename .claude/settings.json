@@ -3,26 +3,12 @@
     "allow": [
       "WebSearch",
       "WebFetch(domain:www.mesen.ca)",
-      "Bash(pytest tests/test_capture.py -v)",
-      "Bash(python -m pytest tests/test_capture.py -v)",
-      "Bash(pytest -q)",
-      "Bash(python -m pytest tests/test_orchestrator.py -v)",
-      "Bash(git -C \"c:/Users/thedo/git/spinlib\" add python/spinlab/orchestrator.py tests/test_orchestrator.py)",
-      "Bash(git -C \"c:/Users/thedo/git/spinlib\" commit -m \"feat\\(orchestrator\\): add TCP buffer parser with tests\")",
-      "Bash(python -m pytest -v)",
-      "Bash(git -C \"c:/Users/thedo/git/spinlib\" add python/spinlab/orchestrator.py)",
-      "Bash(git -C \"c:/Users/thedo/git/spinlib\" commit -m \"feat\\(orchestrator\\): add manifest loading and DB seeding\")",
-      "Bash(git -C \"c:/Users/thedo/git/spinlib\" commit -m \"feat\\(orchestrator\\): add TCP helpers and main practice loop\")",
+      "Bash(python -m pytest:*)",
+      "Bash(pytest:*)",
       "Read(//c/Users/thedo/Documents/Mesen2/LuaScriptData/spinlab/**)",
       "Bash(find /c/Users/thedo/git/spinlab -type f -name *.ahk -o -name *.lua)",
       "Bash(wc -l /c/Users/thedo/git/spinlab/python/spinlab/*.py /c/Users/thedo/git/spinlab/lua/*.lua /c/Users/thedo/git/spinlab/tests/*.py)",
-      "Read(//c/Users/thedo/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.2/skills/subagent-driven-development/**)",
-      "Bash(pytest tests/test_kalman.py -v)",
-      "Bash(python -m pytest tests/test_kalman.py -v)",
-      "Bash(python -m pytest tests/test_allocators.py -v)",
-      "Bash(python -m pytest --ignore=tests/test_dashboard.py -v)",
-      "Bash(pytest tests/ -v --tb=short)",
-      "Bash(python -m pytest tests/test_scheduler_kalman.py -v)"
+      "Read(//c/Users/thedo/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.2/skills/subagent-driven-development/**)"
     ]
   },
   "enabledPlugins": {
