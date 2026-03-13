@@ -101,3 +101,33 @@ def test_launch_emulator_no_config(client):
     resp = client.post("/api/emulator/launch")
     assert resp.status_code == 200
     assert resp.json()["status"] == "error"
+
+
+def test_fresh_db_reference_start_creates_game(tmp_path):
+    """Reference start on a fresh DB should not FK-crash (game row auto-created)."""
+    from unittest.mock import PropertyMock, patch
+    from spinlab.dashboard import create_app
+
+    fresh_db = Database(tmp_path / "fresh.db")
+    # Don't call upsert_game — create_app should handle it
+    config = {"game": {"name": "Test Game", "category": "any%"}}
+    app = create_app(
+        db=fresh_db, game_id="test_game", host="127.0.0.1", port=59999,
+        config=config,
+    )
+    # Simulate TCP connected so reference start doesn't bail early
+    with patch.object(type(app.state.tcp), "is_connected", new_callable=PropertyMock, return_value=True):
+        c = TestClient(app)
+        resp = c.post("/api/reference/start")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "started"
+
+
+def test_practice_stop_clears_stale_mode(client):
+    """If practice self-terminates, stop should still reset mode to idle."""
+    # Manually set mode to practice (simulating a self-terminated session)
+    client.app.state._mode[0] = "practice"
+    resp = client.post("/api/practice/stop")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "stopped"
+    assert client.app.state._mode[0] == "idle"
