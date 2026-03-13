@@ -81,6 +81,30 @@ def test_api_sessions_returns_history(client, db):
     assert len(data["sessions"]) == 2
 
 
+def test_api_state_queue_from_scheduler(client, db, state_file):
+    """Queue should come from scheduler.peek_next_n(), not state file."""
+    import json
+    # Create 3 splits
+    for i in range(1, 4):
+        s = Split(id=f"s{i}", game_id="test_game", level_number=i,
+                  room_id=0, goal="normal", description=f"Level {i}",
+                  reference_time_ms=5000)
+        db.upsert_split(s)
+
+    db.create_session("sess1", "test_game")
+    # State file has current_split but empty queue
+    state_file.write_text(json.dumps({
+        "session_id": "sess1",
+        "current_split_id": "s1",
+        "queue": [],
+    }))
+
+    resp = client.get("/api/state")
+    data = resp.json()
+    # Queue should have 2 entries from scheduler (3 splits minus current s1)
+    assert len(data["queue"]) == 2
+
+
 def test_root_serves_html(client):
     resp = client.get("/")
     assert resp.status_code == 200

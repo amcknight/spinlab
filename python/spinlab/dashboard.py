@@ -100,15 +100,20 @@ def create_app(
                         est = get_estimator(model_row["estimator"])
                         current_split["drift_info"] = est.drift_info(state)
 
-            queue_ids: list[str] = orch_state.get("queue", [])
-            if queue_ids:
-                splits = db.get_all_splits_with_model(game_id)
-                split_map = {s["id"]: s for s in splits}
-                queue = [split_map[sid] for sid in queue_ids if sid in split_map]
-
             # Pass allocator/estimator from state file
             if orch_state.get("allocator"):
                 pass  # returned in response below
+
+        # Compute queue server-side from scheduler (bypasses stale state file)
+        sched = _get_scheduler()
+        queue_ids = sched.peek_next_n(3)
+        # Exclude current split from queue
+        current_id = current_split["id"] if current_split else None
+        queue_ids = [q for q in queue_ids if q != current_id][:2]
+        if queue_ids:
+            splits_all = db.get_all_splits_with_model(game_id)
+            split_map = {s["id"]: s for s in splits_all}
+            queue = [split_map[sid] for sid in queue_ids if sid in split_map]
 
         recent = db.get_recent_attempts(game_id, limit=8)
 
