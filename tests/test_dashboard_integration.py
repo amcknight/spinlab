@@ -102,6 +102,7 @@ def active_client(seeded_db):
 
     # Inject into the app's exposed state lists
     app.state._practice[0] = ps
+    app.state._mode[0] = "practice"
 
     return TestClient(app)
 
