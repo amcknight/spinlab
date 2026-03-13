@@ -53,6 +53,13 @@ function updateLive(data) {
   ref.style.display = 'none';
   practice.style.display = 'none';
 
+  const gameName = document.getElementById('game-name');
+  if (data.game_name) {
+    gameName.textContent = data.game_name;
+  } else {
+    gameName.textContent = '';
+  }
+
   if (!data.tcp_connected) {
     disconnected.style.display = 'block';
     return;
