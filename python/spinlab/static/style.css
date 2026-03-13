@@ -269,3 +269,76 @@ h3 {
   letter-spacing: 0.5px;
   margin: 10px 8px 4px;
 }
+
+/* Manage: reference row */
+.ref-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.ref-row select {
+  flex: 1;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--card);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+}
+.btn-sm {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--text-dim);
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.btn-danger-sm {
+  background: var(--red);
+  color: #fff;
+  border: none;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+/* Manage: split table */
+#split-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+#split-table th {
+  text-align: left;
+  color: var(--text-dim);
+  padding: 4px 5px;
+  border-bottom: 1px solid var(--card);
+}
+#split-table td {
+  padding: 4px 5px;
+  border-bottom: 1px solid var(--surface);
+}
+.split-name-input {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid transparent;
+  padding: 2px 4px;
+  width: 100%;
+  font-family: inherit;
+  font-size: 11px;
+}
+.split-name-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.btn-x {
+  background: none;
+  border: none;
+  color: var(--red);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+}

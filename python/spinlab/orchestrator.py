@@ -84,10 +84,20 @@ def load_manifest(path: Path) -> dict:
 
 
 def seed_db_from_manifest(db: Database, manifest: dict, game_name: str) -> None:
-    """Upsert game + all splits from manifest into the DB."""
+    """Upsert game + all splits from manifest into the DB.
+
+    Creates a capture_run for the manifest if one doesn't exist for these splits.
+    """
     game_id: str = manifest["game_id"]
     category: str = manifest.get("category", "any%")
     db.upsert_game(game_id, game_name, category)
+
+    # Create a capture_run for this manifest
+    captured_at = manifest.get("captured_at", datetime.utcnow().isoformat())
+    run_id = f"manifest_{uuid.uuid4().hex[:8]}"
+    run_name = f"Capture {captured_at[:10]}"
+    db.create_capture_run(run_id, game_id, run_name)
+    db.set_active_capture_run(run_id)
 
     for idx, entry in enumerate(manifest["splits"], start=1):
         split = Split(
@@ -100,6 +110,7 @@ def seed_db_from_manifest(db: Database, manifest: dict, game_name: str) -> None:
             state_path=entry.get("state_path"),
             reference_time_ms=entry.get("reference_time_ms"),
             ordinal=idx,
+            reference_id=run_id,
         )
         db.upsert_split(split)
 

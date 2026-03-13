@@ -8,6 +8,7 @@ document.querySelectorAll('.tab').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'model') fetchModel();
+    if (btn.dataset.tab === 'manage') fetchManage();
   });
 });
 
@@ -190,6 +191,98 @@ function elapsedStr(startedAt) {
   const s = diff % 60;
   return m + ':' + String(s).padStart(2, '0');
 }
+
+// === Manage tab ===
+async function fetchManage() {
+  try {
+    const refsRes = await fetch('/api/references');
+    const refsData = await refsRes.json();
+    const refs = refsData.references || [];
+    const active = refs.find(r => r.active);
+    let splits = [];
+    if (active) {
+      const splitsRes = await fetch('/api/references/' + active.id + '/splits');
+      const splitsData = await splitsRes.json();
+      splits = splitsData.splits || [];
+    }
+    updateManage(refs, splits);
+  } catch (_) {}
+}
+
+function updateManage(refs, splits) {
+  const sel = document.getElementById('ref-select');
+  sel.innerHTML = '';
+  refs.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    opt.textContent = r.name + (r.active ? ' \u25cf' : '');
+    if (r.active) opt.selected = true;
+    sel.appendChild(opt);
+  });
+
+  const body = document.getElementById('split-body');
+  body.innerHTML = '';
+  splits.forEach(s => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><input class="split-name-input" value="' + (s.description || '') + '" ' +
+        'data-id="' + s.id + '" data-field="description"></td>' +
+      '<td>' + s.level_number + '</td>' +
+      '<td>' + s.goal + '</td>' +
+      '<td>' + (s.reference_time_ms ? formatTime(s.reference_time_ms) : '\u2014') + '</td>' +
+      '<td><button class="btn-x" data-id="' + s.id + '">\u2715</button></td>';
+    body.appendChild(tr);
+  });
+}
+
+// Inline edit: blur saves
+document.getElementById('split-body').addEventListener('focusout', async (e) => {
+  if (!e.target.classList.contains('split-name-input')) return;
+  const id = e.target.dataset.id;
+  const field = e.target.dataset.field;
+  const value = e.target.value;
+  await fetch('/api/splits/' + id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ [field]: value }),
+  });
+});
+
+// Delete split
+document.getElementById('split-body').addEventListener('click', async (e) => {
+  if (!e.target.classList.contains('btn-x')) return;
+  if (!confirm('Remove this split?')) return;
+  const id = e.target.dataset.id;
+  await fetch('/api/splits/' + id, { method: 'DELETE' });
+  fetchManage();
+});
+
+// Activate reference on change
+document.getElementById('ref-select').addEventListener('change', async (e) => {
+  await fetch('/api/references/' + e.target.value + '/activate', { method: 'POST' });
+  fetchManage();
+});
+
+// Rename reference
+document.getElementById('btn-ref-rename').addEventListener('click', async () => {
+  const sel = document.getElementById('ref-select');
+  const name = prompt('New name:', sel.options[sel.selectedIndex]?.text.replace(' \u25cf', ''));
+  if (!name) return;
+  await fetch('/api/references/' + sel.value, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  fetchManage();
+});
+
+// Delete reference
+document.getElementById('btn-ref-delete').addEventListener('click', async () => {
+  if (!confirm('Delete this reference and all its splits?')) return;
+  const sel = document.getElementById('ref-select');
+  await fetch('/api/references/' + sel.value, { method: 'DELETE' });
+  fetchManage();
+});
 
 // === Reset button ===
 document.getElementById('btn-reset').addEventListener('click', async () => {

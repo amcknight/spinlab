@@ -115,6 +115,26 @@ class Database:
         col_names = [row[1] for row in cur.fetchall()]
         if "ordinal" not in col_names:
             self.conn.execute("ALTER TABLE splits ADD COLUMN ordinal INTEGER")
+
+        # --- capture_runs table ---
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS capture_runs (
+                id TEXT PRIMARY KEY,
+                game_id TEXT NOT NULL REFERENCES games(id),
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                active INTEGER DEFAULT 0
+            )
+        """)
+
+        # --- Migration: add reference_id to splits ---
+        cur = self.conn.execute("PRAGMA table_info(splits)")
+        col_names = [row[1] for row in cur.fetchall()]
+        if "reference_id" not in col_names:
+            self.conn.execute(
+                "ALTER TABLE splits ADD COLUMN reference_id TEXT REFERENCES capture_runs(id)"
+            )
+
         self.conn.commit()
 
     def close(self) -> None:
@@ -136,18 +156,20 @@ class Database:
         now = datetime.utcnow().isoformat()
         self.conn.execute(
             """INSERT INTO splits (id, game_id, level_number, room_id, goal, description,
-               state_path, reference_time_ms, strat_version, active, ordinal, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               state_path, reference_time_ms, strat_version, active, ordinal, reference_id,
+               created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  state_path=excluded.state_path,
                  reference_time_ms=excluded.reference_time_ms,
                  description=excluded.description,
                  ordinal=excluded.ordinal,
+                 reference_id=excluded.reference_id,
                  updated_at=excluded.updated_at""",
             (split.id, split.game_id, split.level_number, split.room_id,
              split.goal, split.description, split.state_path,
              split.reference_time_ms, split.strat_version, int(split.active),
-             split.ordinal, now, now),
+             split.ordinal, split.reference_id, now, now),
         )
         self.conn.commit()
 
@@ -377,10 +399,95 @@ class Database:
         self.conn.execute("DELETE FROM transitions")
         self.conn.commit()
 
+    # -- Capture Runs --
+
+    def create_capture_run(self, run_id: str, game_id: str, name: str) -> None:
+        now = datetime.utcnow().isoformat()
+        self.conn.execute(
+            "INSERT INTO capture_runs (id, game_id, name, created_at, active) "
+            "VALUES (?, ?, ?, ?, 0)",
+            (run_id, game_id, name, now),
+        )
+        self.conn.commit()
+
+    def list_capture_runs(self, game_id: str) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT id, game_id, name, created_at, active FROM capture_runs "
+            "WHERE game_id = ? ORDER BY created_at",
+            (game_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_active_capture_run(self, run_id: str) -> None:
+        row = self.conn.execute(
+            "SELECT game_id FROM capture_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        if not row:
+            return
+        game_id = row[0]
+        self.conn.execute(
+            "UPDATE capture_runs SET active = 0 WHERE game_id = ?", (game_id,)
+        )
+        self.conn.execute(
+            "UPDATE capture_runs SET active = 1 WHERE id = ?", (run_id,)
+        )
+        self.conn.commit()
+
+    def rename_capture_run(self, run_id: str, name: str) -> None:
+        self.conn.execute(
+            "UPDATE capture_runs SET name = ? WHERE id = ?", (name, run_id)
+        )
+        self.conn.commit()
+
+    def delete_capture_run(self, run_id: str) -> None:
+        """Soft-delete: deactivate all splits in the run, null FK, remove the record."""
+        now = datetime.utcnow().isoformat()
+        self.conn.execute(
+            "UPDATE splits SET active = 0, reference_id = NULL, updated_at = ? "
+            "WHERE reference_id = ?",
+            (now, run_id),
+        )
+        self.conn.execute("DELETE FROM capture_runs WHERE id = ?", (run_id,))
+        self.conn.commit()
+
+    def get_splits_by_reference(self, reference_id: str) -> list[dict]:
+        cur = self.conn.execute(
+            """SELECT id, game_id, level_number, room_id, goal, description,
+                      reference_time_ms, state_path, active, ordinal, reference_id
+               FROM splits WHERE reference_id = ? AND active = 1
+               ORDER BY ordinal""",
+            (reference_id,),
+        )
+        cols = ["id", "game_id", "level_number", "room_id", "goal", "description",
+                "reference_time_ms", "state_path", "active", "ordinal", "reference_id"]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    # -- Split editing --
+
+    def update_split(self, split_id: str, **kwargs) -> None:
+        """Partial update: pass description=, goal=, active= as kwargs."""
+        allowed = {"description", "goal", "active"}
+        updates = {k: v for k, v in kwargs.items() if k in allowed}
+        if not updates:
+            return
+        if "active" in updates:
+            updates["active"] = int(updates["active"])
+        now = datetime.utcnow().isoformat()
+        sets = ", ".join(f"{k} = ?" for k in updates)
+        vals = list(updates.values()) + [now, split_id]
+        self.conn.execute(
+            f"UPDATE splits SET {sets}, updated_at = ? WHERE id = ?", vals
+        )
+        self.conn.commit()
+
+    def soft_delete_split(self, split_id: str) -> None:
+        self.update_split(split_id, active=0)
+
     # -- Helpers --
 
     @staticmethod
     def _row_to_split(row: sqlite3.Row) -> Split:
+        keys = row.keys()
         return Split(
             id=row["id"],
             game_id=row["game_id"],
@@ -392,5 +499,6 @@ class Database:
             reference_time_ms=row["reference_time_ms"],
             strat_version=row["strat_version"],
             active=bool(row["active"]),
-            ordinal=row["ordinal"] if "ordinal" in row.keys() else None,
+            ordinal=row["ordinal"] if "ordinal" in keys else None,
+            reference_id=row["reference_id"] if "reference_id" in keys else None,
         )

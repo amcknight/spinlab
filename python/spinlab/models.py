@@ -26,6 +26,7 @@ class Split:
     strat_version: int = 1
     active: bool = True
     ordinal: Optional[int] = None
+    reference_id: Optional[str] = None
 
     @staticmethod
     def make_id(game_id: str, level: int, room: int, goal: str) -> str:

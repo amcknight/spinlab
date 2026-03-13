@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SpinLab</title>
-  <link rel="stylesheet" href="/static/style.css?v=4">
+  <link rel="stylesheet" href="/static/style.css?v=5">
 </head>
 <body>
 <div id="app">
@@ -80,6 +80,31 @@
     <!-- Manage Tab -->
     <section id="tab-manage" class="tab-content">
       <div class="manage-section">
+        <h3>Reference Run</h3>
+        <div class="ref-row">
+          <select id="ref-select"></select>
+          <button id="btn-ref-rename" class="btn-sm" title="Rename">&#9998;</button>
+          <button id="btn-ref-delete" class="btn-sm btn-danger-sm" title="Delete">&#10005;</button>
+        </div>
+      </div>
+
+      <div class="manage-section">
+        <h3>Splits</h3>
+        <table id="split-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Level</th>
+              <th>Goal</th>
+              <th>Ref</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="split-body"></tbody>
+        </table>
+      </div>
+
+      <div class="manage-section">
         <h3>Data</h3>
         <p class="dim">Clear all session history, attempts, and model state. Keeps splits and game config.</p>
         <button id="btn-reset" class="btn-danger">Clear All Data</button>
@@ -88,7 +113,7 @@
     </section>
   </main>
 
-  <script src="/static/app.js?v=4"></script>
+  <script src="/static/app.js?v=5"></script>
 </div>
 </body>
 </html>

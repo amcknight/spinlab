@@ -190,4 +190,64 @@ def create_app(
         sessions = db.get_session_history(game_id)
         return {"sessions": sessions}
 
+    # -- Reference management --
+
+    @app.get("/api/references")
+    def list_references():
+        return {"references": db.list_capture_runs(game_id)}
+
+    @app.post("/api/references")
+    def create_reference(body: dict):
+        import uuid
+        run_id = f"ref_{uuid.uuid4().hex[:8]}"
+        name = body.get("name", "Untitled")
+        db.create_capture_run(run_id, game_id, name)
+        return {"id": run_id, "name": name}
+
+    @app.patch("/api/references/{ref_id}")
+    def rename_reference(ref_id: str, body: dict):
+        name = body.get("name")
+        if name:
+            db.rename_capture_run(ref_id, name)
+        return {"status": "ok"}
+
+    @app.delete("/api/references/{ref_id}")
+    def delete_reference(ref_id: str):
+        db.delete_capture_run(ref_id)
+        return {"status": "ok"}
+
+    @app.post("/api/references/{ref_id}/activate")
+    def activate_reference(ref_id: str):
+        db.set_active_capture_run(ref_id)
+        return {"status": "ok"}
+
+    @app.get("/api/references/{ref_id}/splits")
+    def get_reference_splits(ref_id: str):
+        return {"splits": db.get_splits_by_reference(ref_id)}
+
+    # -- Split editing --
+
+    @app.patch("/api/splits/{split_id}")
+    def update_split(split_id: str, body: dict):
+        db.update_split(split_id, **body)
+        return {"status": "ok"}
+
+    @app.delete("/api/splits/{split_id}")
+    def delete_split(split_id: str):
+        db.soft_delete_split(split_id)
+        return {"status": "ok"}
+
+    # -- Manifest import --
+
+    @app.post("/api/import-manifest")
+    def import_manifest(body: dict):
+        import yaml
+        from spinlab.orchestrator import seed_db_from_manifest
+        manifest_path = Path(body["path"])
+        with manifest_path.open(encoding="utf-8") as f:
+            manifest = yaml.safe_load(f)
+        game_name = manifest.get("game_id", game_id)
+        seed_db_from_manifest(db, manifest, game_name)
+        return {"status": "ok", "splits_imported": len(manifest.get("splits", []))}
+
     return app
