@@ -18,8 +18,9 @@ def db(tmp_path):
 @pytest.fixture
 def client(db, tmp_path):
     from spinlab.dashboard import create_app
-    state_file = tmp_path / "state.json"
-    app = create_app(db=db, game_id="test_game", state_file=state_file)
+    app = create_app(db=db, host="127.0.0.1", port=59999)
+    app.state._game_id[0] = "test_game"
+    app.state._game_name[0] = "Test Game"
     return TestClient(app)
 
 

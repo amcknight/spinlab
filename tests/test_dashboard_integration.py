@@ -76,7 +76,9 @@ def seeded_db(tmp_path):
 @pytest.fixture
 def client(seeded_db):
     from spinlab.dashboard import create_app
-    app = create_app(db=seeded_db, game_id=GAME_ID, host="127.0.0.1", port=59999)
+    app = create_app(db=seeded_db, host="127.0.0.1", port=59999)
+    app.state._game_id[0] = GAME_ID
+    app.state._game_name[0] = "SMW Kaizo"
     return TestClient(app)
 
 
@@ -91,7 +93,9 @@ def active_client(seeded_db):
     from spinlab.practice import PracticeSession
     from unittest.mock import AsyncMock
 
-    app = create_app(db=seeded_db, game_id=GAME_ID, host="127.0.0.1", port=59999)
+    app = create_app(db=seeded_db, host="127.0.0.1", port=59999)
+    app.state._game_id[0] = GAME_ID
+    app.state._game_name[0] = "SMW Kaizo"
 
     mock_tcp = AsyncMock()
     mock_tcp.is_connected = True

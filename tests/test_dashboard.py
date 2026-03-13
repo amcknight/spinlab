@@ -19,7 +19,16 @@ def db(tmp_path):
 def client(db, tmp_path):
     from spinlab.dashboard import create_app
     # TCP will fail to connect (nothing listening) — dashboard stays in idle mode
-    app = create_app(db=db, game_id="test_game", host="127.0.0.1", port=59999)
+    app = create_app(db=db, host="127.0.0.1", port=59999)
+    app.state._game_id[0] = "test_game"
+    app.state._game_name[0] = "Test Game"
+    return TestClient(app)
+
+
+@pytest.fixture
+def client_no_game(db, tmp_path):
+    from spinlab.dashboard import create_app
+    app = create_app(db=db, host="127.0.0.1", port=59999)
     return TestClient(app)
 
 
@@ -37,6 +46,15 @@ def test_api_state_idle_has_allocator(client):
     data = resp.json()
     assert "allocator" in data
     assert "estimator" in data
+
+
+def test_api_state_no_game_loaded(client_no_game):
+    resp = client_no_game.get("/api/state")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["game_id"] is None
+    assert data["game_name"] is None
+    assert data["allocator"] is None
 
 
 def test_api_splits_returns_all_with_model(client, db):
@@ -109,12 +127,9 @@ def test_fresh_db_reference_start_creates_game(tmp_path):
     from spinlab.dashboard import create_app
 
     fresh_db = Database(tmp_path / "fresh.db")
-    # Don't call upsert_game — create_app should handle it
-    config = {"game": {"name": "Test Game", "category": "any%"}}
-    app = create_app(
-        db=fresh_db, game_id="test_game", host="127.0.0.1", port=59999,
-        config=config,
-    )
+    app = create_app(db=fresh_db, host="127.0.0.1", port=59999)
+    # Simulate game context (normally set by rom_info event)
+    app.state._switch_game("test_game", "Test Game", "any%")
     # Simulate TCP connected so reference start doesn't bail early
     with patch.object(type(app.state.tcp), "is_connected", new_callable=PropertyMock, return_value=True):
         c = TestClient(app)

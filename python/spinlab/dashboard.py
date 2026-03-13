@@ -21,22 +21,17 @@ logger = logging.getLogger(__name__)
 
 def create_app(
     db: Database,
-    game_id: str,
+    rom_dir: Path | None = None,
     state_file: Path | None = None,  # deprecated, ignored
     host: str = "127.0.0.1",
     port: int = 15482,
     config: dict | None = None,
+    default_category: str = "any%",
 ) -> FastAPI:
     from spinlab.scheduler import Scheduler
 
     app = FastAPI(title="SpinLab Dashboard")
     app.state.config = config or {}
-
-    # Ensure game row exists (FK target for capture_runs, splits, etc.)
-    cfg = config or {}
-    game_name = cfg.get("game", {}).get("name", game_id)
-    category = cfg.get("game", {}).get("category", "any%")
-    db.upsert_game(game_id, game_name, category)
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.is_dir():
@@ -61,16 +56,28 @@ def create_app(
     _practice_task: list = [None]  # asyncio.Task | None
     _reconnect_task: list = [None]
     _mode: list[str] = ["idle"]  # "idle" | "reference" | "practice"
+    _game_id: list[str | None] = [None]
+    _game_name: list[str | None] = [None]
 
     # Expose internal state for testing
     app.state.tcp = tcp
     app.state._practice = _practice
     app.state._scheduler = _scheduler
     app.state._mode = _mode
+    app.state._game_id = _game_id
+    app.state._game_name = _game_name
+
+    def _require_game() -> str:
+        """Return current game_id or raise HTTPException."""
+        gid = _game_id[0]
+        if gid is None:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=409, detail="No game loaded")
+        return gid
 
     def _get_scheduler() -> Scheduler:
         if _scheduler[0] is None:
-            _scheduler[0] = Scheduler(db, game_id)
+            _scheduler[0] = Scheduler(db, _require_game())
         return _scheduler[0]
 
     def _current_mode() -> str:
@@ -87,6 +94,30 @@ def create_app(
         _ref_splits_count[0] = 0
         _ref_capture_run_id[0] = None
         _mode[0] = "idle"
+
+    def _switch_game(new_game_id: str, display_name: str, category: str) -> None:
+        """Switch active game context. Stops any active session first."""
+        if _game_id[0] == new_game_id:
+            return  # same game, no-op
+
+        # Stop practice if running
+        if _practice[0] and _practice[0].is_running:
+            _practice[0].is_running = False
+
+        # Clear reference state
+        _clear_ref_state()
+
+        # Create game in DB if new (preserves existing name)
+        db.upsert_game(new_game_id, display_name, category)
+
+        # Switch context
+        _game_id[0] = new_game_id
+        _game_name[0] = display_name
+        _scheduler[0] = None  # force re-creation for new game
+        _mode[0] = "idle"
+
+    # Expose for testing
+    app.state._switch_game = _switch_game
 
     def _on_disconnect():
         """Handle TCP disconnect: stop practice if running, clear ref state."""
@@ -134,12 +165,13 @@ def create_app(
                     if entrance:
                         _ref_splits_count[0] += 1
                         from .models import Split
+                        gid = _require_game()
                         split_id = Split.make_id(
-                            game_id, entrance["level"], entrance["room"], goal
+                            gid, entrance["level"], entrance["room"], goal
                         )
                         split = Split(
                             id=split_id,
-                            game_id=game_id,
+                            game_id=gid,
                             level_number=entrance["level"],
                             room_id=entrance["room"],
                             goal=goal,
@@ -174,6 +206,24 @@ def create_app(
     @app.get("/api/state")
     def api_state():
         mode = _current_mode()
+
+        # No game loaded yet
+        if _game_id[0] is None:
+            return {
+                "mode": mode,
+                "tcp_connected": tcp.is_connected,
+                "game_id": None,
+                "game_name": None,
+                "current_split": None,
+                "queue": [],
+                "recent": [],
+                "session": None,
+                "sections_captured": 0,
+                "allocator": None,
+                "estimator": None,
+            }
+
+        gid = _game_id[0]
         sched = _get_scheduler()
 
         current_split = None
@@ -189,7 +239,7 @@ def create_app(
                 "splits_completed": ps.splits_completed,
             }
             if ps.current_split_id:
-                splits = db.get_all_splits_with_model(game_id)
+                splits = db.get_all_splits_with_model(gid)
                 split_map = {s["id"]: s for s in splits}
                 if ps.current_split_id in split_map:
                     current_split = split_map[ps.current_split_id]
@@ -208,15 +258,17 @@ def create_app(
             queue_ids = sched.peek_next_n(3)
             if ps.current_split_id:
                 queue_ids = [q for q in queue_ids if q != ps.current_split_id][:2]
-            splits_all = db.get_all_splits_with_model(game_id)
+            splits_all = db.get_all_splits_with_model(gid)
             smap = {s["id"]: s for s in splits_all}
             queue = [smap[sid] for sid in queue_ids if sid in smap]
 
-        recent = db.get_recent_attempts(game_id, limit=8)
+        recent = db.get_recent_attempts(gid, limit=8)
 
         return {
             "mode": mode,
             "tcp_connected": tcp.is_connected,
+            "game_id": _game_id[0],
+            "game_name": _game_name[0],
             "current_split": current_split,
             "queue": queue,
             "recent": recent,
@@ -232,10 +284,11 @@ def create_app(
             return {"status": "practice_active"}
         if not tcp.is_connected:
             return {"status": "not_connected"}
+        gid = _require_game()
         _clear_ref_state()  # reset any stale state
         run_id = f"live_{uuid.uuid4().hex[:8]}"
         run_name = f"Live {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
-        db.create_capture_run(run_id, game_id, run_name)
+        db.create_capture_run(run_id, gid, run_name)
         db.set_active_capture_run(run_id)
         _ref_capture_run_id[0] = run_id
         _mode[0] = "reference"
@@ -259,7 +312,7 @@ def create_app(
         if _mode[0] == "reference":
             _clear_ref_state()
 
-        ps = PracticeSession(tcp=tcp, db=db, game_id=game_id)
+        ps = PracticeSession(tcp=tcp, db=db, game_id=_require_game())
         _practice[0] = ps
         _practice_task[0] = asyncio.create_task(ps.run_loop())
         _practice_task[0].add_done_callback(
@@ -338,31 +391,33 @@ def create_app(
                 except asyncio.TimeoutError:
                     _practice_task[0].cancel()
         _clear_ref_state()  # resets mode, ref state
-        db.reset_all_data()
+        gid = _game_id[0]
+        if gid:
+            db.reset_game_data(gid)
         _scheduler[0] = None
         return {"status": "ok"}
 
     @app.get("/api/splits")
     def api_splits():
-        splits = db.get_all_splits_with_model(game_id)
+        splits = db.get_all_splits_with_model(_require_game())
         return {"splits": splits}
 
     @app.get("/api/sessions")
     def api_sessions():
-        sessions = db.get_session_history(game_id)
+        sessions = db.get_session_history(_require_game())
         return {"sessions": sessions}
 
     # -- Reference management --
 
     @app.get("/api/references")
     def list_references():
-        return {"references": db.list_capture_runs(game_id)}
+        return {"references": db.list_capture_runs(_require_game())}
 
     @app.post("/api/references")
     def create_reference(body: dict):
         run_id = f"ref_{uuid.uuid4().hex[:8]}"
         name = body.get("name", "Untitled")
-        db.create_capture_run(run_id, game_id, name)
+        db.create_capture_run(run_id, _require_game(), name)
         return {"id": run_id, "name": name}
 
     @app.patch("/api/references/{ref_id}")
@@ -430,7 +485,7 @@ def create_app(
         manifest_path = Path(body["path"])
         with manifest_path.open(encoding="utf-8") as f:
             manifest = yaml.safe_load(f)
-        game_name = manifest.get("game_id", game_id)
+        game_name = manifest.get("game_id", _game_id[0] or "unknown")
         seed_db_from_manifest(db, manifest, game_name)
         return {"status": "ok", "splits_imported": len(manifest.get("splits", []))}
 
