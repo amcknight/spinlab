@@ -355,7 +355,7 @@ def create_app(
     @app.post("/api/import-manifest")
     def import_manifest(body: dict):
         import yaml
-        from spinlab.orchestrator import seed_db_from_manifest
+        from spinlab.manifest import seed_db_from_manifest
         manifest_path = Path(body["path"])
         with manifest_path.open(encoding="utf-8") as f:
             manifest = yaml.safe_load(f)

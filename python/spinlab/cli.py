@@ -68,7 +68,7 @@ def main(args: list[str] | None = None) -> None:
         db = Database(data_dir / "spinlab.db")
 
         # Seed DB from manifest if splits are empty
-        from spinlab.orchestrator import find_latest_manifest, load_manifest, seed_db_from_manifest
+        from spinlab.manifest import find_latest_manifest, load_manifest, seed_db_from_manifest
         if not db.get_active_splits(game_id):
             manifest_path = find_latest_manifest(data_dir)
             if manifest_path:
