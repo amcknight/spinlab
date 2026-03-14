@@ -180,6 +180,93 @@ class SessionManager:
         for q in dead:
             self.unsubscribe_sse(q)
 
+    # --- Event routing ---
+    async def route_event(self, event: dict) -> None:
+        """Single entry point for all TCP events. Routes by type."""
+        evt_type = event.get("event")
+
+        if evt_type == "rom_info":
+            await self._handle_rom_info(event)
+            return
+
+        if evt_type == "game_context":
+            gid = event.get("game_id")
+            gname = event.get("game_name", gid or "unknown")
+            if gid:
+                await self.switch_game(gid, gname)
+            return
+
+        if evt_type == "level_entrance" and self.mode == "reference":
+            key = (event["level"], event["room"])
+            self.ref_pending[key] = event
+            await self._notify_sse()
+            return
+
+        if evt_type == "level_exit" and self.mode == "reference":
+            await self._handle_ref_exit(event)
+            return
+
+        if evt_type == "attempt_result" and self.mode == "practice":
+            if self.practice_session:
+                self.practice_session.receive_result(event)
+            await self._notify_sse()
+            return
+
+    async def _handle_rom_info(self, event: dict) -> None:
+        """Auto-discover game from ROM filename."""
+        filename = event.get("filename", "")
+        if not self.rom_dir or not filename:
+            return
+
+        rom_path = self.rom_dir / filename
+        if rom_path.exists():
+            from spinlab.romid import rom_checksum, game_name_from_filename
+            checksum = rom_checksum(rom_path)
+            name = game_name_from_filename(filename)
+        else:
+            from spinlab.romid import game_name_from_filename
+            name = game_name_from_filename(filename)
+            checksum = f"file_{name.lower().replace(' ', '_')}"
+            logger.warning("ROM not found in rom_dir: %s — using filename as ID", filename)
+
+        await self.switch_game(checksum, name)
+        await self.tcp.send(json.dumps({
+            "event": "game_context",
+            "game_id": checksum,
+            "game_name": name,
+        }))
+
+    async def _handle_ref_exit(self, event: dict) -> None:
+        """Pair level_exit with pending entrance to create a split."""
+        key = (event["level"], event["room"])
+        goal = event.get("goal", "abort")
+
+        if goal == "abort":
+            self.ref_pending.pop(key, None)
+            return
+
+        entrance = self.ref_pending.pop(key, None)
+        if not entrance:
+            return
+
+        self.ref_splits_count += 1
+        from .models import Split
+        gid = self._require_game()
+        split_id = Split.make_id(gid, entrance["level"], entrance["room"], goal)
+        split = Split(
+            id=split_id,
+            game_id=gid,
+            level_number=entrance["level"],
+            room_id=entrance["room"],
+            goal=goal,
+            state_path=entrance.get("state_path"),
+            reference_time_ms=event.get("elapsed_ms"),
+            ordinal=self.ref_splits_count,
+            reference_id=self.ref_capture_run_id,
+        )
+        self.db.upsert_split(split)
+        await self._notify_sse()
+
     async def shutdown(self) -> None:
         """Clean shutdown: stop sessions, close TCP."""
         await self.stop_practice()
