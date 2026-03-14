@@ -5,3 +5,6 @@ __pycache__/
 .venv/
 .worktrees/
 .superpowers/
+.playwright-mcp/
+*.egg-info/
+spinlab.db
