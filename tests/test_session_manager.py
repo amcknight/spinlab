@@ -287,3 +287,43 @@ class TestPracticeMode:
 
         result = await sm.start_practice()
         assert result["status"] == "not_connected"
+
+
+class TestSSE:
+    @pytest.mark.asyncio
+    async def test_subscribe_receives_notifications(self):
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+
+        q = sm.subscribe_sse()
+        await sm._notify_sse()
+
+        msg = q.get_nowait()
+        assert msg["mode"] == "idle"
+
+    @pytest.mark.asyncio
+    async def test_unsubscribe_stops_notifications(self):
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+
+        q = sm.subscribe_sse()
+        sm.unsubscribe_sse(q)
+        await sm._notify_sse()
+
+        assert q.empty()
+
+    @pytest.mark.asyncio
+    async def test_full_queue_drops_oldest(self):
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+
+        q = sm.subscribe_sse()
+        # Fill queue
+        for _ in range(16):
+            await sm._notify_sse()
+        # Should still accept new
+        await sm._notify_sse()
+        assert not q.empty()
