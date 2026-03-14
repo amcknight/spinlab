@@ -1,7 +1,7 @@
 """Kalman filter estimator for speedrun split times."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from spinlab.estimators import Estimator, EstimatorState, register_estimator
 
@@ -100,11 +100,9 @@ class KalmanEstimator(Estimator):
         P_dm_pred = state.P_dm + state.P_dd + state.Q_dm
         P_dd_pred = state.P_dd + state.Q_dd
 
-        return KalmanState(
+        return replace(state,
             mu=mu_pred, d=d_pred,
             P_mm=P_mm_pred, P_md=P_md_pred, P_dm=P_dm_pred, P_dd=P_dd_pred,
-            R=state.R, Q_mm=state.Q_mm, Q_md=state.Q_md, Q_dm=state.Q_dm, Q_dd=state.Q_dd,
-            gold=state.gold, n_completed=state.n_completed, n_attempts=state.n_attempts,
         )
 
     def _update(self, predicted: KalmanState, observed_time: float) -> KalmanState:
@@ -130,11 +128,9 @@ class KalmanEstimator(Estimator):
         P_dm_new = -K_d * predicted.P_mm + predicted.P_dm
         P_dd_new = -K_d * predicted.P_md + predicted.P_dd
 
-        return KalmanState(
+        return replace(predicted,
             mu=mu_new, d=d_new,
             P_mm=P_mm_new, P_md=P_md_new, P_dm=P_dm_new, P_dd=P_dd_new,
-            R=predicted.R, Q_mm=predicted.Q_mm, Q_md=predicted.Q_md, Q_dm=predicted.Q_dm, Q_dd=predicted.Q_dd,
-            gold=predicted.gold, n_completed=predicted.n_completed, n_attempts=predicted.n_attempts,
         )
 
     def _reestimate_R(self, state: KalmanState, predicted: KalmanState, observed_time: float) -> KalmanState:
@@ -142,13 +138,7 @@ class KalmanEstimator(Estimator):
         R_est = innovation_sq - predicted.P_mm
         R_new = max(R_est, R_FLOOR)
         R_blended = 0.7 * state.R + 0.3 * R_new
-        return KalmanState(
-            mu=state.mu, d=state.d,
-            P_mm=state.P_mm, P_md=state.P_md, P_dm=state.P_dm, P_dd=state.P_dd,
-            R=max(R_blended, R_FLOOR),
-            Q_mm=state.Q_mm, Q_md=state.Q_md, Q_dm=state.Q_dm, Q_dd=state.Q_dd,
-            gold=state.gold, n_completed=state.n_completed, n_attempts=state.n_attempts,
-        )
+        return replace(state, R=max(R_blended, R_FLOOR))
 
     def init_state(self, first_time: float, priors: dict) -> KalmanState:
         d = priors.get("d", DEFAULT_D)
@@ -165,12 +155,7 @@ class KalmanEstimator(Estimator):
 
     def process_attempt(self, state: KalmanState, observed_time: float | None) -> KalmanState:
         if observed_time is None:
-            return KalmanState(
-                mu=state.mu, d=state.d,
-                P_mm=state.P_mm, P_md=state.P_md, P_dm=state.P_dm, P_dd=state.P_dd,
-                R=state.R, Q_mm=state.Q_mm, Q_md=state.Q_md, Q_dm=state.Q_dm, Q_dd=state.Q_dd,
-                gold=state.gold, n_completed=state.n_completed, n_attempts=state.n_attempts + 1,
-            )
+            return replace(state, n_attempts=state.n_attempts + 1)
 
         predicted = self._predict(state)
         updated = self._update(predicted, observed_time)
@@ -178,10 +163,7 @@ class KalmanEstimator(Estimator):
         n_completed = state.n_completed + 1
         gold = min(state.gold, observed_time)
 
-        result = KalmanState(
-            mu=updated.mu, d=updated.d,
-            P_mm=updated.P_mm, P_md=updated.P_md, P_dm=updated.P_dm, P_dd=updated.P_dd,
-            R=updated.R,
+        result = replace(updated,
             Q_mm=state.Q_mm, Q_md=state.Q_md, Q_dm=state.Q_dm, Q_dd=state.Q_dd,
             gold=gold, n_completed=n_completed, n_attempts=state.n_attempts + 1,
         )
