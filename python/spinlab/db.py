@@ -135,6 +135,14 @@ class Database:
                 "ALTER TABLE splits ADD COLUMN reference_id TEXT REFERENCES capture_runs(id)"
             )
 
+        # --- Migration: add end_on_goal to splits (default true) ---
+        cur = self.conn.execute("PRAGMA table_info(splits)")
+        col_names = [row[1] for row in cur.fetchall()]
+        if "end_on_goal" not in col_names:
+            self.conn.execute(
+                "ALTER TABLE splits ADD COLUMN end_on_goal INTEGER DEFAULT 1"
+            )
+
         self.conn.commit()
 
     def close(self) -> None:
@@ -158,8 +166,8 @@ class Database:
         self.conn.execute(
             """INSERT INTO splits (id, game_id, level_number, room_id, goal, description,
                state_path, reference_time_ms, strat_version, active, ordinal, reference_id,
-               created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               end_on_goal, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  state_path=excluded.state_path,
                  reference_time_ms=excluded.reference_time_ms,
@@ -167,11 +175,12 @@ class Database:
                  ordinal=excluded.ordinal,
                  reference_id=excluded.reference_id,
                  active=excluded.active,
+                 end_on_goal=excluded.end_on_goal,
                  updated_at=excluded.updated_at""",
             (split.id, split.game_id, split.level_number, split.room_id,
              split.goal, split.description, split.state_path,
              split.reference_time_ms, split.strat_version, int(split.active),
-             split.ordinal, split.reference_id, now, now),
+             split.ordinal, split.reference_id, int(split.end_on_goal), now, now),
         )
         self.conn.commit()
 
@@ -361,7 +370,7 @@ class Database:
         cur = self.conn.execute(
             """SELECT s.id, s.game_id, s.level_number, s.room_id, s.goal,
                       s.description, s.strat_version, s.reference_time_ms,
-                      s.state_path, s.active, s.ordinal,
+                      s.state_path, s.active, s.ordinal, s.end_on_goal,
                       m.estimator, m.state_json, m.marginal_return
                FROM splits s
                LEFT JOIN model_state m ON s.id = m.split_id
@@ -372,7 +381,7 @@ class Database:
         cols = [
             "id", "game_id", "level_number", "room_id", "goal",
             "description", "strat_version", "reference_time_ms",
-            "state_path", "active", "ordinal",
+            "state_path", "active", "ordinal", "end_on_goal",
             "estimator", "state_json", "marginal_return",
         ]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
@@ -474,25 +483,29 @@ class Database:
     def get_splits_by_reference(self, reference_id: str) -> list[dict]:
         cur = self.conn.execute(
             """SELECT id, game_id, level_number, room_id, goal, description,
-                      reference_time_ms, state_path, active, ordinal, reference_id
+                      reference_time_ms, state_path, active, ordinal, reference_id,
+                      end_on_goal
                FROM splits WHERE reference_id = ? AND active = 1
                ORDER BY ordinal""",
             (reference_id,),
         )
         cols = ["id", "game_id", "level_number", "room_id", "goal", "description",
-                "reference_time_ms", "state_path", "active", "ordinal", "reference_id"]
+                "reference_time_ms", "state_path", "active", "ordinal", "reference_id",
+                "end_on_goal"]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
     # -- Split editing --
 
     def update_split(self, split_id: str, **kwargs) -> None:
         """Partial update: pass description=, goal=, active= as kwargs."""
-        allowed = {"description", "goal", "active"}
+        allowed = {"description", "goal", "active", "end_on_goal"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return
         if "active" in updates:
             updates["active"] = int(updates["active"])
+        if "end_on_goal" in updates:
+            updates["end_on_goal"] = int(updates["end_on_goal"])
         now = datetime.now(UTC).isoformat()
         sets = ", ".join(f"{k} = ?" for k in updates)
         vals = list(updates.values()) + [now, split_id]
@@ -522,4 +535,5 @@ class Database:
             active=bool(row["active"]),
             ordinal=row["ordinal"] if "ordinal" in keys else None,
             reference_id=row["reference_id"] if "reference_id" in keys else None,
+            end_on_goal=bool(row["end_on_goal"]) if "end_on_goal" in keys else True,
         )

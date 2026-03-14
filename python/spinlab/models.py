@@ -27,6 +27,7 @@ class Split:
     active: bool = True
     ordinal: Optional[int] = None
     reference_id: Optional[str] = None
+    end_on_goal: bool = True
 
     @staticmethod
     def make_id(game_id: str, level: int, room: int, goal: str) -> str:
@@ -56,6 +57,7 @@ class SplitCommand:
     reference_time_ms: int | None
     auto_advance_delay_ms: int = 2000
     expected_time_ms: int | None = None  # Kalman μ*1000, falls back to reference_time_ms
+    end_on_goal: bool = True
 
     def to_dict(self) -> dict:
         return {
@@ -66,4 +68,5 @@ class SplitCommand:
             "reference_time_ms": self.reference_time_ms,
             "auto_advance_delay_ms": self.auto_advance_delay_ms,
             "expected_time_ms": self.expected_time_ms,
+            "end_on_goal": self.end_on_goal,
         }

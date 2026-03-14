@@ -43,10 +43,14 @@ function updateManage(refs, splits) {
     const tr = document.createElement('tr');
     tr.innerHTML =
       '<td><input class="split-name-input" value="' + (s.description || '') + '" ' +
+        'placeholder="' + splitName(s) + '" ' +
         'data-id="' + s.id + '" data-field="description"></td>' +
       '<td>' + s.level_number + '</td>' +
       '<td>' + s.goal + '</td>' +
       '<td>' + (s.reference_time_ms ? formatTime(s.reference_time_ms) : '\u2014') + '</td>' +
+      '<td><input type="checkbox" class="split-toggle" data-id="' + s.id + '" ' +
+        'data-field="end_on_goal" ' + (s.end_on_goal ? 'checked' : '') +
+        ' title="End practice on goal (uncheck for death-after-goal levels)"></td>' +
       '<td><button class="btn-x" data-id="' + s.id + '">\u2715</button></td>';
     body.appendChild(tr);
   });
@@ -63,6 +67,14 @@ export function initManageTab() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ [field]: value }),
     });
+  });
+
+  document.getElementById('split-body').addEventListener('change', async (e) => {
+    if (!e.target.classList.contains('split-toggle')) return;
+    const id = e.target.dataset.id;
+    const field = e.target.dataset.field;
+    const value = e.target.checked;
+    await postJSON('/api/splits/' + id, { [field]: value });
   });
 
   document.getElementById('split-body').addEventListener('click', async (e) => {

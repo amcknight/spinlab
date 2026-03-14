@@ -87,6 +87,7 @@ class Scheduler:
                     reference_time_ms=row["reference_time_ms"],
                     state_path=row["state_path"],
                     active=bool(row["active"]),
+                    end_on_goal=bool(row.get("end_on_goal", 1)),
                     estimator_state=state,
                     marginal_return=mr,
                     drift_info=di,

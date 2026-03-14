@@ -42,10 +42,12 @@ end
 local ADDR_GAME_MODE   = 0x0100  -- game mode: 18=prepare level, 20=in level
 local ADDR_LEVEL_NUM   = 0x13BF  -- current level number
 local ADDR_ROOM_NUM    = 0x010B  -- current room/sublevel
+local ADDR_LEVEL_START = 0x1935  -- 0→1 when player appears in level (kaizosplits "levelStart")
 local ADDR_PLAYER_ANIM = 0x0071  -- player animation: 9=death
 local ADDR_EXIT_MODE   = 0x0DD5  -- 0=not exiting, non-zero=exiting level
 local ADDR_IO          = 0x1DFB  -- SPC I/O: 3=orb, 4=goal, 7=key, 8=fadeout
 local ADDR_FANFARE     = 0x0906  -- steps to 1 when goal reached
+local ADDR_BOSS_DEFEAT = 0x13C6  -- 0=alive, non-zero=defeated
 
 -----------------------------------------------------------------------
 -- STATE
@@ -165,8 +167,18 @@ local function json_get_num(json_str, key)
   return tonumber(json_str:match('"' .. key .. '"%s*:%s*(%d+)'))
 end
 
+-- Extract a boolean field from a flat JSON object string. Returns nil if absent.
+local function json_get_bool(json_str, key)
+  local val = json_str:match('"' .. key .. '"%s*:%s*(%a+)')
+  if val == "true" then return true
+  elseif val == "false" then return false
+  else return nil end
+end
+
 -- Parse practice_load JSON payload into a table.
 local function parse_practice_split(json_str)
+  local end_on_goal = json_get_bool(json_str, "end_on_goal")
+  if end_on_goal == nil then end_on_goal = true end  -- default on
   return {
     id                     = json_get_str(json_str, "id") or "",
     state_path             = json_get_str(json_str, "state_path") or "",
@@ -175,6 +187,7 @@ local function parse_practice_split(json_str)
     reference_time_ms      = json_get_num(json_str, "reference_time_ms"),
     auto_advance_delay_ms  = json_get_num(json_str, "auto_advance_delay_ms") or 2000,
     expected_time_ms       = json_get_num(json_str, "expected_time_ms"),
+    end_on_goal            = end_on_goal,
   }
 end
 
@@ -282,10 +295,12 @@ local function read_mem()
     game_mode   = emu.read(ADDR_GAME_MODE,   SNES, false),
     level_num   = emu.read(ADDR_LEVEL_NUM,   SNES, false),
     room_num    = emu.read(ADDR_ROOM_NUM,    SNES, false),
+    level_start = emu.read(ADDR_LEVEL_START, SNES, false),
     player_anim = emu.read(ADDR_PLAYER_ANIM, SNES, false),
     exit_mode   = emu.read(ADDR_EXIT_MODE,   SNES, false),
     io_port     = emu.read(ADDR_IO,          SNES, false),
     fanfare     = emu.read(ADDR_FANFARE,     SNES, false),
+    boss_defeat = emu.read(ADDR_BOSS_DEFEAT, SNES, false),
   }
 end
 
@@ -349,7 +364,10 @@ local function detect_transitions(curr)
     on_death(curr)
   end
 
-  if curr.game_mode == 18 and prev.game_mode ~= 18 then
+  -- Level entrance: levelStart 0→1 (kaizosplits "LevelStart").
+  -- Fires once when the player appears in the level — does NOT fire for
+  -- sublevel pipe/door transitions, only for fresh level entry or death respawn.
+  if curr.level_start == 1 and prev.level_start == 0 then
     if not died_flag then
       local state_path
       if not game_id then
@@ -378,6 +396,31 @@ local function detect_transitions(curr)
 end
 
 -----------------------------------------------------------------------
+-- EARLY FINISH DETECTION (kaizosplits "LevelFinish" conditions)
+-----------------------------------------------------------------------
+-- Returns goal type string if a finish condition fired this frame, nil otherwise.
+-- Uses prev/curr transitions matching kaizosplits Watchers.cs logic.
+local function detect_finish(curr)
+  -- Goal tape: fanfare 0→1, boss alive, no orb
+  if curr.fanfare == 1 and prev.fanfare == 0 and curr.boss_defeat == 0 and curr.io_port ~= 3 then
+    return "normal"
+  end
+  -- Boss: fanfare 0→1, boss defeated
+  if curr.fanfare == 1 and prev.fanfare == 0 and curr.boss_defeat ~= 0 then
+    return "boss"
+  end
+  -- Orb: io shifts to 3, boss alive
+  if curr.io_port == 3 and prev.io_port ~= 3 and curr.boss_defeat == 0 then
+    return "orb"
+  end
+  -- Key: io shifts to 7
+  if curr.io_port == 7 and prev.io_port ~= 7 then
+    return "key"
+  end
+  return nil
+end
+
+-----------------------------------------------------------------------
 -- PRACTICE MODE STATE MACHINE
 -----------------------------------------------------------------------
 local function handle_practice(curr)
@@ -388,12 +431,22 @@ local function handle_practice(curr)
     practice.start_ms = ts_ms()
 
   elseif practice.state == PSTATE_PLAYING then
-    -- Death check (higher priority than exit_mode)
+    -- Death check (higher priority than exit/finish)
     if curr.player_anim == 9 and prev.player_anim ~= 9 then
       pending_load = practice.split.state_path
       log("Practice: death — reloading state")
 
+    elseif practice.split.end_on_goal and detect_finish(curr) then
+      -- Early finish: goal/orb/key/boss detected, skip fanfare wait
+      local finish_goal = detect_finish(curr)
+      practice.elapsed_ms = ts_ms() - practice.start_ms
+      practice.completed  = true
+      practice.state      = PSTATE_RESULT
+      practice.result_start_ms = ts_ms()
+      log("Practice: FINISH (" .. finish_goal .. ") — " .. practice.elapsed_ms .. "ms")
+
     elseif curr.exit_mode ~= 0 and prev.exit_mode == 0 then
+      -- Late exit: full exit_mode transition (fallback when end_on_goal is off)
       local goal = goal_type(curr)
       practice.elapsed_ms = ts_ms() - practice.start_ms
       practice.completed  = (goal ~= "abort")

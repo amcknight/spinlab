@@ -6,10 +6,14 @@ import { fetchManage, initManageTab } from './manage.js';
 function updateLive(data) {
   if (!data.tcp_connected) return renderDisconnected();
   switch (data.mode) {
-    case 'reference': return renderReference(data);
-    case 'practice': return renderPractice(data);
-    default: return renderIdle(data);
+    case 'reference': renderReference(data); break;
+    case 'practice': renderPractice(data); break;
+    default: renderIdle(data); break;
   }
+  // Refresh active secondary tab
+  const activeTab = document.querySelector('.tab.active');
+  if (activeTab?.dataset.tab === 'model') fetchModel();
+  if (activeTab?.dataset.tab === 'manage') fetchManage();
 }
 
 // Tab switching

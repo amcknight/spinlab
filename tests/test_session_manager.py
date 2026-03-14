@@ -121,7 +121,7 @@ class TestRouteEvent:
             "state_path": "/path/to/state.mss",
         })
 
-        assert (105, 0) in sm.ref_pending
+        assert 105 in sm.ref_pending
 
     @pytest.mark.asyncio
     async def test_level_exit_pairs_with_entrance(self):
@@ -152,6 +152,39 @@ class TestRouteEvent:
 
         assert sm.ref_splits_count == 1
         db.upsert_split.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_level_exit_pairs_across_rooms(self):
+        """Exit from a different room than entrance still pairs (sublevel case)."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        sm.mode = "reference"
+        sm.ref_capture_run_id = "run1"
+
+        # Entrance in room 0
+        await sm.route_event({
+            "event": "level_entrance",
+            "level": 105,
+            "room": 0,
+            "state_path": "/path/to/state.mss",
+        })
+
+        # Exit from room 5 (player went through a pipe)
+        await sm.route_event({
+            "event": "level_exit",
+            "level": 105,
+            "room": 5,
+            "goal": "normal",
+            "elapsed_ms": 8000,
+        })
+
+        assert sm.ref_splits_count == 1
+        db.upsert_split.assert_called_once()
+        # Split should use entrance room (0), not exit room (5)
+        split = db.upsert_split.call_args[0][0]
+        assert split.room_id == 0
 
     @pytest.mark.asyncio
     async def test_level_exit_abort_discards(self):
@@ -287,6 +320,137 @@ class TestPracticeMode:
 
         result = await sm.start_practice()
         assert result["status"] == "not_connected"
+
+
+class TestAttemptResultRouting:
+    @pytest.mark.asyncio
+    async def test_attempt_result_delivered_to_practice_session(self):
+        """attempt_result event must call receive_result on practice session."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        sm.mode = "practice"
+
+        # Inject a mock practice session
+        mock_ps = MagicMock()
+        mock_ps.is_running = True
+        sm.practice_session = mock_ps
+
+        event = {
+            "event": "attempt_result",
+            "split_id": "game1:1:0:normal",
+            "completed": True,
+            "time_ms": 4500,
+            "goal": "normal",
+        }
+        await sm.route_event(event)
+
+        mock_ps.receive_result.assert_called_once_with(event)
+
+    @pytest.mark.asyncio
+    async def test_attempt_result_ignored_outside_practice(self):
+        """attempt_result events should be ignored when not in practice mode."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        sm.mode = "idle"
+
+        mock_ps = MagicMock()
+        sm.practice_session = mock_ps
+
+        await sm.route_event({
+            "event": "attempt_result",
+            "split_id": "s1",
+            "completed": True,
+            "time_ms": 4500,
+        })
+
+        mock_ps.receive_result.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_attempt_result_sends_sse(self):
+        """SSE subscribers should be notified when attempt_result arrives."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        sm.mode = "practice"
+
+        mock_ps = MagicMock()
+        mock_ps.is_running = True
+        sm.practice_session = mock_ps
+
+        q = sm.subscribe_sse()
+
+        await sm.route_event({
+            "event": "attempt_result",
+            "split_id": "s1",
+            "completed": True,
+            "time_ms": 4500,
+        })
+
+        assert not q.empty()
+        msg = q.get_nowait()
+        assert msg["mode"] == "practice"
+
+
+class TestPracticeDoneNotification:
+    @pytest.mark.asyncio
+    async def test_on_practice_done_sets_idle(self):
+        """When practice task completes, mode should switch to idle."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.mode = "practice"
+
+        mock_task = MagicMock()
+        sm._on_practice_done(mock_task)
+
+        assert sm.mode == "idle"
+
+    @pytest.mark.asyncio
+    async def test_on_practice_done_sends_sse(self):
+        """SSE subscribers should be notified when practice ends naturally."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.mode = "practice"
+
+        q = sm.subscribe_sse()
+
+        mock_task = MagicMock()
+        sm._on_practice_done(mock_task)
+
+        # ensure_future schedules the coroutine — let the event loop run it
+        await asyncio.sleep(0)
+
+        assert not q.empty()
+        msg = q.get_nowait()
+        assert msg["mode"] == "idle"
+
+
+class TestOnAttemptCallback:
+    @pytest.mark.asyncio
+    async def test_start_practice_wires_on_attempt_sse(self):
+        """start_practice should wire on_attempt to push SSE."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+
+        await sm.start_practice()
+
+        assert sm.practice_session is not None
+        assert sm.practice_session.on_attempt is not None
+
+        # Call the on_attempt callback and check SSE fires
+        q = sm.subscribe_sse()
+        sm.practice_session.on_attempt(MagicMock())
+        await asyncio.sleep(0)  # let ensure_future run
+
+        assert not q.empty()
 
 
 class TestSSE:

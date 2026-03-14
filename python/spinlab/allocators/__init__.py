@@ -23,6 +23,7 @@ class SplitWithModel:
     reference_time_ms: int | None
     state_path: str | None
     active: bool
+    end_on_goal: bool = True
     # Estimator output
     estimator_state: EstimatorState | None = None
     marginal_return: float = 0.0

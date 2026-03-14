@@ -75,8 +75,10 @@ def seeded_db(tmp_path):
             completed=completed, time_ms=time_ms,
         ))
 
+    gold_times = {"s1": 3.2, "s2": 6.5, "s3": 11.5, "s4": 9.1}
     for split_id, mu, d, mr in MODEL_STATES:
-        state = {"mu": mu, "P": 1.0, "d": d, "Q_mu": 0.5, "Q_d": 0.01, "R": 1.0, "n": 5}
+        state = {"mu": mu, "P": 1.0, "d": d, "Q_mu": 0.5, "Q_d": 0.01, "R": 1.0, "n": 5,
+                 "gold": gold_times[split_id], "n_completed": 3, "n_attempts": 3}
         db.save_model_state(split_id, "kalman", json.dumps(state), mr)
 
     return db
@@ -200,6 +202,22 @@ class TestModelEndpoint:
         s5 = next(s for s in data["splits"] if s["split_id"] == "s5")
         assert s5["mu"] is None
         assert s5["drift"] is None
+
+    def test_unpracticed_split_has_reference_time(self, active_client):
+        """Splits without model state should still expose reference_time_ms."""
+        data = active_client.get("/api/model").json()
+        s5 = next(s for s in data["splits"] if s["split_id"] == "s5")
+        # s5 has no model state (no attempts), mu/drift are None
+        assert s5["mu"] is None
+        # But reference_time_ms should still be available (None for s5 since it has none)
+        assert "reference_time_ms" in s5
+
+    def test_practiced_split_has_gold_and_reference(self, active_client):
+        """Splits with model state should expose both gold_ms and reference_time_ms."""
+        data = active_client.get("/api/model").json()
+        s1 = next(s for s in data["splits"] if s["split_id"] == "s1")
+        assert s1["gold_ms"] is not None
+        assert s1["reference_time_ms"] == 4000
 
     def test_marginal_return_present(self, active_client):
         data = active_client.get("/api/model").json()

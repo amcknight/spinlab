@@ -28,7 +28,14 @@ spinlab/
 │       ├── db.py           # SQLite interface
 │       ├── capture.py      # Post-processes reference run data into manifest
 │       ├── cli.py          # TUI for stats, session management, strat resets
-│       └── models.py       # Data classes / types
+│       ├── models.py       # Data classes / types
+│       └── static/
+│           ├── app.js      # Entry point (ES module), wires tabs + SSE
+│           ├── api.js      # fetchJSON, postJSON, connectSSE
+│           ├── live.js     # Mode rendering (idle/reference/practice)
+│           ├── model.js    # Model tab
+│           ├── manage.js   # Reference/split management tab
+│           └── format.js   # splitName, formatTime, elapsedStr
 ├── reference/              # kaizosplits source for memory address extraction
 ├── scripts/
 │   ├── launch.sh           # Launches Mesen2 with Lua script auto-loaded
@@ -48,7 +55,11 @@ spinlab/
 
 4. **Launch Script** (`scripts/launch.sh`): Starts Mesen2 with the ROM and Lua script. Takes care of paths so the user never manually loads scripts.
 
-5. **Dashboard** (`python/spinlab/dashboard.py`): FastAPI web app on `http://localhost:15483`. Run with `spinlab dashboard`. Lua TCP server is on port `15482`.
+5. **Dashboard** (`python/spinlab/dashboard.py`): FastAPI web app on `http://localhost:15483`. Run with `spinlab dashboard`. Lua TCP server is on port `15482`. Endpoints are thin wrappers delegating to `SessionManager`.
+
+6. **SessionManager** (`python/spinlab/session_manager.py`): Central state owner for the dashboard. Owns mode, game context, scheduler, practice session, and reference capture state. Single `route_event()` entry point for all TCP events. Pushes state updates to SSE subscribers. Replaces the closure-scoped mutable containers that were previously in `create_app()`.
+
+7. **Frontend** (`python/spinlab/static/`): Vanilla JS ES modules. `app.js` is the entry point, imports from `api.js` (SSE + fetch), `live.js` (mode rendering), `model.js` (model tab), `manage.js` (reference management), `format.js` (shared formatters). Uses SSE (`/api/events`) as primary update mechanism with polling fallback.
 
 ### IPC: TCP Socket (via Mesen2's built-in LuaSocket)
 

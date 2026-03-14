@@ -100,6 +100,7 @@ class TestReceiveResult:
         mock_split.description = "Test"
         mock_split.reference_time_ms = 5000
         mock_split.estimator_state = None
+        mock_split.end_on_goal = True
 
         ps.scheduler.pick_next = MagicMock(return_value=mock_split)
         ps.scheduler.peek_next_n = MagicMock(return_value=[])

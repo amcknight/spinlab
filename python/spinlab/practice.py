@@ -82,6 +82,7 @@ class PracticeSession:
             reference_time_ms=picked.reference_time_ms,
             auto_advance_delay_ms=self.auto_advance_delay_ms,
             expected_time_ms=expected_time_ms,
+            end_on_goal=picked.end_on_goal,
         )
 
         self.current_split_id = cmd.id

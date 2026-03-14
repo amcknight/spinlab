@@ -197,7 +197,7 @@ class SessionManager:
             return
 
         if evt_type == "level_entrance" and self.mode == "reference":
-            key = (event["level"], event["room"])
+            key = event["level"]
             self.ref_pending[key] = event
             await self._notify_sse()
             return
@@ -238,7 +238,7 @@ class SessionManager:
 
     async def _handle_ref_exit(self, event: dict) -> None:
         """Pair level_exit with pending entrance to create a split."""
-        key = (event["level"], event["room"])
+        key = event["level"]
         goal = event.get("goal", "abort")
 
         if goal == "abort":
@@ -304,7 +304,10 @@ class SessionManager:
             self._clear_ref_state()
 
         from .practice import PracticeSession
-        ps = PracticeSession(tcp=self.tcp, db=self.db, game_id=self._require_game())
+        ps = PracticeSession(
+            tcp=self.tcp, db=self.db, game_id=self._require_game(),
+            on_attempt=lambda _: asyncio.ensure_future(self._notify_sse()),
+        )
         self.practice_session = ps
         self.practice_task = asyncio.create_task(ps.run_loop())
         self.practice_task.add_done_callback(self._on_practice_done)
@@ -316,6 +319,7 @@ class SessionManager:
         """Callback when practice task finishes."""
         if self.mode == "practice":
             self.mode = "idle"
+            asyncio.ensure_future(self._notify_sse())
 
     async def stop_practice(self) -> dict:
         """Stop practice session."""
