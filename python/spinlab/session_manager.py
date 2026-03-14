@@ -267,13 +267,82 @@ class SessionManager:
         self.db.upsert_split(split)
         await self._notify_sse()
 
+    # --- Reference mode ---
+    async def start_reference(self, run_name: str | None = None) -> dict:
+        """Begin reference capture."""
+        if self.mode == "practice":
+            return {"status": "practice_active"}
+        if not self.tcp.is_connected:
+            return {"status": "not_connected"}
+        gid = self._require_game()
+        self._clear_ref_state()
+        run_id = f"live_{uuid.uuid4().hex[:8]}"
+        name = run_name or f"Live {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')}"
+        self.db.create_capture_run(run_id, gid, name)
+        self.db.set_active_capture_run(run_id)
+        self.ref_capture_run_id = run_id
+        self.mode = "reference"
+        await self._notify_sse()
+        return {"status": "started", "run_id": run_id, "run_name": name}
+
+    async def stop_reference(self) -> dict:
+        """End reference capture."""
+        if self.mode != "reference":
+            return {"status": "not_in_reference"}
+        self._clear_ref_state()
+        await self._notify_sse()
+        return {"status": "stopped"}
+
+    # --- Practice mode ---
+    async def start_practice(self) -> dict:
+        """Begin practice session."""
+        if self.practice_session and self.practice_session.is_running:
+            return {"status": "already_running"}
+        if not self.tcp.is_connected:
+            return {"status": "not_connected"}
+        if self.mode == "reference":
+            self._clear_ref_state()
+
+        from .practice import PracticeSession
+        ps = PracticeSession(tcp=self.tcp, db=self.db, game_id=self._require_game())
+        self.practice_session = ps
+        self.practice_task = asyncio.create_task(ps.run_loop())
+        self.practice_task.add_done_callback(self._on_practice_done)
+        self.mode = "practice"
+        await self._notify_sse()
+        return {"status": "started", "session_id": ps.session_id}
+
+    def _on_practice_done(self, task: asyncio.Task) -> None:
+        """Callback when practice task finishes."""
+        if self.mode == "practice":
+            self.mode = "idle"
+
+    async def stop_practice(self) -> dict:
+        """Stop practice session."""
+        if self.practice_session and self.practice_session.is_running:
+            self.practice_session.is_running = False
+            if self.practice_task:
+                try:
+                    await asyncio.wait_for(self.practice_task, timeout=5)
+                except asyncio.TimeoutError:
+                    self.practice_task.cancel()
+            self.mode = "idle"
+            await self._notify_sse()
+            return {"status": "stopped"}
+        if self.mode == "practice":
+            self.mode = "idle"
+            return {"status": "stopped"}
+        return {"status": "not_running"}
+
+    def on_disconnect(self) -> None:
+        """Handle TCP disconnect: stop practice, clear ref state."""
+        if self.practice_session and self.practice_session.is_running:
+            self.practice_session.is_running = False
+        self._clear_ref_state()
+
     async def shutdown(self) -> None:
         """Clean shutdown: stop sessions, close TCP."""
         await self.stop_practice()
         if self.mode == "reference":
             self._clear_ref_state()
         await self.tcp.disconnect()
-
-    async def stop_practice(self) -> dict:
-        """Stop practice session (stub — full impl in Task 3)."""
-        return {"status": "not_running"}

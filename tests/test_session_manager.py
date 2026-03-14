@@ -191,3 +191,99 @@ class TestRouteEvent:
 
         assert len(sm.ref_pending) == 0
         assert sm.ref_splits_count == 0
+
+
+class TestReferenceMode:
+    @pytest.mark.asyncio
+    async def test_start_reference(self):
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+
+        result = await sm.start_reference()
+
+        assert result["status"] == "started"
+        assert sm.mode == "reference"
+        assert sm.ref_capture_run_id is not None
+        db.create_capture_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_start_reference_no_game(self):
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+
+        with pytest.raises(Exception):  # HTTPException
+            await sm.start_reference()
+
+    @pytest.mark.asyncio
+    async def test_start_reference_during_practice(self):
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        sm.mode = "practice"
+
+        result = await sm.start_reference()
+        assert result["status"] == "practice_active"
+
+    @pytest.mark.asyncio
+    async def test_start_reference_not_connected(self):
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        tcp.is_connected = False
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+
+        result = await sm.start_reference()
+        assert result["status"] == "not_connected"
+
+    @pytest.mark.asyncio
+    async def test_stop_reference(self):
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        await sm.start_reference()
+
+        result = await sm.stop_reference()
+        assert result["status"] == "stopped"
+        assert sm.mode == "idle"
+
+
+class TestPracticeMode:
+    @pytest.mark.asyncio
+    async def test_start_practice(self):
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+
+        result = await sm.start_practice()
+        assert result["status"] == "started"
+        assert sm.mode == "practice"
+        assert sm.practice_session is not None
+
+    @pytest.mark.asyncio
+    async def test_stop_practice(self):
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        await sm.start_practice()
+
+        result = await sm.stop_practice()
+        assert result["status"] == "stopped"
+        assert sm.mode == "idle"
+
+    @pytest.mark.asyncio
+    async def test_start_practice_not_connected(self):
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        tcp.is_connected = False
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+
+        result = await sm.start_practice()
+        assert result["status"] == "not_connected"
