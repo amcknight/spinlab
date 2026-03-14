@@ -35,14 +35,9 @@ StopDashboard() {
     return false
 }
 
-; Ctrl+Alt+W — launch Mesen + dashboard (idempotent)
+; Ctrl+Alt+W — launch dashboard only (Mesen launches from dashboard UI)
 ^!w:: {
     global dashPID
-    ; Launch Mesen if not running
-    if !ProcessExist("Mesen.exe") {
-        Run 'cmd /c "' A_ScriptDir '\launch.bat"',, 'Hide'
-    }
-    ; Launch dashboard if not running
     existingPID := (dashPID != 0 && ProcessExist(dashPID)) ? dashPID : FindDashPID()
     if (existingPID != 0) {
         dashPID := existingPID
@@ -52,11 +47,17 @@ StopDashboard() {
     Flash("SpinLab started", 2000)
 }
 
-; Ctrl+Alt+X — kill everything
+; Ctrl+Alt+X — graceful shutdown
 ^!x:: {
-    Run 'cmd /c spinlab lua-cmd practice_stop', A_ScriptDir '\..',  'Hide'
+    ; Try graceful HTTP shutdown first
+    try {
+        RunWait 'cmd /c curl -s -X POST http://localhost:15483/api/shutdown',, 'Hide'
+        Sleep 1000
+    }
+    ; Kill Mesen if running
     if ProcessExist("Mesen.exe")
         Run 'taskkill /IM Mesen.exe /F',, "Hide"
+    ; Fallback: kill dashboard if HTTP shutdown didn't work
     StopDashboard()
     Flash "SpinLab — stopped"
 }
