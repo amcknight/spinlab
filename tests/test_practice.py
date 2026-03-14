@@ -39,14 +39,15 @@ async def test_practice_session_picks_and_sends(db):
         "goal": "normal",
     }
 
-    async def fake_recv_event(timeout=None):
-        return result_event
-
-    mock_tcp.recv_event = fake_recv_event
-
     session = PracticeSession(tcp=mock_tcp, db=db, game_id="g")
     session.is_running = True
-    # Run one iteration
+
+    # Deliver result via receive_result after a short delay
+    async def deliver():
+        await asyncio.sleep(0.05)
+        session.receive_result(result_event)
+
+    asyncio.create_task(deliver())
     await session.run_one()
 
     # Verify practice_load was sent
@@ -66,3 +67,57 @@ async def test_practice_session_state(db):
     assert session.is_running is False
     assert session.current_split_id is None
     assert session.splits_attempted == 0
+
+
+class TestReceiveResult:
+    @pytest.mark.asyncio
+    async def test_receive_result_unblocks_run_one(self, tmp_path):
+        """run_one awaits asyncio.Event, receive_result sets it."""
+        tcp = MagicMock()
+        tcp.is_connected = True
+        tcp.send = AsyncMock()
+        db = MagicMock()
+        db.create_session = MagicMock()
+        db.end_session = MagicMock()
+        db.log_attempt = MagicMock()
+        db.load_allocator_config = MagicMock(return_value=None)
+        db.get_all_splits_with_model = MagicMock(return_value=[])
+        db.load_model_state = MagicMock(return_value=None)
+        db.save_model_state = MagicMock()
+
+        ps = PracticeSession(tcp=tcp, db=db, game_id="test")
+        ps.is_running = True
+
+        # Create a real state file so os.path.exists passes
+        state_file = tmp_path / "test.mss"
+        state_file.write_bytes(b"fake state")
+
+        # Simulate scheduler returning a split
+        mock_split = MagicMock()
+        mock_split.split_id = "s1"
+        mock_split.state_path = str(state_file)
+        mock_split.goal = "normal"
+        mock_split.description = "Test"
+        mock_split.reference_time_ms = 5000
+        mock_split.estimator_state = None
+
+        ps.scheduler.pick_next = MagicMock(return_value=mock_split)
+        ps.scheduler.peek_next_n = MagicMock(return_value=[])
+        ps.scheduler.process_attempt = MagicMock()
+
+        # Schedule receive_result after a short delay
+        async def deliver_result():
+            await asyncio.sleep(0.1)
+            ps.receive_result({
+                "event": "attempt_result",
+                "split_id": "s1",
+                "completed": True,
+                "time_ms": 4500,
+                "goal": "normal",
+            })
+
+        asyncio.create_task(deliver_result())
+        result = await ps.run_one()
+
+        assert result is True
+        assert ps.splits_completed == 1

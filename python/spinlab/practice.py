@@ -1,6 +1,7 @@
 """Practice session loop — runs as async background task in dashboard."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -43,7 +44,9 @@ class PracticeSession:
         self.queue: list[str] = []
         self.splits_attempted = 0
         self.splits_completed = 0
-        self._skipped: set[str] = set()
+
+        self._result_event = asyncio.Event()
+        self._result_data: dict | None = None
 
     def start(self) -> None:
         self.db.create_session(self.session_id, self.game_id)
@@ -55,21 +58,14 @@ class PracticeSession:
             self.session_id, self.splits_attempted, self.splits_completed
         )
 
+    def receive_result(self, event: dict) -> None:
+        """Called by SessionManager.route_event when attempt_result arrives."""
+        self._result_data = event
+        self._result_event.set()
+
     async def run_one(self) -> bool:
         """Run one pick-send-receive cycle. Returns False if no splits available."""
-        import os
-
-        # Try picking a split with a valid state file
-        picked = None
-        for _ in range(50):  # bound attempts to avoid infinite loop
-            candidate = self.scheduler.pick_next()
-            if candidate is None:
-                return False
-            if candidate.state_path and os.path.exists(candidate.state_path):
-                picked = candidate
-                break
-            self._skipped.add(candidate.split_id)
-
+        picked = self.scheduler.pick_next()
         if picked is None:
             return False
 
@@ -93,14 +89,19 @@ class PracticeSession:
 
         await self.tcp.send("practice_load:" + json.dumps(cmd.to_dict()))
 
-        # Wait for attempt_result from the shared event queue
+        # Wait for attempt_result via receive_result() (set by SessionManager)
+        self._result_event.clear()
+        self._result_data = None
+
         while self.is_running and self.tcp.is_connected:
-            event = await self.tcp.recv_event(timeout=1.0)
-            if event is None:
-                continue  # timeout, check if still running
-            if event.get("event") == "attempt_result":
-                self._process_result(event, cmd)
+            try:
+                await asyncio.wait_for(self._result_event.wait(), timeout=1.0)
                 break
+            except asyncio.TimeoutError:
+                continue
+
+        if self._result_data and self._result_data.get("event") == "attempt_result":
+            self._process_result(self._result_data, cmd)
 
         self.current_split_id = None
         return True
