@@ -1,4 +1,5 @@
 """Tests for dashboard API endpoints."""
+import asyncio
 import json
 import pytest
 from pathlib import Path
@@ -18,10 +19,9 @@ def db(tmp_path):
 @pytest.fixture
 def client(db, tmp_path):
     from spinlab.dashboard import create_app
-    # TCP will fail to connect (nothing listening) — dashboard stays in idle mode
     app = create_app(db=db, host="127.0.0.1", port=59999)
-    app.state._game_id[0] = "test_game"
-    app.state._game_name[0] = "Test Game"
+    app.state.session.game_id = "test_game"
+    app.state.session.game_name = "Test Game"
     return TestClient(app)
 
 
@@ -121,6 +121,15 @@ def test_launch_emulator_no_config(client):
     assert resp.json()["status"] == "error"
 
 
+def _sync_switch(app, game_id, game_name):
+    """Helper to call async switch_game from sync test code."""
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(app.state.session.switch_game(game_id, game_name))
+    finally:
+        loop.close()
+
+
 def test_fresh_db_reference_start_creates_game(tmp_path):
     """Reference start on a fresh DB should not FK-crash (game row auto-created)."""
     from unittest.mock import PropertyMock, patch
@@ -129,7 +138,7 @@ def test_fresh_db_reference_start_creates_game(tmp_path):
     fresh_db = Database(tmp_path / "fresh.db")
     app = create_app(db=fresh_db, host="127.0.0.1", port=59999)
     # Simulate game context (normally set by rom_info event)
-    app.state._switch_game("test_game", "Test Game", "any%")
+    _sync_switch(app, "test_game", "Test Game")
     # Simulate TCP connected so reference start doesn't bail early
     with patch.object(type(app.state.tcp), "is_connected", new_callable=PropertyMock, return_value=True):
         c = TestClient(app)
@@ -141,17 +150,17 @@ def test_fresh_db_reference_start_creates_game(tmp_path):
 def test_practice_stop_clears_stale_mode(client):
     """If practice self-terminates, stop should still reset mode to idle."""
     # Manually set mode to practice (simulating a self-terminated session)
-    client.app.state._mode[0] = "practice"
+    client.app.state.session.mode = "practice"
     resp = client.post("/api/practice/stop")
     assert resp.status_code == 200
     assert resp.json()["status"] == "stopped"
-    assert client.app.state._mode[0] == "idle"
+    assert client.app.state.session.mode == "idle"
 
 
 def test_switch_game_sets_context(client, db):
     """Switching game updates game_id and game_name."""
     app = client.app
-    app.state._switch_game("new_checksum", "New Game", "any%")
+    _sync_switch(app, "new_checksum", "New Game")
     resp = client.get("/api/state")
     data = resp.json()
     assert data["game_id"] == "new_checksum"
@@ -161,7 +170,7 @@ def test_switch_game_sets_context(client, db):
 def test_switch_game_same_id_is_noop(client, db):
     """Switching to the same game should be a no-op."""
     app = client.app
-    app.state._switch_game("test_game", "Test Game", "any%")
+    _sync_switch(app, "test_game", "Test Game")
     # mode should still be whatever it was (not reset to idle)
     resp = client.get("/api/state")
     assert resp.json()["mode"] == "idle"
@@ -172,7 +181,7 @@ def test_switch_game_resets_scheduler(client, db):
     app = client.app
     # Access scheduler to cache it
     client.get("/api/state")
-    assert app.state._scheduler[0] is not None
+    assert app.state.session.scheduler is not None
     # Switch game
-    app.state._switch_game("other_game", "Other Game", "any%")
-    assert app.state._scheduler[0] is None
+    _sync_switch(app, "other_game", "Other Game")
+    assert app.state.session.scheduler is None

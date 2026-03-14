@@ -19,8 +19,8 @@ def db(tmp_path):
 def client(db, tmp_path):
     from spinlab.dashboard import create_app
     app = create_app(db=db, host="127.0.0.1", port=59999)
-    app.state._game_id[0] = "test_game"
-    app.state._game_name[0] = "Test Game"
+    app.state.session.game_id = "test_game"
+    app.state.session.game_name = "Test Game"
     return TestClient(app)
 
 

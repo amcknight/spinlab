@@ -77,8 +77,8 @@ def seeded_db(tmp_path):
 def client(seeded_db):
     from spinlab.dashboard import create_app
     app = create_app(db=seeded_db, host="127.0.0.1", port=59999)
-    app.state._game_id[0] = GAME_ID
-    app.state._game_name[0] = "SMW Kaizo"
+    app.state.session.game_id = GAME_ID
+    app.state.session.game_name = "SMW Kaizo"
     return TestClient(app)
 
 
@@ -94,8 +94,8 @@ def active_client(seeded_db):
     from unittest.mock import AsyncMock
 
     app = create_app(db=seeded_db, host="127.0.0.1", port=59999)
-    app.state._game_id[0] = GAME_ID
-    app.state._game_name[0] = "SMW Kaizo"
+    app.state.session.game_id = GAME_ID
+    app.state.session.game_name = "SMW Kaizo"
 
     mock_tcp = AsyncMock()
     mock_tcp.is_connected = True
@@ -104,9 +104,8 @@ def active_client(seeded_db):
     ps.current_split_id = "s1"
     ps.session_id = "sess1"  # match the session already in DB
 
-    # Inject into the app's exposed state lists
-    app.state._practice[0] = ps
-    app.state._mode[0] = "practice"
+    app.state.session.practice_session = ps
+    app.state.session.mode = "practice"
 
     return TestClient(app)
 
