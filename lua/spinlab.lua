@@ -75,14 +75,27 @@ local PSTATE_LOADING = "loading"
 local PSTATE_PLAYING = "playing"
 local PSTATE_RESULT  = "RESULT"
 
-local practice_mode       = false   -- true while in practice mode
-local practice_state      = PSTATE_IDLE
-local practice_split      = nil     -- current split info table
-local practice_start_ms   = 0       -- ts_ms() when current attempt started
-local practice_elapsed_ms = 0       -- elapsed at clear/abort (for display + result)
-local practice_completed  = false   -- true if clear, false if abort
-local practice_result_start_ms = 0          -- when RESULT state began
-local practice_auto_advance_ms = 2000       -- delay before auto-advancing (from load command)
+local practice = {
+    active = false,
+    state = PSTATE_IDLE,
+    split = nil,
+    start_ms = 0,
+    elapsed_ms = 0,
+    completed = false,
+    result_start_ms = 0,
+    auto_advance_ms = 2000,
+}
+
+local function practice_reset()
+    practice.active = false
+    practice.state = PSTATE_IDLE
+    practice.split = nil
+    practice.start_ms = 0
+    practice.elapsed_ms = 0
+    practice.completed = false
+    practice.result_start_ms = 0
+    practice.auto_advance_ms = 2000
+end
 
 -----------------------------------------------------------------------
 -- HELPERS
@@ -189,50 +202,40 @@ local function format_goal(goal)
   return "Exit: " .. goal:sub(1, 1):upper() .. goal:sub(2)
 end
 
-local function draw_practice_overlay()
-  if not practice_mode then return end
+local function draw_timer_row(y, elapsed, compare_time, prefix)
+  local timer_color
+  if compare_time then
+    timer_color = (elapsed < compare_time) and 0xFF44FF44 or 0xFFFF4444
+  else
+    timer_color = 0xFFFFFFFF
+  end
+  local cmp_str = compare_time and ms_to_display(compare_time) or "?"
+  local text = (prefix and (prefix .. "  ") or "") .. ms_to_display(elapsed) .. " / " .. cmp_str
+  draw_text(4, y, text, 0x00000000, timer_color)
+end
 
-  local label = practice_split and format_goal(practice_split.goal) or "?"
+local function draw_practice_overlay()
+  if not practice.active then return end
+
+  local label = practice.split and format_goal(practice.split.goal) or "?"
   -- Use expected time (Kalman μ) for comparison, fall back to reference time
   local compare_time = nil
-  if practice_split then
-    compare_time = practice_split.expected_time_ms or practice_split.reference_time_ms
+  if practice.split then
+    compare_time = practice.split.expected_time_ms or practice.split.reference_time_ms
   end
 
-  if practice_state == PSTATE_PLAYING or practice_state == PSTATE_LOADING then
-    local elapsed = ts_ms() - practice_start_ms
-
-    -- Row 1: goal label
+  if practice.state == PSTATE_PLAYING or practice.state == PSTATE_LOADING then
+    local elapsed = ts_ms() - practice.start_ms
     draw_text(4, 2, label, 0x00000000, 0xFFFFFFFF)
+    draw_timer_row(12, elapsed, compare_time)
 
-    -- Row 2: timer / compare_time, color-coded
-    local timer_color
-    if compare_time then
-      timer_color = (elapsed < compare_time) and 0xFF44FF44 or 0xFFFF4444
-    else
-      timer_color = 0xFFFFFFFF
-    end
-    local cmp_str = compare_time and ms_to_display(compare_time) or "?"
-    draw_text(4, 12, ms_to_display(elapsed) .. " / " .. cmp_str, 0x00000000, timer_color)
-
-  elseif practice_state == PSTATE_RESULT then
-    local prefix = practice_completed and "Clear!" or "Abort"
-
-    -- Row 1: goal label
+  elseif practice.state == PSTATE_RESULT then
+    local prefix = practice.completed and "Clear!" or "Abort"
     draw_text(4, 2, label, 0x00000000, 0xFFFFFFFF)
-
-    -- Row 2: result time / compare_time
-    local timer_color
-    if compare_time then
-      timer_color = (practice_elapsed_ms < compare_time) and 0xFF44FF44 or 0xFFFF4444
-    else
-      timer_color = 0xFFFFFFFF
-    end
-    local cmp_str2 = compare_time and ms_to_display(compare_time) or "?"
-    draw_text(4, 12, prefix .. "  " .. ms_to_display(practice_elapsed_ms) .. " / " .. cmp_str2, 0x00000000, timer_color)
+    draw_timer_row(12, practice.elapsed_ms, compare_time, prefix)
 
     -- Row 3: countdown to auto-advance
-    local remaining = practice_auto_advance_ms - (ts_ms() - practice_result_start_ms)
+    local remaining = practice.auto_advance_ms - (ts_ms() - practice.result_start_ms)
     local secs = string.format("%.1f", math.max(0, remaining / 1000))
     draw_text(4, 22, "Next in " .. secs .. "s", 0x00000000, 0xFF888888)
   end
@@ -297,76 +300,80 @@ local function goal_type(curr)
   end
 end
 
+local function on_level_entrance(curr, state_path)
+  level_start_frame = frame_counter
+  local event_data = {
+    event      = "level_entrance",
+    level      = curr.level_num,
+    room       = curr.room_num,
+    frame      = frame_counter,
+    ts_ms      = ts_ms(),
+    session    = "passive",
+    state_path = state_path or "",
+  }
+  if JSONL_LOGGING then log_jsonl(event_data) end
+  if client and not practice.active then
+    client:send(to_json(event_data) .. "\n")
+  end
+  log("Level entrance: " .. curr.level_num .. " -> " ..
+      (state_path and ("queued state save: " .. state_path) or "no game context, save skipped"))
+end
+
+local function on_death(curr)
+  died_flag = true
+  log("Death at level " .. curr.level_num .. " (not logged)")
+end
+
+local function on_level_exit(curr)
+  local elapsed = math.floor((frame_counter - level_start_frame) / 60.0 * 1000)
+  local goal = goal_type(curr)
+  local event_data = {
+    event      = "level_exit",
+    level      = curr.level_num,
+    room       = curr.room_num,
+    goal       = goal,
+    elapsed_ms = elapsed,
+    frame      = frame_counter,
+    ts_ms      = ts_ms(),
+    session    = "passive",
+  }
+  if JSONL_LOGGING then log_jsonl(event_data) end
+  if client and not practice.active then
+    client:send(to_json(event_data) .. "\n")
+  end
+  log("Level exit: " .. curr.level_num .. " goal=" .. goal .. " elapsed=" .. elapsed .. "ms")
+end
+
 local function detect_transitions(curr)
-  -- Death: player animation transitions to 9
   if curr.player_anim == 9 and prev.player_anim ~= 9 then
-    died_flag = true
-    log("Death at level " .. curr.level_num .. " (not logged to JSONL)")
+    on_death(curr)
   end
 
-  -- Level entrance: gameMode transitions to 18 (GmPrepareLevel)
   if curr.game_mode == 18 and prev.game_mode ~= 18 then
     if not died_flag then
-      level_start_frame = frame_counter
-      -- Determine state path and whether to save (requires game_id)
       local state_path
       if not game_id then
         log("No game context yet, skipping state save")
-        pending_save = nil
+        if client and not practice.active then
+          client:send(to_json({event = "error", message = "No game context — save state skipped"}) .. "\n")
+        end
       else
         local state_fname = curr.level_num .. "_" .. curr.room_num .. ".mss"
-        state_path  = STATE_DIR .. "/" .. game_id .. "/" .. state_fname
+        state_path = STATE_DIR .. "/" .. game_id .. "/" .. state_fname
         if pending_save then
           log("WARNING: pending_save overwritten (was: " .. pending_save .. ")")
         end
         pending_save = state_path
       end
-      local event_data = {
-        event      = "level_entrance",
-        level      = curr.level_num,
-        room       = curr.room_num,
-        frame      = frame_counter,
-        ts_ms      = ts_ms(),
-        session    = "passive",
-        state_path = state_path or "",
-      }
-      if JSONL_LOGGING then
-        log_jsonl(event_data)
-      end
-      -- Forward over TCP for live reference capture
-      if client and not practice_mode then
-        client:send(to_json(event_data) .. "\n")
-      end
-      log("Level entrance: " .. curr.level_num .. " -> " .. (state_path and ("queued state save: " .. state_path) or "no game context, save skipped"))
+      on_level_entrance(curr, state_path)
     else
-      -- Quick retry respawn — reset died flag, don't log as entrance
       died_flag = false
       log("Quick retry at level " .. curr.level_num .. " (not logged as entrance)")
     end
   end
 
-  -- Level exit: exitMode leaves 0
   if curr.exit_mode ~= 0 and prev.exit_mode == 0 then
-    local elapsed = math.floor((frame_counter - level_start_frame) / 60.0 * 1000)
-    local goal = goal_type(curr)
-    local event_data = {
-      event      = "level_exit",
-      level      = curr.level_num,
-      room       = curr.room_num,
-      goal       = goal,
-      elapsed_ms = elapsed,
-      frame      = frame_counter,
-      ts_ms      = ts_ms(),
-      session    = "passive",
-    }
-    if JSONL_LOGGING then
-      log_jsonl(event_data)
-    end
-    -- Forward over TCP for live reference capture
-    if client and not practice_mode then
-      client:send(to_json(event_data) .. "\n")
-    end
-    log("Level exit: " .. curr.level_num .. " goal=" .. goal .. " elapsed=" .. elapsed .. "ms")
+    on_level_exit(curr)
   end
 end
 
@@ -374,46 +381,44 @@ end
 -- PRACTICE MODE STATE MACHINE
 -----------------------------------------------------------------------
 local function handle_practice(curr)
-  if practice_state == PSTATE_LOADING then
+  if practice.state == PSTATE_LOADING then
     -- pending_load was queued; by next frame cpuExec will have fired.
     -- Transition to PLAYING and start the timer.
-    practice_state    = PSTATE_PLAYING
-    practice_start_ms = ts_ms()
+    practice.state    = PSTATE_PLAYING
+    practice.start_ms = ts_ms()
 
-  elseif practice_state == PSTATE_PLAYING then
+  elseif practice.state == PSTATE_PLAYING then
     -- Death check (higher priority than exit_mode)
     if curr.player_anim == 9 and prev.player_anim ~= 9 then
-      pending_load = practice_split.state_path
+      pending_load = practice.split.state_path
       log("Practice: death — reloading state")
 
     elseif curr.exit_mode ~= 0 and prev.exit_mode == 0 then
       local goal = goal_type(curr)
-      practice_elapsed_ms = ts_ms() - practice_start_ms
-      practice_completed  = (goal ~= "abort")
-      practice_state      = PSTATE_RESULT
-      practice_result_start_ms = ts_ms()
-      log("Practice: RESULT (" .. goal .. ") — " .. practice_elapsed_ms .. "ms")
+      practice.elapsed_ms = ts_ms() - practice.start_ms
+      practice.completed  = (goal ~= "abort")
+      practice.state      = PSTATE_RESULT
+      practice.result_start_ms = ts_ms()
+      log("Practice: RESULT (" .. goal .. ") — " .. practice.elapsed_ms .. "ms")
     end
 
-  elseif practice_state == PSTATE_RESULT then
+  elseif practice.state == PSTATE_RESULT then
     -- Auto-advance after delay
-    local elapsed_in_result = ts_ms() - practice_result_start_ms
-    if elapsed_in_result >= practice_auto_advance_ms then
+    local elapsed_in_result = ts_ms() - practice.result_start_ms
+    if elapsed_in_result >= practice.auto_advance_ms then
       -- Send result to orchestrator
       local result = to_json({
         event      = "attempt_result",
-        split_id   = practice_split.id,
-        completed  = practice_completed,
-        time_ms    = math.floor(practice_elapsed_ms),
-        goal       = practice_split.goal,
+        split_id   = practice.split.id,
+        completed  = practice.completed,
+        time_ms    = math.floor(practice.elapsed_ms),
+        goal       = practice.split.goal,
       })
       if client then
         client:send(result .. "\n")
       end
       -- Reset state
-      practice_state = PSTATE_IDLE
-      practice_mode  = false
-      practice_split = nil
+      practice_reset()
       log("Practice: auto-advanced, sent result")
     end
   end
@@ -464,10 +469,8 @@ local function handle_tcp()
         log("TCP heartbeat failed: " .. tostring(send_err) .. " — client is dead")
         pcall(function() client:close() end)
         client = nil
-        if practice_mode then
-          practice_mode     = false
-          practice_state    = PSTATE_IDLE
-          practice_split    = nil
+        if practice.active then
+          practice_reset()
           pending_load      = nil
           pending_save      = nil
           died_flag         = false
@@ -507,34 +510,28 @@ local function handle_tcp()
         client:send("ok:queued\n")
       elseif line:sub(1, 14) == "practice_load:" then
         local json_str = line:sub(15)
-        practice_split           = parse_practice_split(json_str)
-        practice_auto_advance_ms = practice_split.auto_advance_delay_ms or 2000
-        practice_mode            = true
-        practice_state           = PSTATE_LOADING
-        local sp = practice_split.state_path
+        practice.split           = parse_practice_split(json_str)
+        practice.auto_advance_ms = practice.split.auto_advance_delay_ms or 2000
+        practice.active            = true
+        practice.state           = PSTATE_LOADING
+        local sp = practice.split.state_path
         if not sp or sp == "" then
-          log("ERROR: No valid state_path for split " .. (practice_split.id or "?"))
+          log("ERROR: No valid state_path for split " .. (practice.split.id or "?"))
           client:send("err:no_state_path\n")
-          practice_mode  = false
-          practice_state = PSTATE_IDLE
-          practice_split = nil
+          practice_reset()
         else
           pending_load      = sp
-          practice_start_ms = ts_ms()
+          practice.start_ms = ts_ms()
           client:send("ok:queued\n")
-          log("Practice load queued: " .. (practice_split.id or "?"))
+          log("Practice load queued: " .. (practice.split.id or "?"))
         end
       elseif line == "practice_stop" then
-        practice_mode     = false
-        practice_state    = PSTATE_IDLE
-        practice_split    = nil
+        practice_reset()
         pending_load      = nil  -- prevent ghost reload if stopped mid-death-retry
         client:send("ok\n")
         log("Practice mode stopped")
       elseif line == "reset" then
-        practice_mode     = false
-        practice_state    = PSTATE_IDLE
-        practice_split    = nil
+        practice_reset()
         pending_load      = nil
         pending_save      = nil
         died_flag         = false  -- clear so first post-reset entrance is recorded
@@ -556,11 +553,9 @@ local function handle_tcp()
       log("TCP client disconnected: " .. tostring(err))
       pcall(function() client:close() end)  -- safe close, may already be dead
       client = nil
-      if practice_mode then
+      if practice.active then
         -- Orchestrator died while practice was active — auto-clear and reset
-        practice_mode     = false
-        practice_state    = PSTATE_IDLE
-        practice_split    = nil
+        practice_reset()
         pending_load      = nil
         pending_save      = nil
         died_flag         = false
@@ -624,7 +619,7 @@ local function on_start_frame()
   frame_counter = frame_counter + 1
 
   local curr = read_mem()
-  if practice_mode then
+  if practice.active then
     handle_practice(curr)
   else
     detect_transitions(curr)
