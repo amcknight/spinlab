@@ -23,6 +23,7 @@ spinlab/
 │   └── spinlab/
 │       ├── __init__.py
 │       ├── orchestrator.py # Practice session manager, talks to Lua via TCP
+│       ├── session_manager.py # Central state owner, event routing, SSE
 │       ├── scheduler.py    # SM-2 adapted scheduling algorithm
 │       ├── db.py           # SQLite interface
 │       ├── capture.py      # Post-processes reference run data into manifest
@@ -30,7 +31,8 @@ spinlab/
 │       └── models.py       # Data classes / types
 ├── reference/              # kaizosplits source for memory address extraction
 ├── scripts/
-│   └── launch.sh           # Launches Mesen2 with Lua script auto-loaded
+│   ├── launch.sh           # Launches Mesen2 with Lua script auto-loaded
+│   └── spinlab.ahk         # AHK hotkeys: Ctrl+Alt+W (start), Ctrl+Alt+X (stop)
 └── config.yaml             # User config: ROM dir, emulator path, scheduler settings
 ```
 
@@ -122,7 +124,7 @@ Worktrees live in `.worktrees/{name}/` with branch `worktree/{name}`.
 - **Main checkout (not in a worktree):** Full access to dashboard, TCP ports, emulator, Playwright tests. No need to ask.
 - **In a worktree:** Editing code and running unit tests is always OK (tests use in-memory DBs). Binding ports (dashboard, TCP), running Playwright, or launching the emulator requires **asking the user first** — another session may be using those resources.
 
-**Pip editable installs:** `pip install -e` is path-bound. The worktree shares the same virtualenv but the editable install still resolves to whichever checkout was last installed. This is fine for unit tests (they use `sys.path` manipulation), but if imports fail in a worktree, re-run `pip install -e python/` from the worktree root.
+**Pip editable installs:** `pip install -e` is path-bound. The worktree shares the same virtualenv but the editable install still resolves to whichever checkout was last installed. This is fine for unit tests (they use `sys.path` manipulation), but if imports fail in a worktree, re-run `pip install -e .` from the worktree root.
 
 **Cleanup lifecycle:**
 
