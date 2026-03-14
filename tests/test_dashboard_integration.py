@@ -55,7 +55,16 @@ def seeded_db(tmp_path):
     db = Database(tmp_path / "test.db")
     db.upsert_game(GAME_ID, "SMW Kaizo", "any%")
 
+    states_dir = tmp_path / "states"
+    states_dir.mkdir()
     for s in SPLITS:
+        state_file = states_dir / f"{s.id}.mss"
+        state_file.write_bytes(b"\x00" * 100)
+        s = Split(
+            id=s.id, game_id=s.game_id, level_number=s.level_number,
+            room_id=s.room_id, goal=s.goal, description=s.description,
+            reference_time_ms=s.reference_time_ms, state_path=str(state_file),
+        )
         db.upsert_split(s)
 
     db.create_session("sess1", GAME_ID)

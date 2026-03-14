@@ -6,6 +6,7 @@ Same interface surface as the old SM-2 scheduler, different internals.
 from __future__ import annotations
 
 import json
+import os
 from typing import TYPE_CHECKING
 
 from spinlab.allocators import SplitWithModel, get_allocator, list_allocators
@@ -102,10 +103,13 @@ class Scheduler:
         splits = self._load_splits_with_model()
         if not splits:
             return None
-        split_id = self.allocator.pick_next(splits)
+        practicable = [s for s in splits if s.state_path and os.path.exists(s.state_path)]
+        if not practicable:
+            return None
+        split_id = self.allocator.pick_next(practicable)
         if split_id is None:
             return None
-        return next((s for s in splits if s.split_id == split_id), None)
+        return next((s for s in practicable if s.split_id == split_id), None)
 
     def process_attempt(
         self, split_id: str, time_ms: int, completed: bool
@@ -154,7 +158,8 @@ class Scheduler:
     def peek_next_n(self, n: int) -> list[str]:
         """Preview next N split IDs."""
         splits = self._load_splits_with_model()
-        return self.allocator.peek_next_n(splits, n)
+        practicable = [s for s in splits if s.state_path and os.path.exists(s.state_path)]
+        return self.allocator.peek_next_n(practicable, n)
 
     def get_all_model_states(self) -> list[SplitWithModel]:
         """Get all splits with model state for dashboard."""

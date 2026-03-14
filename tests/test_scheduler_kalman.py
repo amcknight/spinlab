@@ -10,7 +10,11 @@ def db_with_splits(tmp_path):
     db = Database(str(tmp_path / "test.db"))
     db.upsert_game("g1", "Game", "any%")
     from spinlab.models import Split
+    states_dir = tmp_path / "states"
+    states_dir.mkdir()
     for i, goal in enumerate(["normal", "key", "secret"], start=1):
+        state_file = states_dir / f"{i}.mss"
+        state_file.write_bytes(b"\x00" * 100)
         split = Split(
             id=f"g1:{i}:1:{goal}",
             game_id="g1",
@@ -18,7 +22,7 @@ def db_with_splits(tmp_path):
             room_id=1,
             goal=goal,
             description=f"Level {i}",
-            state_path=f"/states/{i}.mss",
+            state_path=str(state_file),
             reference_time_ms=10000 + i * 1000,
             strat_version=1,
         )
@@ -83,3 +87,38 @@ class TestSchedulerSwitch:
         sched = Scheduler(db_with_splits, "g1")
         with pytest.raises(ValueError):
             sched.switch_allocator("nonexistent")
+
+
+class TestStateFileFilter:
+    def test_pick_next_skips_missing_state_files(self, tmp_path):
+        """pick_next only returns splits with existing state files."""
+        from spinlab.models import Split
+
+        db = Database(":memory:")
+        db.upsert_game("g1", "Test", "any%")
+
+        valid_state = tmp_path / "valid.mss"
+        valid_state.write_bytes(b"\x00" * 100)
+
+        db.upsert_split(Split(id="s1", game_id="g1", level_number=1, room_id=0, goal="normal", state_path=str(valid_state)))
+        db.upsert_split(Split(id="s2", game_id="g1", level_number=2, room_id=0, goal="normal", state_path="/nonexistent/path.mss"))
+        db.upsert_split(Split(id="s3", game_id="g1", level_number=3, room_id=0, goal="normal", state_path=None))
+
+        sched = Scheduler(db, "g1")
+        picked = sched.pick_next()
+
+        assert picked is not None
+        assert picked.split_id == "s1"
+
+    def test_pick_next_returns_none_when_no_valid_files(self):
+        """pick_next returns None when no splits have valid state files."""
+        from spinlab.models import Split
+
+        db = Database(":memory:")
+        db.upsert_game("g1", "Test", "any%")
+        db.upsert_split(Split(id="s1", game_id="g1", level_number=1, room_id=0, goal="normal", state_path="/nonexistent/path.mss"))
+
+        sched = Scheduler(db, "g1")
+        picked = sched.pick_next()
+
+        assert picked is None
