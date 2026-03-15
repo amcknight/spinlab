@@ -4,7 +4,13 @@ import { fetchModel, initModelTab } from './model.js';
 import { fetchManage, initManageTab } from './manage.js';
 
 function updateLive(data) {
-  if (!data.tcp_connected) return renderDisconnected();
+  if (!data.tcp_connected) {
+    renderDisconnected();
+    if (launchedRom) renderLaunched();
+    else if (!allRoms.length) loadRomList();
+    return;
+  }
+  launchedRom = null;
   switch (data.mode) {
     case 'reference': renderReference(data); break;
     case 'practice': renderPractice(data); break;
@@ -28,10 +34,62 @@ document.querySelectorAll('.tab').forEach(btn => {
   });
 });
 
-// Mode control buttons
-document.getElementById('btn-launch-emu')?.addEventListener('click', async () => {
-  const data = await postJSON('/api/emulator/launch');
-  if (data?.status === 'error') alert(data.message);
+// ROM picker
+let allRoms = [];
+let launchedRom = null;
+async function loadRomList() {
+  const data = await fetchJSON('/api/roms');
+  if (data?.roms) {
+    allRoms = data.roms;
+    if (!launchedRom) renderRoms('');
+  }
+}
+function renderLaunched() {
+  const container = document.getElementById('mode-disconnected');
+  if (!container) return;
+  const name = launchedRom.replace(/\.(sfc|smc|fig|swc)$/i, '');
+  container.querySelector('#rom-filter').style.display = 'none';
+  container.querySelector('#rom-list').style.display = 'none';
+  container.querySelector('p').textContent = 'Launched ' + name + ' — waiting for Lua connection...';
+  let relaunch = container.querySelector('#btn-relaunch');
+  if (!relaunch) {
+    relaunch = document.createElement('button');
+    relaunch.id = 'btn-relaunch';
+    relaunch.className = 'btn-sm';
+    relaunch.textContent = 'Pick different ROM';
+    relaunch.style.marginTop = '8px';
+    relaunch.addEventListener('click', () => {
+      launchedRom = null;
+      container.querySelector('#rom-filter').style.display = '';
+      container.querySelector('#rom-list').style.display = '';
+      container.querySelector('#rom-filter').value = '';
+      container.querySelector('p').textContent = 'Waiting for emulator...';
+      relaunch.remove();
+      renderRoms('');
+    });
+    container.appendChild(relaunch);
+  }
+}
+function renderRoms(filter) {
+  const ul = document.getElementById('rom-list');
+  if (!ul) return;
+  ul.innerHTML = '';
+  const lf = filter.toLowerCase();
+  const matches = allRoms.filter(r => r.toLowerCase().includes(lf));
+  matches.forEach(rom => {
+    const li = document.createElement('li');
+    li.textContent = rom.replace(/\.(sfc|smc|fig|swc)$/i, '');
+    li.addEventListener('click', async () => {
+      const res = await postJSON('/api/emulator/launch', { rom });
+      if (res?.status === 'error') { alert(res.message); return; }
+      launchedRom = rom;
+      renderLaunched();
+    });
+    ul.appendChild(li);
+  });
+}
+document.getElementById('rom-filter')?.addEventListener('input', (e) => {
+  renderRoms(e.target.value);
 });
 
 document.getElementById('btn-ref-start')?.addEventListener('click', () =>

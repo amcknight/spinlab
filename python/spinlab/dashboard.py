@@ -210,20 +210,43 @@ def create_app(
         db.soft_delete_split(split_id)
         return {"status": "ok"}
 
+    # -- ROM listing --
+
+    @app.get("/api/roms")
+    def list_roms():
+        cfg = app.state.config
+        rom_dir = cfg.get("rom", {}).get("dir", "")
+        if not rom_dir or not Path(rom_dir).is_dir():
+            return {"roms": [], "error": f"ROM directory not found: {rom_dir}"}
+        exts = {".sfc", ".smc", ".fig", ".swc"}
+        roms = sorted(
+            [p.name for p in Path(rom_dir).iterdir() if p.suffix.lower() in exts],
+            key=str.lower,
+        )
+        return {"roms": roms}
+
     # -- Emulator launch --
 
     @app.post("/api/emulator/launch")
-    def launch_emulator():
+    def launch_emulator(body: dict | None = None):
         import subprocess
         cfg = app.state.config
         emu_path = cfg.get("emulator", {}).get("path", "")
         if not emu_path or not Path(emu_path).exists():
             return {"status": "error", "message": f"Emulator not found: {emu_path}"}
-        rom_path = cfg.get("rom", {}).get("path", "")
+
+        # ROM: from request body, or fall back to config
+        rom_dir = cfg.get("rom", {}).get("dir", "")
+        rom_name = (body or {}).get("rom", "")
+        if rom_name and rom_dir:
+            rom_path = Path(rom_dir) / rom_name
+        else:
+            rom_path = Path(cfg.get("rom", {}).get("path", ""))
+        if not rom_path.is_file():
+            return {"status": "error", "message": f"ROM not found: {rom_path}"}
+
         lua_script = cfg.get("emulator", {}).get("lua_script", "")
-        cmd = [emu_path]
-        if rom_path and Path(rom_path).exists():
-            cmd.append(rom_path)
+        cmd = [emu_path, str(rom_path)]
         if lua_script:
             script_path = Path(lua_script)
             if not script_path.is_absolute():
