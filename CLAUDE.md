@@ -2,7 +2,7 @@
 
 ## What This Is
 
-SpinLab is a spaced-repetition practice system for SNES romhack speedrunning. It automatically saves states at split points during reference runs, then serves them back in an intelligent practice loop (like Anki for splits). The player rates difficulty via controller input, and a scheduler determines what to practice next.
+SpinLab is a spaced-repetition practice system for SNES romhack speedrunning. It automatically saves states at segment boundaries (level entrances, checkpoints, goals) during reference runs, then serves them back in an intelligent practice loop (like Anki for segments). The player rates difficulty via controller input, and a scheduler determines what to practice next.
 
 ## Project Owner Context
 
@@ -34,7 +34,7 @@ spinlab/
 │           ├── api.js      # fetchJSON, postJSON, connectSSE
 │           ├── live.js     # Mode rendering (idle/reference/practice)
 │           ├── model.js    # Model tab
-│           ├── manage.js   # Reference/split management tab
+│           ├── manage.js   # Reference/segment management tab
 │           └── format.js   # splitName, formatTime, elapsedStr
 ├── reference/              # kaizosplits source for memory address extraction
 ├── scripts/
@@ -47,9 +47,9 @@ spinlab/
 
 1. **Lua Script** (`lua/spinlab.lua`): Runs inside Mesen2. Always-on. Two modes:
    - **Passive mode** (default): Watches memory addresses, logs all section completions with timestamps. Silent data collection during real runs.
-   - **Practice mode** (toggled via TCP connection from orchestrator): Loads save states on command, shows overlay (split name, goal, timer, rating prompt), reads controller for L+D-pad ratings, reports results back.
+   - **Practice mode** (toggled via TCP connection from orchestrator): Loads save states on command, shows overlay (segment name, end condition, timer, rating prompt), reads controller for L+D-pad ratings, reports results back.
 
-2. **Python Orchestrator** (`python/spinlab/orchestrator.py`): Manages practice sessions. Connects to Lua via TCP socket, picks next split from scheduler, sends load commands, receives completion results, updates DB.
+2. **Python Orchestrator** (`python/spinlab/orchestrator.py`): Manages practice sessions. Connects to Lua via TCP socket, picks next segment from scheduler, sends load commands, receives completion results, updates DB.
 
 3. **Python CLI/TUI** (`python/spinlab/cli.py`): Session management, stats display, strat resets, reference run processing. Uses `rich` or `textual`.
 
@@ -81,10 +81,10 @@ SQLite. Single file. Schema in `docs/DESIGN.md` § Database Schema.
 
 - **Save states are binary blobs written to files.** Mesen2's `saveSavestate()` returns a binary string; we write it to disk via `io.open`. To load, we read the file and call `loadSavestate(data)`. This must happen inside a `startFrame` or `cpuExec` callback.
 - **Games are auto-discovered from ROM checksums.** Lua sends the ROM filename over TCP on connect. Python computes a truncated SHA-256 (16 hex chars) as the game ID. No manual game configuration needed — just open any ROM in Mesen2 and SpinLab tracks it automatically. Save states are organized in per-game subdirectories.
-- **Split IDs are deterministic from game state**, not sequence-based. Derived from (game_id, level_number, room_id, goal_type). This means the same section always gets the same ID regardless of run order, enabling reference run diffing.
+- **Segment IDs are deterministic from game state**, not sequence-based. Derived from (game_id, level_number, start_type, start_ordinal, end_type, end_ordinal). This means the same section always gets the same ID regardless of run order, enabling reference run diffing.
 - **The Lua script does NOT poll files.** It either: (a) in passive mode, just watches memory on frame callbacks with zero overhead, or (b) in practice mode, listens on a TCP socket which LuaSocket handles efficiently with non-blocking receives.
 - **Controller input for ratings uses L + D-pad** combo to avoid interfering with gameplay. Only checked during the post-completion "liminal" state.
-- **Identical starts with different goals** are handled by having the same save state file but different split entries with a `goal` field displayed on overlay.
+- **Segments support cold/hot start variants.** A checkpoint segment has a "hot" save state (captured at the moment the checkpoint is hit) and a "cold" save state (captured on first respawn after death). The fill-gap flow lets users capture missing cold states.
 
 ## Build Order
 
