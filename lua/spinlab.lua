@@ -239,7 +239,8 @@ end
 local function draw_practice_overlay()
   if not practice.active then return end
 
-  local label = practice.segment and format_goal(practice.segment.goal) or "?"
+  local label = practice.segment and practice.segment.description or "?"
+  if label == "" then label = "?" end
   -- Use expected time (Kalman μ) for comparison, fall back to reference time
   local compare_time = nil
   if practice.segment then
@@ -427,10 +428,21 @@ local function detect_transitions(curr)
     end
   end
 
+  -- Exit detection MUST come before entrance detection.  If level_start and
+  -- exit_mode both transition 0→1 on the same frame (common during SMW goal
+  -- sequences), exit must consume ref_pending_start first so the entrance
+  -- handler doesn't overwrite it.
+  local exit_this_frame = curr.exit_mode ~= 0 and prev.exit_mode == 0
+  if exit_this_frame then
+    on_level_exit(curr)
+  end
+
   -- Level entrance: levelStart 0→1 (kaizosplits "LevelStart").
   -- Fires once when the player appears in the level — does NOT fire for
   -- sublevel pipe/door transitions, only for fresh level entry or death respawn.
-  if curr.level_start == 1 and prev.level_start == 0 then
+  -- Suppress if exit_mode also transitioned this frame (spurious transition
+  -- during goal sequence — not a real level entry).
+  if curr.level_start == 1 and prev.level_start == 0 and not exit_this_frame then
     if died_flag then
       -- Spawn: respawn after death
       local state_captured = false
@@ -477,10 +489,6 @@ local function detect_transitions(curr)
       end
       on_level_entrance(curr, state_path)
     end
-  end
-
-  if curr.exit_mode ~= 0 and prev.exit_mode == 0 then
-    on_level_exit(curr)
   end
 end
 

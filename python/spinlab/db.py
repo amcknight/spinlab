@@ -318,7 +318,8 @@ class Database:
         """Last N attempts joined with segment info, most recent first."""
         rows = self.conn.execute(
             """SELECT a.*, s.description, s.level_number,
-                      s.start_type, s.end_type
+                      s.start_type, s.start_ordinal,
+                      s.end_type, s.end_ordinal
                FROM attempts a
                JOIN segments s ON a.segment_id = s.id
                WHERE s.game_id = ?

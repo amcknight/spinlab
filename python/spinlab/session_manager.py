@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -44,7 +44,6 @@ class SessionManager:
         self.practice_task: asyncio.Task | None = None
 
         # Reference capture state
-        self.ref_pending: dict[tuple, dict] = {}
         self.ref_segments_count: int = 0
         self.ref_capture_run_id: str | None = None
         self.ref_pending_start: dict | None = None
@@ -130,7 +129,6 @@ class SessionManager:
 
     def _clear_ref_state(self) -> None:
         """Clear reference capture state."""
-        self.ref_pending.clear()
         self.ref_segments_count = 0
         self.ref_capture_run_id = None
         self.ref_pending_start = None
@@ -204,8 +202,13 @@ class SessionManager:
             return
 
         if evt_type == "level_entrance" and self.mode == "reference":
-            key = event["level"]
-            self.ref_pending[key] = event
+            # Only set new pending start if we don't already have a checkpoint
+            # pending.  SMW's level_start ($1935) can fire spuriously during
+            # goal sequences; overwriting a checkpoint pending_start with an
+            # entrance would create wrong segment types.
+            if self.ref_pending_start and self.ref_pending_start["type"] != "entrance":
+                logger.info("Ignoring level_entrance — pending start exists: %s", self.ref_pending_start)
+                return
             self.ref_pending_start = {
                 "type": "entrance",
                 "ordinal": 0,
@@ -234,6 +237,7 @@ class SessionManager:
             return
 
         if evt_type == "level_exit" and self.mode == "reference":
+            logger.info("level_exit: ref_pending_start=%s", self.ref_pending_start)
             await self._handle_ref_exit(event)
             return
 
@@ -298,21 +302,25 @@ class SessionManager:
         )
         self.db.upsert_segment(seg)
 
-        # Store hot variant (state captured mid-run, player has momentum)
-        hot_path = event.get("state_path")
-        if hot_path:
+        # Store the start variant — what practice mode loads for this segment.
+        # For entrance→cp: the entrance state (cold).
+        # For cp→cp: the previous checkpoint's hot state.
+        start_path = start.get("state_path")
+        if start_path:
             self.db.add_variant(SegmentVariant(
                 segment_id=seg_id,
-                variant_type="hot",
-                state_path=hot_path,
-                is_default=False,
+                variant_type="cold" if start["type"] == "entrance" else "hot",
+                state_path=start_path,
+                is_default=True,
             ))
 
-        # New pending start is this checkpoint
+        # New pending start is this checkpoint.
+        # The state_path is the hot CP save state — it's what gets loaded
+        # if this CP is the start of the next segment (cp→goal or cp→cp).
         self.ref_pending_start = {
             "type": "checkpoint",
             "ordinal": cp_ordinal,
-            "state_path": hot_path,
+            "state_path": event.get("state_path"),
             "timestamp_ms": event.get("timestamp_ms", 0),
             "level_num": level,
         }
@@ -351,40 +359,44 @@ class SessionManager:
                 break
 
     async def _handle_ref_exit(self, event: dict) -> None:
-        """Pair level_exit with pending start to create final segment."""
-        key = event["level"]
+        """Pair level_exit with pending start to create final segment.
+
+        Uses sequential pairing via ref_pending_start, NOT level_num keying.
+        SMW's level_num ($13BF) is stale when level_start ($1935) fires, so
+        entrance and exit events have different level numbers.
+        """
         goal = event.get("goal", "abort")
 
         if goal == "abort":
-            self.ref_pending.pop(key, None)
             self.ref_pending_start = None
             return
 
-        entrance = self.ref_pending.pop(key, None)
-        if not entrance or not self.ref_pending_start:
+        if not self.ref_pending_start:
             return
 
         self.ref_segments_count += 1
         from .models import Segment, SegmentVariant
         gid = self._require_game()
         start = self.ref_pending_start
+        # Use exit event's level_num — it has the correct value
+        level = event["level"]
 
         # Map goal string to end_ordinal (0 for normal goals)
         end_ordinal = 0
         seg_id = Segment.make_id(
-            gid, entrance["level"],
+            gid, level,
             start["type"], start["ordinal"],
             "goal", end_ordinal,
         )
         seg = Segment(
             id=seg_id,
             game_id=gid,
-            level_number=entrance["level"],
+            level_number=level,
             start_type=start["type"],
             start_ordinal=start["ordinal"],
             end_type="goal",
             end_ordinal=end_ordinal,
-            description=goal,
+            description="",  # auto-generated label used when empty
             ordinal=self.ref_segments_count,
             reference_id=self.ref_capture_run_id,
         )
@@ -450,7 +462,7 @@ class SessionManager:
         gid = self._require_game()
         self._clear_ref_state()
         run_id = f"live_{uuid.uuid4().hex[:8]}"
-        name = run_name or f"Live {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')}"
+        name = run_name or f"Live {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
         self.db.create_capture_run(run_id, gid, name)
         self.db.set_active_capture_run(run_id)
         self.ref_capture_run_id = run_id

@@ -64,7 +64,7 @@ class SegmentCommand:
     description: str
     end_type: str              # 'checkpoint' or 'goal'
     expected_time_ms: int | None = None
-    auto_advance_delay_ms: int = 2000
+    auto_advance_delay_ms: int = 1000
 
     def to_dict(self) -> dict:
         return {

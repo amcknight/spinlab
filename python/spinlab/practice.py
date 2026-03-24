@@ -26,7 +26,7 @@ class PracticeSession:
         tcp: TcpManager,
         db: Database,
         game_id: str,
-        auto_advance_delay_ms: int = 2000,
+        auto_advance_delay_ms: int = 1000,
         on_attempt: Callable | None = None,
     ) -> None:
         self.tcp = tcp
@@ -74,10 +74,17 @@ class PracticeSession:
         if picked.estimator_state and picked.estimator_state.mu > 0:
             expected_time_ms = int(picked.estimator_state.mu * 1000)
 
+        # Build overlay label: use custom description or auto-generate from segment fields
+        label = picked.description
+        if not label:
+            start = "entrance" if picked.start_type == "entrance" else f"cp.{picked.start_ordinal}"
+            end = "goal" if picked.end_type == "goal" else f"cp.{picked.end_ordinal}"
+            label = f"L{picked.level_number} {start} > {end}"
+
         cmd = SegmentCommand(
             id=picked.segment_id,
             state_path=picked.state_path,
-            description=picked.description,
+            description=label,
             end_type=picked.end_type,
             expected_time_ms=expected_time_ms,
             auto_advance_delay_ms=self.auto_advance_delay_ms,
