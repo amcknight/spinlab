@@ -250,9 +250,9 @@ class TestAllocatorSwitch:
 # -- Static assets -----------------------------------------------------------
 
 class TestStaticAssets:
-    def test_index_html_has_three_tabs(self, active_client):
+    def test_index_html_has_two_tabs(self, active_client):
         html = active_client.get("/").text
-        assert 'data-tab="live"' in html
+        assert 'data-tab="live"' not in html
         assert 'data-tab="model"' in html
         assert 'data-tab="manage"' in html
 
