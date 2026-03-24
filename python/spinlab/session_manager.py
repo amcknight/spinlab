@@ -211,7 +211,7 @@ class SessionManager:
                 await self.switch_game(gid, gname)
             return
 
-        if evt_type == "level_entrance" and self.mode == "reference":
+        if evt_type == "level_entrance" and self.mode in ("reference", "replay"):
             # Only set new pending start if we don't already have a checkpoint
             # pending.  SMW's level_start ($1935) can fire spuriously during
             # goal sequences; overwriting a checkpoint pending_start with an
@@ -230,11 +230,11 @@ class SessionManager:
             await self._notify_sse()
             return
 
-        if evt_type == "checkpoint" and self.mode == "reference":
+        if evt_type == "checkpoint" and self.mode in ("reference", "replay"):
             await self._handle_ref_checkpoint(event)
             return
 
-        if evt_type == "death" and self.mode == "reference":
+        if evt_type == "death" and self.mode in ("reference", "replay"):
             self.ref_died = True
             return
 
@@ -242,11 +242,11 @@ class SessionManager:
             await self._handle_fill_gap_spawn(event)
             return
 
-        if evt_type == "spawn" and self.mode == "reference":
+        if evt_type == "spawn" and self.mode in ("reference", "replay"):
             await self._handle_ref_spawn(event)
             return
 
-        if evt_type == "level_exit" and self.mode == "reference":
+        if evt_type == "level_exit" and self.mode in ("reference", "replay"):
             logger.info("level_exit: ref_pending_start=%s", self.ref_pending_start)
             await self._handle_ref_exit(event)
             return
@@ -259,6 +259,21 @@ class SessionManager:
 
         if evt_type == "rec_saved":
             self.rec_path = event.get("path")
+            return
+
+        if evt_type == "replay_started":
+            await self._notify_sse()
+            return
+        if evt_type == "replay_progress":
+            await self._notify_sse()
+            return
+        if evt_type == "replay_finished":
+            self._clear_ref_state()
+            await self._notify_sse()
+            return
+        if evt_type == "replay_error":
+            self._clear_ref_state()
+            await self._notify_sse()
             return
 
     async def _handle_rom_info(self, event: dict) -> None:
@@ -492,6 +507,42 @@ class SessionManager:
             return {"status": "not_in_reference"}
         if self.tcp.is_connected:
             await self.tcp.send(json.dumps({"event": "reference_stop"}))
+        self._clear_ref_state()
+        await self._notify_sse()
+        return {"status": "stopped"}
+
+    # --- Replay mode ---
+    async def start_replay(self, spinrec_path: str, speed: int = 0) -> dict:
+        """Begin replay of a .spinrec file."""
+        if self.mode == "practice":
+            return {"status": "practice_active"}
+        if self.mode == "reference":
+            return {"status": "reference_active"}
+        if self.mode == "replay":
+            return {"status": "already_replaying"}
+        if not self.tcp.is_connected:
+            return {"status": "not_connected"}
+
+        # Set up reference capture so replayed events create segments
+        gid = self._require_game()
+        self._clear_ref_state()
+        run_id = f"replay_{uuid.uuid4().hex[:8]}"
+        name = f"Replay {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
+        self.db.create_capture_run(run_id, gid, name)
+        self.db.set_active_capture_run(run_id)
+        self.ref_capture_run_id = run_id
+
+        self.mode = "replay"
+        await self.tcp.send(json.dumps({"event": "replay", "path": spinrec_path, "speed": speed}))
+        await self._notify_sse()
+        return {"status": "started", "run_id": run_id}
+
+    async def stop_replay(self) -> dict:
+        """Abort replay."""
+        if self.mode != "replay":
+            return {"status": "not_replaying"}
+        if self.tcp.is_connected:
+            await self.tcp.send(json.dumps({"event": "replay_stop"}))
         self._clear_ref_state()
         await self._notify_sse()
         return {"status": "stopped"}
