@@ -52,6 +52,10 @@ class SessionManager:
         self.ref_died: bool = False
         self.rec_path: str | None = None
 
+        # Draft state (persists after recording/replay stops, until save/discard)
+        self.draft_run_id: str | None = None
+        self.draft_segments_count: int = 0
+
         # Fill-gap state
         self.fill_gap_segment_id: str | None = None
 
@@ -116,6 +120,12 @@ class SessionManager:
         if self.mode == "replay":
             base["replay"] = {"rec_path": self.rec_path}
 
+        if self.draft_run_id:
+            base["draft"] = {
+                "run_id": self.draft_run_id,
+                "segments_captured": self.draft_segments_count,
+            }
+
         base["recent"] = self.db.get_recent_attempts(self.game_id, limit=8)
         return base
 
@@ -142,6 +152,29 @@ class SessionManager:
         self.rec_path = None
         self.mode = "idle"
 
+    def _enter_draft_state(self) -> None:
+        """Copy ref state to draft fields before clearing."""
+        self.draft_run_id = self.ref_capture_run_id
+        self.draft_segments_count = self.ref_segments_count
+
+    def _recover_draft(self) -> None:
+        """On startup, check for orphaned draft capture runs and restore state."""
+        if not self.game_id:
+            return
+        rows = self.db.conn.execute(
+            "SELECT id FROM capture_runs WHERE game_id = ? AND draft = 1 ORDER BY created_at DESC",
+            (self.game_id,),
+        ).fetchall()
+        if not rows:
+            return
+        self.draft_run_id = rows[0][0]
+        self.draft_segments_count = self.db.conn.execute(
+            "SELECT COUNT(*) FROM segments WHERE reference_id = ? AND active = 1",
+            (self.draft_run_id,),
+        ).fetchone()[0]
+        for row in rows[1:]:
+            self.db.hard_delete_capture_run(row[0])
+
     def _game_rec_dir(self) -> Path:
         """Return the per-game recording directory, creating it if needed."""
         d = self.data_dir / (self.game_id or "unknown") / "rec"
@@ -162,6 +195,7 @@ class SessionManager:
         self.game_name = game_name
         self.scheduler = None
         self.mode = "idle"
+        self._recover_draft()
         await self._notify_sse()
 
     # --- SSE ---
@@ -271,11 +305,19 @@ class SessionManager:
             await self._notify_sse()
             return
         if evt_type == "replay_finished":
+            self._enter_draft_state()
             self._clear_ref_state()
             await self._notify_sse()
             return
         if evt_type == "replay_error":
-            self._clear_ref_state()
+            if self.ref_segments_count > 0:
+                self._enter_draft_state()
+                self._clear_ref_state()
+            else:
+                run_id = self.ref_capture_run_id
+                self._clear_ref_state()
+                if run_id:
+                    self.db.hard_delete_capture_run(run_id)
             await self._notify_sse()
             return
 
@@ -487,6 +529,8 @@ class SessionManager:
     # --- Reference mode ---
     async def start_reference(self, run_name: str | None = None) -> dict:
         """Begin reference capture."""
+        if self.draft_run_id:
+            return {"status": "draft_pending"}
         if self.mode in ("practice", "replay"):
             return {"status": f"{self.mode}_active"}
         if not self.tcp.is_connected:
@@ -495,8 +539,7 @@ class SessionManager:
         self._clear_ref_state()
         run_id = f"live_{uuid.uuid4().hex[:8]}"
         name = run_name or f"Live {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
-        self.db.create_capture_run(run_id, gid, name)
-        self.db.set_active_capture_run(run_id)
+        self.db.create_capture_run(run_id, gid, name, draft=True)
         self.ref_capture_run_id = run_id
         self.mode = "reference"
         rec_path = str(self._game_rec_dir() / f"{run_id}.spinrec")
@@ -505,11 +548,12 @@ class SessionManager:
         return {"status": "started", "run_id": run_id, "run_name": name}
 
     async def stop_reference(self) -> dict:
-        """End reference capture."""
+        """End reference capture — enters draft state for save/discard."""
         if self.mode != "reference":
             return {"status": "not_in_reference"}
         if self.tcp.is_connected:
             await self.tcp.send(json.dumps({"event": "reference_stop"}))
+        self._enter_draft_state()
         self._clear_ref_state()
         await self._notify_sse()
         return {"status": "stopped"}
@@ -517,6 +561,8 @@ class SessionManager:
     # --- Replay mode ---
     async def start_replay(self, spinrec_path: str, speed: int = 0) -> dict:
         """Begin replay of a .spinrec file."""
+        if self.draft_run_id:
+            return {"status": "draft_pending"}
         if self.mode == "practice":
             return {"status": "practice_active"}
         if self.mode == "reference":
@@ -531,8 +577,7 @@ class SessionManager:
         self._clear_ref_state()
         run_id = f"replay_{uuid.uuid4().hex[:8]}"
         name = f"Replay {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
-        self.db.create_capture_run(run_id, gid, name)
-        self.db.set_active_capture_run(run_id)
+        self.db.create_capture_run(run_id, gid, name, draft=True)
         self.ref_capture_run_id = run_id
 
         self.mode = "replay"
@@ -550,9 +595,33 @@ class SessionManager:
         await self._notify_sse()
         return {"status": "stopped"}
 
+    # --- Draft lifecycle ---
+    async def save_draft(self, name: str) -> dict:
+        """Promote draft capture run to saved reference."""
+        if not self.draft_run_id:
+            return {"status": "no_draft"}
+        self.db.promote_draft(self.draft_run_id, name)
+        self.db.set_active_capture_run(self.draft_run_id)
+        self.draft_run_id = None
+        self.draft_segments_count = 0
+        await self._notify_sse()
+        return {"status": "ok"}
+
+    async def discard_draft(self) -> dict:
+        """Hard-delete draft capture run and all associated data."""
+        if not self.draft_run_id:
+            return {"status": "no_draft"}
+        self.db.hard_delete_capture_run(self.draft_run_id)
+        self.draft_run_id = None
+        self.draft_segments_count = 0
+        await self._notify_sse()
+        return {"status": "ok"}
+
     # --- Practice mode ---
     async def start_practice(self) -> dict:
         """Begin practice session."""
+        if self.draft_run_id:
+            return {"status": "draft_pending"}
         if self.practice_session and self.practice_session.is_running:
             return {"status": "already_running"}
         if not self.tcp.is_connected:
