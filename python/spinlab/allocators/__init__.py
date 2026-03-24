@@ -1,4 +1,4 @@
-"""Allocator abstract base class, SplitWithModel, and registry."""
+"""Allocator abstract base class, SegmentWithModel, and registry."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -9,21 +9,21 @@ from spinlab.estimators import EstimatorState
 
 
 @dataclass
-class SplitWithModel:
-    """Split metadata combined with estimator output."""
+class SegmentWithModel:
+    """Segment metadata combined with estimator output."""
 
-    # Split metadata (from splits table)
-    split_id: str
+    # Segment metadata (from segments table)
+    segment_id: str
     game_id: str
     level_number: int
-    room_id: int | None
-    goal: str
+    start_type: str
+    start_ordinal: int
+    end_type: str
+    end_ordinal: int
     description: str
     strat_version: int
-    reference_time_ms: int | None
     state_path: str | None
     active: bool
-    end_on_goal: bool = True
     # Estimator output
     estimator_state: EstimatorState | None = None
     marginal_return: float = 0.0
@@ -34,18 +34,18 @@ class SplitWithModel:
 
 
 class Allocator(ABC):
-    """Abstract allocator that picks next split to practice."""
+    """Abstract allocator that picks next segment to practice."""
 
     name: str
 
     @abstractmethod
-    def pick_next(self, split_states: list[SplitWithModel]) -> str | None:
-        """Pick next split_id to practice, or None if list is empty."""
+    def pick_next(self, segment_states: list[SegmentWithModel]) -> str | None:
+        """Pick next segment_id to practice, or None if list is empty."""
         ...
 
     @abstractmethod
-    def peek_next_n(self, split_states: list[SplitWithModel], n: int) -> list[str]:
-        """Preview next N split_ids without side effects."""
+    def peek_next_n(self, segment_states: list[SegmentWithModel], n: int) -> list[str]:
+        """Preview next N segment_ids without side effects."""
         ...
 
 

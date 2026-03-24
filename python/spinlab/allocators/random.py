@@ -3,18 +3,18 @@ from __future__ import annotations
 
 import random as _random
 
-from spinlab.allocators import Allocator, SplitWithModel, register_allocator
+from spinlab.allocators import Allocator, SegmentWithModel, register_allocator
 
 
 @register_allocator
 class RandomAllocator(Allocator):
     name = "random"
 
-    def pick_next(self, split_states: list[SplitWithModel]) -> str | None:
-        if not split_states:
+    def pick_next(self, segment_states: list[SegmentWithModel]) -> str | None:
+        if not segment_states:
             return None
-        return _random.choice(split_states).split_id
+        return _random.choice(segment_states).segment_id
 
-    def peek_next_n(self, split_states: list[SplitWithModel], n: int) -> list[str]:
-        sample_size = min(n, len(split_states))
-        return [s.split_id for s in _random.sample(split_states, sample_size)]
+    def peek_next_n(self, segment_states: list[SegmentWithModel], n: int) -> list[str]:
+        sample_size = min(n, len(segment_states))
+        return [s.segment_id for s in _random.sample(segment_states, sample_size)]
