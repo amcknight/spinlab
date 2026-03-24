@@ -34,7 +34,7 @@ function updateModel(data) {
       '<td>' + confCell + '</td>' +
       '<td>' + (s.marginal_return ? s.marginal_return.toFixed(4) : '\u2014') + '</td>' +
       '<td>' + s.n_completed + '</td>' +
-      '<td>' + formatTime(s.gold_ms != null ? s.gold_ms : s.reference_time_ms) + '</td>';
+      '<td>' + formatTime(s.gold_ms) + '</td>';
     body.appendChild(tr);
   });
   if (data.estimator) {

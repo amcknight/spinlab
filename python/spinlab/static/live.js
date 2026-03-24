@@ -62,9 +62,8 @@ export function renderPractice(data) {
   (data.recent || []).forEach(r => {
     const li = document.createElement('li');
     const time = formatTime(r.time_ms);
-    const refTime = r.reference_time_ms ? formatTime(r.reference_time_ms) : '\u2014';
-    const cls = r.reference_time_ms && r.time_ms <= r.reference_time_ms ? 'ahead' : 'behind';
-    li.innerHTML = '<span class="' + cls + '">' + time + '</span> / ' + refTime +
+    const cls = r.completed ? 'ahead' : 'behind';
+    li.innerHTML = '<span class="' + cls + '">' + time + '</span>' +
       ' <span class="dim">' + segmentName(r) + '</span>';
     recent.appendChild(li);
   });

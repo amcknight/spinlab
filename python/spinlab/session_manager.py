@@ -325,27 +325,30 @@ class SessionManager:
 
         from .models import SegmentVariant
 
-        # Cold variant goes on the segment that starts from this checkpoint
-        # We need to find the segment that has this checkpoint as its start
-        # The ref_pending_start should be this checkpoint
-        if not self.ref_pending_start or self.ref_pending_start["type"] != "checkpoint":
-            return
-
         cold_path = event.get("state_path")
         if not cold_path:
             return
 
+        # Find segments starting at this checkpoint in the current level
+        level = event.get("level_num")
+        cp_ord = event.get("cp_ordinal")
+        if level is None or cp_ord is None:
+            return
+
         gid = self._require_game()
-        # The cold variant is for the *next* segment starting from this checkpoint
-        # We don't know the end yet, but we can store it keyed to the pending start info
-        # For now, store it as a variant on the most recently created segment's start checkpoint
-        # Actually, cold variants belong to segments that START at this checkpoint,
-        # but that segment hasn't been created yet. We store it when the segment is created.
-        # For simplicity, store it keyed to a synthetic segment ID pattern
-        # that will match when the segment is eventually created.
-        # TODO: revisit cold variant storage timing in Task 11
-        logger.debug("Cold CP spawn: level=%s ordinal=%s path=%s",
-                      event.get("level_num"), self.ref_pending_start.get("ordinal"), cold_path)
+        segments = self.db.get_active_segments(gid)
+        for seg in segments:
+            if (seg.level_number == level and seg.start_type == "checkpoint"
+                    and seg.start_ordinal == cp_ord):
+                variant = SegmentVariant(
+                    segment_id=seg.id,
+                    variant_type="cold",
+                    state_path=cold_path,
+                    is_default=True,
+                )
+                self.db.add_variant(variant)
+                logger.debug("Stored cold variant for segment %s: %s", seg.id, cold_path)
+                break
 
     async def _handle_ref_exit(self, event: dict) -> None:
         """Pair level_exit with pending start to create final segment."""

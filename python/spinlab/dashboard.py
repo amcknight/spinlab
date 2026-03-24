@@ -271,7 +271,7 @@ def create_app(
             manifest = yaml.safe_load(f)
         game_name = manifest.get("game_id", session.game_id or "unknown")
         seed_db_from_manifest(db, manifest, game_name)
-        return {"status": "ok", "segments_imported": len(manifest.get("splits", []))}
+        return {"status": "ok", "segments_imported": len(manifest.get("segments", manifest.get("splits", [])))}
 
     # -- SSE --
 

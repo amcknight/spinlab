@@ -404,12 +404,6 @@ class Database:
                ORDER BY s.ordinal, s.level_number""",
             (game_id,),
         )
-        cols = [
-            "id", "game_id", "level_number", "start_type", "start_ordinal",
-            "end_type", "end_ordinal", "description", "strat_version",
-            "state_path", "active", "ordinal",
-            "estimator", "state_json", "marginal_return",
-        ]
         # Use column descriptions from cursor for accurate mapping
         actual_cols = [desc[0] for desc in cur.description]
         return [dict(zip(actual_cols, row)) for row in cur.fetchall()]
@@ -512,7 +506,10 @@ class Database:
         cur = self.conn.execute(
             """SELECT id, game_id, level_number, start_type, start_ordinal,
                       end_type, end_ordinal, description, active, ordinal,
-                      reference_id
+                      reference_id,
+                      (SELECT sv.state_path FROM segment_variants sv
+                       WHERE sv.segment_id = segments.id
+                       ORDER BY sv.is_default DESC LIMIT 1) AS state_path
                FROM segments WHERE reference_id = ? AND active = 1
                ORDER BY ordinal""",
             (reference_id,),

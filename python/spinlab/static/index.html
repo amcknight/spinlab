@@ -41,8 +41,8 @@
         <button id="btn-ref-stop" class="btn-danger">Stop Reference Run</button>
       </div>
       <div id="mode-practice" style="display:none">
-        <div class="card" id="current-split">
-          <div class="split-header">
+        <div class="card" id="current-segment">
+          <div class="segment-header">
             <span id="current-goal" class="goal-label"></span>
             <span id="current-attempts" class="dim"></span>
           </div>
@@ -76,7 +76,7 @@
       <table id="model-table">
         <thead>
           <tr>
-            <th title="Level section being practiced">Split</th>
+            <th title="Level section being practiced">Segment</th>
             <th title="Expected completion time in seconds">Avg</th>
             <th title="How your time changes per run (negative = improving)">Trend</th>
             <th title="95% confidence interval for the trend">Range</th>
@@ -118,7 +118,7 @@
 
       <div class="manage-section">
         <h3>Data</h3>
-        <p class="dim">Clear all session history, attempts, and model state. Keeps splits and game config.</p>
+        <p class="dim">Clear all session history, attempts, and model state. Keeps segments and game config.</p>
         <button id="btn-reset" class="btn-danger">Clear All Data</button>
         <p id="reset-status" class="dim"></p>
       </div>

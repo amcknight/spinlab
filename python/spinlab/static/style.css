@@ -137,8 +137,8 @@ nav#tabs {
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
-/* Split header */
-.split-header {
+/* Segment header */
+.segment-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -317,23 +317,23 @@ h3 {
   font-size: 12px;
 }
 
-/* Manage: split table */
-#split-table {
+/* Manage: segment table */
+#segment-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 11px;
 }
-#split-table th {
+#segment-table th {
   text-align: left;
   color: var(--text-dim);
   padding: 4px 5px;
   border-bottom: 1px solid var(--card);
 }
-#split-table td {
+#segment-table td {
   padding: 4px 5px;
   border-bottom: 1px solid var(--surface);
 }
-.split-name-input {
+.segment-name-input {
   background: transparent;
   color: var(--text);
   border: 1px solid transparent;
@@ -342,7 +342,7 @@ h3 {
   font-family: inherit;
   font-size: 11px;
 }
-.split-name-input:focus {
+.segment-name-input:focus {
   border-color: var(--accent);
   outline: none;
 }
