@@ -1,14 +1,13 @@
 import { segmentName, formatTime } from './format.js';
 import { fetchJSON, postJSON } from './api.js';
 
+let lastState = null;
+
 export async function fetchManage() {
   const refsData = await fetchJSON('/api/references');
   if (!refsData) return;
   const refs = refsData.references || [];
-  if (!refs.length) {
-    updateManage([], []);
-    return;
-  }
+
   const active = refs.find(r => r.active);
   let segments = [];
   if (active) {
@@ -20,13 +19,37 @@ export async function fetchManage() {
 
 function updateManage(refs, segments) {
   const sel = document.getElementById('ref-select');
+  const btnStart = document.getElementById('btn-ref-start');
+  const btnReplay = document.getElementById('btn-replay');
+  const draftPrompt = document.getElementById('draft-prompt');
+
+  // Lock controls during active capture/replay or draft pending
+  const busy = lastState && (lastState.mode === 'reference' || lastState.mode === 'replay');
+  const hasDraft = lastState?.draft != null;
+
+  sel.disabled = busy || hasDraft;
+  btnStart.disabled = busy || hasDraft || !lastState?.tcp_connected;
+  document.getElementById('btn-ref-rename').disabled = busy || hasDraft;
+  document.getElementById('btn-ref-delete').disabled = busy || hasDraft;
+
+  // Draft prompt
+  if (hasDraft) {
+    draftPrompt.style.display = '';
+    document.getElementById('draft-summary').textContent =
+      '\u2713 Captured ' + lastState.draft.segments_captured + ' segments';
+  } else {
+    draftPrompt.style.display = 'none';
+  }
+
+  // Populate dropdown
   sel.innerHTML = '';
   if (!refs.length) {
     const opt = document.createElement('option');
-    opt.textContent = 'No game loaded';
+    opt.textContent = 'No references';
     opt.disabled = true;
     sel.appendChild(opt);
     document.getElementById('segment-body').innerHTML = '';
+    btnReplay.disabled = true;
     return;
   }
   refs.forEach(r => {
@@ -37,6 +60,11 @@ function updateManage(refs, segments) {
     sel.appendChild(opt);
   });
 
+  // Replay button — enabled if selected ref has spinrec
+  const selectedRef = refs.find(r => r.id === sel.value);
+  btnReplay.disabled = busy || hasDraft || !selectedRef?.has_spinrec || !lastState?.tcp_connected;
+
+  // Segments table
   const body = document.getElementById('segment-body');
   body.innerHTML = '';
   segments.forEach(s => {
@@ -58,7 +86,12 @@ function updateManage(refs, segments) {
   });
 }
 
+export function updateManageState(data) {
+  lastState = data;
+}
+
 export function initManageTab() {
+  // Segment name editing (event delegation)
   document.getElementById('segment-body').addEventListener('focusout', async (e) => {
     if (!e.target.classList.contains('segment-name-input')) return;
     const id = e.target.dataset.id;
@@ -71,6 +104,7 @@ export function initManageTab() {
     });
   });
 
+  // Segment delete and fill-gap (event delegation)
   document.getElementById('segment-body').addEventListener('click', async (e) => {
     if (e.target.classList.contains('btn-fill-gap')) {
       const id = e.target.dataset.id;
@@ -87,11 +121,13 @@ export function initManageTab() {
     fetchManage();
   });
 
+  // Reference dropdown change
   document.getElementById('ref-select').addEventListener('change', async (e) => {
     await postJSON('/api/references/' + e.target.value + '/activate');
     fetchManage();
   });
 
+  // Rename
   document.getElementById('btn-ref-rename').addEventListener('click', async () => {
     const sel = document.getElementById('ref-select');
     const name = prompt('New name:', sel.options[sel.selectedIndex]?.text.replace(' \u25cf', ''));
@@ -104,6 +140,7 @@ export function initManageTab() {
     fetchManage();
   });
 
+  // Delete
   document.getElementById('btn-ref-delete').addEventListener('click', async () => {
     if (!confirm('Delete this reference and all its segments?')) return;
     const sel = document.getElementById('ref-select');
@@ -111,6 +148,33 @@ export function initManageTab() {
     fetchManage();
   });
 
+  // Start reference run
+  document.getElementById('btn-ref-start').addEventListener('click', () =>
+    postJSON('/api/reference/start'));
+
+  // Replay
+  document.getElementById('btn-replay').addEventListener('click', async () => {
+    const sel = document.getElementById('ref-select');
+    await postJSON('/api/replay/start', { ref_id: sel.value });
+  });
+
+  // Draft save
+  document.getElementById('btn-draft-save').addEventListener('click', async () => {
+    const name = document.getElementById('draft-name').value.trim();
+    if (!name) { document.getElementById('draft-name').focus(); return; }
+    await postJSON('/api/references/draft/save', { name });
+    document.getElementById('draft-name').value = '';
+    fetchManage();
+  });
+
+  // Draft discard
+  document.getElementById('btn-draft-discard').addEventListener('click', async () => {
+    if (!confirm('Discard this capture? This cannot be undone.')) return;
+    await postJSON('/api/references/draft/discard');
+    fetchManage();
+  });
+
+  // Reset
   document.getElementById('btn-reset').addEventListener('click', async () => {
     if (!confirm('Clear all session data? This cannot be undone.')) return;
     const data = await postJSON('/api/reset');

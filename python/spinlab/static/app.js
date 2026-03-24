@@ -1,15 +1,13 @@
 import { connectSSE, fetchJSON, postJSON } from './api.js';
 import { initHeader, updateHeader, loadRomList } from './header.js';
 import { updatePracticeCard, fetchModel, initModelTab } from './model.js';
-import { fetchManage, initManageTab } from './manage.js';
+import { fetchManage, initManageTab, updateManageState } from './manage.js';
 
 function updateFromState(data) {
   updateHeader(data);
-
-  // Update practice card visibility and content
   updatePracticeCard(data);
+  updateManageState(data);  // <-- add this line
 
-  // Refresh active secondary tab
   const activeTab = document.querySelector('.tab.active');
   if (activeTab?.dataset.tab === 'model') fetchModel();
   if (activeTab?.dataset.tab === 'manage') fetchManage();
