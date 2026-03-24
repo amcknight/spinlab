@@ -1,4 +1,4 @@
-import { segmentName, formatTime } from './format.js';
+import { segmentName, formatTime, elapsedStr } from './format.js';
 import { fetchJSON, postJSON } from './api.js';
 
 export async function fetchModel() {
@@ -39,6 +39,62 @@ function updateModel(data) {
   });
   if (data.estimator) {
     document.getElementById('estimator-select').value = data.estimator;
+  }
+}
+
+export function updatePracticeCard(data) {
+  const card = document.getElementById('practice-card');
+  if (data.mode !== 'practice' || !data.current_segment) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+
+  const cs = data.current_segment;
+  document.getElementById('current-goal').textContent = segmentName(cs);
+  document.getElementById('current-attempts').textContent =
+    'Attempt ' + (cs.attempt_count || 0);
+
+  const insight = document.getElementById('insight');
+  if (cs.drift_info) {
+    const arrow = cs.drift_info.drift < 0 ? '\u2193' : cs.drift_info.drift > 0 ? '\u2191' : '\u2192';
+    const rate = Math.abs(cs.drift_info.drift).toFixed(2);
+    insight.innerHTML =
+      '<span class="drift-' + cs.drift_info.label + '">' +
+      arrow + ' ' + rate + ' s/run</span>' +
+      ' <span class="dim">(' + cs.drift_info.confidence + ')</span>';
+  } else {
+    insight.textContent = 'No data yet';
+  }
+
+  const queue = document.getElementById('queue');
+  queue.innerHTML = '';
+  (data.queue || []).forEach(q => {
+    const li = document.createElement('li');
+    li.textContent = segmentName(q);
+    queue.appendChild(li);
+  });
+
+  const recent = document.getElementById('recent');
+  recent.innerHTML = '';
+  (data.recent || []).forEach(r => {
+    const li = document.createElement('li');
+    const time = formatTime(r.time_ms);
+    const cls = r.completed ? 'ahead' : 'behind';
+    li.innerHTML = '<span class="' + cls + '">' + time + '</span>' +
+      ' <span class="dim">' + segmentName(r) + '</span>';
+    recent.appendChild(li);
+  });
+
+  const stats = document.getElementById('session-stats');
+  if (data.session) {
+    stats.textContent = (data.session.segments_completed || 0) + '/' +
+      (data.session.segments_attempted || 0) + ' cleared | ' +
+      elapsedStr(data.session.started_at);
+  }
+
+  if (data.allocator) {
+    document.getElementById('allocator-select').value = data.allocator;
   }
 }
 
