@@ -113,6 +113,19 @@ class Database:
         self._init_schema()
 
     def _init_schema(self) -> None:
+        # Detect old split-based schema and drop it (segment refactor, no migration)
+        cur = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='splits'"
+        )
+        if cur.fetchone():
+            self.conn.executescript("""
+                DROP TABLE IF EXISTS model_state;
+                DROP TABLE IF EXISTS attempts;
+                DROP TABLE IF EXISTS sessions;
+                DROP TABLE IF EXISTS splits;
+                DROP INDEX IF EXISTS idx_attempts_split;
+                DROP INDEX IF EXISTS idx_attempts_session;
+            """)
         self.conn.executescript(SCHEMA)
         self.conn.commit()
 
