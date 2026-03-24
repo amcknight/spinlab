@@ -1,4 +1,4 @@
-import { splitName, formatTime } from './format.js';
+import { segmentName, formatTime } from './format.js';
 import { fetchJSON, postJSON } from './api.js';
 
 export async function fetchModel() {
@@ -8,12 +8,12 @@ export async function fetchModel() {
 
 function updateModel(data) {
   const body = document.getElementById('model-body');
-  if (!data.splits || !data.splits.length) {
+  if (!data.segments || !data.segments.length) {
     body.innerHTML = '<tr><td colspan="7" class="dim">No game loaded</td></tr>';
     return;
   }
   body.innerHTML = '';
-  data.splits.forEach(s => {
+  data.segments.forEach(s => {
     const tr = document.createElement('tr');
     const driftClass = s.drift_info?.label || 'flat';
     const arrow = s.drift !== null
@@ -27,7 +27,7 @@ function updateModel(data) {
       confCell = '<span class="dim">[' + lo + ', ' + hi + ']</span>';
     }
     tr.innerHTML =
-      '<td>' + splitName(s) + '</td>' +
+      '<td>' + segmentName(s) + '</td>' +
       '<td>' + (s.mu !== null ? s.mu.toFixed(1) : '\u2014') + '</td>' +
       '<td class="drift-' + driftClass + '">' + arrow + ' ' +
         (s.drift !== null ? Math.abs(s.drift).toFixed(2) : '\u2014') + '</td>' +

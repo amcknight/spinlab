@@ -1,4 +1,4 @@
-import { splitName, formatTime } from './format.js';
+import { segmentName, formatTime } from './format.js';
 import { fetchJSON, postJSON } from './api.js';
 
 export async function fetchManage() {
@@ -10,15 +10,15 @@ export async function fetchManage() {
     return;
   }
   const active = refs.find(r => r.active);
-  let splits = [];
+  let segments = [];
   if (active) {
-    const splitsData = await fetchJSON('/api/references/' + active.id + '/splits');
-    splits = splitsData?.splits || [];
+    const segmentsData = await fetchJSON('/api/references/' + active.id + '/segments');
+    segments = segmentsData?.segments || [];
   }
-  updateManage(refs, splits);
+  updateManage(refs, segments);
 }
 
-function updateManage(refs, splits) {
+function updateManage(refs, segments) {
   const sel = document.getElementById('ref-select');
   sel.innerHTML = '';
   if (!refs.length) {
@@ -26,7 +26,7 @@ function updateManage(refs, splits) {
     opt.textContent = 'No game loaded';
     opt.disabled = true;
     sel.appendChild(opt);
-    document.getElementById('split-body').innerHTML = '';
+    document.getElementById('segment-body').innerHTML = '';
     return;
   }
   refs.forEach(r => {
@@ -37,50 +37,53 @@ function updateManage(refs, splits) {
     sel.appendChild(opt);
   });
 
-  const body = document.getElementById('split-body');
+  const body = document.getElementById('segment-body');
   body.innerHTML = '';
-  splits.forEach(s => {
+  segments.forEach(s => {
     const tr = document.createElement('tr');
+    const hasState = s.state_path != null;
+    const stateCell = hasState
+      ? '<span class="state-ok">\u2705</span>'
+      : '<button class="btn-fill-gap" data-id="' + s.id + '">\u274c</button>';
     tr.innerHTML =
-      '<td><input class="split-name-input" value="' + (s.description || '') + '" ' +
-        'placeholder="' + splitName(s) + '" ' +
+      '<td><input class="segment-name-input" value="' + (s.description || '') + '" ' +
+        'placeholder="' + segmentName(s) + '" ' +
         'data-id="' + s.id + '" data-field="description"></td>' +
       '<td>' + s.level_number + '</td>' +
-      '<td>' + s.goal + '</td>' +
-      '<td>' + (s.reference_time_ms ? formatTime(s.reference_time_ms) : '\u2014') + '</td>' +
-      '<td><input type="checkbox" class="split-toggle" data-id="' + s.id + '" ' +
-        'data-field="end_on_goal" ' + (s.end_on_goal ? 'checked' : '') +
-        ' title="End practice on goal (uncheck for death-after-goal levels)"></td>' +
+      '<td>' + (s.start_type === 'entrance' ? 'entrance' : 'cp.' + s.start_ordinal) +
+        ' \u2192 ' + (s.end_type === 'goal' ? 'goal' : 'cp.' + s.end_ordinal) + '</td>' +
+      '<td>' + stateCell + '</td>' +
       '<td><button class="btn-x" data-id="' + s.id + '">\u2715</button></td>';
     body.appendChild(tr);
   });
 }
 
 export function initManageTab() {
-  document.getElementById('split-body').addEventListener('focusout', async (e) => {
-    if (!e.target.classList.contains('split-name-input')) return;
+  document.getElementById('segment-body').addEventListener('focusout', async (e) => {
+    if (!e.target.classList.contains('segment-name-input')) return;
     const id = e.target.dataset.id;
     const field = e.target.dataset.field;
     const value = e.target.value;
-    await fetchJSON('/api/splits/' + id, {
+    await fetchJSON('/api/segments/' + id, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ [field]: value }),
     });
   });
 
-  document.getElementById('split-body').addEventListener('change', async (e) => {
-    if (!e.target.classList.contains('split-toggle')) return;
-    const id = e.target.dataset.id;
-    const field = e.target.dataset.field;
-    const value = e.target.checked;
-    await postJSON('/api/splits/' + id, { [field]: value });
-  });
-
-  document.getElementById('split-body').addEventListener('click', async (e) => {
+  document.getElementById('segment-body').addEventListener('click', async (e) => {
+    if (e.target.classList.contains('btn-fill-gap')) {
+      const id = e.target.dataset.id;
+      const data = await postJSON('/api/segments/' + id + '/fill-gap');
+      if (data?.status === 'started') {
+        e.target.textContent = '\u23f3';
+        e.target.disabled = true;
+      }
+      return;
+    }
     if (!e.target.classList.contains('btn-x')) return;
-    if (!confirm('Remove this split?')) return;
-    await fetchJSON('/api/splits/' + e.target.dataset.id, { method: 'DELETE' });
+    if (!confirm('Remove this segment?')) return;
+    await fetchJSON('/api/segments/' + e.target.dataset.id, { method: 'DELETE' });
     fetchManage();
   });
 
@@ -102,7 +105,7 @@ export function initManageTab() {
   });
 
   document.getElementById('btn-ref-delete').addEventListener('click', async () => {
-    if (!confirm('Delete this reference and all its splits?')) return;
+    if (!confirm('Delete this reference and all its segments?')) return;
     const sel = document.getElementById('ref-select');
     await fetchJSON('/api/references/' + sel.value, { method: 'DELETE' });
     fetchManage();

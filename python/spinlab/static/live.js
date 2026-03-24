@@ -1,4 +1,4 @@
-import { splitName, formatTime, elapsedStr } from './format.js';
+import { segmentName, formatTime, elapsedStr } from './format.js';
 
 export function renderDisconnected() {
   hide('mode-idle', 'mode-reference', 'mode-practice');
@@ -30,9 +30,9 @@ export function renderPractice(data) {
   show('mode-practice');
   updateGameName(data);
 
-  const cs = data.current_split;
+  const cs = data.current_segment;
   if (cs) {
-    document.getElementById('current-goal').textContent = splitName(cs);
+    document.getElementById('current-goal').textContent = segmentName(cs);
     document.getElementById('current-attempts').textContent =
       'Attempt ' + (cs.attempt_count || 0);
 
@@ -53,7 +53,7 @@ export function renderPractice(data) {
   queue.innerHTML = '';
   (data.queue || []).forEach(q => {
     const li = document.createElement('li');
-    li.textContent = splitName(q);
+    li.textContent = segmentName(q);
     queue.appendChild(li);
   });
 
@@ -65,14 +65,14 @@ export function renderPractice(data) {
     const refTime = r.reference_time_ms ? formatTime(r.reference_time_ms) : '\u2014';
     const cls = r.reference_time_ms && r.time_ms <= r.reference_time_ms ? 'ahead' : 'behind';
     li.innerHTML = '<span class="' + cls + '">' + time + '</span> / ' + refTime +
-      ' <span class="dim">' + splitName(r) + '</span>';
+      ' <span class="dim">' + segmentName(r) + '</span>';
     recent.appendChild(li);
   });
 
   const stats = document.getElementById('session-stats');
   if (data.session) {
-    stats.textContent = (data.session.splits_completed || 0) + '/' +
-      (data.session.splits_attempted || 0) + ' cleared | ' +
+    stats.textContent = (data.session.segments_completed || 0) + '/' +
+      (data.session.segments_attempted || 0) + ' cleared | ' +
       elapsedStr(data.session.started_at);
   }
 
