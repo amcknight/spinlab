@@ -285,6 +285,36 @@ local function to_json(t)
   return "{" .. table.concat(parts, ",") .. "}"
 end
 
+local function send_event(event)
+  if not client then return end
+  if practice.active then return end
+  -- Source tagging will be added here in Task 5 (replay mode)
+  client:send(to_json(event) .. "\n")
+end
+
+-- Input bitmask encoding: matches SNES joypad register layout
+local INPUT_BITS = {
+  b = 0, y = 1, select = 2, start = 3,
+  up = 4, down = 5, left = 6, right = 7,
+  a = 8, x = 9, l = 10, r = 11,
+}
+
+local function encode_input(tbl)
+  local mask = 0
+  for name, bit in pairs(INPUT_BITS) do
+    if tbl[name] then mask = mask + (1 << bit) end
+  end
+  return mask
+end
+
+local function decode_input(mask)
+  local tbl = {}
+  for name, bit in pairs(INPUT_BITS) do
+    tbl[name] = (mask & (1 << bit)) ~= 0
+  end
+  return tbl
+end
+
 local function log_jsonl(obj)
   local f = io.open(LOG_FILE, "a")
   if not f then
@@ -339,9 +369,7 @@ local function on_level_entrance(curr, state_path)
     state_path = state_path or "",
   }
   if JSONL_LOGGING then log_jsonl(event_data) end
-  if client and not practice.active then
-    client:send(to_json(event_data) .. "\n")
-  end
+  send_event(event_data)
   log("Level entrance: " .. curr.level_num .. " -> " ..
       (state_path and ("queued state save: " .. state_path) or "no game context, save skipped"))
 end
@@ -353,9 +381,7 @@ local function on_death(curr)
       level_num  = curr.level_num,
       timestamp_ms = ts_ms(),
     }
-    if client and not practice.active then
-      client:send(to_json(event_data) .. "\n")
-    end
+    send_event(event_data)
   end
   died_flag = true
   log("Death at level " .. curr.level_num)
@@ -375,9 +401,7 @@ local function on_level_exit(curr)
     session    = "passive",
   }
   if JSONL_LOGGING then log_jsonl(event_data) end
-  if client and not practice.active then
-    client:send(to_json(event_data) .. "\n")
-  end
+  send_event(event_data)
   log("Level exit: " .. curr.level_num .. " goal=" .. goal .. " elapsed=" .. elapsed .. "ms")
 end
 
@@ -421,9 +445,7 @@ local function detect_transitions(curr)
         timestamp_ms = ts_ms(),
         state_path  = state_path,
       }
-      if client and not practice.active then
-        client:send(to_json(event_data) .. "\n")
-      end
+      send_event(event_data)
       log("Checkpoint: level " .. curr.level_num .. " cp" .. cp_ordinal .. " (" .. (midway_hit and "midway" or "cp_entrance") .. ")")
     end
   end
@@ -463,9 +485,7 @@ local function detect_transitions(curr)
         state_captured = state_captured,
         state_path     = state_path or "",
       }
-      if client and not practice.active then
-        client:send(to_json(event_data) .. "\n")
-      end
+      send_event(event_data)
       died_flag = false
       log("Spawn at level " .. curr.level_num .. (was_cp_acquired and (" — cold CP" .. cp_ordinal .. " captured") or ""))
     else
