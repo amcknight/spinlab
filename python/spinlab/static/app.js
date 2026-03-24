@@ -6,7 +6,7 @@ import { fetchManage, initManageTab, updateManageState } from './manage.js';
 function updateFromState(data) {
   updateHeader(data);
   updatePracticeCard(data);
-  updateManageState(data);  // <-- add this line
+  updateManageState(data);
 
   const activeTab = document.querySelector('.tab.active');
   if (activeTab?.dataset.tab === 'model') fetchModel();

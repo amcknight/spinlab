@@ -165,6 +165,62 @@ class TestSaveAndDiscard:
         assert result["status"] == "no_draft"
 
 
+class TestStopReplayDraft:
+    @pytest.mark.asyncio
+    async def test_stop_replay_with_segments_enters_draft(self, tmp_path):
+        sm, db, tcp = make_sm(tmp_path)
+        sm.mode = "replay"
+        sm.ref_capture_run_id = "replay_abc"
+        sm.ref_segments_count = 5
+
+        result = await sm.stop_replay()
+        assert result["status"] == "stopped"
+        assert sm.draft_run_id == "replay_abc"
+        assert sm.draft_segments_count == 5
+
+    @pytest.mark.asyncio
+    async def test_stop_replay_no_segments_auto_discards(self, tmp_path):
+        sm, db, tcp = make_sm(tmp_path)
+        sm.mode = "replay"
+        sm.ref_capture_run_id = "replay_abc"
+        sm.ref_segments_count = 0
+
+        result = await sm.stop_replay()
+        assert result["status"] == "stopped"
+        assert sm.draft_run_id is None
+        db.hard_delete_capture_run.assert_called_once_with("replay_abc")
+
+
+class TestOnDisconnectDraft:
+    def test_disconnect_with_segments_enters_draft(self, tmp_path):
+        sm, db, tcp = make_sm(tmp_path)
+        sm.mode = "reference"
+        sm.ref_capture_run_id = "live_abc"
+        sm.ref_segments_count = 3
+
+        sm.on_disconnect()
+        assert sm.draft_run_id == "live_abc"
+        assert sm.draft_segments_count == 3
+
+    def test_disconnect_no_segments_auto_discards(self, tmp_path):
+        sm, db, tcp = make_sm(tmp_path)
+        sm.mode = "reference"
+        sm.ref_capture_run_id = "live_abc"
+        sm.ref_segments_count = 0
+
+        sm.on_disconnect()
+        assert sm.draft_run_id is None
+        db.hard_delete_capture_run.assert_called_once_with("live_abc")
+
+    def test_disconnect_no_ref_state_is_noop(self, tmp_path):
+        sm, db, tcp = make_sm(tmp_path)
+        sm.mode = "idle"
+
+        sm.on_disconnect()
+        assert sm.draft_run_id is None
+        db.hard_delete_capture_run.assert_not_called()
+
+
 class TestGetStateDraft:
     @pytest.mark.asyncio
     async def test_get_state_includes_draft(self, tmp_path):

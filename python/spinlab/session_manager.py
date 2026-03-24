@@ -586,12 +586,19 @@ class SessionManager:
         return {"status": "started", "run_id": run_id}
 
     async def stop_replay(self) -> dict:
-        """Abort replay."""
+        """Abort replay — enters draft state if segments were captured."""
         if self.mode != "replay":
             return {"status": "not_replaying"}
         if self.tcp.is_connected:
             await self.tcp.send(json.dumps({"event": "replay_stop"}))
-        self._clear_ref_state()
+        if self.ref_segments_count > 0:
+            self._enter_draft_state()
+            self._clear_ref_state()
+        else:
+            run_id = self.ref_capture_run_id
+            self._clear_ref_state()
+            if run_id:
+                self.db.hard_delete_capture_run(run_id)
         await self._notify_sse()
         return {"status": "stopped"}
 
@@ -665,10 +672,17 @@ class SessionManager:
         return {"status": "not_running"}
 
     def on_disconnect(self) -> None:
-        """Handle TCP disconnect: stop practice, clear ref state."""
+        """Handle TCP disconnect: stop practice, enter draft if segments captured."""
         if self.practice_session and self.practice_session.is_running:
             self.practice_session.is_running = False
-        self._clear_ref_state()
+        if self.ref_segments_count > 0:
+            self._enter_draft_state()
+            self._clear_ref_state()
+        else:
+            run_id = self.ref_capture_run_id
+            self._clear_ref_state()
+            if run_id:
+                self.db.hard_delete_capture_run(run_id)
 
     async def shutdown(self) -> None:
         """Clean shutdown: stop sessions, close TCP."""
