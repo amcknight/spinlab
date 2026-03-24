@@ -11,32 +11,41 @@ class TransitionEvent(str):
     DEATH = "death"
     GOAL = "goal"
     CHECKPOINT = "checkpoint"
+    SPAWN = "spawn"
 
 
 @dataclass
-class Split:
+class Segment:
     id: str
     game_id: str
     level_number: int
-    room_id: Optional[int]
-    goal: str
+    start_type: str          # 'entrance', 'checkpoint'
+    start_ordinal: int
+    end_type: str            # 'checkpoint', 'goal'
+    end_ordinal: int
     description: str = ""
-    state_path: Optional[str] = None
-    reference_time_ms: Optional[int] = None
     strat_version: int = 1
     active: bool = True
     ordinal: Optional[int] = None
     reference_id: Optional[str] = None
-    end_on_goal: bool = True
 
     @staticmethod
-    def make_id(game_id: str, level: int, room: int, goal: str) -> str:
-        return f"{game_id}:{level}:{room}:{goal}"
+    def make_id(game_id: str, level: int, start_type: str, start_ord: int,
+                end_type: str, end_ord: int) -> str:
+        return f"{game_id}:{level}:{start_type}.{start_ord}:{end_type}.{end_ord}"
+
+
+@dataclass
+class SegmentVariant:
+    segment_id: str
+    variant_type: str        # 'cold', 'hot'
+    state_path: str
+    is_default: bool = False
 
 
 @dataclass
 class Attempt:
-    split_id: str
+    segment_id: str
     session_id: str
     completed: bool
     time_ms: int | None = None
@@ -48,25 +57,21 @@ class Attempt:
 
 
 @dataclass
-class SplitCommand:
-    """Sent from orchestrator to Lua: which split to load next."""
+class SegmentCommand:
+    """Sent from orchestrator to Lua: which segment to load next."""
     id: str
     state_path: str
-    goal: str
     description: str
-    reference_time_ms: int | None
+    end_type: str              # 'checkpoint' or 'goal'
+    expected_time_ms: int | None = None
     auto_advance_delay_ms: int = 2000
-    expected_time_ms: int | None = None  # Kalman μ*1000, falls back to reference_time_ms
-    end_on_goal: bool = True
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "state_path": self.state_path,
-            "goal": self.goal,
             "description": self.description,
-            "reference_time_ms": self.reference_time_ms,
-            "auto_advance_delay_ms": self.auto_advance_delay_ms,
+            "end_type": self.end_type,
             "expected_time_ms": self.expected_time_ms,
-            "end_on_goal": self.end_on_goal,
+            "auto_advance_delay_ms": self.auto_advance_delay_ms,
         }
