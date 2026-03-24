@@ -30,7 +30,8 @@
       "WebFetch(domain:github.com)",
       "Bash(python -c \"import spinlab; print\\(spinlab.__file__\\)\")",
       "Bash(python -c \"import struct; struct.pack\\(''<4sH16sI6s'', b''SREC'', 1, b''abc'', 0, b''\\\\x00''*6\\)\")",
-      "Bash(python -c \"import struct; result = struct.pack\\(''<4sH16sI6s'', b''SREC'', 1, b''abc'', 0, b''\\\\x00''*6\\); print\\(repr\\(result[6:22]\\)\\)\")"
+      "Bash(python -c \"import struct; result = struct.pack\\(''<4sH16sI6s'', b''SREC'', 1, b''abc'', 0, b''\\\\x00''*6\\); print\\(repr\\(result[6:22]\\)\\)\")",
+      "Bash(git -C /c/Users/thedo/git/spinlab/.worktrees/dashboard-restructure log --oneline -5)"
     ]
   },
   "enabledPlugins": {
