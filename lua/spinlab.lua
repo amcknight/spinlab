@@ -116,6 +116,18 @@ local recording = {
 
 local pending_rec_save = nil  -- separate from pending_save to avoid contention
 
+-- Replay state
+local replay = {
+  active = false,
+  frames = {},        -- array of uint16 bitmasks loaded from .spinrec
+  index = 1,          -- current frame position
+  total = 0,          -- total frames
+  path = nil,         -- .spinrec file path
+  speed = 0,          -- 0 = max, 100 = normal
+  prev_speed = nil,   -- speed to restore after replay
+  last_progress_ms = 0,  -- wall-clock time of last progress event
+}
+
 -----------------------------------------------------------------------
 -- HELPERS
 -----------------------------------------------------------------------
@@ -179,6 +191,30 @@ local function flush_spinrec(path, game_id_str, buffer)
   f:close()
   log("Wrote spinrec: " .. path .. " (" .. n .. " frames)")
   return true
+end
+
+local function read_spinrec(path)
+  local f = io.open(path, "rb")
+  if not f then return nil, "file not found: " .. path end
+  local data = f:read("*a")
+  f:close()
+  if #data < 32 then return nil, "file too short" end
+  -- Validate magic
+  if data:sub(1, 4) ~= "SREC" then return nil, "bad magic" end
+  -- Parse header
+  local b = function(i) return data:byte(i) end
+  local frame_count = b(23) + b(24) * 256 + b(25) * 65536 + b(26) * 16777216
+  local gid = data:sub(7, 22)
+  -- Validate body length
+  local expected_body = frame_count * 2
+  if #data - 32 < expected_body then return nil, "body truncated" end
+  -- Parse frames
+  local frames = {}
+  for i = 1, frame_count do
+    local offset = 32 + (i - 1) * 2
+    frames[i] = b(offset + 1) + b(offset + 2) * 256
+  end
+  return {game_id = gid, frame_count = frame_count, frames = frames}, nil
 end
 
 local function load_state_from_file(path)
@@ -326,7 +362,9 @@ end
 local function send_event(event)
   if not client then return end
   if practice.active then return end
-  -- Source tagging will be added here in Task 5 (replay mode)
+  if replay.active then
+    event.source = "replay"
+  end
   client:send(to_json(event) .. "\n")
 end
 
@@ -718,6 +756,16 @@ local function handle_tcp()
           recording.output_path = nil
           log("Recording auto-cleared on disconnect")
         end
+        if replay.active then
+          replay.active = false
+          replay.frames = {}
+          replay.index = 1
+          if replay.prev_speed and emu.setSpeed then
+            emu.setSpeed(replay.prev_speed)
+          end
+          replay.path = nil
+          log("Replay auto-cleared on disconnect")
+        end
         return
       end
     end
@@ -763,6 +811,55 @@ local function handle_tcp()
             log("Recording stopped: " .. count .. " frames")
           else
             client:send("ok:not_recording\n")
+          end
+        elseif decoded_event == "replay" then
+          if practice.active or recording.active then
+            client:send(to_json({event = "replay_error", message = "cannot replay during practice or recording"}) .. "\n")
+          else
+            local path = json_get_str(line, "path")
+            local speed = json_get_num(line, "speed") or 0
+            if not path then
+              client:send(to_json({event = "replay_error", message = "replay requires path"}) .. "\n")
+            else
+              local rec, read_err = read_spinrec(path)
+              if not rec then
+                client:send(to_json({event = "replay_error", message = read_err}) .. "\n")
+              elseif game_id and rec.game_id:gsub("%z+$", "") ~= game_id then
+                client:send(to_json({event = "replay_error", message = "game_id mismatch"}) .. "\n")
+              else
+                replay.frames = rec.frames
+                replay.total = rec.frame_count
+                replay.index = 1
+                replay.path = path
+                replay.speed = speed
+                replay.last_progress_ms = os.clock() * 1000
+                -- Load companion .mss
+                local mss_path = path:gsub("%.spinrec$", ".mss")
+                pending_load = mss_path
+                -- Set speed (PoC validation: confirm emu.setSpeed exists)
+                replay.prev_speed = 100  -- assume normal speed was active
+                if emu.setSpeed then
+                  emu.setSpeed(speed)
+                end
+                replay.active = true
+                client:send(to_json({event = "replay_started", path = path, frame_count = rec.frame_count}) .. "\n")
+                log("Replay started: " .. path .. " (" .. rec.frame_count .. " frames, speed=" .. speed .. ")")
+              end
+            end
+          end
+        elseif decoded_event == "replay_stop" then
+          if replay.active then
+            replay.active = false
+            replay.frames = {}
+            replay.index = 1
+            if replay.prev_speed and emu.setSpeed then
+              emu.setSpeed(replay.prev_speed)
+            end
+            replay.path = nil
+            client:send("ok:replay_stopped\n")
+            log("Replay stopped by command")
+          else
+            client:send("ok:not_replaying\n")
           end
         end
         -- Don't fall through to text command parsing for JSON messages
@@ -844,6 +941,16 @@ local function handle_tcp()
         recording.output_path = nil
         log("Recording auto-cleared on disconnect")
       end
+      if replay.active then
+        replay.active = false
+        replay.frames = {}
+        replay.index = 1
+        if replay.prev_speed and emu.setSpeed then
+          emu.setSpeed(replay.prev_speed)
+        end
+        replay.path = nil
+        log("Replay auto-cleared on disconnect")
+      end
     end
   end
 end
@@ -897,6 +1004,28 @@ local function on_input_polled()
     local input = emu.getInput(0)
     recording.buffer[#recording.buffer + 1] = encode_input(input)
     recording.frame_index = recording.frame_index + 1
+  elseif replay.active and replay.index <= replay.total then
+    emu.setInput(0, decode_input(replay.frames[replay.index]))
+    replay.index = replay.index + 1
+    -- Progress reporting (wall-clock throttled)
+    local now = os.clock() * 1000
+    if now - replay.last_progress_ms >= 100 then
+      replay.last_progress_ms = now
+      send_event({event = "replay_progress", frame = replay.index - 1, total = replay.total})
+    end
+    -- Check if replay finished
+    if replay.index > replay.total then
+      send_event({event = "replay_finished", path = replay.path, frames_played = replay.total})
+      -- Restore speed
+      if replay.prev_speed then
+        emu.setSpeed(replay.prev_speed)
+      end
+      replay.active = false
+      replay.frames = {}
+      replay.index = 1
+      replay.path = nil
+      log("Replay finished")
+    end
   end
 end
 
