@@ -1,0 +1,95 @@
+"""Tests for segment_variants DB operations."""
+import pytest
+from spinlab.db import Database
+from spinlab.models import Segment, SegmentVariant
+
+
+@pytest.fixture
+def db():
+    d = Database(":memory:")
+    d.upsert_game("g1", "Test Game", "any%")
+    return d
+
+
+@pytest.fixture
+def segment(db):
+    s = Segment(
+        id="g1:105:entrance.0:checkpoint.1",
+        game_id="g1",
+        level_number=105,
+        start_type="entrance",
+        start_ordinal=0,
+        end_type="checkpoint",
+        end_ordinal=1,
+        description="entrance → cp.1",
+    )
+    db.upsert_segment(s)
+    return s
+
+
+def test_upsert_and_get_segment(db, segment):
+    segments = db.get_active_segments("g1")
+    assert len(segments) == 1
+    assert segments[0].id == segment.id
+    assert segments[0].start_type == "entrance"
+    assert segments[0].end_type == "checkpoint"
+
+
+def test_add_variant(db, segment):
+    v = SegmentVariant(
+        segment_id=segment.id,
+        variant_type="cold",
+        state_path="/states/105_entrance.mss",
+        is_default=True,
+    )
+    db.add_variant(v)
+    variants = db.get_variants(segment.id)
+    assert len(variants) == 1
+    assert variants[0].variant_type == "cold"
+    assert variants[0].is_default is True
+
+
+def test_add_variant_replace(db, segment):
+    """INSERT OR REPLACE: re-adding same variant type overwrites."""
+    v1 = SegmentVariant(segment.id, "cold", "/old.mss", True)
+    db.add_variant(v1)
+    v2 = SegmentVariant(segment.id, "cold", "/new.mss", True)
+    db.add_variant(v2)
+    variants = db.get_variants(segment.id)
+    assert len(variants) == 1
+    assert variants[0].state_path == "/new.mss"
+
+
+def test_get_default_variant(db, segment):
+    db.add_variant(SegmentVariant(segment.id, "hot", "/hot.mss", False))
+    db.add_variant(SegmentVariant(segment.id, "cold", "/cold.mss", True))
+    default = db.get_default_variant(segment.id)
+    assert default is not None
+    assert default.variant_type == "cold"
+
+
+def test_get_default_variant_fallback(db, segment):
+    """If no variant marked default, return any available variant."""
+    db.add_variant(SegmentVariant(segment.id, "hot", "/hot.mss", False))
+    default = db.get_default_variant(segment.id)
+    assert default is not None
+    assert default.variant_type == "hot"
+
+
+def test_get_variant_by_type(db, segment):
+    db.add_variant(SegmentVariant(segment.id, "hot", "/hot.mss", False))
+    db.add_variant(SegmentVariant(segment.id, "cold", "/cold.mss", True))
+    hot = db.get_variant(segment.id, "hot")
+    assert hot is not None
+    assert hot.state_path == "/hot.mss"
+    missing = db.get_variant(segment.id, "nonexistent")
+    assert missing is None
+
+
+def test_segments_with_model_includes_state_path(db, segment):
+    db.add_variant(SegmentVariant(segment.id, "cold", "/cold.mss", True))
+    rows = db.get_all_segments_with_model("g1")
+    assert len(rows) == 1
+    assert rows[0]["state_path"] == "/cold.mss"
+    assert rows[0]["start_type"] == "entrance"
+    assert rows[0]["end_type"] == "checkpoint"
