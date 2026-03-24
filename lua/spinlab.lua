@@ -48,6 +48,8 @@ local ADDR_EXIT_MODE   = 0x0DD5  -- 0=not exiting, non-zero=exiting level
 local ADDR_IO          = 0x1DFB  -- SPC I/O: 3=orb, 4=goal, 7=key, 8=fadeout
 local ADDR_FANFARE     = 0x0906  -- steps to 1 when goal reached
 local ADDR_BOSS_DEFEAT = 0x13C6  -- 0=alive, non-zero=defeated
+local ADDR_MIDWAY      = 0x13CE  -- midway checkpoint tape: 0→1 when touched
+local ADDR_CP_ENTRANCE = 0x1B403 -- ASM-style checkpoint entrance
 
 -----------------------------------------------------------------------
 -- STATE
@@ -71,6 +73,11 @@ local level_start_frame = 0  -- frame when current level entrance was logged
 local frame_counter = 0      -- increments every startFrame
 local script_start_ms = os.clock() * 1000
 
+-- Checkpoint tracking
+local cp_ordinal     = 0      -- per-level counter, incremented on each new CP
+local cp_acquired    = false  -- true when a new CP was hit without cold capture yet
+local first_cp_entrance = 0   -- initial cpEntrance value at level start
+
 -- Practice mode state
 local PSTATE_IDLE    = "idle"
 local PSTATE_LOADING = "loading"
@@ -80,7 +87,7 @@ local PSTATE_RESULT  = "RESULT"
 local practice = {
     active = false,
     state = PSTATE_IDLE,
-    split = nil,
+    segment = nil,
     start_ms = 0,
     elapsed_ms = 0,
     completed = false,
@@ -91,7 +98,7 @@ local practice = {
 local function practice_reset()
     practice.active = false
     practice.state = PSTATE_IDLE
-    practice.split = nil
+    practice.segment = nil
     practice.start_ms = 0
     practice.elapsed_ms = 0
     practice.completed = false
@@ -176,9 +183,10 @@ local function json_get_bool(json_str, key)
 end
 
 -- Parse practice_load JSON payload into a table.
-local function parse_practice_split(json_str)
+local function parse_practice_segment(json_str)
   local end_on_goal = json_get_bool(json_str, "end_on_goal")
   if end_on_goal == nil then end_on_goal = true end  -- default on
+  local end_type = json_get_str(json_str, "end_type") or "goal"  -- "goal" or "checkpoint"
   return {
     id                     = json_get_str(json_str, "id") or "",
     state_path             = json_get_str(json_str, "state_path") or "",
@@ -188,6 +196,7 @@ local function parse_practice_split(json_str)
     auto_advance_delay_ms  = json_get_num(json_str, "auto_advance_delay_ms") or 2000,
     expected_time_ms       = json_get_num(json_str, "expected_time_ms"),
     end_on_goal            = end_on_goal,
+    end_type               = end_type,
   }
 end
 
@@ -230,11 +239,11 @@ end
 local function draw_practice_overlay()
   if not practice.active then return end
 
-  local label = practice.split and format_goal(practice.split.goal) or "?"
+  local label = practice.segment and format_goal(practice.segment.goal) or "?"
   -- Use expected time (Kalman μ) for comparison, fall back to reference time
   local compare_time = nil
-  if practice.split then
-    compare_time = practice.split.expected_time_ms or practice.split.reference_time_ms
+  if practice.segment then
+    compare_time = practice.segment.expected_time_ms or practice.segment.reference_time_ms
   end
 
   if practice.state == PSTATE_PLAYING or practice.state == PSTATE_LOADING then
@@ -301,6 +310,8 @@ local function read_mem()
     io_port     = emu.read(ADDR_IO,          SNES, false),
     fanfare     = emu.read(ADDR_FANFARE,     SNES, false),
     boss_defeat = emu.read(ADDR_BOSS_DEFEAT, SNES, false),
+    midway      = emu.read(ADDR_MIDWAY,      SNES, false),
+    cp_entrance = emu.read(ADDR_CP_ENTRANCE, SNES, false),
   }
 end
 
@@ -335,8 +346,18 @@ local function on_level_entrance(curr, state_path)
 end
 
 local function on_death(curr)
+  if not died_flag then
+    local event_data = {
+      event      = "death",
+      level_num  = curr.level_num,
+      timestamp_ms = ts_ms(),
+    }
+    if client and not practice.active then
+      client:send(to_json(event_data) .. "\n")
+    end
+  end
   died_flag = true
-  log("Death at level " .. curr.level_num .. " (not logged)")
+  log("Death at level " .. curr.level_num)
 end
 
 local function on_level_exit(curr)
@@ -364,11 +385,82 @@ local function detect_transitions(curr)
     on_death(curr)
   end
 
+  -- Checkpoint detection (composite condition)
+  local got_orb     = curr.io_port == 3
+  local got_goal    = curr.fanfare == 1 or curr.io_port == 4
+  local got_key     = curr.io_port == 7
+  local got_fadeout = curr.io_port == 8
+
+  -- Midway: 0→1 transition, excluding goal/orb/key/fadeout
+  local midway_hit = (prev.midway == 0 and curr.midway == 1)
+      and not got_orb and not got_goal and not got_key and not got_fadeout
+
+  -- CPEntrance: value shifted, not to firstRoom, excluding goal/orb/key/fadeout
+  local cp_entrance_hit = (prev.cp_entrance ~= nil and curr.cp_entrance ~= prev.cp_entrance
+      and curr.cp_entrance ~= first_cp_entrance)
+      and not got_orb and not got_goal and not got_key and not got_fadeout
+
+  local cp_hit = midway_hit or cp_entrance_hit
+
+  if cp_hit then
+    cp_ordinal = cp_ordinal + 1
+    cp_acquired = true
+    -- After first CP, clear firstRoom so future cpEntrance shifts are real CPs
+    -- Setting to 0 is safe: cpEntrance values are room IDs (non-zero in levels)
+    first_cp_entrance = 0
+    -- Capture hot save state
+    if game_id then
+      local state_path = STATE_DIR .. "/" .. game_id .. "/" .. curr.level_num .. "_cp" .. cp_ordinal .. "_hot.mss"
+      pending_save = state_path
+      local event_data = {
+        event       = "checkpoint",
+        level_num   = curr.level_num,
+        cp_type     = midway_hit and "midway" or "cp_entrance",
+        cp_ordinal  = cp_ordinal,
+        timestamp_ms = ts_ms(),
+        state_path  = state_path,
+      }
+      if client and not practice.active then
+        client:send(to_json(event_data) .. "\n")
+      end
+      log("Checkpoint: level " .. curr.level_num .. " cp" .. cp_ordinal .. " (" .. (midway_hit and "midway" or "cp_entrance") .. ")")
+    end
+  end
+
   -- Level entrance: levelStart 0→1 (kaizosplits "LevelStart").
   -- Fires once when the player appears in the level — does NOT fire for
   -- sublevel pipe/door transitions, only for fresh level entry or death respawn.
   if curr.level_start == 1 and prev.level_start == 0 then
-    if not died_flag then
+    if died_flag then
+      -- Spawn: respawn after death
+      local state_captured = false
+      local state_path = nil
+      local was_cp_acquired = cp_acquired  -- capture before clearing
+      if cp_acquired and game_id then
+        state_path = STATE_DIR .. "/" .. game_id .. "/" .. curr.level_num .. "_cp" .. cp_ordinal .. "_cold.mss"
+        pending_save = state_path
+        state_captured = true
+        cp_acquired = false  -- only capture first cold spawn per CP
+      end
+      local event_data = {
+        event          = "spawn",
+        level_num      = curr.level_num,
+        is_cold_cp     = was_cp_acquired,
+        cp_ordinal     = cp_ordinal,
+        timestamp_ms   = ts_ms(),
+        state_captured = state_captured,
+        state_path     = state_path or "",
+      }
+      if client and not practice.active then
+        client:send(to_json(event_data) .. "\n")
+      end
+      died_flag = false
+      log("Spawn at level " .. curr.level_num .. (was_cp_acquired and (" — cold CP" .. cp_ordinal .. " captured") or ""))
+    else
+      -- Put: fresh level entry
+      cp_ordinal = 0
+      cp_acquired = false
+      first_cp_entrance = curr.cp_entrance  -- record initial entrance
       local state_path
       if not game_id then
         log("No game context yet, skipping state save")
@@ -384,9 +476,6 @@ local function detect_transitions(curr)
         pending_save = state_path
       end
       on_level_entrance(curr, state_path)
-    else
-      died_flag = false
-      log("Quick retry at level " .. curr.level_num .. " (not logged as entrance)")
     end
   end
 
@@ -433,10 +522,31 @@ local function handle_practice(curr)
   elseif practice.state == PSTATE_PLAYING then
     -- Death check (higher priority than exit/finish)
     if curr.player_anim == 9 and prev.player_anim ~= 9 then
-      pending_load = practice.split.state_path
+      pending_load = practice.segment.state_path
       log("Practice: death — reloading state")
 
-    elseif practice.split.end_on_goal and detect_finish(curr) then
+    elseif practice.segment.end_type == "checkpoint" then
+      -- Checkpoint end-condition: composite CP detection (same as passive)
+      local got_orb     = curr.io_port == 3
+      local got_goal    = curr.fanfare == 1 or curr.io_port == 4
+      local got_key     = curr.io_port == 7
+      local got_fadeout = curr.io_port == 8
+
+      local midway_hit = (prev.midway == 0 and curr.midway == 1)
+          and not got_orb and not got_goal and not got_key and not got_fadeout
+      local cp_entrance_hit = (prev.cp_entrance ~= nil and curr.cp_entrance ~= prev.cp_entrance
+          and curr.cp_entrance ~= first_cp_entrance)
+          and not got_orb and not got_goal and not got_key and not got_fadeout
+
+      if midway_hit or cp_entrance_hit then
+        practice.elapsed_ms = ts_ms() - practice.start_ms
+        practice.completed  = true
+        practice.state      = PSTATE_RESULT
+        practice.result_start_ms = ts_ms()
+        log("Practice: CHECKPOINT — " .. practice.elapsed_ms .. "ms")
+      end
+
+    elseif practice.segment.end_on_goal and detect_finish(curr) then
       -- Early finish: goal/orb/key/boss detected, skip fanfare wait
       local finish_goal = detect_finish(curr)
       practice.elapsed_ms = ts_ms() - practice.start_ms
@@ -462,10 +572,10 @@ local function handle_practice(curr)
       -- Send result to orchestrator
       local result = to_json({
         event      = "attempt_result",
-        split_id   = practice.split.id,
+        segment_id = practice.segment.id,
         completed  = practice.completed,
         time_ms    = math.floor(practice.elapsed_ms),
-        goal       = practice.split.goal,
+        goal       = practice.segment.goal,
       })
       if client then
         client:send(result .. "\n")
@@ -563,20 +673,20 @@ local function handle_tcp()
         client:send("ok:queued\n")
       elseif line:sub(1, 14) == "practice_load:" then
         local json_str = line:sub(15)
-        practice.split           = parse_practice_split(json_str)
-        practice.auto_advance_ms = practice.split.auto_advance_delay_ms or 2000
-        practice.active            = true
+        practice.segment         = parse_practice_segment(json_str)
+        practice.auto_advance_ms = practice.segment.auto_advance_delay_ms or 2000
+        practice.active          = true
         practice.state           = PSTATE_LOADING
-        local sp = practice.split.state_path
+        local sp = practice.segment.state_path
         if not sp or sp == "" then
-          log("ERROR: No valid state_path for split " .. (practice.split.id or "?"))
+          log("ERROR: No valid state_path for segment " .. (practice.segment.id or "?"))
           client:send("err:no_state_path\n")
           practice_reset()
         else
           pending_load      = sp
           practice.start_ms = ts_ms()
           client:send("ok:queued\n")
-          log("Practice load queued: " .. (practice.split.id or "?"))
+          log("Practice load queued: " .. (practice.segment.id or "?"))
         end
       elseif line == "practice_stop" then
         practice_reset()
