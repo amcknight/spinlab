@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS capture_runs (
   game_id TEXT NOT NULL REFERENCES games(id),
   name TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  active INTEGER DEFAULT 0
+  active INTEGER DEFAULT 0,
+  draft INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_attempts_segment ON attempts(segment_id, created_at);
@@ -128,6 +129,12 @@ class Database:
             """)
         self.conn.executescript(SCHEMA)
         self.conn.commit()
+        # Add draft column if missing (dashboard restructure)
+        try:
+            self.conn.execute("ALTER TABLE capture_runs ADD COLUMN draft INTEGER DEFAULT 0")
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     def close(self) -> None:
         self.conn.close()
@@ -467,19 +474,19 @@ class Database:
 
     # -- Capture Runs --
 
-    def create_capture_run(self, run_id: str, game_id: str, name: str) -> None:
+    def create_capture_run(self, run_id: str, game_id: str, name: str, draft: bool = False) -> None:
         now = datetime.now(UTC).isoformat()
         self.conn.execute(
-            "INSERT INTO capture_runs (id, game_id, name, created_at, active) "
-            "VALUES (?, ?, ?, ?, 0)",
-            (run_id, game_id, name, now),
+            "INSERT INTO capture_runs (id, game_id, name, created_at, active, draft) "
+            "VALUES (?, ?, ?, ?, 0, ?)",
+            (run_id, game_id, name, now, 1 if draft else 0),
         )
         self.conn.commit()
 
     def list_capture_runs(self, game_id: str) -> list[dict]:
         rows = self.conn.execute(
-            "SELECT id, game_id, name, created_at, active FROM capture_runs "
-            "WHERE game_id = ? ORDER BY created_at",
+            "SELECT id, game_id, name, created_at, active, draft FROM capture_runs "
+            "WHERE game_id = ? AND draft = 0 ORDER BY created_at",
             (game_id,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -513,6 +520,42 @@ class Database:
             "WHERE reference_id = ?",
             (now, run_id),
         )
+        self.conn.execute("DELETE FROM capture_runs WHERE id = ?", (run_id,))
+        self.conn.commit()
+
+    def promote_draft(self, run_id: str, name: str) -> None:
+        """Promote a draft capture run to saved: rename and set draft=0."""
+        self.conn.execute(
+            "UPDATE capture_runs SET draft = 0, name = ? WHERE id = ?",
+            (name, run_id),
+        )
+        self.conn.commit()
+
+    def hard_delete_capture_run(self, run_id: str) -> None:
+        """Hard delete: remove run, segments, variants, model_state, attempts."""
+        seg_ids = [
+            r[0] for r in self.conn.execute(
+                "SELECT id FROM segments WHERE reference_id = ?", (run_id,)
+            ).fetchall()
+        ]
+        if seg_ids:
+            placeholders = ",".join("?" * len(seg_ids))
+            self.conn.execute(
+                f"DELETE FROM segment_variants WHERE segment_id IN ({placeholders})",
+                seg_ids,
+            )
+            self.conn.execute(
+                f"DELETE FROM model_state WHERE segment_id IN ({placeholders})",
+                seg_ids,
+            )
+            self.conn.execute(
+                f"DELETE FROM attempts WHERE segment_id IN ({placeholders})",
+                seg_ids,
+            )
+            self.conn.execute(
+                f"DELETE FROM segments WHERE reference_id = ?", (run_id,),
+            )
+        # Always delete the capture_run row, even if it had no segments
         self.conn.execute("DELETE FROM capture_runs WHERE id = ?", (run_id,))
         self.conn.commit()
 
