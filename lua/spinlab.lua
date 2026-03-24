@@ -106,6 +106,16 @@ local function practice_reset()
     practice.auto_advance_ms = 2000
 end
 
+-- Recording state (passive mode input capture)
+local recording = {
+  active = false,
+  buffer = {},       -- array of uint16 bitmasks
+  frame_index = 0,
+  output_path = nil, -- .spinrec file path (set by reference_start)
+}
+
+local pending_rec_save = nil  -- separate from pending_save to avoid contention
+
 -----------------------------------------------------------------------
 -- HELPERS
 -----------------------------------------------------------------------
@@ -140,6 +150,34 @@ local function save_state_to_file(path)
   f:write(data)
   f:close()
   log("Saved state to: " .. path .. " (" .. #data .. " bytes)")
+  return true
+end
+
+local function flush_spinrec(path, game_id_str, buffer)
+  -- Header: SREC (4) + version (2) + game_id (16) + frame_count (4) + reserved (6) = 32
+  local f = io.open(path, "wb")
+  if not f then
+    log("ERROR: Cannot write spinrec: " .. path)
+    return false
+  end
+  -- Magic
+  f:write("SREC")
+  -- Version (uint16 LE)
+  f:write(string.char(1, 0))
+  -- Game ID (16 bytes ASCII, pad with zeros if shorter)
+  local gid = (game_id_str or ""):sub(1, 16)
+  f:write(gid .. string.rep("\0", 16 - #gid))
+  -- Frame count (uint32 LE)
+  local n = #buffer
+  f:write(string.char(n & 0xFF, (n >> 8) & 0xFF, (n >> 16) & 0xFF, (n >> 24) & 0xFF))
+  -- Reserved (6 zeros)
+  f:write(string.rep("\0", 6))
+  -- Body: 2 bytes per frame (uint16 LE)
+  for _, mask in ipairs(buffer) do
+    f:write(string.char(mask & 0xFF, (mask >> 8) & 0xFF))
+  end
+  f:close()
+  log("Wrote spinrec: " .. path .. " (" .. n .. " frames)")
   return true
 end
 
@@ -668,6 +706,18 @@ local function handle_tcp()
           pending_reset     = true
           log("Practice auto-cleared on disconnect — reset queued")
         end
+        if recording.active then
+          recording.active = false
+          recording.buffer = {}
+          recording.frame_index = 0
+          -- Delete partial .mss if it exists
+          if recording.output_path then
+            local mss = recording.output_path:gsub("%.spinrec$", ".mss")
+            os.remove(mss)
+          end
+          recording.output_path = nil
+          log("Recording auto-cleared on disconnect")
+        end
         return
       end
     end
@@ -685,6 +735,35 @@ local function handle_tcp()
             ensure_dir(STATE_DIR .. "/" .. game_id)
           end
           log("Game context: " .. gname .. " (" .. (game_id or "nil") .. ")")
+        elseif decoded_event == "reference_start" then
+          local path = json_get_str(line, "path")
+          if not path or path == "" then
+            client:send(to_json({event = "error", message = "reference_start requires path"}) .. "\n")
+          else
+            recording.active = true
+            recording.buffer = {}
+            recording.frame_index = 0
+            recording.output_path = path
+            client:send("ok:recording\n")
+            log("Recording started: " .. path)
+          end
+        elseif decoded_event == "reference_stop" then
+          if recording.active then
+            recording.active = false
+            local path = recording.output_path
+            local count = #recording.buffer
+            if count > 0 and path then
+              flush_spinrec(path, game_id, recording.buffer)
+              send_event({event = "rec_saved", path = path, frame_count = count})
+            end
+            recording.buffer = {}
+            recording.frame_index = 0
+            recording.output_path = nil
+            client:send("ok:stopped\n")
+            log("Recording stopped: " .. count .. " frames")
+          else
+            client:send("ok:not_recording\n")
+          end
         end
         -- Don't fall through to text command parsing for JSON messages
       elseif line == "save" then
@@ -753,6 +832,18 @@ local function handle_tcp()
         pending_reset     = true
         log("Practice auto-cleared on disconnect — reset queued")
       end
+      if recording.active then
+        recording.active = false
+        recording.buffer = {}
+        recording.frame_index = 0
+        -- Delete partial .mss if it exists
+        if recording.output_path then
+          local mss = recording.output_path:gsub("%.spinrec$", ".mss")
+          os.remove(mss)
+        end
+        recording.output_path = nil
+        log("Recording auto-cleared on disconnect")
+      end
     end
   end
 end
@@ -779,6 +870,11 @@ local function on_cpu_exec(address)
     pending_save = nil
     save_state_to_file(path)
   end
+  if pending_rec_save then
+    local path = pending_rec_save
+    pending_rec_save = nil
+    save_state_to_file(path)
+  end
   if pending_load then
     local path = pending_load
     pending_load = nil
@@ -788,6 +884,19 @@ local function on_cpu_exec(address)
     pending_reset = false
     emu.reset()
     log("SNES reset executed")
+  end
+end
+
+local function on_input_polled()
+  if recording.active then
+    if recording.frame_index == 0 then
+      -- Capture frame 0 save state via dedicated pending variable
+      local mss_path = recording.output_path:gsub("%.spinrec$", ".mss")
+      pending_rec_save = mss_path
+    end
+    local input = emu.getInput(0)
+    recording.buffer[#recording.buffer + 1] = encode_input(input)
+    recording.frame_index = recording.frame_index + 1
   end
 end
 
@@ -825,4 +934,5 @@ end
 
 -- Register callbacks
 emu.addEventCallback(on_start_frame, emu.eventType.startFrame)
+emu.addEventCallback(on_input_polled, emu.eventType.inputPolled)
 log("SpinLab script loaded")
