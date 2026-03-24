@@ -45,8 +45,10 @@ class SessionManager:
 
         # Reference capture state
         self.ref_pending: dict[tuple, dict] = {}
-        self.ref_splits_count: int = 0
+        self.ref_segments_count: int = 0
         self.ref_capture_run_id: str | None = None
+        self.ref_pending_start: dict | None = None
+        self.ref_died: bool = False
 
         # SSE subscribers
         self._sse_subscribers: list[asyncio.Queue] = []
@@ -58,11 +60,11 @@ class SessionManager:
             "tcp_connected": self.tcp.is_connected,
             "game_id": self.game_id,
             "game_name": self.game_name,
-            "current_split": None,
+            "current_segment": None,
             "queue": [],
             "recent": [],
             "session": None,
-            "sections_captured": self.ref_splits_count,
+            "sections_captured": self.ref_segments_count,
             "allocator": None,
             "estimator": None,
         }
@@ -79,31 +81,31 @@ class SessionManager:
             base["session"] = {
                 "id": ps.session_id,
                 "started_at": ps.started_at,
-                "splits_attempted": ps.splits_attempted,
-                "splits_completed": ps.splits_completed,
+                "segments_attempted": ps.segments_attempted,
+                "segments_completed": ps.segments_completed,
             }
-            if ps.current_split_id:
-                splits = self.db.get_all_splits_with_model(self.game_id)
-                split_map = {s["id"]: s for s in splits}
-                if ps.current_split_id in split_map:
-                    current_split = split_map[ps.current_split_id]
-                    current_split["attempt_count"] = self.db.get_split_attempt_count(
-                        ps.current_split_id, ps.session_id
+            if ps.current_segment_id:
+                segments = self.db.get_all_segments_with_model(self.game_id)
+                seg_map = {s["id"]: s for s in segments}
+                if ps.current_segment_id in seg_map:
+                    current_seg = seg_map[ps.current_segment_id]
+                    current_seg["attempt_count"] = self.db.get_segment_attempt_count(
+                        ps.current_segment_id, ps.session_id
                     )
-                    model_row = self.db.load_model_state(ps.current_split_id)
+                    model_row = self.db.load_model_state(ps.current_segment_id)
                     if model_row and model_row["state_json"]:
                         from spinlab.estimators.kalman import KalmanState
                         from spinlab.estimators import get_estimator
                         state = KalmanState.from_dict(json.loads(model_row["state_json"]))
                         est = get_estimator(model_row["estimator"])
-                        current_split["drift_info"] = est.drift_info(state)
-                    base["current_split"] = current_split
+                        current_seg["drift_info"] = est.drift_info(state)
+                    base["current_segment"] = current_seg
 
             queue_ids = sched.peek_next_n(3)
-            if ps.current_split_id:
-                queue_ids = [q for q in queue_ids if q != ps.current_split_id][:2]
-            splits_all = self.db.get_all_splits_with_model(self.game_id)
-            smap = {s["id"]: s for s in splits_all}
+            if ps.current_segment_id:
+                queue_ids = [q for q in queue_ids if q != ps.current_segment_id][:2]
+            segments_all = self.db.get_all_segments_with_model(self.game_id)
+            smap = {s["id"]: s for s in segments_all}
             base["queue"] = [smap[sid] for sid in queue_ids if sid in smap]
 
         base["recent"] = self.db.get_recent_attempts(self.game_id, limit=8)
@@ -126,8 +128,10 @@ class SessionManager:
     def _clear_ref_state(self) -> None:
         """Clear reference capture state."""
         self.ref_pending.clear()
-        self.ref_splits_count = 0
+        self.ref_segments_count = 0
         self.ref_capture_run_id = None
+        self.ref_pending_start = None
+        self.ref_died = False
         self.mode = "idle"
 
     async def switch_game(self, game_id: str, game_name: str) -> None:
@@ -199,7 +203,27 @@ class SessionManager:
         if evt_type == "level_entrance" and self.mode == "reference":
             key = event["level"]
             self.ref_pending[key] = event
+            self.ref_pending_start = {
+                "type": "entrance",
+                "ordinal": 0,
+                "state_path": event.get("state_path"),
+                "timestamp_ms": 0,
+                "level_num": event["level"],
+            }
+            self.ref_died = False
             await self._notify_sse()
+            return
+
+        if evt_type == "checkpoint" and self.mode == "reference":
+            await self._handle_ref_checkpoint(event)
+            return
+
+        if evt_type == "death" and self.mode == "reference":
+            self.ref_died = True
+            return
+
+        if evt_type == "spawn" and self.mode == "reference":
+            await self._handle_ref_spawn(event)
             return
 
         if evt_type == "level_exit" and self.mode == "reference":
@@ -236,35 +260,137 @@ class SessionManager:
             "game_name": name,
         }))
 
+    async def _handle_ref_checkpoint(self, event: dict) -> None:
+        """Handle checkpoint during reference: close current segment, start new one."""
+        if not self.ref_pending_start:
+            return
+
+        gid = self._require_game()
+        from .models import Segment, SegmentVariant
+
+        start = self.ref_pending_start
+        cp_ordinal = event.get("cp_ordinal", 1)
+        level = event.get("level_num", start["level_num"])
+
+        seg_id = Segment.make_id(
+            gid, level,
+            start["type"], start["ordinal"],
+            "checkpoint", cp_ordinal,
+        )
+        self.ref_segments_count += 1
+        seg = Segment(
+            id=seg_id,
+            game_id=gid,
+            level_number=level,
+            start_type=start["type"],
+            start_ordinal=start["ordinal"],
+            end_type="checkpoint",
+            end_ordinal=cp_ordinal,
+            ordinal=self.ref_segments_count,
+            reference_id=self.ref_capture_run_id,
+        )
+        self.db.upsert_segment(seg)
+
+        # Store hot variant (state captured mid-run, player has momentum)
+        hot_path = event.get("state_path")
+        if hot_path:
+            self.db.add_variant(SegmentVariant(
+                segment_id=seg_id,
+                variant_type="hot",
+                state_path=hot_path,
+                is_default=False,
+            ))
+
+        # New pending start is this checkpoint
+        self.ref_pending_start = {
+            "type": "checkpoint",
+            "ordinal": cp_ordinal,
+            "state_path": hot_path,
+            "timestamp_ms": event.get("timestamp_ms", 0),
+            "level_num": level,
+        }
+        await self._notify_sse()
+
+    async def _handle_ref_spawn(self, event: dict) -> None:
+        """Handle spawn during reference: store cold variant if applicable."""
+        if not event.get("is_cold_cp") or not event.get("state_captured"):
+            return
+
+        from .models import SegmentVariant
+
+        # Cold variant goes on the segment that starts from this checkpoint
+        # We need to find the segment that has this checkpoint as its start
+        # The ref_pending_start should be this checkpoint
+        if not self.ref_pending_start or self.ref_pending_start["type"] != "checkpoint":
+            return
+
+        cold_path = event.get("state_path")
+        if not cold_path:
+            return
+
+        gid = self._require_game()
+        # The cold variant is for the *next* segment starting from this checkpoint
+        # We don't know the end yet, but we can store it keyed to the pending start info
+        # For now, store it as a variant on the most recently created segment's start checkpoint
+        # Actually, cold variants belong to segments that START at this checkpoint,
+        # but that segment hasn't been created yet. We store it when the segment is created.
+        # For simplicity, store it keyed to a synthetic segment ID pattern
+        # that will match when the segment is eventually created.
+        # TODO: revisit cold variant storage timing in Task 11
+        logger.debug("Cold CP spawn: level=%s ordinal=%s path=%s",
+                      event.get("level_num"), self.ref_pending_start.get("ordinal"), cold_path)
+
     async def _handle_ref_exit(self, event: dict) -> None:
-        """Pair level_exit with pending entrance to create a split."""
+        """Pair level_exit with pending start to create final segment."""
         key = event["level"]
         goal = event.get("goal", "abort")
 
         if goal == "abort":
             self.ref_pending.pop(key, None)
+            self.ref_pending_start = None
             return
 
         entrance = self.ref_pending.pop(key, None)
-        if not entrance:
+        if not entrance or not self.ref_pending_start:
             return
 
-        self.ref_splits_count += 1
-        from .models import Split
+        self.ref_segments_count += 1
+        from .models import Segment, SegmentVariant
         gid = self._require_game()
-        split_id = Split.make_id(gid, entrance["level"], entrance["room"], goal)
-        split = Split(
-            id=split_id,
+        start = self.ref_pending_start
+
+        # Map goal string to end_ordinal (0 for normal goals)
+        end_ordinal = 0
+        seg_id = Segment.make_id(
+            gid, entrance["level"],
+            start["type"], start["ordinal"],
+            "goal", end_ordinal,
+        )
+        seg = Segment(
+            id=seg_id,
             game_id=gid,
             level_number=entrance["level"],
-            room_id=entrance["room"],
-            goal=goal,
-            state_path=entrance.get("state_path"),
-            reference_time_ms=event.get("elapsed_ms"),
-            ordinal=self.ref_splits_count,
+            start_type=start["type"],
+            start_ordinal=start["ordinal"],
+            end_type="goal",
+            end_ordinal=end_ordinal,
+            description=goal,
+            ordinal=self.ref_segments_count,
             reference_id=self.ref_capture_run_id,
         )
-        self.db.upsert_split(split)
+        self.db.upsert_segment(seg)
+
+        # Store entrance variant for the segment
+        state_path = start.get("state_path")
+        if state_path:
+            self.db.add_variant(SegmentVariant(
+                segment_id=seg_id,
+                variant_type="hot" if start["type"] == "checkpoint" else "cold",
+                state_path=state_path,
+                is_default=True,
+            ))
+
+        self.ref_pending_start = None
         await self._notify_sse()
 
     # --- Reference mode ---

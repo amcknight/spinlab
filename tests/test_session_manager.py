@@ -24,10 +24,12 @@ def make_mock_db():
     db.create_capture_run = MagicMock()
     db.set_active_capture_run = MagicMock()
     db.get_recent_attempts = MagicMock(return_value=[])
-    db.get_all_splits_with_model = MagicMock(return_value=[])
+    db.get_all_segments_with_model = MagicMock(return_value=[])
     db.load_model_state = MagicMock(return_value=None)
     db.load_allocator_config = MagicMock(return_value=None)
-    db.upsert_split = MagicMock()
+    db.upsert_segment = MagicMock()
+    db.add_variant = MagicMock()
+    db.get_active_segments = MagicMock(return_value=[])
     return db
 
 
@@ -150,8 +152,8 @@ class TestRouteEvent:
             "elapsed_ms": 5000,
         })
 
-        assert sm.ref_splits_count == 1
-        db.upsert_split.assert_called_once()
+        assert sm.ref_segments_count == 1
+        db.upsert_segment.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_level_exit_pairs_across_rooms(self):
@@ -180,11 +182,11 @@ class TestRouteEvent:
             "elapsed_ms": 8000,
         })
 
-        assert sm.ref_splits_count == 1
-        db.upsert_split.assert_called_once()
-        # Split should use entrance room (0), not exit room (5)
-        split = db.upsert_split.call_args[0][0]
-        assert split.room_id == 0
+        assert sm.ref_segments_count == 1
+        db.upsert_segment.assert_called_once()
+        # Segment should use entrance level number
+        seg = db.upsert_segment.call_args[0][0]
+        assert seg.level_number == 105
 
     @pytest.mark.asyncio
     async def test_level_exit_abort_discards(self):
@@ -207,8 +209,8 @@ class TestRouteEvent:
             "goal": "abort",
         })
 
-        assert sm.ref_splits_count == 0
-        db.upsert_split.assert_not_called()
+        assert sm.ref_segments_count == 0
+        db.upsert_segment.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_events_ignored_outside_reference(self):
@@ -223,7 +225,129 @@ class TestRouteEvent:
         await sm.route_event({"event": "level_exit", "level": 1, "room": 0, "goal": "normal"})
 
         assert len(sm.ref_pending) == 0
-        assert sm.ref_splits_count == 0
+        assert sm.ref_segments_count == 0
+
+
+    @pytest.mark.asyncio
+    async def test_reference_checkpoint_creates_segment(self):
+        """Checkpoint event during reference creates entrance->cp segment."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+
+        # Start reference
+        await sm.start_reference()
+
+        # Simulate entrance
+        await sm.route_event({
+            "event": "level_entrance",
+            "level": 105,
+            "room": 0,
+            "state_path": "/states/105_entrance.mss",
+        })
+
+        # Simulate checkpoint
+        await sm.route_event({
+            "event": "checkpoint",
+            "level_num": 105,
+            "cp_type": "midway",
+            "cp_ordinal": 1,
+            "timestamp_ms": 5000,
+            "state_path": "/states/105_cp1_hot.mss",
+        })
+
+        # Should have created entrance.0->checkpoint.1 segment
+        assert sm.ref_segments_count == 1
+        db.upsert_segment.assert_called_once()
+        seg = db.upsert_segment.call_args[0][0]
+        assert seg.start_type == "entrance"
+        assert seg.start_ordinal == 0
+        assert seg.end_type == "checkpoint"
+        assert seg.end_ordinal == 1
+
+        # Hot variant should have been stored
+        db.add_variant.assert_called_once()
+        variant = db.add_variant.call_args[0][0]
+        assert variant.variant_type == "hot"
+        assert variant.state_path == "/states/105_cp1_hot.mss"
+
+        # ref_pending_start should now be the checkpoint
+        assert sm.ref_pending_start["type"] == "checkpoint"
+        assert sm.ref_pending_start["ordinal"] == 1
+
+    @pytest.mark.asyncio
+    async def test_reference_checkpoint_then_exit(self):
+        """Checkpoint followed by exit creates two segments."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+
+        await sm.start_reference()
+
+        # Entrance -> checkpoint -> exit
+        await sm.route_event({
+            "event": "level_entrance",
+            "level": 105,
+            "room": 0,
+            "state_path": "/states/105_entrance.mss",
+        })
+        await sm.route_event({
+            "event": "checkpoint",
+            "level_num": 105,
+            "cp_type": "midway",
+            "cp_ordinal": 1,
+            "timestamp_ms": 5000,
+            "state_path": "/states/105_cp1_hot.mss",
+        })
+        await sm.route_event({
+            "event": "level_exit",
+            "level": 105,
+            "room": 0,
+            "goal": "normal",
+            "elapsed_ms": 10000,
+        })
+
+        assert sm.ref_segments_count == 2
+        assert db.upsert_segment.call_count == 2
+
+        # Second segment should start from checkpoint
+        seg2 = db.upsert_segment.call_args_list[1][0][0]
+        assert seg2.start_type == "checkpoint"
+        assert seg2.start_ordinal == 1
+        assert seg2.end_type == "goal"
+
+    @pytest.mark.asyncio
+    async def test_death_sets_ref_died(self):
+        """Death event during reference sets ref_died flag."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        sm.mode = "reference"
+
+        await sm.route_event({"event": "death"})
+        assert sm.ref_died is True
+
+    @pytest.mark.asyncio
+    async def test_entrance_clears_ref_died(self):
+        """New entrance clears ref_died flag."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        sm.mode = "reference"
+        sm.ref_capture_run_id = "run1"
+        sm.ref_died = True
+
+        await sm.route_event({
+            "event": "level_entrance",
+            "level": 105,
+            "room": 0,
+            "state_path": "/states/105.mss",
+        })
+        assert sm.ref_died is False
 
 
 class TestReferenceMode:
