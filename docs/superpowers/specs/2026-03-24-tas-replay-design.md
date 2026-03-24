@@ -1,4 +1,4 @@
-# TAS Recording & Replay for SpinLab
+# Input Recording & Replay for SpinLab
 
 **Date:** 2026-03-24
 **Status:** Approved
@@ -14,16 +14,16 @@ Add input recording to passive mode and a new replay mode to `spinlab.lua`. Ever
 ## Goals
 
 1. **Reference regeneration**: Replay a recorded run to recreate all segments, save states, and events without human input.
-2. **Integration testing**: Short TAS recordings as version-controlled test fixtures, runnable at max emulation speed.
+2. **Integration testing**: Short input recordings as version-controlled test fixtures, runnable at max emulation speed.
 3. **Zero frame loss**: Recording and replay must not introduce frame-level side effects that alter emulation behavior.
 
 ## Non-Goals
 
-- TAS creation tools (rewind, frame advance, input editing). This is playback only.
+- Input editing tools (rewind, frame advance, splicing). This is playback only.
 - Movie format interop (`.bk2`, `.smv`, `.lsmv`, `.mmo`). A converter could be added later.
-- Performance timing from replayed runs. TAS times are not human performance data.
+- Performance timing from replayed runs. Replay times are not human performance data.
 
-## File Format: `.spintas`
+## File Format: `.spininput`
 
 Compact binary format. The replay file is the contract — any recording method (Lua capture, future `.mmo` converter) produces this format.
 
@@ -31,7 +31,7 @@ Compact binary format. The replay file is the contract — any recording method 
 
 | Offset | Size | Field |
 |--------|------|-------|
-| 0 | 4 | Magic bytes: `STAS` |
+| 0 | 4 | Magic bytes: `SINP` |
 | 4 | 2 | Version: `1` (uint16 LE) |
 | 6 | 16 | Game ID (truncated SHA-256 hex, ASCII, NOT null-terminated) |
 | 22 | 4 | Frame count (uint32 LE) |
@@ -39,7 +39,7 @@ Compact binary format. The replay file is the contract — any recording method 
 
 ### Initial State Save
 
-A `.spintas` file is always paired with a companion save state file at the same path with a `.mss` extension (e.g., `run_001.spintas` + `run_001.mss`). The save state captures the emulator state at frame 0 of the recording — before any inputs are applied.
+A `.spininput` file is always paired with a companion save state file at the same path with a `.mss` extension (e.g., `run_001.spininput` + `run_001.mss`). The save state captures the emulator state at frame 0 of the recording — before any inputs are applied.
 
 - **During recording**: When passive recording starts, the first `inputPolled` callback also triggers a save state capture via the existing `pending_save` queue. This is the "frame 0" state.
 - **During replay**: Before feeding any inputs, Lua loads the companion `.mss` file to restore the exact initial state. Replay begins on the next frame after the load completes.
@@ -105,7 +105,7 @@ During passive mode, this callback captures controller state every frame:
 on_input_polled():
   if mode == PASSIVE and recording then
     if frame_index == 0 then
-      pending_save = tas_initial_state_path  -- capture frame 0 state
+      pending_input_save = initial_state_path  -- capture frame 0 state
     end
     bitmask = encode(emu.getInput(0))
     append bitmask to input_buffer
@@ -116,12 +116,12 @@ on_input_polled():
 - `input_buffer` is an in-memory Lua table of uint16 values
 - Memory footprint: ~70KB for a 10-minute run
 - Recording starts when Python sends `reference_start` (new TCP command) and stops on `reference_stop` (new TCP command). Python's `start_reference()` and `stop_reference()` in SessionManager must be extended to send these commands over TCP.
-- Python passes the desired `.spintas` path in `reference_start` (e.g., `{"event": "reference_start", "path": "..."}`) so Python controls file naming. Lua constructs the companion `.mss` path by replacing the extension.
-- On stop, Lua flushes the buffer to disk with the `.spintas` header and companion `.mss` save state
-- Lua sends `tas_recorded` event to Python with the file path
-- If the reference run is discarded, both the `.spintas` and `.mss` files are discarded with it
-- **Disconnect cleanup**: If TCP disconnects mid-recording, Lua resets `input_buffer`, `frame_index`, and `recording` flag. Partial `.mss` files are deleted. No `.spintas` is written for incomplete recordings.
-- **Frame 0 save state contention**: The initial state capture uses a dedicated `pending_tas_save` variable (separate from the existing `pending_save` used by `detect_transitions`) to avoid conflicts if a level entrance happens on the same frame.
+- Python passes the desired `.spininput` path in `reference_start` (e.g., `{"event": "reference_start", "path": "..."}`) so Python controls file naming. Lua constructs the companion `.mss` path by replacing the extension.
+- On stop, Lua flushes the buffer to disk with the `.spininput` header and companion `.mss` save state
+- Lua sends `input_recorded` event to Python with the file path
+- If the reference run is discarded, both the `.spininput` and `.mss` files are discarded with it
+- **Disconnect cleanup**: If TCP disconnects mid-recording, Lua resets `input_buffer`, `frame_index`, and `recording` flag. Partial `.mss` files are deleted. No `.spininput` is written for incomplete recordings.
+- **Frame 0 save state contention**: The initial state capture uses a dedicated `pending_input_save` variable (separate from the existing `pending_save` used by `detect_transitions`) to avoid conflicts if a level entrance happens on the same frame.
 
 ### Replay Mode
 
@@ -131,8 +131,8 @@ State machine:
 IDLE → REPLAY_LOADING → REPLAYING → IDLE
 ```
 
-On `tas_replay` TCP command:
-1. Read `.spintas` file from disk
+On `replay` TCP command:
+1. Read `.spininput` file from disk
 2. Validate header: magic bytes, version, game_id matches current ROM
 3. Parse body into `replay_frames` array
 4. Load companion `.mss` save state via `pending_load` (existing mechanism)
@@ -143,16 +143,16 @@ On `tas_replay` TCP command:
 
 On each `inputPolled` callback while REPLAYING:
 1. If `replay_index <= #replay_frames`: call `emu.setInput(decode(replay_frames[replay_index]), 0)`, increment
-2. If past end: send `tas_replay_finished`, restore speed, return to IDLE
+2. If past end: send `replay_finished`, restore speed, return to IDLE
 
-On `tas_replay_stop` TCP command:
+On `replay_stop` TCP command:
 - Abort replay, restore speed, return to IDLE
 
-**Preconditions**: `tas_replay` is rejected if practice or reference mode is active. SessionManager checks mode before sending the command. Lua also validates and returns `tas_replay_error` if it cannot enter replay state.
+**Preconditions**: `replay` is rejected if practice or reference mode is active. SessionManager checks mode before sending the command. Lua also validates and returns `replay_error` if it cannot enter replay state.
 
 **File validation on load**: Lua checks `(file_size - 32) / 2 == header.frame_count` to detect truncated files early.
 
-**Progress reporting**: Lua checks `os.clock()` on each `inputPolled` during replay and sends `tas_replay_progress` only when ≥100ms has elapsed since the last progress event.
+**Progress reporting**: Lua checks `os.clock()` on each `inputPolled` during replay and sends `replay_progress` only when ≥100ms has elapsed since the last progress event.
 
 ### Passive Detection Runs During Replay
 
@@ -171,12 +171,12 @@ Replay and passive share the same `detect_transitions()` path — no special bra
 
 ### Source Tagging
 
-All existing events (`level_entrance`, `checkpoint`, `level_exit`, `death`, `spawn`) emitted during replay include `"source": "tas_replay"`. This is implemented via a wrapper around the TCP send function rather than conditionals at each event site:
+All existing events (`level_entrance`, `checkpoint`, `level_exit`, `death`, `spawn`) emitted during replay include `"source": "replay"`. This is implemented via a wrapper around the TCP send function rather than conditionals at each event site:
 
 ```lua
 local function send_event(event)
   if replay.active then
-    event.source = "tas_replay"
+    event.source = "replay"
   end
   tcp_send(json.encode(event))
 end
@@ -202,56 +202,56 @@ All new commands use JSON objects, consistent with the existing `game_context` p
 
 | Command | Wire format | Purpose |
 |---------|-------------|---------|
-| `reference_start` | `{"event": "reference_start", "path": "..."}` | Begin passive recording (captures inputs + frame 0 state). Path specifies `.spintas` output location. |
-| `reference_stop` | `{"event": "reference_stop"}` | Stop recording, flush `.spintas` + `.mss` to disk |
-| `tas_replay` | `{"event": "tas_replay", "path": "...", "speed": 0}` | Load `.spintas` + `.mss` and begin replay |
-| `tas_replay_stop` | `{"event": "tas_replay_stop"}` | Abort replay, restore speed |
+| `reference_start` | `{"event": "reference_start", "path": "..."}` | Begin passive recording (captures inputs + frame 0 state). Path specifies `.spininput` output location. |
+| `reference_stop` | `{"event": "reference_stop"}` | Stop recording, flush `.spininput` + `.mss` to disk |
+| `replay` | `{"event": "replay", "path": "...", "speed": 0}` | Load `.spininput` + `.mss` and begin replay |
+| `replay_stop` | `{"event": "replay_stop"}` | Abort replay, restore speed |
 
 ### Events (Lua → Python)
 
 | Event | Fields | Purpose |
 |-------|--------|---------|
-| `tas_recorded` | `path: string`, `frame_count: number` | Recording flushed to disk |
-| `tas_replay_started` | `path: string`, `frame_count: number` | Replay is running |
-| `tas_replay_progress` | `frame: number`, `total: number` | Progress update (~every 100ms wall-clock, not frame-based, to avoid flooding at high speed) |
-| `tas_replay_finished` | `path: string`, `frames_played: number` | Replay completed |
-| `tas_replay_error` | `message: string` | File not found, wrong game_id, desync, etc. |
+| `input_recorded` | `path: string`, `frame_count: number` | Recording flushed to disk |
+| `replay_started` | `path: string`, `frame_count: number` | Replay is running |
+| `replay_progress` | `frame: number`, `total: number` | Progress update (~every 100ms wall-clock, not frame-based, to avoid flooding at high speed) |
+| `replay_finished` | `path: string`, `frames_played: number` | Replay completed |
+| `replay_error` | `message: string` | File not found, wrong game_id, desync, etc. |
 
 ## Python Side
 
 ### SessionManager
 
-Replay is transparent to the reference capture pipeline. `route_event()` handles TAS-sourced events identically to human events, with two exceptions:
+Replay is transparent to the reference capture pipeline. `route_event()` handles replay-sourced events identically to human events, with two exceptions:
 
-1. **Elapsed times**: Events with `source: "tas_replay"` do not produce meaningful elapsed times. Python stores frame counts instead (deterministic, comparable between replays). The scheduler ignores TAS-sourced segments for difficulty modeling.
-2. **`.spintas` association**: On `tas_recorded`, Python stores the file path in the DB alongside the reference run, enabling future replay.
+1. **Elapsed times**: Events with `source: "replay"` do not produce meaningful elapsed times. Python stores frame counts instead (deterministic, comparable between replays). The scheduler ignores replay-sourced segments for difficulty modeling.
+2. **`.spininput` association**: On `input_recorded`, Python stores the file path in the DB alongside the reference run, enabling future replay.
 
 ### CLI
 
-- `spinlab replay <path>` — Replay a `.spintas` file, generating a reference run
+- `spinlab replay <path>` — Replay a `.spininput` file, generating a reference run
 - `spinlab replay --speed 100` — Replay at normal speed (for visual verification)
 
 ### Dashboard
 
-- Manage tab: "Replay" button next to reference runs that have an associated `.spintas` file
-- Progress bar during replay (driven by `tas_replay_progress` SSE events)
+- Manage tab: "Replay" button next to reference runs that have an associated `.spininput` file
+- Progress bar during replay (driven by `replay_progress` SSE events)
 
 ### Integration Tests
 
-- Short `.spintas` fixtures live in `tests/fixtures/tas/`, version-controlled
-- Test harness: launch Mesen2 headless (`--testRunner`), send `tas_replay` at max speed, assert expected segment events and save state files are produced
+- Short `.spininput` fixtures live in `tests/fixtures/inputs/`, version-controlled
+- Test harness: launch Mesen2 headless (`--testRunner`), send `replay` at max speed, assert expected segment events and save state files are produced
 - `spinlab test-replay` CLI command runs all test fixtures
 
 ## Storage
 
 | Recording type | Location | Version controlled |
 |----------------|----------|--------------------|
-| Full reference runs | `{data_dir}/{game_id}/tas/{timestamp}.spintas` + `.mss` | No (user data) |
-| Test fixtures | `tests/fixtures/tas/{descriptive_name}.spintas` + `.mss` | Yes (binary; `.mss` ~128-256KB per fixture, LFS optional unless fixtures multiply) |
+| Full reference runs | `{data_dir}/{game_id}/inputs/{timestamp}.spininput` + `.mss` | No (user data) |
+| Test fixtures | `tests/fixtures/inputs/{descriptive_name}.spininput` + `.mss` | Yes (binary; `.mss` ~128-256KB per fixture, LFS optional unless fixtures multiply) |
 
 ## Future Extensions (Not In Scope)
 
-- `.mmo` converter: Parse Mesen2 movie files into `.spintas` format as a fallback recording method
+- `.mmo` converter: Parse Mesen2 movie files into `.spininput` format as a fallback recording method
 - Desync detection: Record memory values at segment boundaries during recording, assert during replay
-- Input editing: Simple tool to trim or splice `.spintas` files
+- Input editing: Simple tool to trim or splice `.spininput` files
 - Multi-controller support: Currently player 1 only (port 0)
