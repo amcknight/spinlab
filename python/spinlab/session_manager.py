@@ -488,7 +488,7 @@ class SessionManager:
     async def start_reference(self, run_name: str | None = None) -> dict:
         """Begin reference capture."""
         if self.mode in ("practice", "replay"):
-            return {"status": "practice_active"}
+            return {"status": f"{self.mode}_active"}
         if not self.tcp.is_connected:
             return {"status": "not_connected"}
         gid = self._require_game()
