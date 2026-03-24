@@ -6,39 +6,48 @@ from spinlab.scheduler import Scheduler
 
 
 @pytest.fixture
-def db_with_splits(tmp_path):
+def db_with_segments(tmp_path):
     db = Database(str(tmp_path / "test.db"))
     db.upsert_game("g1", "Game", "any%")
-    from spinlab.models import Split
+    from spinlab.models import Segment, SegmentVariant
     states_dir = tmp_path / "states"
     states_dir.mkdir()
-    for i, goal in enumerate(["normal", "key", "secret"], start=1):
+    for i, (start_type, end_type) in enumerate(
+        [("entrance", "checkpoint"), ("checkpoint", "checkpoint"), ("checkpoint", "goal")],
+        start=1,
+    ):
         state_file = states_dir / f"{i}.mss"
         state_file.write_bytes(b"\x00" * 100)
-        split = Split(
-            id=f"g1:{i}:1:{goal}",
+        seg = Segment(
+            id=f"g1:{i}:{start_type}.0:{end_type}.0",
             game_id="g1",
             level_number=i,
-            room_id=1,
-            goal=goal,
-            description=f"Level {i}",
-            state_path=str(state_file),
-            reference_time_ms=10000 + i * 1000,
+            start_type=start_type,
+            start_ordinal=0,
+            end_type=end_type,
+            end_ordinal=0,
+            description=f"Segment {i}",
             strat_version=1,
         )
-        db.upsert_split(split)
+        db.upsert_segment(seg)
+        db.add_variant(SegmentVariant(
+            segment_id=seg.id,
+            variant_type="cold",
+            state_path=str(state_file),
+            is_default=True,
+        ))
     return db
 
 
 class TestSchedulerPickNext:
-    def test_pick_next_returns_split_with_model(self, db_with_splits):
-        sched = Scheduler(db_with_splits, "g1")
+    def test_pick_next_returns_segment_with_model(self, db_with_segments):
+        sched = Scheduler(db_with_segments, "g1")
         result = sched.pick_next()
         # No attempts yet, all marginal returns are equal (default d/mu)
         assert result is not None
-        assert result.split_id.startswith("g1:")
+        assert result.segment_id.startswith("g1:")
 
-    def test_pick_next_no_splits_returns_none(self, tmp_path):
+    def test_pick_next_no_segments_returns_none(self, tmp_path):
         db = Database(str(tmp_path / "test.db"))
         db.upsert_game("g1", "Game", "any%")
         sched = Scheduler(db, "g1")
@@ -46,53 +55,53 @@ class TestSchedulerPickNext:
 
 
 class TestSchedulerProcessAttempt:
-    def test_process_attempt_creates_model_state(self, db_with_splits):
-        sched = Scheduler(db_with_splits, "g1")
-        split_id = "g1:1:1:normal"
-        sched.process_attempt(split_id, time_ms=12000, completed=True)
-        row = db_with_splits.load_model_state(split_id)
+    def test_process_attempt_creates_model_state(self, db_with_segments):
+        sched = Scheduler(db_with_segments, "g1")
+        segment_id = "g1:1:entrance.0:checkpoint.0"
+        sched.process_attempt(segment_id, time_ms=12000, completed=True)
+        row = db_with_segments.load_model_state(segment_id)
         assert row is not None
         state = json.loads(row["state_json"])
         assert state["mu"] == pytest.approx(12.0)  # 12000ms → 12.0s
         assert state["n_completed"] == 1
 
-    def test_process_attempt_incomplete(self, db_with_splits):
-        sched = Scheduler(db_with_splits, "g1")
-        split_id = "g1:1:1:normal"
+    def test_process_attempt_incomplete(self, db_with_segments):
+        sched = Scheduler(db_with_segments, "g1")
+        segment_id = "g1:1:entrance.0:checkpoint.0"
         # First: completed attempt to init state
-        sched.process_attempt(split_id, time_ms=12000, completed=True)
+        sched.process_attempt(segment_id, time_ms=12000, completed=True)
         # Second: incomplete attempt
-        sched.process_attempt(split_id, time_ms=5000, completed=False)
-        row = db_with_splits.load_model_state(split_id)
+        sched.process_attempt(segment_id, time_ms=5000, completed=False)
+        row = db_with_segments.load_model_state(segment_id)
         state = json.loads(row["state_json"])
         assert state["n_completed"] == 1  # unchanged
         assert state["n_attempts"] == 2   # incremented
 
 
 class TestSchedulerPeek:
-    def test_peek_next_n(self, db_with_splits):
-        sched = Scheduler(db_with_splits, "g1")
+    def test_peek_next_n(self, db_with_segments):
+        sched = Scheduler(db_with_segments, "g1")
         results = sched.peek_next_n(3)
         assert len(results) == 3
         assert all(isinstance(r, str) for r in results)
 
 
 class TestSchedulerSwitch:
-    def test_switch_allocator(self, db_with_splits):
-        sched = Scheduler(db_with_splits, "g1")
+    def test_switch_allocator(self, db_with_segments):
+        sched = Scheduler(db_with_segments, "g1")
         sched.switch_allocator("random")
         assert sched.allocator.name == "random"
 
-    def test_switch_unknown_allocator_raises(self, db_with_splits):
-        sched = Scheduler(db_with_splits, "g1")
+    def test_switch_unknown_allocator_raises(self, db_with_segments):
+        sched = Scheduler(db_with_segments, "g1")
         with pytest.raises(ValueError):
             sched.switch_allocator("nonexistent")
 
 
 class TestStateFileFilter:
     def test_pick_next_skips_missing_state_files(self, tmp_path):
-        """pick_next only returns splits with existing state files."""
-        from spinlab.models import Split
+        """pick_next only returns segments with existing state files."""
+        from spinlab.models import Segment, SegmentVariant
 
         db = Database(":memory:")
         db.upsert_game("g1", "Test", "any%")
@@ -100,23 +109,32 @@ class TestStateFileFilter:
         valid_state = tmp_path / "valid.mss"
         valid_state.write_bytes(b"\x00" * 100)
 
-        db.upsert_split(Split(id="s1", game_id="g1", level_number=1, room_id=0, goal="normal", state_path=str(valid_state)))
-        db.upsert_split(Split(id="s2", game_id="g1", level_number=2, room_id=0, goal="normal", state_path="/nonexistent/path.mss"))
-        db.upsert_split(Split(id="s3", game_id="g1", level_number=3, room_id=0, goal="normal", state_path=None))
+        seg1 = Segment(id="s1", game_id="g1", level_number=1, start_type="entrance", start_ordinal=0, end_type="checkpoint", end_ordinal=0)
+        seg2 = Segment(id="s2", game_id="g1", level_number=2, start_type="entrance", start_ordinal=0, end_type="checkpoint", end_ordinal=0)
+        seg3 = Segment(id="s3", game_id="g1", level_number=3, start_type="entrance", start_ordinal=0, end_type="checkpoint", end_ordinal=0)
+        db.upsert_segment(seg1)
+        db.upsert_segment(seg2)
+        db.upsert_segment(seg3)
+
+        # s1 has a valid state file, s2 has a nonexistent path, s3 has no variant (no state_path)
+        db.add_variant(SegmentVariant(segment_id="s1", variant_type="cold", state_path=str(valid_state), is_default=True))
+        db.add_variant(SegmentVariant(segment_id="s2", variant_type="cold", state_path="/nonexistent/path.mss", is_default=True))
 
         sched = Scheduler(db, "g1")
         picked = sched.pick_next()
 
         assert picked is not None
-        assert picked.split_id == "s1"
+        assert picked.segment_id == "s1"
 
     def test_pick_next_returns_none_when_no_valid_files(self):
-        """pick_next returns None when no splits have valid state files."""
-        from spinlab.models import Split
+        """pick_next returns None when no segments have valid state files."""
+        from spinlab.models import Segment, SegmentVariant
 
         db = Database(":memory:")
         db.upsert_game("g1", "Test", "any%")
-        db.upsert_split(Split(id="s1", game_id="g1", level_number=1, room_id=0, goal="normal", state_path="/nonexistent/path.mss"))
+        seg = Segment(id="s1", game_id="g1", level_number=1, start_type="entrance", start_ordinal=0, end_type="checkpoint", end_ordinal=0)
+        db.upsert_segment(seg)
+        db.add_variant(SegmentVariant(segment_id="s1", variant_type="cold", state_path="/nonexistent/path.mss", is_default=True))
 
         sched = Scheduler(db, "g1")
         picked = sched.pick_next()
