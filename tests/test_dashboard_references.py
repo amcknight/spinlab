@@ -2,6 +2,7 @@
 import json
 import pytest
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 from spinlab.db import Database
@@ -103,3 +104,84 @@ class TestImportManifest:
         )
         assert resp.status_code == 200
         assert resp.json()["segments_imported"] == 1
+
+
+class TestDraftEndpoints:
+    def test_save_draft(self, client):
+        # Inject draft state
+        client.app.state.session.draft_run_id = "live_abc"
+        client.app.state.session.draft_segments_count = 5
+        client.app.state.session.save_draft = AsyncMock(return_value={"status": "ok"})
+
+        resp = client.post("/api/references/draft/save", json={"name": "My Run"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    def test_discard_draft(self, client):
+        client.app.state.session.draft_run_id = "live_abc"
+        client.app.state.session.discard_draft = AsyncMock(return_value={"status": "ok"})
+
+        resp = client.post("/api/references/draft/discard")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+
+class TestSpinrecEndpoint:
+    def test_spinrec_exists(self, client, tmp_path):
+        client.app.state.session.game_id = "testgame"
+        client.app.state.session.data_dir = tmp_path
+        rec_dir = tmp_path / "testgame" / "rec"
+        rec_dir.mkdir(parents=True)
+        (rec_dir / "ref_abc.spinrec").write_bytes(b"SREC")
+
+        resp = client.get("/api/references/ref_abc/spinrec")
+        assert resp.status_code == 200
+        assert resp.json()["exists"] is True
+
+    def test_spinrec_not_found(self, client):
+        client.app.state.session.game_id = "testgame"
+        resp = client.get("/api/references/ref_abc/spinrec")
+        assert resp.status_code == 200
+        assert resp.json()["exists"] is False
+
+
+class TestReplayByRefId:
+    def test_replay_start_with_ref_id(self, client, tmp_path):
+        client.app.state.session.game_id = "testgame"
+        client.app.state.session.data_dir = tmp_path
+        client.app.state.session.start_replay = AsyncMock(return_value={"status": "started", "run_id": "replay_x"})
+
+        resp = client.post("/api/replay/start", json={"ref_id": "ref_abc", "speed": 1})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "started"
+        expected_path = str(tmp_path / "testgame" / "rec" / "ref_abc.spinrec")
+        client.app.state.session.start_replay.assert_called_once_with(expected_path, speed=1)
+
+    def test_replay_start_missing_ref_id(self, client):
+        resp = client.post("/api/replay/start", json={"speed": 0})
+        assert resp.status_code == 400
+
+
+class TestListReferencesHasSpinrec:
+    def test_list_references_includes_has_spinrec(self, client, db, tmp_path):
+        client.app.state.session.data_dir = tmp_path
+        db.create_capture_run("ref1", "test_game", "Run 1")
+        rec_dir = tmp_path / "test_game" / "rec"
+        rec_dir.mkdir(parents=True)
+        (rec_dir / "ref1.spinrec").write_bytes(b"SREC")
+
+        resp = client.get("/api/references")
+        assert resp.status_code == 200
+        refs = resp.json()["references"]
+        assert len(refs) == 1
+        assert refs[0]["has_spinrec"] is True
+
+    def test_list_references_has_spinrec_false_when_missing(self, client, db, tmp_path):
+        client.app.state.session.data_dir = tmp_path
+        db.create_capture_run("ref1", "test_game", "Run 1")
+
+        resp = client.get("/api/references")
+        assert resp.status_code == 200
+        refs = resp.json()["references"]
+        assert len(refs) == 1
+        assert refs[0]["has_spinrec"] is False

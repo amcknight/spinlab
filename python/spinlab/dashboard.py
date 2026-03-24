@@ -103,11 +103,13 @@ def create_app(
     @app.post("/api/replay/start")
     async def replay_start(req: Request):
         body = await req.json()
-        path = body.get("path")
+        ref_id = body.get("ref_id")
         speed = body.get("speed", 0)
-        if not path:
-            raise HTTPException(status_code=400, detail="path required")
-        return await session.start_replay(path, speed=speed)
+        if not ref_id:
+            raise HTTPException(status_code=400, detail="ref_id required")
+        gid = session.game_id or "unknown"
+        spinrec_path = str(session.data_dir / gid / "rec" / f"{ref_id}.spinrec")
+        return await session.start_replay(spinrec_path, speed=speed)
 
     @app.post("/api/replay/stop")
     async def replay_stop():
@@ -183,7 +185,12 @@ def create_app(
 
     @app.get("/api/references")
     def list_references():
-        return {"references": db.list_capture_runs(session._require_game())}
+        gid = session._require_game()
+        refs = db.list_capture_runs(gid)
+        for ref in refs:
+            rec_path = session.data_dir / gid / "rec" / f"{ref['id']}.spinrec"
+            ref["has_spinrec"] = rec_path.is_file()
+        return {"references": refs}
 
     @app.post("/api/references")
     def create_reference(body: dict):
@@ -192,6 +199,24 @@ def create_app(
         name = body.get("name", "Untitled")
         db.create_capture_run(run_id, session._require_game(), name)
         return {"id": run_id, "name": name}
+
+    @app.post("/api/references/draft/save")
+    async def draft_save(req: Request):
+        body = await req.json()
+        name = body.get("name", "Untitled")
+        return await session.save_draft(name)
+
+    @app.post("/api/references/draft/discard")
+    async def draft_discard():
+        return await session.discard_draft()
+
+    @app.get("/api/references/{ref_id}/spinrec")
+    def check_spinrec(ref_id: str):
+        gid = session.game_id or "unknown"
+        rec_path = session.data_dir / gid / "rec" / f"{ref_id}.spinrec"
+        if rec_path.is_file():
+            return {"exists": True, "path": str(rec_path)}
+        return {"exists": False}
 
     @app.patch("/api/references/{ref_id}")
     def rename_reference(ref_id: str, body: dict):
