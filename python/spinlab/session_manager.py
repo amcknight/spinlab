@@ -29,11 +29,13 @@ class SessionManager:
         tcp: "TcpManager",
         rom_dir: Path | None,
         default_category: str = "any%",
+        data_dir: Path | None = None,
     ) -> None:
         self.db = db
         self.tcp = tcp
         self.rom_dir = rom_dir
         self.default_category = default_category
+        self.data_dir = data_dir or Path("data")
 
         # Session state
         self.mode: str = "idle"  # "idle" | "reference" | "practice"
@@ -48,6 +50,7 @@ class SessionManager:
         self.ref_capture_run_id: str | None = None
         self.ref_pending_start: dict | None = None
         self.ref_died: bool = False
+        self.rec_path: str | None = None
 
         # Fill-gap state
         self.fill_gap_segment_id: str | None = None
@@ -133,7 +136,14 @@ class SessionManager:
         self.ref_capture_run_id = None
         self.ref_pending_start = None
         self.ref_died = False
+        self.rec_path = None
         self.mode = "idle"
+
+    def _game_rec_dir(self) -> Path:
+        """Return the per-game recording directory, creating it if needed."""
+        d = self.data_dir / (self.game_id or "unknown") / "rec"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
 
     async def switch_game(self, game_id: str, game_name: str) -> None:
         """Switch active game context. Stops any active session first."""
@@ -245,6 +255,10 @@ class SessionManager:
             if self.practice_session:
                 self.practice_session.receive_result(event)
             await self._notify_sse()
+            return
+
+        if evt_type == "rec_saved":
+            self.rec_path = event.get("path")
             return
 
     async def _handle_rom_info(self, event: dict) -> None:
@@ -455,7 +469,7 @@ class SessionManager:
     # --- Reference mode ---
     async def start_reference(self, run_name: str | None = None) -> dict:
         """Begin reference capture."""
-        if self.mode == "practice":
+        if self.mode in ("practice", "replay"):
             return {"status": "practice_active"}
         if not self.tcp.is_connected:
             return {"status": "not_connected"}
@@ -467,6 +481,8 @@ class SessionManager:
         self.db.set_active_capture_run(run_id)
         self.ref_capture_run_id = run_id
         self.mode = "reference"
+        rec_path = str(self._game_rec_dir() / f"{run_id}.spinrec")
+        await self.tcp.send(json.dumps({"event": "reference_start", "path": rec_path}))
         await self._notify_sse()
         return {"status": "started", "run_id": run_id, "run_name": name}
 
@@ -474,6 +490,8 @@ class SessionManager:
         """End reference capture."""
         if self.mode != "reference":
             return {"status": "not_in_reference"}
+        if self.tcp.is_connected:
+            await self.tcp.send(json.dumps({"event": "reference_stop"}))
         self._clear_ref_state()
         await self._notify_sse()
         return {"status": "stopped"}

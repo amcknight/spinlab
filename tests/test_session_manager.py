@@ -695,3 +695,58 @@ class TestSSE:
         # Should still accept new
         await sm._notify_sse()
         assert not q.empty()
+
+
+class TestRecording:
+    @pytest.mark.asyncio
+    async def test_start_reference_sends_tcp_command(self, tmp_path):
+        """start_reference sends reference_start with .spinrec path to Lua."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
+        sm.game_id = "abcdef0123456789"
+        sm.game_name = "Test Game"
+
+        result = await sm.start_reference()
+        assert result["status"] == "started"
+        assert sm.mode == "reference"
+
+        # Verify TCP command was sent with path
+        tcp.send.assert_called()
+        sent = tcp.send.call_args_list[-1][0][0]
+        import json
+        msg = json.loads(sent)
+        assert msg["event"] == "reference_start"
+        assert msg["path"].endswith(".spinrec")
+
+    @pytest.mark.asyncio
+    async def test_stop_reference_sends_tcp_command(self, tmp_path):
+        """stop_reference sends reference_stop to Lua."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
+        sm.game_id = "abcdef0123456789"
+        sm.game_name = "Test Game"
+        await sm.start_reference()
+        tcp.send.reset_mock()
+
+        result = await sm.stop_reference()
+        assert result["status"] == "stopped"
+
+        tcp.send.assert_called_once()
+        import json
+        msg = json.loads(tcp.send.call_args[0][0])
+        assert msg["event"] == "reference_stop"
+
+    @pytest.mark.asyncio
+    async def test_rec_saved_event_stores_path(self, tmp_path):
+        """rec_saved event from Lua stores .spinrec path on session."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
+        sm.game_id = "abcdef0123456789"
+        sm.game_name = "Test Game"
+        await sm.start_reference()
+
+        await sm.route_event({"event": "rec_saved", "path": "/data/test.spinrec", "frame_count": 1000})
+        assert sm.rec_path == "/data/test.spinrec"

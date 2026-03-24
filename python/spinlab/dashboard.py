@@ -27,7 +27,8 @@ def create_app(
 ) -> FastAPI:
 
     tcp = TcpManager(host, port)
-    session = SessionManager(db, tcp, rom_dir, default_category)
+    data_dir = Path(config.get("data", {}).get("dir", "data")) if config else Path("data")
+    session = SessionManager(db, tcp, rom_dir, default_category, data_dir=data_dir)
     tcp.on_disconnect = session.on_disconnect
 
     async def _event_loop(session: SessionManager, tcp: TcpManager):

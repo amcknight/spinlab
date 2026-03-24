@@ -136,7 +136,7 @@ def _sync_switch(app, game_id, game_name):
 
 def test_fresh_db_reference_start_creates_game(tmp_path):
     """Reference start on a fresh DB should not FK-crash (game row auto-created)."""
-    from unittest.mock import PropertyMock, patch
+    from unittest.mock import AsyncMock, PropertyMock, patch
     from spinlab.dashboard import create_app
 
     fresh_db = Database(tmp_path / "fresh.db")
@@ -144,7 +144,8 @@ def test_fresh_db_reference_start_creates_game(tmp_path):
     # Simulate game context (normally set by rom_info event)
     _sync_switch(app, "test_game", "Test Game")
     # Simulate TCP connected so reference start doesn't bail early
-    with patch.object(type(app.state.tcp), "is_connected", new_callable=PropertyMock, return_value=True):
+    with patch.object(type(app.state.tcp), "is_connected", new_callable=PropertyMock, return_value=True), \
+         patch.object(app.state.tcp, "send", new_callable=AsyncMock):
         c = TestClient(app)
         resp = c.post("/api/reference/start")
         assert resp.status_code == 200
