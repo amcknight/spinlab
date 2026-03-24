@@ -23,7 +23,7 @@ Add input recording to passive mode and a new replay mode to `spinlab.lua`. Ever
 - Movie format interop (`.bk2`, `.smv`, `.lsmv`, `.mmo`). A converter could be added later.
 - Performance timing from replayed runs. Replay times are not human performance data.
 
-## File Format: `.spininput`
+## File Format: `.spinrec`
 
 Compact binary format. The replay file is the contract — any recording method (Lua capture, future `.mmo` converter) produces this format.
 
@@ -31,7 +31,7 @@ Compact binary format. The replay file is the contract — any recording method 
 
 | Offset | Size | Field |
 |--------|------|-------|
-| 0 | 4 | Magic bytes: `SINP` |
+| 0 | 4 | Magic bytes: `SREC` |
 | 4 | 2 | Version: `1` (uint16 LE) |
 | 6 | 16 | Game ID (truncated SHA-256 hex, ASCII, NOT null-terminated) |
 | 22 | 4 | Frame count (uint32 LE) |
@@ -39,7 +39,7 @@ Compact binary format. The replay file is the contract — any recording method 
 
 ### Initial State Save
 
-A `.spininput` file is always paired with a companion save state file at the same path with a `.mss` extension (e.g., `run_001.spininput` + `run_001.mss`). The save state captures the emulator state at frame 0 of the recording — before any inputs are applied.
+A `.spinrec` file is always paired with a companion save state file at the same path with a `.mss` extension (e.g., `run_001.spinrec` + `run_001.mss`). The save state captures the emulator state at frame 0 of the recording — before any inputs are applied.
 
 - **During recording**: When passive recording starts, the first `inputPolled` callback also triggers a save state capture via the existing `pending_save` queue. This is the "frame 0" state.
 - **During replay**: Before feeding any inputs, Lua loads the companion `.mss` file to restore the exact initial state. Replay begins on the next frame after the load completes.
@@ -105,7 +105,7 @@ During passive mode, this callback captures controller state every frame:
 on_input_polled():
   if mode == PASSIVE and recording then
     if frame_index == 0 then
-      pending_input_save = initial_state_path  -- capture frame 0 state
+      pending_rec_save = initial_state_path  -- capture frame 0 state
     end
     bitmask = encode(emu.getInput(0))
     append bitmask to input_buffer
@@ -116,12 +116,12 @@ on_input_polled():
 - `input_buffer` is an in-memory Lua table of uint16 values
 - Memory footprint: ~70KB for a 10-minute run
 - Recording starts when Python sends `reference_start` (new TCP command) and stops on `reference_stop` (new TCP command). Python's `start_reference()` and `stop_reference()` in SessionManager must be extended to send these commands over TCP.
-- Python passes the desired `.spininput` path in `reference_start` (e.g., `{"event": "reference_start", "path": "..."}`) so Python controls file naming. Lua constructs the companion `.mss` path by replacing the extension.
-- On stop, Lua flushes the buffer to disk with the `.spininput` header and companion `.mss` save state
-- Lua sends `input_recorded` event to Python with the file path
-- If the reference run is discarded, both the `.spininput` and `.mss` files are discarded with it
-- **Disconnect cleanup**: If TCP disconnects mid-recording, Lua resets `input_buffer`, `frame_index`, and `recording` flag. Partial `.mss` files are deleted. No `.spininput` is written for incomplete recordings.
-- **Frame 0 save state contention**: The initial state capture uses a dedicated `pending_input_save` variable (separate from the existing `pending_save` used by `detect_transitions`) to avoid conflicts if a level entrance happens on the same frame.
+- Python passes the desired `.spinrec` path in `reference_start` (e.g., `{"event": "reference_start", "path": "..."}`) so Python controls file naming. Lua constructs the companion `.mss` path by replacing the extension.
+- On stop, Lua flushes the buffer to disk with the `.spinrec` header and companion `.mss` save state
+- Lua sends `rec_saved` event to Python with the file path
+- If the reference run is discarded, both the `.spinrec` and `.mss` files are discarded with it
+- **Disconnect cleanup**: If TCP disconnects mid-recording, Lua resets `input_buffer`, `frame_index`, and `recording` flag. Partial `.mss` files are deleted. No `.spinrec` is written for incomplete recordings.
+- **Frame 0 save state contention**: The initial state capture uses a dedicated `pending_rec_save` variable (separate from the existing `pending_save` used by `detect_transitions`) to avoid conflicts if a level entrance happens on the same frame.
 
 ### Replay Mode
 
@@ -132,7 +132,7 @@ IDLE → REPLAY_LOADING → REPLAYING → IDLE
 ```
 
 On `replay` TCP command:
-1. Read `.spininput` file from disk
+1. Read `.spinrec` file from disk
 2. Validate header: magic bytes, version, game_id matches current ROM
 3. Parse body into `replay_frames` array
 4. Load companion `.mss` save state via `pending_load` (existing mechanism)
@@ -202,16 +202,16 @@ All new commands use JSON objects, consistent with the existing `game_context` p
 
 | Command | Wire format | Purpose |
 |---------|-------------|---------|
-| `reference_start` | `{"event": "reference_start", "path": "..."}` | Begin passive recording (captures inputs + frame 0 state). Path specifies `.spininput` output location. |
-| `reference_stop` | `{"event": "reference_stop"}` | Stop recording, flush `.spininput` + `.mss` to disk |
-| `replay` | `{"event": "replay", "path": "...", "speed": 0}` | Load `.spininput` + `.mss` and begin replay |
+| `reference_start` | `{"event": "reference_start", "path": "..."}` | Begin passive recording (captures inputs + frame 0 state). Path specifies `.spinrec` output location. |
+| `reference_stop` | `{"event": "reference_stop"}` | Stop recording, flush `.spinrec` + `.mss` to disk |
+| `replay` | `{"event": "replay", "path": "...", "speed": 0}` | Load `.spinrec` + `.mss` and begin replay |
 | `replay_stop` | `{"event": "replay_stop"}` | Abort replay, restore speed |
 
 ### Events (Lua → Python)
 
 | Event | Fields | Purpose |
 |-------|--------|---------|
-| `input_recorded` | `path: string`, `frame_count: number` | Recording flushed to disk |
+| `rec_saved` | `path: string`, `frame_count: number` | Recording flushed to disk |
 | `replay_started` | `path: string`, `frame_count: number` | Replay is running |
 | `replay_progress` | `frame: number`, `total: number` | Progress update (~every 100ms wall-clock, not frame-based, to avoid flooding at high speed) |
 | `replay_finished` | `path: string`, `frames_played: number` | Replay completed |
@@ -224,21 +224,21 @@ All new commands use JSON objects, consistent with the existing `game_context` p
 Replay is transparent to the reference capture pipeline. `route_event()` handles replay-sourced events identically to human events, with two exceptions:
 
 1. **Elapsed times**: Events with `source: "replay"` do not produce meaningful elapsed times. Python stores frame counts instead (deterministic, comparable between replays). The scheduler ignores replay-sourced segments for difficulty modeling.
-2. **`.spininput` association**: On `input_recorded`, Python stores the file path in the DB alongside the reference run, enabling future replay.
+2. **`.spinrec` association**: On `rec_saved`, Python stores the file path in the DB alongside the reference run, enabling future replay.
 
 ### CLI
 
-- `spinlab replay <path>` — Replay a `.spininput` file, generating a reference run
+- `spinlab replay <path>` — Replay a `.spinrec` file, generating a reference run
 - `spinlab replay --speed 100` — Replay at normal speed (for visual verification)
 
 ### Dashboard
 
-- Manage tab: "Replay" button next to reference runs that have an associated `.spininput` file
+- Manage tab: "Replay" button next to reference runs that have an associated `.spinrec` file
 - Progress bar during replay (driven by `replay_progress` SSE events)
 
 ### Integration Tests
 
-- Short `.spininput` fixtures live in `tests/fixtures/inputs/`, version-controlled
+- Short `.spinrec` fixtures live in `tests/fixtures/rec/`, version-controlled
 - Test harness: launch Mesen2 headless (`--testRunner`), send `replay` at max speed, assert expected segment events and save state files are produced
 - `spinlab test-replay` CLI command runs all test fixtures
 
@@ -246,12 +246,12 @@ Replay is transparent to the reference capture pipeline. `route_event()` handles
 
 | Recording type | Location | Version controlled |
 |----------------|----------|--------------------|
-| Full reference runs | `{data_dir}/{game_id}/inputs/{timestamp}.spininput` + `.mss` | No (user data) |
-| Test fixtures | `tests/fixtures/inputs/{descriptive_name}.spininput` + `.mss` | Yes (binary; `.mss` ~128-256KB per fixture, LFS optional unless fixtures multiply) |
+| Full reference runs | `{data_dir}/{game_id}/rec/{timestamp}.spinrec` + `.mss` | No (user data) |
+| Test fixtures | `tests/fixtures/rec/{descriptive_name}.spinrec` + `.mss` | Yes (binary; `.mss` ~128-256KB per fixture, LFS optional unless fixtures multiply) |
 
 ## Future Extensions (Not In Scope)
 
-- `.mmo` converter: Parse Mesen2 movie files into `.spininput` format as a fallback recording method
+- `.mmo` converter: Parse Mesen2 movie files into `.spinrec` format as a fallback recording method
 - Desync detection: Record memory values at segment boundaries during recording, assert during replay
-- Input editing: Simple tool to trim or splice `.spininput` files
+- Input editing: Simple tool to trim or splice `.spinrec` files
 - Multi-controller support: Currently player 1 only (port 0)
