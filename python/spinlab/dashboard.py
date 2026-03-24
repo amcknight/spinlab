@@ -104,16 +104,17 @@ def create_app(
     @app.get("/api/model")
     def api_model():
         sched = session._get_scheduler()
-        splits = sched.get_all_model_states()
+        segments = sched.get_all_model_states()
         return {
             "estimator": sched.estimator.name,
             "allocator": sched.allocator.name,
-            "splits": [
+            "segments": [
                 {
-                    "split_id": s.split_id,
-                    "goal": s.goal,
+                    "segment_id": s.segment_id,
                     "description": s.description,
                     "level_number": s.level_number,
+                    "start_type": s.start_type,
+                    "end_type": s.end_type,
                     "mu": round(s.estimator_state.mu, 2) if s.estimator_state else None,
                     "drift": round(s.estimator_state.d, 3) if s.estimator_state else None,
                     "marginal_return": round(s.marginal_return, 4),
@@ -121,9 +122,8 @@ def create_app(
                     "n_completed": s.n_completed,
                     "n_attempts": s.n_attempts,
                     "gold_ms": s.gold_ms,
-                    "reference_time_ms": s.reference_time_ms,
                 }
-                for s in splits
+                for s in segments
             ],
         }
 
@@ -153,10 +153,10 @@ def create_app(
         session.mode = "idle"
         return {"status": "ok"}
 
-    @app.get("/api/splits")
-    def api_splits():
-        splits = db.get_all_splits_with_model(session._require_game())
-        return {"splits": splits}
+    @app.get("/api/segments")
+    def api_segments():
+        segments = db.get_all_segments_with_model(session._require_game())
+        return {"segments": segments}
 
     @app.get("/api/sessions")
     def api_sessions():
@@ -194,21 +194,25 @@ def create_app(
         db.set_active_capture_run(ref_id)
         return {"status": "ok"}
 
-    @app.get("/api/references/{ref_id}/splits")
-    def get_reference_splits(ref_id: str):
-        return {"splits": db.get_splits_by_reference(ref_id)}
+    @app.get("/api/references/{ref_id}/segments")
+    def get_reference_segments(ref_id: str):
+        return {"segments": db.get_segments_by_reference(ref_id)}
 
-    # -- Split editing --
+    # -- Segment editing --
 
-    @app.patch("/api/splits/{split_id}")
-    def update_split_endpoint(split_id: str, body: dict):
-        db.update_split(split_id, **body)
+    @app.patch("/api/segments/{segment_id}")
+    def update_segment_endpoint(segment_id: str, body: dict):
+        db.update_segment(segment_id, **body)
         return {"status": "ok"}
 
-    @app.delete("/api/splits/{split_id}")
-    def delete_split(split_id: str):
-        db.soft_delete_split(split_id)
+    @app.delete("/api/segments/{segment_id}")
+    def delete_segment(segment_id: str):
+        db.soft_delete_segment(segment_id)
         return {"status": "ok"}
+
+    @app.post("/api/segments/{segment_id}/fill-gap")
+    async def fill_gap(segment_id: str):
+        return await session.start_fill_gap(segment_id)
 
     # -- ROM listing --
 
@@ -267,7 +271,7 @@ def create_app(
             manifest = yaml.safe_load(f)
         game_name = manifest.get("game_id", session.game_id or "unknown")
         seed_db_from_manifest(db, manifest, game_name)
-        return {"status": "ok", "splits_imported": len(manifest.get("splits", []))}
+        return {"status": "ok", "segments_imported": len(manifest.get("splits", []))}
 
     # -- SSE --
 

@@ -1,6 +1,6 @@
 """Integration tests for dashboard — realistic seeded data, multi-step flows.
 
-These tests use a fully seeded DB with splits, sessions, attempts, and Kalman
+These tests use a fully seeded DB with segments, sessions, attempts, and Kalman
 model state to validate the dashboard behaves correctly as a whole.  Designed
 to grow as new tabs and features land (Manage tab, graphs, etc.).
 """
@@ -10,24 +10,34 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from spinlab.db import Database
-from spinlab.models import Split, Attempt
+from spinlab.models import Segment, SegmentVariant, Attempt
 
 
-# ── fixtures ────────────────────────────────────────────────────────────────
+# -- fixtures ----------------------------------------------------------------
 
 GAME_ID = "smw_kaizo"
 
-SPLITS = [
-    Split(id="s1", game_id=GAME_ID, level_number=101, room_id=0,
-          goal="normal_exit", description="Yoshi's Island 1", reference_time_ms=4000),
-    Split(id="s2", game_id=GAME_ID, level_number=102, room_id=0,
-          goal="normal_exit", description="Yoshi's Island 2", reference_time_ms=7000),
-    Split(id="s3", game_id=GAME_ID, level_number=103, room_id=0,
-          goal="secret_exit", description="Donut Plains 1 (Secret)", reference_time_ms=12000),
-    Split(id="s4", game_id=GAME_ID, level_number=104, room_id=0,
-          goal="normal_exit", description="Vanilla Dome 1", reference_time_ms=9500),
-    Split(id="s5", game_id=GAME_ID, level_number=105, room_id=0,
-          goal="normal_exit", description="Forest of Illusion 1"),
+SEGMENTS = [
+    Segment(id="s1", game_id=GAME_ID, level_number=101,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0,
+            description="Yoshi's Island 1"),
+    Segment(id="s2", game_id=GAME_ID, level_number=102,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0,
+            description="Yoshi's Island 2"),
+    Segment(id="s3", game_id=GAME_ID, level_number=103,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0,
+            description="Donut Plains 1 (Secret)"),
+    Segment(id="s4", game_id=GAME_ID, level_number=104,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0,
+            description="Vanilla Dome 1"),
+    Segment(id="s5", game_id=GAME_ID, level_number=105,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0,
+            description="Forest of Illusion 1"),
 ]
 
 ATTEMPTS = [
@@ -51,35 +61,36 @@ MODEL_STATES = [
 
 @pytest.fixture
 def seeded_db(tmp_path):
-    """DB with game, splits, a session, attempts, and Kalman model state."""
+    """DB with game, segments, a session, attempts, and Kalman model state."""
     db = Database(tmp_path / "test.db")
     db.upsert_game(GAME_ID, "SMW Kaizo", "any%")
 
     states_dir = tmp_path / "states"
     states_dir.mkdir()
-    for s in SPLITS:
-        state_file = states_dir / f"{s.id}.mss"
+    for seg in SEGMENTS:
+        state_file = states_dir / f"{seg.id}.mss"
         state_file.write_bytes(b"\x00" * 100)
-        s = Split(
-            id=s.id, game_id=s.game_id, level_number=s.level_number,
-            room_id=s.room_id, goal=s.goal, description=s.description,
-            reference_time_ms=s.reference_time_ms, state_path=str(state_file),
-        )
-        db.upsert_split(s)
+        db.upsert_segment(seg)
+        db.add_variant(SegmentVariant(
+            segment_id=seg.id,
+            variant_type="cold",
+            state_path=str(state_file),
+            is_default=True,
+        ))
 
     db.create_session("sess1", GAME_ID)
 
-    for split_id, time_ms, completed in ATTEMPTS:
+    for segment_id, time_ms, completed in ATTEMPTS:
         db.log_attempt(Attempt(
-            split_id=split_id, session_id="sess1",
+            segment_id=segment_id, session_id="sess1",
             completed=completed, time_ms=time_ms,
         ))
 
     gold_times = {"s1": 3.2, "s2": 6.5, "s3": 11.5, "s4": 9.1}
-    for split_id, mu, d, mr in MODEL_STATES:
+    for segment_id, mu, d, mr in MODEL_STATES:
         state = {"mu": mu, "P": 1.0, "d": d, "Q_mu": 0.5, "Q_d": 0.01, "R": 1.0, "n": 5,
-                 "gold": gold_times[split_id], "n_completed": 3, "n_attempts": 3}
-        db.save_model_state(split_id, "kalman", json.dumps(state), mr)
+                 "gold": gold_times[segment_id], "n_completed": 3, "n_attempts": 3}
+        db.save_model_state(segment_id, "kalman", json.dumps(state), mr)
 
     return db
 
@@ -112,7 +123,7 @@ def active_client(seeded_db):
     mock_tcp.is_connected = True
     ps = PracticeSession(tcp=mock_tcp, db=seeded_db, game_id=GAME_ID)
     ps.is_running = True
-    ps.current_split_id = "s1"
+    ps.current_segment_id = "s1"
     ps.session_id = "sess1"  # match the session already in DB
 
     app.state.session.practice_session = ps
@@ -121,55 +132,48 @@ def active_client(seeded_db):
     return TestClient(app)
 
 
-# ── Live tab: idle vs practice ──────────────────────────────────────────────
+# -- Live tab: idle vs practice ----------------------------------------------
 
 class TestLiveState:
     def test_idle_when_no_state_file(self, client):
         """Without orchestrator state file, mode should be 'idle'."""
-        # Session exists in DB but no state file → reference mode actually
-        # (the fixture has a session but no state file)
         resp = client.get("/api/state")
         assert resp.status_code == 200
         data = resp.json()
         assert data["mode"] in ("idle", "reference")
 
-    def test_practice_mode_with_current_split(self, active_client):
+    def test_practice_mode_with_current_segment(self, active_client):
         resp = active_client.get("/api/state")
         data = resp.json()
         assert data["mode"] == "practice"
-        assert data["current_split"]["id"] == "s1"
-        assert data["current_split"]["description"] == "Yoshi's Island 1"
+        assert data["current_segment"]["id"] == "s1"
+        assert data["current_segment"]["description"] == "Yoshi's Island 1"
 
-    def test_current_split_has_attempt_count(self, active_client):
+    def test_current_segment_has_attempt_count(self, active_client):
         data = active_client.get("/api/state").json()
-        assert data["current_split"]["attempt_count"] == 3  # s1 has 3 attempts
+        assert data["current_segment"]["attempt_count"] == 3  # s1 has 3 attempts
 
-    def test_current_split_has_drift_info(self, active_client):
+    def test_current_segment_has_drift_info(self, active_client):
         data = active_client.get("/api/state").json()
-        drift = data["current_split"]["drift_info"]
+        drift = data["current_segment"]["drift_info"]
         assert drift is not None
         assert drift["label"] == "improving"  # d = -0.15
         assert drift["drift"] == pytest.approx(-0.15)
 
-    def test_queue_contains_next_splits(self, active_client):
+    def test_queue_contains_next_segments(self, active_client):
         """Queue is now computed server-side: peek 3, exclude current, cap at 2."""
         data = active_client.get("/api/state").json()
         queue_ids = [s["id"] for s in data["queue"]]
         assert len(queue_ids) == 2
-        assert "s1" not in queue_ids  # current split excluded
+        assert "s1" not in queue_ids  # current segment excluded
 
     def test_recent_attempts_ordered_newest_first(self, active_client):
         data = active_client.get("/api/state").json()
         recent = data["recent"]
         assert len(recent) == 8
         # Most recent attempt is s3 (11500ms)
-        assert recent[0]["split_id"] == "s3"
+        assert recent[0]["segment_id"] == "s3"
         assert recent[0]["time_ms"] == 11500
-
-    def test_recent_includes_reference_time(self, active_client):
-        data = active_client.get("/api/state").json()
-        for attempt in data["recent"]:
-            assert "reference_time_ms" in attempt
 
     def test_session_info_present(self, active_client):
         data = active_client.get("/api/state").json()
@@ -182,50 +186,49 @@ class TestLiveState:
         assert data["estimator"] == "kalman"
 
 
-# ── Model tab ───────────────────────────────────────────────────────────────
+# -- Model tab ---------------------------------------------------------------
 
 class TestModelEndpoint:
-    def test_returns_all_splits(self, active_client):
+    def test_returns_all_segments(self, active_client):
         data = active_client.get("/api/model").json()
-        assert len(data["splits"]) == 5
+        assert len(data["segments"]) == 5
         assert data["estimator"] == "kalman"
 
-    def test_splits_have_kalman_fields(self, active_client):
+    def test_segments_have_kalman_fields(self, active_client):
         data = active_client.get("/api/model").json()
-        s1 = next(s for s in data["splits"] if s["split_id"] == "s1")
+        s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
         assert s1["mu"] == pytest.approx(3.8)
         assert s1["drift"] == pytest.approx(-0.15, abs=0.001)
         assert s1["drift_info"]["label"] == "improving"
 
-    def test_split_without_model_has_nulls(self, active_client):
+    def test_segment_without_model_has_nulls(self, active_client):
         data = active_client.get("/api/model").json()
-        s5 = next(s for s in data["splits"] if s["split_id"] == "s5")
+        s5 = next(s for s in data["segments"] if s["segment_id"] == "s5")
         assert s5["mu"] is None
         assert s5["drift"] is None
 
-    def test_unpracticed_split_has_reference_time(self, active_client):
-        """Splits without model state should still expose reference_time_ms."""
+    def test_segment_has_start_end_types(self, active_client):
+        """Segments should expose start_type and end_type instead of goal/reference_time."""
         data = active_client.get("/api/model").json()
-        s5 = next(s for s in data["splits"] if s["split_id"] == "s5")
-        # s5 has no model state (no attempts), mu/drift are None
-        assert s5["mu"] is None
-        # But reference_time_ms should still be available (None for s5 since it has none)
-        assert "reference_time_ms" in s5
+        s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
+        assert s1["start_type"] == "entrance"
+        assert s1["end_type"] == "goal"
+        assert "goal" not in s1
+        assert "reference_time_ms" not in s1
 
-    def test_practiced_split_has_gold_and_reference(self, active_client):
-        """Splits with model state should expose both gold_ms and reference_time_ms."""
+    def test_practiced_segment_has_gold(self, active_client):
+        """Segments with model state should expose gold_ms."""
         data = active_client.get("/api/model").json()
-        s1 = next(s for s in data["splits"] if s["split_id"] == "s1")
+        s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
         assert s1["gold_ms"] is not None
-        assert s1["reference_time_ms"] == 4000
 
     def test_marginal_return_present(self, active_client):
         data = active_client.get("/api/model").json()
-        s1 = next(s for s in data["splits"] if s["split_id"] == "s1")
+        s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
         assert s1["marginal_return"] == pytest.approx(0.0395, abs=0.01)
 
 
-# ── Allocator / estimator switching ─────────────────────────────────────────
+# -- Allocator / estimator switching -----------------------------------------
 
 class TestAllocatorSwitch:
     def test_switch_allocator(self, active_client):
@@ -244,7 +247,7 @@ class TestAllocatorSwitch:
         assert resp.json()["estimator"] == "kalman"
 
 
-# ── Static assets ───────────────────────────────────────────────────────────
+# -- Static assets -----------------------------------------------------------
 
 class TestStaticAssets:
     def test_index_html_has_three_tabs(self, active_client):
@@ -264,18 +267,18 @@ class TestStaticAssets:
         assert "poll" in resp.text
 
 
-# ── Splits and sessions endpoints ───────────────────────────────────────────
+# -- Segments and sessions endpoints -----------------------------------------
 
-class TestSplitsAndSessions:
-    def test_splits_endpoint_returns_all(self, active_client):
-        data = active_client.get("/api/splits").json()
-        assert len(data["splits"]) == 5
-        ids = {s["id"] for s in data["splits"]}
+class TestSegmentsAndSessions:
+    def test_segments_endpoint_returns_all(self, active_client):
+        data = active_client.get("/api/segments").json()
+        assert len(data["segments"]) == 5
+        ids = {s["id"] for s in data["segments"]}
         assert ids == {"s1", "s2", "s3", "s4", "s5"}
 
-    def test_splits_ordered_by_level(self, active_client):
-        data = active_client.get("/api/splits").json()
-        levels = [s["level_number"] for s in data["splits"]]
+    def test_segments_ordered_by_level(self, active_client):
+        data = active_client.get("/api/segments").json()
+        levels = [s["level_number"] for s in data["segments"]]
         assert levels == sorted(levels)
 
     def test_sessions_endpoint(self, active_client):
