@@ -123,7 +123,8 @@ class TestRouteEvent:
             "state_path": "/path/to/state.mss",
         })
 
-        assert 105 in sm.ref_pending
+        assert sm.ref_pending_start is not None
+        assert sm.ref_pending_start["level_num"] == 105
 
     @pytest.mark.asyncio
     async def test_level_exit_pairs_with_entrance(self):
@@ -224,7 +225,7 @@ class TestRouteEvent:
         await sm.route_event({"event": "level_entrance", "level": 1, "room": 0})
         await sm.route_event({"event": "level_exit", "level": 1, "room": 0, "goal": "normal"})
 
-        assert len(sm.ref_pending) == 0
+        assert sm.ref_pending_start is None
         assert sm.ref_segments_count == 0
 
 
@@ -266,11 +267,11 @@ class TestRouteEvent:
         assert seg.end_type == "checkpoint"
         assert seg.end_ordinal == 1
 
-        # Hot variant should have been stored
+        # Cold variant (entrance state) should have been stored
         db.add_variant.assert_called_once()
         variant = db.add_variant.call_args[0][0]
-        assert variant.variant_type == "hot"
-        assert variant.state_path == "/states/105_cp1_hot.mss"
+        assert variant.variant_type == "cold"
+        assert variant.state_path == "/states/105_entrance.mss"
 
         # ref_pending_start should now be the checkpoint
         assert sm.ref_pending_start["type"] == "checkpoint"
