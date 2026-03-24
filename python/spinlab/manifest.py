@@ -9,7 +9,7 @@ from typing import Optional
 import yaml
 
 from .db import Database
-from .models import Split
+from .models import Segment, SegmentVariant
 
 
 def find_latest_manifest(data_dir: Path) -> Optional[Path]:
@@ -26,9 +26,10 @@ def load_manifest(path: Path) -> dict:
 
 
 def seed_db_from_manifest(db: Database, manifest: dict, game_name: str) -> None:
-    """Upsert game + all splits from manifest into the DB.
+    """Upsert game + all segments from manifest into the DB.
 
-    Creates a capture_run for the manifest if one doesn't exist for these splits.
+    Creates a capture_run for the manifest if one doesn't exist for these segments.
+    Supports both 'segments' and legacy 'splits' manifest keys.
     """
     game_id: str = manifest["game_id"]
     category: str = manifest.get("category", "any%")
@@ -41,17 +42,28 @@ def seed_db_from_manifest(db: Database, manifest: dict, game_name: str) -> None:
     db.create_capture_run(run_id, game_id, run_name)
     db.set_active_capture_run(run_id)
 
-    for idx, entry in enumerate(manifest["splits"], start=1):
-        split = Split(
+    # Support both 'segments' (new) and 'splits' (legacy) manifest keys
+    entries = manifest.get("segments", manifest.get("splits", []))
+
+    for idx, entry in enumerate(entries, start=1):
+        seg = Segment(
             id=entry["id"],
             game_id=game_id,
             level_number=entry["level_number"],
-            room_id=entry.get("room_id"),
-            goal=entry["goal"],
+            start_type=entry.get("start_type", "entrance"),
+            start_ordinal=entry.get("start_ordinal", 0),
+            end_type=entry.get("end_type", "goal"),
+            end_ordinal=entry.get("end_ordinal", 0),
             description=entry.get("name", ""),
-            state_path=entry.get("state_path"),
-            reference_time_ms=entry.get("reference_time_ms"),
             ordinal=idx,
             reference_id=run_id,
         )
-        db.upsert_split(split)
+        db.upsert_segment(seg)
+        if entry.get("state_path"):
+            variant = SegmentVariant(
+                segment_id=seg.id,
+                variant_type="cold",
+                state_path=entry["state_path"],
+                is_default=True,
+            )
+            db.add_variant(variant)

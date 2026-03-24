@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from spinlab.db import Database
-from spinlab.models import Split, Attempt
+from spinlab.models import Segment, Attempt
 from spinlab.romid import rom_checksum, game_name_from_filename
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -119,17 +119,33 @@ def test_reset_is_game_scoped(app_with_rom_dir):
 
     # Set up game A with data
     _sync_switch(app, c_a, "game_a")
-    s_a = Split(id=f"{c_a}:1:0:normal", game_id=c_a, level_number=1, room_id=0, goal="normal")
-    db.upsert_split(s_a)
+    s_a = Segment(
+        id=f"{c_a}:1:entrance.0:goal.0",
+        game_id=c_a,
+        level_number=1,
+        start_type="entrance",
+        start_ordinal=0,
+        end_type="goal",
+        end_ordinal=0,
+    )
+    db.upsert_segment(s_a)
     db.create_session("sa", c_a)
-    db.log_attempt(Attempt(split_id=s_a.id, time_ms=5000, completed=True, session_id="sa"))
+    db.log_attempt(Attempt(segment_id=s_a.id, time_ms=5000, completed=True, session_id="sa"))
 
     # Set up game B with data
     _sync_switch(app, c_b, "game_b")
-    s_b = Split(id=f"{c_b}:1:0:normal", game_id=c_b, level_number=1, room_id=0, goal="normal")
-    db.upsert_split(s_b)
+    s_b = Segment(
+        id=f"{c_b}:1:entrance.0:goal.0",
+        game_id=c_b,
+        level_number=1,
+        start_type="entrance",
+        start_ordinal=0,
+        end_type="goal",
+        end_ordinal=0,
+    )
+    db.upsert_segment(s_b)
     db.create_session("sb", c_b)
-    db.log_attempt(Attempt(split_id=s_b.id, time_ms=6000, completed=True, session_id="sb"))
+    db.log_attempt(Attempt(segment_id=s_b.id, time_ms=6000, completed=True, session_id="sb"))
 
     # Reset game B (active game)
     client = TestClient(app)
@@ -142,29 +158,53 @@ def test_reset_is_game_scoped(app_with_rom_dir):
     assert len(db.get_recent_attempts(c_a)) == 1
 
 
-def test_splits_are_game_scoped(app_with_rom_dir):
-    """The /api/splits endpoint returns only splits for the active game."""
+def test_segments_are_game_scoped(app_with_rom_dir):
+    """The /api/segments endpoint returns only segments for the active game."""
     app, db = app_with_rom_dir
     c_a = rom_checksum(FIXTURES / "game_a.sfc")
     c_b = rom_checksum(FIXTURES / "game_b.sfc")
 
-    # Splits for game A
+    # Segments for game A
     _sync_switch(app, c_a, "game_a")
-    db.upsert_split(Split(id=f"{c_a}:1:0:normal", game_id=c_a, level_number=1, room_id=0, goal="normal"))
-    db.upsert_split(Split(id=f"{c_a}:2:0:normal", game_id=c_a, level_number=2, room_id=0, goal="normal"))
+    db.upsert_segment(Segment(
+        id=f"{c_a}:1:entrance.0:goal.0",
+        game_id=c_a,
+        level_number=1,
+        start_type="entrance",
+        start_ordinal=0,
+        end_type="goal",
+        end_ordinal=0,
+    ))
+    db.upsert_segment(Segment(
+        id=f"{c_a}:2:entrance.0:goal.0",
+        game_id=c_a,
+        level_number=2,
+        start_type="entrance",
+        start_ordinal=0,
+        end_type="goal",
+        end_ordinal=0,
+    ))
 
-    # Splits for game B
+    # Segments for game B
     _sync_switch(app, c_b, "game_b")
-    db.upsert_split(Split(id=f"{c_b}:1:0:key", game_id=c_b, level_number=1, room_id=0, goal="key"))
+    db.upsert_segment(Segment(
+        id=f"{c_b}:1:entrance.0:checkpoint.0",
+        game_id=c_b,
+        level_number=1,
+        start_type="entrance",
+        start_ordinal=0,
+        end_type="checkpoint",
+        end_ordinal=0,
+    ))
 
     client = TestClient(app)
 
-    # While game B is active, should see only 1 split
-    data = client.get("/api/splits").json()
-    assert len(data["splits"]) == 1
-    assert data["splits"][0]["id"] == f"{c_b}:1:0:key"
+    # While game B is active, should see only 1 segment
+    data = client.get("/api/segments").json()
+    assert len(data["segments"]) == 1
+    assert data["segments"][0]["id"] == f"{c_b}:1:entrance.0:checkpoint.0"
 
-    # Switch to game A, should see 2 splits
+    # Switch to game A, should see 2 segments
     _sync_switch(app, c_a, "game_a")
-    data = client.get("/api/splits").json()
-    assert len(data["splits"]) == 2
+    data = client.get("/api/segments").json()
+    assert len(data["segments"]) == 2

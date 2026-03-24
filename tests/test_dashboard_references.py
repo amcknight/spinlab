@@ -84,7 +84,6 @@ class TestSegmentEditEndpoints:
 
 
 class TestImportManifest:
-    @pytest.mark.xfail(reason="manifest.py still imports Split (pending refactor)")
     def test_import_manifest(self, client, tmp_path):
         import yaml
         manifest = {
