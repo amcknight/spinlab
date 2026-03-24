@@ -18,7 +18,7 @@ spinlab/
 ├── docs/
 │   └── DESIGN.md          # Full architecture, IPC, schema, scheduler, build order
 ├── lua/
-│   └── spinlab.lua        # The Mesen2 Lua script (always-on, two modes)
+│   └── spinlab.lua        # The Mesen2 Lua script (always-on, three modes)
 ├── python/
 │   └── spinlab/
 │       ├── __init__.py
@@ -26,6 +26,7 @@ spinlab/
 │       ├── session_manager.py # Central state owner, event routing, SSE
 │       ├── scheduler.py    # SM-2 adapted scheduling algorithm
 │       ├── db.py           # SQLite interface
+│       ├── spinrec.py      # .spinrec binary format reader/writer
 │       ├── capture.py      # Post-processes reference run data into manifest
 │       ├── cli.py          # TUI for stats, session management, strat resets
 │       ├── models.py       # Data classes / types
@@ -45,8 +46,9 @@ spinlab/
 
 ### Component Roles
 
-1. **Lua Script** (`lua/spinlab.lua`): Runs inside Mesen2. Always-on. Two modes:
-   - **Passive mode** (default): Watches memory addresses, logs all section completions with timestamps. Silent data collection during real runs.
+1. **Lua Script** (`lua/spinlab.lua`): Runs inside Mesen2. Always-on. Three modes:
+   - **Passive mode** (default): Watches memory addresses, logs all section completions with timestamps. Silent data collection during real runs. When a reference run is active, also records controller inputs every frame into a `.spinrec` binary file via `inputPolled` callback.
+   - **Replay mode** (toggled via TCP `replay` command): Loads a `.spinrec` + companion `.mss` save state, injects recorded inputs via `emu.setInput()` at configurable speed. Segment events fire through `detect_transitions()` tagged with `source: "replay"`. Reports `replay_progress` and `replay_finished` events.
    - **Practice mode** (toggled via TCP connection from orchestrator): Loads save states on command, shows overlay (segment name, end condition, timer, rating prompt), reads controller for L+D-pad ratings, reports results back.
 
 2. **Python Orchestrator** (`python/spinlab/orchestrator.py`): Manages practice sessions. Connects to Lua via TCP socket, picks next segment from scheduler, sends load commands, receives completion results, updates DB.
@@ -65,7 +67,7 @@ spinlab/
 
 Mesen2 has LuaSocket compiled in. The Lua script runs a lightweight TCP server. The Python orchestrator connects as a client. Messages are newline-delimited JSON.
 
-See `docs/DESIGN.md` § IPC Contract for the full message spec.
+See `docs/DESIGN.md` § IPC Contract for the full message spec. Recording/replay adds: `reference_start` (with `.spinrec` path), `reference_stop`, `replay` (with path + speed), `replay_stop`. Lua emits: `rec_saved`, `replay_started`, `replay_progress`, `replay_finished`, `replay_error`.
 
 ### Emulator Choice
 
@@ -85,6 +87,8 @@ SQLite. Single file. Schema in `docs/DESIGN.md` § Database Schema.
 - **The Lua script does NOT poll files.** It either: (a) in passive mode, just watches memory on frame callbacks with zero overhead, or (b) in practice mode, listens on a TCP socket which LuaSocket handles efficiently with non-blocking receives.
 - **Controller input for ratings uses L + D-pad** combo to avoid interfering with gameplay. Only checked during the post-completion "liminal" state.
 - **Segments support cold/hot start variants.** A checkpoint segment has a "hot" save state (captured at the moment the checkpoint is hit) and a "cold" save state (captured on first respawn after death). The fill-gap flow lets users capture missing cold states.
+- **Input recording uses `.spinrec` binary format.** 32-byte header (magic `SREC`, version uint16, game_id 16 bytes ASCII, frame_count uint32, 6 bytes reserved) followed by one uint16 per frame (SNES joypad bitmask). Recorded via `inputPolled` callback during reference runs. Companion `.mss` save state captured at frame 0. Python reader/writer in `spinrec.py`; Lua reader/writer inline in `spinlab.lua`.
+- **Replay injects inputs, not save states.** Replay loads the frame-0 `.mss` save state once, then feeds recorded inputs via `emu.setInput()` every frame. The existing `detect_transitions()` pipeline fires naturally, so segment events are created without special-casing. Events are tagged with `source: "replay"` for downstream filtering.
 
 ## Build Order
 
