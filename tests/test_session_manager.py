@@ -577,6 +577,86 @@ class TestOnAttemptCallback:
         assert not q.empty()
 
 
+class TestFillGap:
+    @pytest.mark.asyncio
+    async def test_fill_gap_loads_hot_and_captures_cold(self):
+        """Fill-gap mode loads hot CP state, captures cold on spawn."""
+        from spinlab.models import Segment, SegmentVariant
+
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        sm.ref_capture_run_id = "run1"
+
+        # Create a segment with hot variant but no cold
+        seg = Segment(
+            id=Segment.make_id("game1", 105, "checkpoint", 1, "goal", 0),
+            game_id="game1", level_number=105,
+            start_type="checkpoint", start_ordinal=1,
+            end_type="goal", end_ordinal=0,
+            reference_id="run1",
+        )
+        db.upsert_segment(seg)
+
+        hot_variant = SegmentVariant(seg.id, "hot", "/hot.mss", False)
+        db.add_variant(hot_variant)
+        # Mock get_variant to return the hot variant
+        db.get_variant = MagicMock(side_effect=lambda sid, vt: hot_variant if vt == "hot" else None)
+        db.get_variants = MagicMock(return_value=[hot_variant])
+
+        result = await sm.start_fill_gap(seg.id)
+        assert result["status"] == "started"
+        assert sm.fill_gap_segment_id == seg.id
+
+        # Simulate spawn with cold capture
+        await sm.route_event({
+            "event": "spawn",
+            "level_num": 105,
+            "is_cold_cp": True,
+            "cp_ordinal": 1,
+            "timestamp_ms": 1000,
+            "state_captured": True,
+            "state_path": "/cold.mss",
+        })
+
+        # Cold variant should have been added
+        # Find the add_variant call for cold (skip the hot one we did in setup)
+        cold_calls = [
+            c for c in db.add_variant.call_args_list
+            if c[0][0].variant_type == "cold"
+        ]
+        assert len(cold_calls) == 1
+        assert cold_calls[0][0][0].state_path == "/cold.mss"
+        assert cold_calls[0][0][0].is_default is True
+        assert sm.fill_gap_segment_id is None  # fill-gap ended
+        assert sm.mode == "idle"
+
+    @pytest.mark.asyncio
+    async def test_fill_gap_not_connected(self):
+        """Fill-gap fails gracefully when TCP not connected."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        tcp.is_connected = False
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+
+        result = await sm.start_fill_gap("some_seg_id")
+        assert result["status"] == "not_connected"
+
+    @pytest.mark.asyncio
+    async def test_fill_gap_no_hot_variant(self):
+        """Fill-gap fails when segment has no hot variant."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        db.get_variant = MagicMock(return_value=None)
+
+        result = await sm.start_fill_gap("some_seg_id")
+        assert result["status"] == "no_hot_variant"
+
+
 class TestSSE:
     @pytest.mark.asyncio
     async def test_subscribe_receives_notifications(self):

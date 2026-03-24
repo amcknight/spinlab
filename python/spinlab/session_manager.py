@@ -50,6 +50,9 @@ class SessionManager:
         self.ref_pending_start: dict | None = None
         self.ref_died: bool = False
 
+        # Fill-gap state
+        self.fill_gap_segment_id: str | None = None
+
         # SSE subscribers
         self._sse_subscribers: list[asyncio.Queue] = []
 
@@ -222,6 +225,10 @@ class SessionManager:
             self.ref_died = True
             return
 
+        if evt_type == "spawn" and self.mode == "fill_gap":
+            await self._handle_fill_gap_spawn(event)
+            return
+
         if evt_type == "spawn" and self.mode == "reference":
             await self._handle_ref_spawn(event)
             return
@@ -391,6 +398,43 @@ class SessionManager:
             ))
 
         self.ref_pending_start = None
+        await self._notify_sse()
+
+    # --- Fill-gap mode ---
+    async def start_fill_gap(self, segment_id: str) -> dict:
+        """Enter fill-gap mode: load hot variant so user can die for cold capture."""
+        if not self.tcp.is_connected:
+            return {"status": "not_connected"}
+
+        hot = self.db.get_variant(segment_id, "hot")
+        if not hot:
+            return {"status": "no_hot_variant"}
+
+        self.fill_gap_segment_id = segment_id
+        self.mode = "fill_gap"
+        # Load the hot save state
+        await self.tcp.send(json.dumps({
+            "event": "fill_gap_load",
+            "state_path": hot.state_path,
+            "message": "Die to capture cold start",
+        }))
+        await self._notify_sse()
+        return {"status": "started", "segment_id": segment_id}
+
+    async def _handle_fill_gap_spawn(self, event: dict) -> None:
+        """Handle spawn during fill-gap: capture cold variant."""
+        if not event.get("state_captured") or not self.fill_gap_segment_id:
+            return
+        from .models import SegmentVariant
+        variant = SegmentVariant(
+            segment_id=self.fill_gap_segment_id,
+            variant_type="cold",
+            state_path=event["state_path"],
+            is_default=True,
+        )
+        self.db.add_variant(variant)
+        self.fill_gap_segment_id = None
+        self.mode = "idle"
         await self._notify_sse()
 
     # --- Reference mode ---
