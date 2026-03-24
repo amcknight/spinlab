@@ -113,6 +113,9 @@ class SessionManager:
             smap = {s["id"]: s for s in segments_all}
             base["queue"] = [smap[sid] for sid in queue_ids if sid in smap]
 
+        if self.mode == "replay":
+            base["replay"] = {"rec_path": self.rec_path}
+
         base["recent"] = self.db.get_recent_attempts(self.game_id, limit=8)
         return base
 

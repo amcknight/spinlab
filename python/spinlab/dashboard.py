@@ -7,7 +7,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from .db import Database
@@ -99,6 +99,19 @@ def create_app(
     @app.post("/api/practice/stop")
     async def practice_stop():
         return await session.stop_practice()
+
+    @app.post("/api/replay/start")
+    async def replay_start(req: Request):
+        body = await req.json()
+        path = body.get("path")
+        speed = body.get("speed", 0)
+        if not path:
+            raise HTTPException(status_code=400, detail="path required")
+        return await session.start_replay(path, speed=speed)
+
+    @app.post("/api/replay/stop")
+    async def replay_stop():
+        return await session.stop_replay()
 
     # -- Model / allocator / estimator --
 

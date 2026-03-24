@@ -25,6 +25,12 @@ def main(args: list[str] | None = None) -> None:
         "--port", type=int, default=15483, help="Dashboard port"
     )
 
+    # replay
+    p_replay = sub.add_parser("replay", help="Replay a .spinrec file to regenerate a reference run")
+    p_replay.add_argument("path", help="Path to .spinrec file")
+    p_replay.add_argument("--speed", type=int, default=0, help="Emulation speed (0=max, 100=normal)")
+    p_replay.add_argument("--port", type=int, default=15483, help="Dashboard port")
+
     # lua-cmd
     p_lua = sub.add_parser("lua-cmd", help="Send raw commands to the Lua TCP server")
     p_lua.add_argument("commands", nargs="+", help="Commands to send (e.g. practice_stop reset)")
@@ -62,6 +68,14 @@ def main(args: list[str] | None = None) -> None:
         )
         print(f"SpinLab Dashboard: http://localhost:{parsed.port}")
         uvicorn.run(app, host="0.0.0.0", port=parsed.port, log_level="warning")
+
+    elif parsed.command == "replay":
+        import requests
+        resp = requests.post(
+            f"http://127.0.0.1:{parsed.port}/api/replay/start",
+            json={"path": parsed.path, "speed": parsed.speed},
+        )
+        print(resp.json())
 
     elif parsed.command == "lua-cmd":
         import socket
