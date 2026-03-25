@@ -1,7 +1,7 @@
-"""Round robin allocator: cycles through splits in stable order."""
+"""Round robin allocator: cycles through segments in stable order."""
 from __future__ import annotations
 
-from spinlab.allocators import Allocator, SplitWithModel, register_allocator
+from spinlab.allocators import Allocator, SegmentWithModel, register_allocator
 
 
 @register_allocator
@@ -11,18 +11,18 @@ class RoundRobinAllocator(Allocator):
     def __init__(self) -> None:
         self._index = 0
 
-    def pick_next(self, split_states: list[SplitWithModel]) -> str | None:
-        if not split_states:
+    def pick_next(self, segment_states: list[SegmentWithModel]) -> str | None:
+        if not segment_states:
             return None
-        idx = self._index % len(split_states)
+        idx = self._index % len(segment_states)
         self._index += 1
-        return split_states[idx].split_id
+        return segment_states[idx].segment_id
 
-    def peek_next_n(self, split_states: list[SplitWithModel], n: int) -> list[str]:
-        if not split_states:
+    def peek_next_n(self, segment_states: list[SegmentWithModel], n: int) -> list[str]:
+        if not segment_states:
             return []
         result = []
-        for i in range(min(n, len(split_states))):
-            idx = (self._index + i) % len(split_states)
-            result.append(split_states[idx].split_id)
+        for i in range(min(n, len(segment_states))):
+            idx = (self._index + i) % len(segment_states)
+            result.append(segment_states[idx].segment_id)
         return result

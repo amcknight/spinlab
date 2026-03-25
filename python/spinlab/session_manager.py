@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -29,11 +29,13 @@ class SessionManager:
         tcp: "TcpManager",
         rom_dir: Path | None,
         default_category: str = "any%",
+        data_dir: Path | None = None,
     ) -> None:
         self.db = db
         self.tcp = tcp
         self.rom_dir = rom_dir
         self.default_category = default_category
+        self.data_dir = data_dir or Path("data")
 
         # Session state
         self.mode: str = "idle"  # "idle" | "reference" | "practice"
@@ -44,9 +46,18 @@ class SessionManager:
         self.practice_task: asyncio.Task | None = None
 
         # Reference capture state
-        self.ref_pending: dict[tuple, dict] = {}
-        self.ref_splits_count: int = 0
+        self.ref_segments_count: int = 0
         self.ref_capture_run_id: str | None = None
+        self.ref_pending_start: dict | None = None
+        self.ref_died: bool = False
+        self.rec_path: str | None = None
+
+        # Draft state (persists after recording/replay stops, until save/discard)
+        self.draft_run_id: str | None = None
+        self.draft_segments_count: int = 0
+
+        # Fill-gap state
+        self.fill_gap_segment_id: str | None = None
 
         # SSE subscribers
         self._sse_subscribers: list[asyncio.Queue] = []
@@ -58,11 +69,11 @@ class SessionManager:
             "tcp_connected": self.tcp.is_connected,
             "game_id": self.game_id,
             "game_name": self.game_name,
-            "current_split": None,
+            "current_segment": None,
             "queue": [],
             "recent": [],
             "session": None,
-            "sections_captured": self.ref_splits_count,
+            "sections_captured": self.ref_segments_count,
             "allocator": None,
             "estimator": None,
         }
@@ -79,32 +90,41 @@ class SessionManager:
             base["session"] = {
                 "id": ps.session_id,
                 "started_at": ps.started_at,
-                "splits_attempted": ps.splits_attempted,
-                "splits_completed": ps.splits_completed,
+                "segments_attempted": ps.segments_attempted,
+                "segments_completed": ps.segments_completed,
             }
-            if ps.current_split_id:
-                splits = self.db.get_all_splits_with_model(self.game_id)
-                split_map = {s["id"]: s for s in splits}
-                if ps.current_split_id in split_map:
-                    current_split = split_map[ps.current_split_id]
-                    current_split["attempt_count"] = self.db.get_split_attempt_count(
-                        ps.current_split_id, ps.session_id
+            if ps.current_segment_id:
+                segments = self.db.get_all_segments_with_model(self.game_id)
+                seg_map = {s["id"]: s for s in segments}
+                if ps.current_segment_id in seg_map:
+                    current_seg = seg_map[ps.current_segment_id]
+                    current_seg["attempt_count"] = self.db.get_segment_attempt_count(
+                        ps.current_segment_id, ps.session_id
                     )
-                    model_row = self.db.load_model_state(ps.current_split_id)
+                    model_row = self.db.load_model_state(ps.current_segment_id)
                     if model_row and model_row["state_json"]:
                         from spinlab.estimators.kalman import KalmanState
                         from spinlab.estimators import get_estimator
                         state = KalmanState.from_dict(json.loads(model_row["state_json"]))
                         est = get_estimator(model_row["estimator"])
-                        current_split["drift_info"] = est.drift_info(state)
-                    base["current_split"] = current_split
+                        current_seg["drift_info"] = est.drift_info(state)
+                    base["current_segment"] = current_seg
 
             queue_ids = sched.peek_next_n(3)
-            if ps.current_split_id:
-                queue_ids = [q for q in queue_ids if q != ps.current_split_id][:2]
-            splits_all = self.db.get_all_splits_with_model(self.game_id)
-            smap = {s["id"]: s for s in splits_all}
+            if ps.current_segment_id:
+                queue_ids = [q for q in queue_ids if q != ps.current_segment_id][:2]
+            segments_all = self.db.get_all_segments_with_model(self.game_id)
+            smap = {s["id"]: s for s in segments_all}
             base["queue"] = [smap[sid] for sid in queue_ids if sid in smap]
+
+        if self.mode == "replay":
+            base["replay"] = {"rec_path": self.rec_path}
+
+        if self.draft_run_id:
+            base["draft"] = {
+                "run_id": self.draft_run_id,
+                "segments_captured": self.draft_segments_count,
+            }
 
         base["recent"] = self.db.get_recent_attempts(self.game_id, limit=8)
         return base
@@ -125,10 +145,41 @@ class SessionManager:
 
     def _clear_ref_state(self) -> None:
         """Clear reference capture state."""
-        self.ref_pending.clear()
-        self.ref_splits_count = 0
+        self.ref_segments_count = 0
         self.ref_capture_run_id = None
+        self.ref_pending_start = None
+        self.ref_died = False
+        self.rec_path = None
         self.mode = "idle"
+
+    def _enter_draft_state(self) -> None:
+        """Copy ref state to draft fields before clearing."""
+        self.draft_run_id = self.ref_capture_run_id
+        self.draft_segments_count = self.ref_segments_count
+
+    def _recover_draft(self) -> None:
+        """On startup, check for orphaned draft capture runs and restore state."""
+        if not self.game_id:
+            return
+        rows = self.db.conn.execute(
+            "SELECT id FROM capture_runs WHERE game_id = ? AND draft = 1 ORDER BY created_at DESC",
+            (self.game_id,),
+        ).fetchall()
+        if not rows:
+            return
+        self.draft_run_id = rows[0][0]
+        self.draft_segments_count = self.db.conn.execute(
+            "SELECT COUNT(*) FROM segments WHERE reference_id = ? AND active = 1",
+            (self.draft_run_id,),
+        ).fetchone()[0]
+        for row in rows[1:]:
+            self.db.hard_delete_capture_run(row[0])
+
+    def _game_rec_dir(self) -> Path:
+        """Return the per-game recording directory, creating it if needed."""
+        d = self.data_dir / (self.game_id or "unknown") / "rec"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
 
     async def switch_game(self, game_id: str, game_name: str) -> None:
         """Switch active game context. Stops any active session first."""
@@ -144,6 +195,7 @@ class SessionManager:
         self.game_name = game_name
         self.scheduler = None
         self.mode = "idle"
+        self._recover_draft()
         await self._notify_sse()
 
     # --- SSE ---
@@ -196,19 +248,76 @@ class SessionManager:
                 await self.switch_game(gid, gname)
             return
 
-        if evt_type == "level_entrance" and self.mode == "reference":
-            key = event["level"]
-            self.ref_pending[key] = event
+        if evt_type == "level_entrance" and self.mode in ("reference", "replay"):
+            # Only set new pending start if we don't already have a checkpoint
+            # pending.  SMW's level_start ($1935) can fire spuriously during
+            # goal sequences; overwriting a checkpoint pending_start with an
+            # entrance would create wrong segment types.
+            if self.ref_pending_start and self.ref_pending_start["type"] != "entrance":
+                logger.info("Ignoring level_entrance — pending start exists: %s", self.ref_pending_start)
+                return
+            self.ref_pending_start = {
+                "type": "entrance",
+                "ordinal": 0,
+                "state_path": event.get("state_path"),
+                "timestamp_ms": 0,
+                "level_num": event["level"],
+            }
+            self.ref_died = False
             await self._notify_sse()
             return
 
-        if evt_type == "level_exit" and self.mode == "reference":
+        if evt_type == "checkpoint" and self.mode in ("reference", "replay"):
+            await self._handle_ref_checkpoint(event)
+            return
+
+        if evt_type == "death" and self.mode in ("reference", "replay"):
+            self.ref_died = True
+            return
+
+        if evt_type == "spawn" and self.mode == "fill_gap":
+            await self._handle_fill_gap_spawn(event)
+            return
+
+        if evt_type == "spawn" and self.mode in ("reference", "replay"):
+            await self._handle_ref_spawn(event)
+            return
+
+        if evt_type == "level_exit" and self.mode in ("reference", "replay"):
+            logger.info("level_exit: ref_pending_start=%s", self.ref_pending_start)
             await self._handle_ref_exit(event)
             return
 
         if evt_type == "attempt_result" and self.mode == "practice":
             if self.practice_session:
                 self.practice_session.receive_result(event)
+            await self._notify_sse()
+            return
+
+        if evt_type == "rec_saved":
+            self.rec_path = event.get("path")
+            return
+
+        if evt_type == "replay_started":
+            await self._notify_sse()
+            return
+        if evt_type == "replay_progress":
+            await self._notify_sse()
+            return
+        if evt_type == "replay_finished":
+            self._enter_draft_state()
+            self._clear_ref_state()
+            await self._notify_sse()
+            return
+        if evt_type == "replay_error":
+            if self.ref_segments_count > 0:
+                self._enter_draft_state()
+                self._clear_ref_state()
+            else:
+                run_id = self.ref_capture_run_id
+                self._clear_ref_state()
+                if run_id:
+                    self.db.hard_delete_capture_run(run_id)
             await self._notify_sse()
             return
 
@@ -236,66 +345,290 @@ class SessionManager:
             "game_name": name,
         }))
 
+    async def _handle_ref_checkpoint(self, event: dict) -> None:
+        """Handle checkpoint during reference: close current segment, start new one."""
+        if not self.ref_pending_start:
+            return
+
+        gid = self._require_game()
+        from .models import Segment, SegmentVariant
+
+        start = self.ref_pending_start
+        cp_ordinal = event.get("cp_ordinal", 1)
+        level = event.get("level_num", start["level_num"])
+
+        seg_id = Segment.make_id(
+            gid, level,
+            start["type"], start["ordinal"],
+            "checkpoint", cp_ordinal,
+        )
+        self.ref_segments_count += 1
+        seg = Segment(
+            id=seg_id,
+            game_id=gid,
+            level_number=level,
+            start_type=start["type"],
+            start_ordinal=start["ordinal"],
+            end_type="checkpoint",
+            end_ordinal=cp_ordinal,
+            ordinal=self.ref_segments_count,
+            reference_id=self.ref_capture_run_id,
+        )
+        self.db.upsert_segment(seg)
+
+        # Store the start variant — what practice mode loads for this segment.
+        # For entrance→cp: the entrance state (cold).
+        # For cp→cp: the previous checkpoint's hot state.
+        start_path = start.get("state_path")
+        if start_path:
+            self.db.add_variant(SegmentVariant(
+                segment_id=seg_id,
+                variant_type="cold" if start["type"] == "entrance" else "hot",
+                state_path=start_path,
+                is_default=True,
+            ))
+
+        # New pending start is this checkpoint.
+        # The state_path is the hot CP save state — it's what gets loaded
+        # if this CP is the start of the next segment (cp→goal or cp→cp).
+        self.ref_pending_start = {
+            "type": "checkpoint",
+            "ordinal": cp_ordinal,
+            "state_path": event.get("state_path"),
+            "timestamp_ms": event.get("timestamp_ms", 0),
+            "level_num": level,
+        }
+        await self._notify_sse()
+
+    async def _handle_ref_spawn(self, event: dict) -> None:
+        """Handle spawn during reference: store cold variant if applicable."""
+        if not event.get("is_cold_cp") or not event.get("state_captured"):
+            return
+
+        from .models import SegmentVariant
+
+        cold_path = event.get("state_path")
+        if not cold_path:
+            return
+
+        # Find segments starting at this checkpoint in the current level
+        level = event.get("level_num")
+        cp_ord = event.get("cp_ordinal")
+        if level is None or cp_ord is None:
+            return
+
+        gid = self._require_game()
+        segments = self.db.get_active_segments(gid)
+        for seg in segments:
+            if (seg.level_number == level and seg.start_type == "checkpoint"
+                    and seg.start_ordinal == cp_ord):
+                variant = SegmentVariant(
+                    segment_id=seg.id,
+                    variant_type="cold",
+                    state_path=cold_path,
+                    is_default=True,
+                )
+                self.db.add_variant(variant)
+                logger.debug("Stored cold variant for segment %s: %s", seg.id, cold_path)
+                break
+
     async def _handle_ref_exit(self, event: dict) -> None:
-        """Pair level_exit with pending entrance to create a split."""
-        key = event["level"]
+        """Pair level_exit with pending start to create final segment.
+
+        Uses sequential pairing via ref_pending_start, NOT level_num keying.
+        SMW's level_num ($13BF) is stale when level_start ($1935) fires, so
+        entrance and exit events have different level numbers.
+        """
         goal = event.get("goal", "abort")
 
         if goal == "abort":
-            self.ref_pending.pop(key, None)
+            self.ref_pending_start = None
             return
 
-        entrance = self.ref_pending.pop(key, None)
-        if not entrance:
+        if not self.ref_pending_start:
             return
 
-        self.ref_splits_count += 1
-        from .models import Split
+        self.ref_segments_count += 1
+        from .models import Segment, SegmentVariant
         gid = self._require_game()
-        split_id = Split.make_id(gid, entrance["level"], entrance["room"], goal)
-        split = Split(
-            id=split_id,
+        start = self.ref_pending_start
+        # Use exit event's level_num — it has the correct value
+        level = event["level"]
+
+        # Map goal string to end_ordinal (0 for normal goals)
+        end_ordinal = 0
+        seg_id = Segment.make_id(
+            gid, level,
+            start["type"], start["ordinal"],
+            "goal", end_ordinal,
+        )
+        seg = Segment(
+            id=seg_id,
             game_id=gid,
-            level_number=entrance["level"],
-            room_id=entrance["room"],
-            goal=goal,
-            state_path=entrance.get("state_path"),
-            reference_time_ms=event.get("elapsed_ms"),
-            ordinal=self.ref_splits_count,
+            level_number=level,
+            start_type=start["type"],
+            start_ordinal=start["ordinal"],
+            end_type="goal",
+            end_ordinal=end_ordinal,
+            description="",  # auto-generated label used when empty
+            ordinal=self.ref_segments_count,
             reference_id=self.ref_capture_run_id,
         )
-        self.db.upsert_split(split)
+        self.db.upsert_segment(seg)
+
+        # Store entrance variant for the segment
+        state_path = start.get("state_path")
+        if state_path:
+            self.db.add_variant(SegmentVariant(
+                segment_id=seg_id,
+                variant_type="hot" if start["type"] == "checkpoint" else "cold",
+                state_path=state_path,
+                is_default=True,
+            ))
+
+        self.ref_pending_start = None
+        await self._notify_sse()
+
+    # --- Fill-gap mode ---
+    async def start_fill_gap(self, segment_id: str) -> dict:
+        """Enter fill-gap mode: load hot variant so user can die for cold capture."""
+        if not self.tcp.is_connected:
+            return {"status": "not_connected"}
+
+        hot = self.db.get_variant(segment_id, "hot")
+        if not hot:
+            return {"status": "no_hot_variant"}
+
+        self.fill_gap_segment_id = segment_id
+        self.mode = "fill_gap"
+        # Load the hot save state
+        await self.tcp.send(json.dumps({
+            "event": "fill_gap_load",
+            "state_path": hot.state_path,
+            "message": "Die to capture cold start",
+        }))
+        await self._notify_sse()
+        return {"status": "started", "segment_id": segment_id}
+
+    async def _handle_fill_gap_spawn(self, event: dict) -> None:
+        """Handle spawn during fill-gap: capture cold variant."""
+        if not event.get("state_captured") or not self.fill_gap_segment_id:
+            return
+        from .models import SegmentVariant
+        variant = SegmentVariant(
+            segment_id=self.fill_gap_segment_id,
+            variant_type="cold",
+            state_path=event["state_path"],
+            is_default=True,
+        )
+        self.db.add_variant(variant)
+        self.fill_gap_segment_id = None
+        self.mode = "idle"
         await self._notify_sse()
 
     # --- Reference mode ---
     async def start_reference(self, run_name: str | None = None) -> dict:
         """Begin reference capture."""
-        if self.mode == "practice":
-            return {"status": "practice_active"}
+        if self.draft_run_id:
+            return {"status": "draft_pending"}
+        if self.mode in ("practice", "replay"):
+            return {"status": f"{self.mode}_active"}
         if not self.tcp.is_connected:
             return {"status": "not_connected"}
         gid = self._require_game()
         self._clear_ref_state()
         run_id = f"live_{uuid.uuid4().hex[:8]}"
-        name = run_name or f"Live {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')}"
-        self.db.create_capture_run(run_id, gid, name)
-        self.db.set_active_capture_run(run_id)
+        name = run_name or f"Live {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
+        self.db.create_capture_run(run_id, gid, name, draft=True)
         self.ref_capture_run_id = run_id
         self.mode = "reference"
+        rec_path = str(self._game_rec_dir() / f"{run_id}.spinrec")
+        await self.tcp.send(json.dumps({"event": "reference_start", "path": rec_path}))
         await self._notify_sse()
         return {"status": "started", "run_id": run_id, "run_name": name}
 
     async def stop_reference(self) -> dict:
-        """End reference capture."""
+        """End reference capture — enters draft state for save/discard."""
         if self.mode != "reference":
             return {"status": "not_in_reference"}
+        if self.tcp.is_connected:
+            await self.tcp.send(json.dumps({"event": "reference_stop"}))
+        self._enter_draft_state()
         self._clear_ref_state()
         await self._notify_sse()
         return {"status": "stopped"}
 
+    # --- Replay mode ---
+    async def start_replay(self, spinrec_path: str, speed: int = 0) -> dict:
+        """Begin replay of a .spinrec file."""
+        if self.draft_run_id:
+            return {"status": "draft_pending"}
+        if self.mode == "practice":
+            return {"status": "practice_active"}
+        if self.mode == "reference":
+            return {"status": "reference_active"}
+        if self.mode == "replay":
+            return {"status": "already_replaying"}
+        if not self.tcp.is_connected:
+            return {"status": "not_connected"}
+
+        # Set up reference capture so replayed events create segments
+        gid = self._require_game()
+        self._clear_ref_state()
+        run_id = f"replay_{uuid.uuid4().hex[:8]}"
+        name = f"Replay {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
+        self.db.create_capture_run(run_id, gid, name, draft=True)
+        self.ref_capture_run_id = run_id
+
+        self.mode = "replay"
+        await self.tcp.send(json.dumps({"event": "replay", "path": spinrec_path, "speed": speed}))
+        await self._notify_sse()
+        return {"status": "started", "run_id": run_id}
+
+    async def stop_replay(self) -> dict:
+        """Abort replay — enters draft state if segments were captured."""
+        if self.mode != "replay":
+            return {"status": "not_replaying"}
+        if self.tcp.is_connected:
+            await self.tcp.send(json.dumps({"event": "replay_stop"}))
+        if self.ref_segments_count > 0:
+            self._enter_draft_state()
+            self._clear_ref_state()
+        else:
+            run_id = self.ref_capture_run_id
+            self._clear_ref_state()
+            if run_id:
+                self.db.hard_delete_capture_run(run_id)
+        await self._notify_sse()
+        return {"status": "stopped"}
+
+    # --- Draft lifecycle ---
+    async def save_draft(self, name: str) -> dict:
+        """Promote draft capture run to saved reference."""
+        if not self.draft_run_id:
+            return {"status": "no_draft"}
+        self.db.promote_draft(self.draft_run_id, name)
+        self.db.set_active_capture_run(self.draft_run_id)
+        self.draft_run_id = None
+        self.draft_segments_count = 0
+        await self._notify_sse()
+        return {"status": "ok"}
+
+    async def discard_draft(self) -> dict:
+        """Hard-delete draft capture run and all associated data."""
+        if not self.draft_run_id:
+            return {"status": "no_draft"}
+        self.db.hard_delete_capture_run(self.draft_run_id)
+        self.draft_run_id = None
+        self.draft_segments_count = 0
+        await self._notify_sse()
+        return {"status": "ok"}
+
     # --- Practice mode ---
     async def start_practice(self) -> dict:
         """Begin practice session."""
+        if self.draft_run_id:
+            return {"status": "draft_pending"}
         if self.practice_session and self.practice_session.is_running:
             return {"status": "already_running"}
         if not self.tcp.is_connected:
@@ -339,10 +672,17 @@ class SessionManager:
         return {"status": "not_running"}
 
     def on_disconnect(self) -> None:
-        """Handle TCP disconnect: stop practice, clear ref state."""
+        """Handle TCP disconnect: stop practice, enter draft if segments captured."""
         if self.practice_session and self.practice_session.is_running:
             self.practice_session.is_running = False
-        self._clear_ref_state()
+        if self.ref_segments_count > 0:
+            self._enter_draft_state()
+            self._clear_ref_state()
+        else:
+            run_id = self.ref_capture_run_id
+            self._clear_ref_state()
+            if run_id:
+                self.db.hard_delete_capture_run(run_id)
 
     async def shutdown(self) -> None:
         """Clean shutdown: stop sessions, close TCP."""

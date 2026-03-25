@@ -4,49 +4,53 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SpinLab</title>
-  <link rel="stylesheet" href="/static/style.css?v=9">
+  <link rel="stylesheet" href="/static/style.css?v=20">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#127922;</text></svg>">
 </head>
 <body>
 <div id="app">
   <header>
-    <div>
-      <h1>SpinLab<span id="game-name" class="dim" style="margin-left:12px;font-size:0.6em"></span></h1>
+    <div class="header-left">
+      <span class="logo">SpinLab</span>
+      <button id="game-selector" class="game-selector-btn">
+        <span id="game-name">No game</span>
+        <span class="caret">&#9662;</span>
+      </button>
+      <div id="game-popover" class="popover" style="display:none">
+        <input id="rom-filter" type="text" placeholder="Filter ROMs..." autocomplete="off">
+        <ul id="rom-list"></ul>
+      </div>
     </div>
-    <span id="session-timer" class="dim"></span>
+    <div id="mode-chip" class="mode-chip idle">
+      <span class="mode-dot"></span>
+      <span id="mode-label">Idle</span>
+      <button id="mode-stop" class="mode-stop" style="display:none" title="Stop">&times;</button>
+    </div>
   </header>
 
   <nav id="tabs">
-    <button class="tab active" data-tab="live">Live</button>
-    <button class="tab" data-tab="model">Model</button>
+    <button class="tab active" data-tab="model">Model</button>
     <button class="tab" data-tab="manage">Manage</button>
   </nav>
 
   <main>
-    <!-- Live Tab -->
-    <section id="tab-live" class="tab-content active">
-      <div id="mode-disconnected">
-        <p class="dim">Waiting for emulator...</p>
-        <input id="rom-filter" type="text" placeholder="Filter ROMs..." autocomplete="off">
-        <ul id="rom-list"></ul>
-      </div>
-      <div id="mode-idle" style="display:none">
-        <p class="dim">Emulator connected &mdash; ready</p>
-        <button id="btn-ref-start" class="btn-primary">Start Reference Run</button>
-        <button id="btn-practice-start" class="btn-primary">Start Practice</button>
-      </div>
-      <div id="mode-reference" style="display:none">
-        <h2>Reference Run</h2>
-        <p id="ref-sections">Sections: 0</p>
-        <button id="btn-ref-stop" class="btn-danger">Stop Reference Run</button>
-      </div>
-      <div id="mode-practice" style="display:none">
-        <div class="card" id="current-split">
-          <div class="split-header">
+    <!-- Model Tab -->
+    <section id="tab-model" class="tab-content active">
+      <!-- Practice card (hidden when not practicing) -->
+      <div id="practice-card" style="display:none">
+        <div class="card">
+          <div class="segment-header">
             <span id="current-goal" class="goal-label"></span>
             <span id="current-attempts" class="dim"></span>
           </div>
           <div id="insight" class="insight-card"></div>
+        </div>
+        <h3>Up Next</h3>
+        <ul id="queue"></ul>
+        <h3>Recent</h3>
+        <ul id="recent"></ul>
+        <div class="practice-footer">
+          <span id="session-stats" class="dim"></span>
         </div>
         <div class="allocator-row">
           <label>Allocator:</label>
@@ -56,17 +60,9 @@
             <option value="round_robin">Round Robin</option>
           </select>
         </div>
-        <h3>Up Next</h3>
-        <ul id="queue"></ul>
-        <h3>Recent</h3>
-        <ul id="recent"></ul>
-        <footer id="session-stats" class="dim"></footer>
-        <button id="btn-practice-stop" class="btn-danger" style="margin:8px">Stop Practice</button>
       </div>
-    </section>
 
-    <!-- Model Tab -->
-    <section id="tab-model" class="tab-content">
+      <!-- Model table (always visible) -->
       <div class="model-header">
         <h2>Model State</h2>
         <select id="estimator-select">
@@ -76,7 +72,7 @@
       <table id="model-table">
         <thead>
           <tr>
-            <th title="Level section being practiced">Split</th>
+            <th title="Level section being practiced">Segment</th>
             <th title="Expected completion time in seconds">Avg</th>
             <th title="How your time changes per run (negative = improving)">Trend</th>
             <th title="95% confidence interval for the trend">Range</th>
@@ -91,42 +87,58 @@
 
     <!-- Manage Tab -->
     <section id="tab-manage" class="tab-content">
+      <!-- References section -->
       <div class="manage-section">
-        <h3>Reference Run</h3>
+        <h3>References</h3>
         <div class="ref-row">
           <select id="ref-select"></select>
           <button id="btn-ref-rename" class="btn-sm" title="Rename">&#9998;</button>
           <button id="btn-ref-delete" class="btn-sm btn-danger-sm" title="Delete">&#10005;</button>
         </div>
+        <div class="ref-actions">
+          <button id="btn-ref-start" class="btn-primary">Start Reference Run</button>
+          <button id="btn-replay" class="btn-primary" disabled>Replay</button>
+        </div>
       </div>
 
+      <!-- Draft save/discard prompt (hidden by default) -->
+      <div id="draft-prompt" class="manage-section draft-prompt" style="display:none">
+        <p id="draft-summary"></p>
+        <input id="draft-name" type="text" placeholder="Name this run..." autocomplete="off">
+        <div class="draft-actions">
+          <button id="btn-draft-save" class="btn-primary">Save</button>
+          <button id="btn-draft-discard" class="btn-danger">Discard</button>
+        </div>
+      </div>
+
+      <!-- Segments table -->
       <div class="manage-section">
-        <h3>Splits</h3>
-        <table id="split-table">
+        <h3>Segments</h3>
+        <table id="segment-table">
           <thead>
             <tr>
               <th>Name</th>
               <th>Level</th>
-              <th>Goal</th>
-              <th>Ref</th>
-              <th title="End on goal (uncheck for death-after-goal levels)">EoG</th>
+              <th>Segment</th>
+              <th>State</th>
               <th></th>
             </tr>
           </thead>
-          <tbody id="split-body"></tbody>
+          <tbody id="segment-body"></tbody>
         </table>
       </div>
 
+      <!-- Data section -->
       <div class="manage-section">
         <h3>Data</h3>
-        <p class="dim">Clear all session history, attempts, and model state. Keeps splits and game config.</p>
+        <p class="dim">Clear all session history, attempts, and model state. Keeps segments and game config.</p>
         <button id="btn-reset" class="btn-danger">Clear All Data</button>
         <p id="reset-status" class="dim"></p>
       </div>
     </section>
   </main>
 
-  <script type="module" src="/static/app.js?v=11"></script>
+  <script type="module" src="/static/app.js?v=20"></script>
 </div>
 </body>
 </html>

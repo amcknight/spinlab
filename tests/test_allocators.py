@@ -1,19 +1,20 @@
 """Tests for allocator implementations."""
 import pytest
-from spinlab.allocators import SplitWithModel
+from spinlab.allocators import SegmentWithModel
 from spinlab.allocators.greedy import GreedyAllocator
 
 
-def _make_split(split_id: str, marginal_return: float) -> SplitWithModel:
-    return SplitWithModel(
-        split_id=split_id,
+def _make_segment(segment_id: str, marginal_return: float) -> SegmentWithModel:
+    return SegmentWithModel(
+        segment_id=segment_id,
         game_id="test",
         level_number=1,
-        room_id=None,
-        goal="normal",
+        start_type="level_enter",
+        start_ordinal=0,
+        end_type="level_exit",
+        end_ordinal=0,
         description="test",
         strat_version=1,
-        reference_time_ms=None,
         state_path=None,
         active=True,
         marginal_return=marginal_return,
@@ -23,13 +24,13 @@ def _make_split(split_id: str, marginal_return: float) -> SplitWithModel:
 class TestGreedyAllocator:
     def test_picks_highest_marginal_return(self):
         alloc = GreedyAllocator()
-        splits = [_make_split("a", 0.05), _make_split("b", 0.10), _make_split("c", 0.02)]
-        assert alloc.pick_next(splits) == "b"
+        segments = [_make_segment("a", 0.05), _make_segment("b", 0.10), _make_segment("c", 0.02)]
+        assert alloc.pick_next(segments) == "b"
 
     def test_peek_returns_sorted_order(self):
         alloc = GreedyAllocator()
-        splits = [_make_split("a", 0.05), _make_split("b", 0.10), _make_split("c", 0.02)]
-        result = alloc.peek_next_n(splits, 2)
+        segments = [_make_segment("a", 0.05), _make_segment("b", 0.10), _make_segment("c", 0.02)]
+        result = alloc.peek_next_n(segments, 2)
         assert result == ["b", "a"]
 
     def test_empty_list_returns_none(self):
@@ -42,8 +43,8 @@ class TestGreedyAllocator:
 
     def test_peek_more_than_available(self):
         alloc = GreedyAllocator()
-        splits = [_make_split("a", 0.05)]
-        assert alloc.peek_next_n(splits, 5) == ["a"]
+        segments = [_make_segment("a", 0.05)]
+        assert alloc.peek_next_n(segments, 5) == ["a"]
 
 
 from spinlab.allocators.random import RandomAllocator
@@ -53,8 +54,8 @@ from spinlab.allocators.round_robin import RoundRobinAllocator
 class TestRandomAllocator:
     def test_picks_from_available(self):
         alloc = RandomAllocator()
-        splits = [_make_split("a", 0.0), _make_split("b", 0.0)]
-        result = alloc.pick_next(splits)
+        segments = [_make_segment("a", 0.0), _make_segment("b", 0.0)]
+        result = alloc.pick_next(segments)
         assert result in ("a", "b")
 
     def test_empty_returns_none(self):
@@ -63,8 +64,8 @@ class TestRandomAllocator:
 
     def test_peek_no_replacement(self):
         alloc = RandomAllocator()
-        splits = [_make_split("a", 0.0), _make_split("b", 0.0), _make_split("c", 0.0)]
-        result = alloc.peek_next_n(splits, 3)
+        segments = [_make_segment("a", 0.0), _make_segment("b", 0.0), _make_segment("c", 0.0)]
+        result = alloc.peek_next_n(segments, 3)
         assert len(result) == 3
         assert len(set(result)) == 3
 
@@ -72,8 +73,8 @@ class TestRandomAllocator:
 class TestRoundRobinAllocator:
     def test_cycles_through_all(self):
         alloc = RoundRobinAllocator()
-        splits = [_make_split("a", 0.0), _make_split("b", 0.0), _make_split("c", 0.0)]
-        results = [alloc.pick_next(splits) for _ in range(6)]
+        segments = [_make_segment("a", 0.0), _make_segment("b", 0.0), _make_segment("c", 0.0)]
+        results = [alloc.pick_next(segments) for _ in range(6)]
         assert results == ["a", "b", "c", "a", "b", "c"]
 
     def test_empty_returns_none(self):
@@ -82,21 +83,22 @@ class TestRoundRobinAllocator:
 
     def test_peek_returns_upcoming(self):
         alloc = RoundRobinAllocator()
-        splits = [_make_split("a", 0.0), _make_split("b", 0.0), _make_split("c", 0.0)]
-        result = alloc.peek_next_n(splits, 2)
+        segments = [_make_segment("a", 0.0), _make_segment("b", 0.0), _make_segment("c", 0.0)]
+        result = alloc.peek_next_n(segments, 2)
         assert result == ["a", "b"]
 
 
-def _make_split_with_ordinal(split_id: str, ordinal: int) -> SplitWithModel:
-    return SplitWithModel(
-        split_id=split_id,
+def _make_segment_with_ordinal(segment_id: str, ordinal: int) -> SegmentWithModel:
+    return SegmentWithModel(
+        segment_id=segment_id,
         game_id="test",
         level_number=ordinal * 10,
-        room_id=None,
-        goal="normal",
-        description=f"Split {split_id}",
+        start_type="level_enter",
+        start_ordinal=ordinal,
+        end_type="level_exit",
+        end_ordinal=ordinal,
+        description=f"Segment {segment_id}",
         strat_version=1,
-        reference_time_ms=None,
         state_path=None,
         active=True,
         marginal_return=0.0,
@@ -105,12 +107,12 @@ def _make_split_with_ordinal(split_id: str, ordinal: int) -> SplitWithModel:
 
 class TestRoundRobinOrdinalOrder:
     def test_cycles_in_list_order(self):
-        """Round Robin should iterate in the order splits are provided."""
+        """Round Robin should iterate in the order segments are provided."""
         alloc = RoundRobinAllocator()
-        splits = [
-            _make_split_with_ordinal("c", 1),
-            _make_split_with_ordinal("a", 2),
-            _make_split_with_ordinal("b", 3),
+        segments = [
+            _make_segment_with_ordinal("c", 1),
+            _make_segment_with_ordinal("a", 2),
+            _make_segment_with_ordinal("b", 3),
         ]
-        results = [alloc.pick_next(splits) for _ in range(3)]
+        results = [alloc.pick_next(segments) for _ in range(3)]
         assert results == ["c", "a", "b"]

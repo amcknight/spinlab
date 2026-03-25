@@ -2,6 +2,8 @@
 
 Spaced-repetition practice for SNES romhack speedrunning. Records save states at split points during reference runs, then serves them back in a scheduled practice loop using a Kalman filter to estimate performance and a value-of-information allocator to pick what you need most. Rate difficulty with your controller after each attempt.
 
+Input recording captures every frame's controller state during reference runs into `.spinrec` binary files. Replay mode feeds those inputs back at any emulation speed to regenerate reference data without human input.
+
 ## Requirements
 
 - [Mesen2](https://www.mesen.ca/) (has LuaSocket built in)
@@ -28,7 +30,7 @@ On Windows: run `scripts\launch.bat` instead.
 
 ### 2. Record a reference run
 
-Just play. The Lua script runs in passive mode by default — it silently watches memory addresses, logs level transitions to JSONL, and saves a `.mss` state file at each split point. No action needed.
+Open the dashboard and click **Start Reference**, then play. The Lua script records all level transitions, saves `.mss` state files at each split point, and captures controller inputs into a `.spinrec` file. Click **Stop Reference** when done.
 
 ### 3. Process the reference run
 
@@ -62,6 +64,7 @@ The web dashboard (`spinlab dashboard`) is the primary interface. Four tabs:
 | `spinlab dashboard` | Start the web dashboard (primary interface) |
 | `spinlab capture` | Process passive log into a split manifest |
 | `spinlab practice` | Start a practice session via terminal (legacy) |
+| `spinlab replay <path>` | Replay a `.spinrec` file to regenerate a reference run |
 | `spinlab lua-cmd <cmds>` | Send raw commands to the Lua TCP server |
 | `spinlab stats` | Show practice statistics (coming soon) |
 
@@ -86,14 +89,16 @@ Mesen2 + Lua (port 15482)          Python (port 15483)
 ┌─────────────────────┐            ┌──────────────────────┐
 │  spinlab.lua        │◄──TCP────►│  FastAPI dashboard    │
 │  - passive recorder │            │  - session manager    │
-│  - practice mode    │            │  - Kalman estimator   │
-│  - overlay drawing  │            │  - greedy allocator   │
-│  - controller input │            │  - SQLite DB          │
+│  - input recording  │            │  - Kalman estimator   │
+│  - replay mode      │            │  - greedy allocator   │
+│  - practice mode    │            │  - SQLite DB          │
+│  - overlay drawing  │            │  - .spinrec format    │
 └─────────────────────┘            └──────────────────────┘
 ```
 
-The Lua script runs inside Mesen2 and operates in two modes:
-- **Passive mode** (default): Watches SNES memory addresses on each frame, logs level transitions, saves state files. Zero overhead during normal play.
+The Lua script runs inside Mesen2 and operates in three modes:
+- **Passive mode** (default): Watches SNES memory addresses on each frame, logs level transitions, saves state files. When a reference run is active, also records controller inputs every frame into a `.spinrec` binary file.
+- **Replay mode** (activated by dashboard or CLI): Loads a `.spinrec` + companion `.mss` save state, then injects the recorded inputs via `emu.setInput()` at any emulation speed. Segment events fire naturally through the existing detection pipeline, tagged with `source: "replay"`.
 - **Practice mode** (activated by dashboard): Loads save states on command, detects completion/death, draws an overlay with split name and timer, reads controller for ratings, auto-advances after a configurable delay.
 
 ## Project Layout
@@ -102,6 +107,7 @@ The Lua script runs inside Mesen2 and operates in two modes:
 lua/spinlab.lua              # Mesen2 Lua script (passive + practice modes)
 python/spinlab/              # CLI, dashboard, scheduler, DB
   dashboard.py               # FastAPI web app + TCP client
+  spinrec.py                 # .spinrec binary format reader/writer
   scheduler.py               # Wires estimator + allocator together
   estimators/kalman.py       # Kalman filter performance model
   allocators/greedy.py       # VoI-based split selection

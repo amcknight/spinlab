@@ -8,7 +8,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Callable
 
-from .models import Attempt, SplitCommand
+from .models import Attempt, SegmentCommand
 from .scheduler import Scheduler
 
 if TYPE_CHECKING:
@@ -19,14 +19,14 @@ logger = logging.getLogger(__name__)
 
 
 class PracticeSession:
-    """Manages a practice session: picks splits, sends to Lua, processes results."""
+    """Manages a practice session: picks segments, sends to Lua, processes results."""
 
     def __init__(
         self,
         tcp: TcpManager,
         db: Database,
         game_id: str,
-        auto_advance_delay_ms: int = 2000,
+        auto_advance_delay_ms: int = 1000,
         on_attempt: Callable | None = None,
     ) -> None:
         self.tcp = tcp
@@ -40,10 +40,10 @@ class PracticeSession:
         self.started_at = datetime.now(UTC).isoformat()
 
         self.is_running = False
-        self.current_split_id: str | None = None
+        self.current_segment_id: str | None = None
         self.queue: list[str] = []
-        self.splits_attempted = 0
-        self.splits_completed = 0
+        self.segments_attempted = 0
+        self.segments_completed = 0
 
         self._result_event = asyncio.Event()
         self._result_data: dict | None = None
@@ -55,7 +55,7 @@ class PracticeSession:
     def stop(self) -> None:
         self.is_running = False
         self.db.end_session(
-            self.session_id, self.splits_attempted, self.splits_completed
+            self.session_id, self.segments_attempted, self.segments_completed
         )
 
     def receive_result(self, event: dict) -> None:
@@ -64,7 +64,7 @@ class PracticeSession:
         self._result_event.set()
 
     async def run_one(self) -> bool:
-        """Run one pick-send-receive cycle. Returns False if no splits available."""
+        """Run one pick-send-receive cycle. Returns False if no segments available."""
         picked = self.scheduler.pick_next()
         if picked is None:
             return False
@@ -74,18 +74,23 @@ class PracticeSession:
         if picked.estimator_state and picked.estimator_state.mu > 0:
             expected_time_ms = int(picked.estimator_state.mu * 1000)
 
-        cmd = SplitCommand(
-            id=picked.split_id,
+        # Build overlay label: use custom description or auto-generate from segment fields
+        label = picked.description
+        if not label:
+            start = "entrance" if picked.start_type == "entrance" else f"cp.{picked.start_ordinal}"
+            end = "goal" if picked.end_type == "goal" else f"cp.{picked.end_ordinal}"
+            label = f"L{picked.level_number} {start} > {end}"
+
+        cmd = SegmentCommand(
+            id=picked.segment_id,
             state_path=picked.state_path,
-            goal=picked.goal,
-            description=picked.description,
-            reference_time_ms=picked.reference_time_ms,
-            auto_advance_delay_ms=self.auto_advance_delay_ms,
+            description=label,
+            end_type=picked.end_type,
             expected_time_ms=expected_time_ms,
-            end_on_goal=picked.end_on_goal,
+            auto_advance_delay_ms=self.auto_advance_delay_ms,
         )
 
-        self.current_split_id = cmd.id
+        self.current_segment_id = cmd.id
         self.queue = [q for q in self.scheduler.peek_next_n(3) if q != cmd.id][:2]
 
         await self.tcp.send("practice_load:" + json.dumps(cmd.to_dict()))
@@ -104,27 +109,26 @@ class PracticeSession:
         if self._result_data and self._result_data.get("event") == "attempt_result":
             self._process_result(self._result_data, cmd)
 
-        self.current_split_id = None
+        self.current_segment_id = None
         return True
 
-    def _process_result(self, result: dict, cmd: SplitCommand) -> None:
+    def _process_result(self, result: dict, cmd: SegmentCommand) -> None:
         attempt = Attempt(
-            split_id=result["split_id"],
+            segment_id=result["segment_id"],
             session_id=self.session_id,
             completed=result["completed"],
             time_ms=result.get("time_ms"),
-            goal_matched=(result.get("goal") == cmd.goal) if result.get("completed") else None,
             source="practice",
         )
         self.db.log_attempt(attempt)
         self.scheduler.process_attempt(
-            result["split_id"],
+            result["segment_id"],
             time_ms=result.get("time_ms", 0),
             completed=result["completed"],
         )
-        self.splits_attempted += 1
+        self.segments_attempted += 1
         if result["completed"]:
-            self.splits_completed += 1
+            self.segments_completed += 1
         if self.on_attempt:
             self.on_attempt(attempt)
 

@@ -24,10 +24,12 @@ def make_mock_db():
     db.create_capture_run = MagicMock()
     db.set_active_capture_run = MagicMock()
     db.get_recent_attempts = MagicMock(return_value=[])
-    db.get_all_splits_with_model = MagicMock(return_value=[])
+    db.get_all_segments_with_model = MagicMock(return_value=[])
     db.load_model_state = MagicMock(return_value=None)
     db.load_allocator_config = MagicMock(return_value=None)
-    db.upsert_split = MagicMock()
+    db.upsert_segment = MagicMock()
+    db.add_variant = MagicMock()
+    db.get_active_segments = MagicMock(return_value=[])
     return db
 
 
@@ -121,7 +123,8 @@ class TestRouteEvent:
             "state_path": "/path/to/state.mss",
         })
 
-        assert 105 in sm.ref_pending
+        assert sm.ref_pending_start is not None
+        assert sm.ref_pending_start["level_num"] == 105
 
     @pytest.mark.asyncio
     async def test_level_exit_pairs_with_entrance(self):
@@ -150,8 +153,8 @@ class TestRouteEvent:
             "elapsed_ms": 5000,
         })
 
-        assert sm.ref_splits_count == 1
-        db.upsert_split.assert_called_once()
+        assert sm.ref_segments_count == 1
+        db.upsert_segment.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_level_exit_pairs_across_rooms(self):
@@ -180,11 +183,11 @@ class TestRouteEvent:
             "elapsed_ms": 8000,
         })
 
-        assert sm.ref_splits_count == 1
-        db.upsert_split.assert_called_once()
-        # Split should use entrance room (0), not exit room (5)
-        split = db.upsert_split.call_args[0][0]
-        assert split.room_id == 0
+        assert sm.ref_segments_count == 1
+        db.upsert_segment.assert_called_once()
+        # Segment should use entrance level number
+        seg = db.upsert_segment.call_args[0][0]
+        assert seg.level_number == 105
 
     @pytest.mark.asyncio
     async def test_level_exit_abort_discards(self):
@@ -207,8 +210,8 @@ class TestRouteEvent:
             "goal": "abort",
         })
 
-        assert sm.ref_splits_count == 0
-        db.upsert_split.assert_not_called()
+        assert sm.ref_segments_count == 0
+        db.upsert_segment.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_events_ignored_outside_reference(self):
@@ -222,8 +225,130 @@ class TestRouteEvent:
         await sm.route_event({"event": "level_entrance", "level": 1, "room": 0})
         await sm.route_event({"event": "level_exit", "level": 1, "room": 0, "goal": "normal"})
 
-        assert len(sm.ref_pending) == 0
-        assert sm.ref_splits_count == 0
+        assert sm.ref_pending_start is None
+        assert sm.ref_segments_count == 0
+
+
+    @pytest.mark.asyncio
+    async def test_reference_checkpoint_creates_segment(self):
+        """Checkpoint event during reference creates entrance->cp segment."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+
+        # Start reference
+        await sm.start_reference()
+
+        # Simulate entrance
+        await sm.route_event({
+            "event": "level_entrance",
+            "level": 105,
+            "room": 0,
+            "state_path": "/states/105_entrance.mss",
+        })
+
+        # Simulate checkpoint
+        await sm.route_event({
+            "event": "checkpoint",
+            "level_num": 105,
+            "cp_type": "midway",
+            "cp_ordinal": 1,
+            "timestamp_ms": 5000,
+            "state_path": "/states/105_cp1_hot.mss",
+        })
+
+        # Should have created entrance.0->checkpoint.1 segment
+        assert sm.ref_segments_count == 1
+        db.upsert_segment.assert_called_once()
+        seg = db.upsert_segment.call_args[0][0]
+        assert seg.start_type == "entrance"
+        assert seg.start_ordinal == 0
+        assert seg.end_type == "checkpoint"
+        assert seg.end_ordinal == 1
+
+        # Cold variant (entrance state) should have been stored
+        db.add_variant.assert_called_once()
+        variant = db.add_variant.call_args[0][0]
+        assert variant.variant_type == "cold"
+        assert variant.state_path == "/states/105_entrance.mss"
+
+        # ref_pending_start should now be the checkpoint
+        assert sm.ref_pending_start["type"] == "checkpoint"
+        assert sm.ref_pending_start["ordinal"] == 1
+
+    @pytest.mark.asyncio
+    async def test_reference_checkpoint_then_exit(self):
+        """Checkpoint followed by exit creates two segments."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+
+        await sm.start_reference()
+
+        # Entrance -> checkpoint -> exit
+        await sm.route_event({
+            "event": "level_entrance",
+            "level": 105,
+            "room": 0,
+            "state_path": "/states/105_entrance.mss",
+        })
+        await sm.route_event({
+            "event": "checkpoint",
+            "level_num": 105,
+            "cp_type": "midway",
+            "cp_ordinal": 1,
+            "timestamp_ms": 5000,
+            "state_path": "/states/105_cp1_hot.mss",
+        })
+        await sm.route_event({
+            "event": "level_exit",
+            "level": 105,
+            "room": 0,
+            "goal": "normal",
+            "elapsed_ms": 10000,
+        })
+
+        assert sm.ref_segments_count == 2
+        assert db.upsert_segment.call_count == 2
+
+        # Second segment should start from checkpoint
+        seg2 = db.upsert_segment.call_args_list[1][0][0]
+        assert seg2.start_type == "checkpoint"
+        assert seg2.start_ordinal == 1
+        assert seg2.end_type == "goal"
+
+    @pytest.mark.asyncio
+    async def test_death_sets_ref_died(self):
+        """Death event during reference sets ref_died flag."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        sm.mode = "reference"
+
+        await sm.route_event({"event": "death"})
+        assert sm.ref_died is True
+
+    @pytest.mark.asyncio
+    async def test_entrance_clears_ref_died(self):
+        """New entrance clears ref_died flag."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        sm.mode = "reference"
+        sm.ref_capture_run_id = "run1"
+        sm.ref_died = True
+
+        await sm.route_event({
+            "event": "level_entrance",
+            "level": 105,
+            "room": 0,
+            "state_path": "/states/105.mss",
+        })
+        assert sm.ref_died is False
 
 
 class TestReferenceMode:
@@ -453,6 +578,86 @@ class TestOnAttemptCallback:
         assert not q.empty()
 
 
+class TestFillGap:
+    @pytest.mark.asyncio
+    async def test_fill_gap_loads_hot_and_captures_cold(self):
+        """Fill-gap mode loads hot CP state, captures cold on spawn."""
+        from spinlab.models import Segment, SegmentVariant
+
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        sm.ref_capture_run_id = "run1"
+
+        # Create a segment with hot variant but no cold
+        seg = Segment(
+            id=Segment.make_id("game1", 105, "checkpoint", 1, "goal", 0),
+            game_id="game1", level_number=105,
+            start_type="checkpoint", start_ordinal=1,
+            end_type="goal", end_ordinal=0,
+            reference_id="run1",
+        )
+        db.upsert_segment(seg)
+
+        hot_variant = SegmentVariant(seg.id, "hot", "/hot.mss", False)
+        db.add_variant(hot_variant)
+        # Mock get_variant to return the hot variant
+        db.get_variant = MagicMock(side_effect=lambda sid, vt: hot_variant if vt == "hot" else None)
+        db.get_variants = MagicMock(return_value=[hot_variant])
+
+        result = await sm.start_fill_gap(seg.id)
+        assert result["status"] == "started"
+        assert sm.fill_gap_segment_id == seg.id
+
+        # Simulate spawn with cold capture
+        await sm.route_event({
+            "event": "spawn",
+            "level_num": 105,
+            "is_cold_cp": True,
+            "cp_ordinal": 1,
+            "timestamp_ms": 1000,
+            "state_captured": True,
+            "state_path": "/cold.mss",
+        })
+
+        # Cold variant should have been added
+        # Find the add_variant call for cold (skip the hot one we did in setup)
+        cold_calls = [
+            c for c in db.add_variant.call_args_list
+            if c[0][0].variant_type == "cold"
+        ]
+        assert len(cold_calls) == 1
+        assert cold_calls[0][0][0].state_path == "/cold.mss"
+        assert cold_calls[0][0][0].is_default is True
+        assert sm.fill_gap_segment_id is None  # fill-gap ended
+        assert sm.mode == "idle"
+
+    @pytest.mark.asyncio
+    async def test_fill_gap_not_connected(self):
+        """Fill-gap fails gracefully when TCP not connected."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        tcp.is_connected = False
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+
+        result = await sm.start_fill_gap("some_seg_id")
+        assert result["status"] == "not_connected"
+
+    @pytest.mark.asyncio
+    async def test_fill_gap_no_hot_variant(self):
+        """Fill-gap fails when segment has no hot variant."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+        sm.game_id = "game1"
+        db.get_variant = MagicMock(return_value=None)
+
+        result = await sm.start_fill_gap("some_seg_id")
+        assert result["status"] == "no_hot_variant"
+
+
 class TestSSE:
     @pytest.mark.asyncio
     async def test_subscribe_receives_notifications(self):
@@ -491,3 +696,58 @@ class TestSSE:
         # Should still accept new
         await sm._notify_sse()
         assert not q.empty()
+
+
+class TestRecording:
+    @pytest.mark.asyncio
+    async def test_start_reference_sends_tcp_command(self, tmp_path):
+        """start_reference sends reference_start with .spinrec path to Lua."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
+        sm.game_id = "abcdef0123456789"
+        sm.game_name = "Test Game"
+
+        result = await sm.start_reference()
+        assert result["status"] == "started"
+        assert sm.mode == "reference"
+
+        # Verify TCP command was sent with path
+        tcp.send.assert_called()
+        sent = tcp.send.call_args_list[-1][0][0]
+        import json
+        msg = json.loads(sent)
+        assert msg["event"] == "reference_start"
+        assert msg["path"].endswith(".spinrec")
+
+    @pytest.mark.asyncio
+    async def test_stop_reference_sends_tcp_command(self, tmp_path):
+        """stop_reference sends reference_stop to Lua."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
+        sm.game_id = "abcdef0123456789"
+        sm.game_name = "Test Game"
+        await sm.start_reference()
+        tcp.send.reset_mock()
+
+        result = await sm.stop_reference()
+        assert result["status"] == "stopped"
+
+        tcp.send.assert_called_once()
+        import json
+        msg = json.loads(tcp.send.call_args[0][0])
+        assert msg["event"] == "reference_stop"
+
+    @pytest.mark.asyncio
+    async def test_rec_saved_event_stores_path(self, tmp_path):
+        """rec_saved event from Lua stores .spinrec path on session."""
+        db = make_mock_db()
+        tcp = make_mock_tcp()
+        sm = SessionManager(db=db, tcp=tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
+        sm.game_id = "abcdef0123456789"
+        sm.game_name = "Test Game"
+        await sm.start_reference()
+
+        await sm.route_event({"event": "rec_saved", "path": "/data/test.spinrec", "frame_count": 1000})
+        assert sm.rec_path == "/data/test.spinrec"

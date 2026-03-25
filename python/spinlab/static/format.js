@@ -1,8 +1,8 @@
-export function splitName(s) {
+export function segmentName(s) {
   if (s.description) return s.description;
-  let name = 'L' + (s.level_number != null ? s.level_number : '?');
-  if (s.goal && s.goal !== 'normal') name += ' (' + s.goal + ')';
-  return name;
+  const start = s.start_type === 'entrance' ? 'entrance' : s.start_type + '.' + s.start_ordinal;
+  const end = s.end_type === 'goal' ? 'goal' : s.end_type + '.' + s.end_ordinal;
+  return 'L' + s.level_number + ' ' + start + ' \u2192 ' + end;
 }
 
 export function formatTime(ms) {
