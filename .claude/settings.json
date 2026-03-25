@@ -8,7 +8,8 @@
       "Read(//c/Users/thedo/Documents/Mesen2/LuaScriptData/spinlab/**)",
       "Bash(find /c/Users/thedo/git/spinlab -type f -name *.ahk -o -name *.lua)",
       "Bash(wc -l /c/Users/thedo/git/spinlab/python/spinlab/*.py /c/Users/thedo/git/spinlab/lua/*.lua /c/Users/thedo/git/spinlab/tests/*.py)",
-      "Read(//c/Users/thedo/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.2/skills/subagent-driven-development/**)"
+      "Read(//c/Users/thedo/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.2/skills/subagent-driven-development/**)",
+      "Bash(git add:*)"
     ]
   },
   "enabledPlugins": {
