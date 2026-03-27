@@ -101,13 +101,21 @@ class SessionManager:
                     current_seg["attempt_count"] = self.db.get_segment_attempt_count(
                         ps.current_segment_id, ps.session_id
                     )
-                    model_row = self.db.load_model_state(ps.current_segment_id)
-                    if model_row and model_row["state_json"]:
-                        from spinlab.estimators.kalman import KalmanState
-                        from spinlab.estimators import get_estimator
-                        state = KalmanState.from_dict(json.loads(model_row["state_json"]))
-                        est = get_estimator(model_row["estimator"])
-                        current_seg["drift_info"] = est.drift_info(state)
+                    # Attach multi-model outputs for the current segment
+                    state_rows = self.db.load_all_model_states_for_segment(ps.current_segment_id)
+                    model_outputs = {}
+                    for sr in state_rows:
+                        if sr.get("output_json"):
+                            try:
+                                from spinlab.models import ModelOutput
+                                model_outputs[sr["estimator"]] = ModelOutput.from_dict(
+                                    json.loads(sr["output_json"])
+                                ).to_dict()
+                            except (json.JSONDecodeError, KeyError):
+                                pass
+                    current_seg["model_outputs"] = model_outputs
+                    sched = self._get_scheduler()
+                    current_seg["selected_model"] = sched.estimator.name
                     base["current_segment"] = current_seg
 
             queue_ids = sched.peek_next_n(3)

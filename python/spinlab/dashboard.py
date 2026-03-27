@@ -123,6 +123,7 @@ def create_app(
         segments = sched.get_all_model_states()
         return {
             "estimator": sched.estimator.name,
+            "estimators": list(sched._all_estimators_names()),
             "allocator": sched.allocator.name,
             "segments": [
                 {
@@ -133,13 +134,15 @@ def create_app(
                     "start_ordinal": s.start_ordinal,
                     "end_type": s.end_type,
                     "end_ordinal": s.end_ordinal,
-                    "mu": round(s.estimator_state.mu, 2) if s.estimator_state else None,
-                    "drift": round(s.estimator_state.d, 3) if s.estimator_state else None,
-                    "marginal_return": round(s.marginal_return, 4),
-                    "drift_info": s.drift_info,
+                    "selected_model": s.selected_model,
+                    "model_outputs": {
+                        name: out.to_dict()
+                        for name, out in s.model_outputs.items()
+                    },
                     "n_completed": s.n_completed,
                     "n_attempts": s.n_attempts,
                     "gold_ms": s.gold_ms,
+                    "clean_gold_ms": s.clean_gold_ms,
                 }
                 for s in segments
             ],

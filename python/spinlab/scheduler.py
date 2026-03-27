@@ -68,6 +68,9 @@ class Scheduler:
     def _all_estimators(self) -> list[Estimator]:
         return [get_estimator(name) for name in list_estimators()]
 
+    def _all_estimators_names(self) -> list[str]:
+        return list_estimators()
+
     def _deserialize_state(self, estimator_name: str, state_json: str) -> EstimatorState:
         d = json.loads(state_json)
         cls = _STATE_CLASSES.get(estimator_name)
