@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS attempts (
   rating TEXT,
   strat_version INTEGER NOT NULL,
   source TEXT DEFAULT 'practice',
+  deaths INTEGER DEFAULT 0,
+  clean_tail_ms INTEGER,
   created_at TEXT NOT NULL
 );
 
@@ -75,11 +77,12 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE TABLE IF NOT EXISTS model_state (
-  segment_id TEXT PRIMARY KEY REFERENCES segments(id),
+  segment_id TEXT NOT NULL REFERENCES segments(id),
   estimator TEXT NOT NULL,
   state_json TEXT NOT NULL,
-  marginal_return REAL,
-  updated_at TEXT NOT NULL
+  output_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (segment_id, estimator)
 );
 
 CREATE TABLE IF NOT EXISTS allocator_config (
@@ -255,12 +258,13 @@ class Database:
         self.conn.execute(
             """INSERT INTO attempts
                (segment_id, session_id, completed, time_ms, goal_matched,
-                rating, strat_version, source, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rating, strat_version, source, deaths, clean_tail_ms, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (attempt.segment_id, attempt.session_id, int(attempt.completed),
              attempt.time_ms, attempt.goal_matched,
              attempt.rating,
              attempt.strat_version, attempt.source,
+             attempt.deaths, attempt.clean_tail_ms,
              attempt.created_at.isoformat()),
         )
         self.conn.commit()
@@ -350,48 +354,60 @@ class Database:
     # -- Model state --
 
     def save_model_state(
-        self, segment_id: str, estimator: str, state_json: str, marginal_return: float
+        self, segment_id: str, estimator: str, state_json: str, output_json: str
     ) -> None:
         now = datetime.now(UTC).isoformat()
         self.conn.execute(
-            """INSERT INTO model_state (segment_id, estimator, state_json, marginal_return, updated_at)
+            """INSERT INTO model_state (segment_id, estimator, state_json, output_json, updated_at)
                VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT(segment_id) DO UPDATE SET
-                 estimator=excluded.estimator,
+               ON CONFLICT(segment_id, estimator) DO UPDATE SET
                  state_json=excluded.state_json,
-                 marginal_return=excluded.marginal_return,
+                 output_json=excluded.output_json,
                  updated_at=excluded.updated_at""",
-            (segment_id, estimator, state_json, marginal_return, now),
+            (segment_id, estimator, state_json, output_json, now),
         )
         self.conn.commit()
 
-    def load_model_state(self, segment_id: str) -> dict | None:
-        cur = self.conn.execute(
-            "SELECT segment_id, estimator, state_json, marginal_return, updated_at "
-            "FROM model_state WHERE segment_id = ?",
-            (segment_id,),
-        )
+    def load_model_state(self, segment_id: str, estimator: str | None = None) -> dict | None:
+        if estimator:
+            cur = self.conn.execute(
+                "SELECT segment_id, estimator, state_json, output_json, updated_at "
+                "FROM model_state WHERE segment_id = ? AND estimator = ?",
+                (segment_id, estimator),
+            )
+        else:
+            cur = self.conn.execute(
+                "SELECT segment_id, estimator, state_json, output_json, updated_at "
+                "FROM model_state WHERE segment_id = ? LIMIT 1",
+                (segment_id,),
+            )
         row = cur.fetchone()
         if row is None:
             return None
         return {
-            "segment_id": row[0],
-            "estimator": row[1],
-            "state_json": row[2],
-            "marginal_return": row[3],
-            "updated_at": row[4],
+            "segment_id": row[0], "estimator": row[1], "state_json": row[2],
+            "output_json": row[3], "updated_at": row[4],
         }
+
+    def load_all_model_states_for_segment(self, segment_id: str) -> list[dict]:
+        """Load all estimator states for a single segment."""
+        cur = self.conn.execute(
+            "SELECT segment_id, estimator, state_json, output_json, updated_at "
+            "FROM model_state WHERE segment_id = ?",
+            (segment_id,),
+        )
+        cols = ["segment_id", "estimator", "state_json", "output_json", "updated_at"]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
 
     def load_all_model_states(self, game_id: str) -> list[dict]:
         cur = self.conn.execute(
-            """SELECT m.segment_id, m.estimator, m.state_json, m.marginal_return, m.updated_at
+            """SELECT m.segment_id, m.estimator, m.state_json, m.output_json, m.updated_at
                FROM model_state m
                JOIN segments s ON m.segment_id = s.id
-               WHERE s.game_id = ? AND s.active = 1
-               ORDER BY m.marginal_return DESC""",
+               WHERE s.game_id = ? AND s.active = 1""",
             (game_id,),
         )
-        cols = ["segment_id", "estimator", "state_json", "marginal_return", "updated_at"]
+        cols = ["segment_id", "estimator", "state_json", "output_json", "updated_at"]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
     def save_allocator_config(self, key: str, value: str) -> None:
@@ -410,33 +426,30 @@ class Database:
         return row[0] if row else None
 
     def get_all_segments_with_model(self, game_id: str) -> list[dict]:
-        """Get all active segments LEFT JOIN model_state, with default variant state_path."""
+        """Get all active segments with default variant state_path."""
         cur = self.conn.execute(
             """SELECT s.id, s.game_id, s.level_number, s.start_type, s.start_ordinal,
                       s.end_type, s.end_ordinal, s.description, s.strat_version,
                       s.active, s.ordinal,
                       (SELECT sv.state_path FROM segment_variants sv
                        WHERE sv.segment_id = s.id
-                       ORDER BY sv.is_default DESC LIMIT 1) AS state_path,
-                      m.estimator, m.state_json, m.marginal_return
+                       ORDER BY sv.is_default DESC LIMIT 1) AS state_path
                FROM segments s
-               LEFT JOIN model_state m ON s.id = m.segment_id
                WHERE s.game_id = ? AND s.active = 1
                ORDER BY s.ordinal, s.level_number""",
             (game_id,),
         )
-        # Use column descriptions from cursor for accurate mapping
         actual_cols = [desc[0] for desc in cur.description]
         return [dict(zip(actual_cols, row)) for row in cur.fetchall()]
 
     def get_segment_attempts(self, segment_id: str) -> list[dict]:
         """Get all attempts for a segment, ordered by created_at."""
         cur = self.conn.execute(
-            "SELECT segment_id, completed, time_ms, created_at "
+            "SELECT segment_id, completed, time_ms, deaths, clean_tail_ms, created_at "
             "FROM attempts WHERE segment_id = ? ORDER BY created_at",
             (segment_id,),
         )
-        cols = ["segment_id", "completed", "time_ms", "created_at"]
+        cols = ["segment_id", "completed", "time_ms", "deaths", "clean_tail_ms", "created_at"]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
     # -- Reset --

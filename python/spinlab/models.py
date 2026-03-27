@@ -53,6 +53,8 @@ class Attempt:
     rating: str | None = None
     strat_version: int = 1
     source: str = "practice"
+    deaths: int = 0
+    clean_tail_ms: int | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 

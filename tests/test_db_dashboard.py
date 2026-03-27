@@ -79,7 +79,7 @@ def test_get_all_segments_with_model(db):
     results = db.get_all_segments_with_model("test_game")
     assert len(results) == 2
     assert results[0]["level_number"] <= results[1]["level_number"]
-    assert "estimator" in results[0]  # LEFT JOIN column exists
+    assert "id" in results[0]  # segment columns present
 
 
 def test_segments_ordered_by_ordinal(tmp_path):
@@ -113,12 +113,12 @@ class TestModelStateDB:
         db.upsert_game("g1", "Game", "any%")
         seg = _make_segment(db, "g1", 1)
 
-        db.save_model_state(seg.id, "kalman", '{"mu": 15.0}', 0.05)
-        row = db.load_model_state(seg.id)
+        db.save_model_state(seg.id, "kalman", '{"mu": 15.0}', '{"expected_time_ms": 15000.0}')
+        row = db.load_model_state(seg.id, "kalman")
         assert row is not None
         assert row["estimator"] == "kalman"
         assert row["state_json"] == '{"mu": 15.0}'
-        assert row["marginal_return"] == pytest.approx(0.05)
+        assert row["output_json"] == '{"expected_time_ms": 15000.0}'
 
     def test_load_missing_returns_none(self, tmp_path):
         db = Database(str(tmp_path / "test.db"))
