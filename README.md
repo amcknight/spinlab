@@ -62,8 +62,6 @@ The web dashboard (`spinlab dashboard`) is the primary interface. Four tabs:
 | Command | Description |
 |---------|-------------|
 | `spinlab dashboard` | Start the web dashboard (primary interface) |
-| `spinlab capture` | Process passive log into a split manifest |
-| `spinlab practice` | Start a practice session via terminal (legacy) |
 | `spinlab replay <path>` | Replay a `.spinrec` file to regenerate a reference run |
 | `spinlab lua-cmd <cmds>` | Send raw commands to the Lua TCP server |
 | `spinlab stats` | Show practice statistics (coming soon) |
@@ -75,12 +73,16 @@ See [config.example.yaml](config.example.yaml) for the full template.
 | Key | Description |
 |-----|-------------|
 | `emulator.path` | Absolute path to `Mesen.exe` |
+| `emulator.lua_script` | Path to `lua/spinlab.lua` (relative to project root) |
 | `emulator.script_data_dir` | Where Lua writes state files and logs |
-| `rom.path` | ROM path (optional — leave empty to load from Mesen UI) |
-| `game.id` | Game identifier used in DB and manifests |
-| `game.name` | Display name for the game |
-| `network.port` | TCP port for Lua ↔ Python IPC (default `15482`) |
-| `data.dir` | Where the SQLite DB and manifests live |
+| `rom.dir` | Directory containing ROM files (`.sfc`/`.smc`) |
+| `game.category` | Default category for auto-discovered games (e.g. `any%`) |
+| `network.port` | TCP port for Lua ↔ Python IPC (default `15482`, must match `TCP_PORT` in Lua) |
+| `network.dashboard_port` | Dashboard HTTP port (default `15483`) |
+| `network.host` | Bind host (default `127.0.0.1`) |
+| `scheduler.estimator` | Active estimator: `kalman`, `model_a`, or `model_b` |
+| `scheduler.allocator` | Active allocator: `greedy`, `round_robin`, or `random` |
+| `data.dir` | Where the SQLite DB lives |
 
 ## How It Works
 
@@ -104,18 +106,23 @@ The Lua script runs inside Mesen2 and operates in three modes:
 ## Project Layout
 
 ```
-lua/spinlab.lua              # Mesen2 Lua script (passive + practice modes)
+lua/spinlab.lua              # Mesen2 Lua script (passive + practice + replay modes)
 python/spinlab/              # CLI, dashboard, scheduler, DB
-  dashboard.py               # FastAPI web app + TCP client
+  cli.py                     # Entry point (dashboard, replay, lua-cmd)
+  dashboard.py               # FastAPI web app + HTTP routes
+  session_manager.py         # Mode coordinator, event routing
+  capture_controller.py      # Reference/replay/fill-gap orchestration
+  practice.py                # Async practice session loop
+  scheduler.py               # Wires estimators + allocators together
+  estimators/                # Kalman, Model A (rolling), Model B (exp decay)
+  allocators/                # Greedy, round-robin, random
+  db/                        # SQLite interface (mixin-composed package)
+  tcp_manager.py             # Async TCP client for Lua socket
+  sse.py                     # SSE broadcaster
   spinrec.py                 # .spinrec binary format reader/writer
-  scheduler.py               # Wires estimator + allocator together
-  estimators/kalman.py       # Kalman filter performance model
-  allocators/greedy.py       # VoI-based split selection
-  db.py                      # SQLite interface
-  capture.py                 # Passive log → manifest processor
-  cli.py                     # Entry point
   static/                    # Dashboard frontend (HTML/JS/CSS)
-scripts/launch.sh|bat        # Launch harness
+scripts/launch.sh            # Launch harness
+scripts/spinlab.ahk          # Windows hotkeys (Ctrl+Alt+W/X)
 config.yaml                  # Your local config (gitignored)
 docs/DESIGN.md               # Full architecture, IPC spec, DB schema
 ```

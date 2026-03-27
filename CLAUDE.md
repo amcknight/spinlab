@@ -22,26 +22,41 @@ spinlab/
 ├── python/
 │   └── spinlab/
 │       ├── __init__.py
-│       ├── orchestrator.py # Practice session manager, talks to Lua via TCP
-│       ├── session_manager.py # Central state owner, event routing, SSE
-│       ├── scheduler.py    # SM-2 adapted scheduling algorithm
-│       ├── db.py           # SQLite interface
-│       ├── spinrec.py      # .spinrec binary format reader/writer
-│       ├── capture.py      # Post-processes reference run data into manifest
-│       ├── cli.py          # TUI for stats, session management, strat resets
-│       ├── models.py       # Data classes / types
+│       ├── cli.py              # Entry point: dashboard, replay, lua-cmd subcommands
+│       ├── dashboard.py        # FastAPI web app, HTTP routes, event loop
+│       ├── session_manager.py  # Thin coordinator: mode, game context, event routing
+│       ├── capture_controller.py # Reference/replay/fill-gap/draft orchestration
+│       ├── reference_capture.py  # Stateful segment builder during capture
+│       ├── draft_manager.py    # Draft save/discard lifecycle
+│       ├── practice.py         # Async practice session loop
+│       ├── scheduler.py        # Wires estimators + allocators together
+│       ├── sse.py              # SSE broadcaster (subscriber queue management)
+│       ├── tcp_manager.py      # Async TCP client for Lua socket
+│       ├── db/                 # SQLite interface (mixin-composed package)
+│       │   ├── core.py         # Schema, connection, games, reset
+│       │   ├── segments.py     # Segment CRUD + variants
+│       │   ├── attempts.py     # Attempt logging + stats
+│       │   ├── sessions.py     # Practice session lifecycle
+│       │   ├── model_state.py  # Estimator state persistence, golds
+│       │   └── capture_runs.py # Reference run CRUD, draft lifecycle
+│       ├── models.py           # Data classes / types
+│       ├── romid.py            # ROM checksum + game name extraction
+│       ├── manifest.py         # Legacy YAML manifest import
+│       ├── spinrec.py          # .spinrec binary format reader/writer
+│       ├── estimators/         # Kalman, Model A (rolling), Model B (exp decay)
+│       ├── allocators/         # Greedy, round-robin, random
 │       └── static/
-│           ├── app.js      # Entry point (ES module), wires tabs + SSE
-│           ├── api.js      # fetchJSON, postJSON, connectSSE
-│           ├── live.js     # Mode rendering (idle/reference/practice)
-│           ├── model.js    # Model tab
-│           ├── manage.js   # Reference/segment management tab
-│           └── format.js   # splitName, formatTime, elapsedStr
+│           ├── app.js          # Entry point (ES module), wires tabs + SSE
+│           ├── api.js          # fetchJSON, postJSON, connectSSE
+│           ├── header.js       # Game selector, mode chip
+│           ├── model.js        # Model tab (all estimators side-by-side)
+│           ├── manage.js       # Reference/segment management tab
+│           └── format.js       # segmentName, formatTime, elapsedStr
 ├── reference/              # kaizosplits source for memory address extraction
 ├── scripts/
 │   ├── launch.sh           # Launches Mesen2 with Lua script auto-loaded
 │   └── spinlab.ahk         # AHK hotkeys: Ctrl+Alt+W (start), Ctrl+Alt+X (stop)
-└── config.yaml             # User config: ROM dir, emulator path, scheduler settings
+└── config.yaml             # User config: ROM dir, emulator path, ports, scheduler
 ```
 
 ### Component Roles
@@ -51,17 +66,23 @@ spinlab/
    - **Replay mode** (toggled via TCP `replay` command): Loads a `.spinrec` + companion `.mss` save state, injects recorded inputs via `emu.setInput()` at configurable speed. Segment events fire through `detect_transitions()` tagged with `source: "replay"`. Reports `replay_progress` and `replay_finished` events.
    - **Practice mode** (toggled via TCP connection from orchestrator): Loads save states on command, shows overlay (segment name, end condition, timer, rating prompt), reads controller for L+D-pad ratings, reports results back.
 
-2. **Python Orchestrator** (`python/spinlab/orchestrator.py`): Manages practice sessions. Connects to Lua via TCP socket, picks next segment from scheduler, sends load commands, receives completion results, updates DB.
+2. **Practice Session** (`python/spinlab/practice.py`): Async loop that picks next segment from scheduler, sends load commands to Lua via TCP, receives completion results, updates DB.
 
-3. **Python CLI/TUI** (`python/spinlab/cli.py`): Session management, stats display, strat resets, reference run processing. Uses `rich` or `textual`.
+3. **Python CLI** (`python/spinlab/cli.py`): Entry point with `dashboard`, `replay`, and `lua-cmd` subcommands. Reads ports from `config.yaml`.
 
 4. **Launch Script** (`scripts/launch.sh`): Starts Mesen2 with the ROM and Lua script. Takes care of paths so the user never manually loads scripts.
 
-5. **Dashboard** (`python/spinlab/dashboard.py`): FastAPI web app on `http://localhost:15483`. Run with `spinlab dashboard`. Lua TCP server is on port `15482`. Endpoints are thin wrappers delegating to `SessionManager`.
+5. **Dashboard** (`python/spinlab/dashboard.py`): FastAPI web app. Run with `spinlab dashboard`. Ports configurable via `config.yaml` (`network.port` for TCP, `network.dashboard_port` for HTTP). Endpoints are thin wrappers delegating to `SessionManager`.
 
-6. **SessionManager** (`python/spinlab/session_manager.py`): Central state owner for the dashboard. Owns mode, game context, scheduler, practice session, and reference capture state. Single `route_event()` entry point for all TCP events. Pushes state updates to SSE subscribers. Replaces the closure-scoped mutable containers that were previously in `create_app()`.
+6. **SessionManager** (`python/spinlab/session_manager.py`): Thin coordinator that owns mode and game context. Delegates to focused controllers:
+   - `CaptureController` — reference/replay/fill-gap/draft orchestration
+   - `SSEBroadcaster` — subscriber queue management
+   - `PracticeSession` — practice loop lifecycle
+   Single `route_event()` entry point for all TCP events.
 
-7. **Frontend** (`python/spinlab/static/`): Vanilla JS ES modules. `app.js` is the entry point, imports from `api.js` (SSE + fetch), `live.js` (mode rendering), `model.js` (model tab), `manage.js` (reference management), `format.js` (shared formatters). Uses SSE (`/api/events`) as primary update mechanism with polling fallback.
+7. **Database** (`python/spinlab/db/`): SQLite interface split into focused repository modules (segments, attempts, sessions, model_state, capture_runs) composed via mixins into a single `Database` class. All consumers import `from spinlab.db import Database`.
+
+8. **Frontend** (`python/spinlab/static/`): Vanilla JS ES modules. `app.js` is the entry point, imports from `api.js` (SSE + fetch), `header.js` (game selector + mode chip), `model.js` (all estimators side-by-side), `manage.js` (reference management), `format.js` (shared formatters). Uses SSE (`/api/events`) as primary update mechanism with polling fallback.
 
 ### IPC: TCP Socket (via Mesen2's built-in LuaSocket)
 
