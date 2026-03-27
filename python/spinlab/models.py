@@ -75,3 +75,42 @@ class SegmentCommand:
             "expected_time_ms": self.expected_time_ms,
             "auto_advance_delay_ms": self.auto_advance_delay_ms,
         }
+
+
+@dataclass
+class AttemptRecord:
+    """Attempt data flowing through the estimator pipeline."""
+    time_ms: int | None          # total time including deaths; None if incomplete
+    completed: bool
+    deaths: int                  # 0 if clean
+    clean_tail_ms: int | None    # time from last death to finish; None if incomplete
+    created_at: str              # ISO timestamp
+
+
+@dataclass
+class ModelOutput:
+    """What every estimator produces."""
+    expected_time_ms: float             # E[total_time] for next attempt
+    clean_expected_ms: float            # E[clean_tail] for next attempt
+    ms_per_attempt: float               # improvement rate (positive = improving)
+    floor_estimate_ms: float            # E[total_time | infinite practice]
+    clean_floor_estimate_ms: float      # E[clean_tail | infinite practice]
+
+    def to_dict(self) -> dict:
+        return {
+            "expected_time_ms": self.expected_time_ms,
+            "clean_expected_ms": self.clean_expected_ms,
+            "ms_per_attempt": self.ms_per_attempt,
+            "floor_estimate_ms": self.floor_estimate_ms,
+            "clean_floor_estimate_ms": self.clean_floor_estimate_ms,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ModelOutput":
+        return cls(
+            expected_time_ms=d["expected_time_ms"],
+            clean_expected_ms=d["clean_expected_ms"],
+            ms_per_attempt=d["ms_per_attempt"],
+            floor_estimate_ms=d["floor_estimate_ms"],
+            clean_floor_estimate_ms=d["clean_floor_estimate_ms"],
+        )
