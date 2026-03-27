@@ -40,6 +40,23 @@ def _check_result(result: dict) -> dict:
     return result
 
 
+async def event_loop(session: SessionManager, tcp: TcpManager) -> None:
+    """Bridge TCP events to SessionManager. Extracted for testability."""
+    while True:
+        if not tcp.is_connected:
+            await tcp.connect(timeout=2)
+            if not tcp.is_connected:
+                await asyncio.sleep(2)
+                continue
+        try:
+            event = await tcp.recv_event(timeout=1.0)
+            if event:
+                await session.route_event(event)
+        except Exception:
+            logger.exception("Error in event loop")
+            await asyncio.sleep(1)
+
+
 def create_app(
     db: Database,
     rom_dir: Path | None = None,
@@ -54,24 +71,9 @@ def create_app(
     session = SessionManager(db, tcp, rom_dir, default_category, data_dir=data_dir)
     tcp.on_disconnect = session.on_disconnect
 
-    async def _event_loop(session: SessionManager, tcp: TcpManager):
-        while True:
-            if not tcp.is_connected:
-                await tcp.connect(timeout=2)
-                if not tcp.is_connected:
-                    await asyncio.sleep(2)
-                    continue
-            try:
-                event = await tcp.recv_event(timeout=1.0)
-                if event:
-                    await session.route_event(event)
-            except Exception:
-                logger.exception("Error in event loop")
-                await asyncio.sleep(1)
-
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        task = asyncio.create_task(_event_loop(session, tcp))
+        task = asyncio.create_task(event_loop(session, tcp))
         yield
         task.cancel()
         await session.shutdown()
