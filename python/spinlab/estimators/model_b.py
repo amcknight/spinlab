@@ -108,7 +108,7 @@ class ModelBEstimator(Estimator):
         state.sigma = sigma
 
         # Fit on total times
-        total_ts = np.array([a.time_ms for a in completed], dtype=float)
+        total_ts = np.array([att.time_ms for att in completed], dtype=float)
         ta, tb, tc, tsigma = _fit_exp_decay(ns, total_ts)
         state.total_amplitude = ta
         state.total_decay_rate = tb

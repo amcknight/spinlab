@@ -67,13 +67,14 @@ export function updatePracticeCard(data) {
     'Attempt ' + (cs.attempt_count || 0);
 
   const insight = document.getElementById('insight');
-  if (cs.drift_info) {
-    const arrow = cs.drift_info.drift < 0 ? '\u2193' : cs.drift_info.drift > 0 ? '\u2191' : '\u2192';
-    const rate = Math.abs(cs.drift_info.drift).toFixed(2);
+  const selOut = cs.model_outputs && cs.model_outputs[cs.selected_model];
+  if (selOut) {
+    const mpa = selOut.ms_per_attempt;
+    const arrow = mpa > 10 ? '\u2193' : mpa < -10 ? '\u2191' : '\u2192';
+    const label = mpa > 10 ? 'improving' : mpa < -10 ? 'regressing' : 'flat';
     insight.innerHTML =
-      '<span class="drift-' + cs.drift_info.label + '">' +
-      arrow + ' ' + rate + ' s/run</span>' +
-      ' <span class="dim">(' + cs.drift_info.confidence + ')</span>';
+      '<span class="drift-' + label + '">' +
+      arrow + ' ' + Math.abs(mpa).toFixed(1) + ' ms/att</span>';
   } else {
     insight.textContent = 'No data yet';
   }

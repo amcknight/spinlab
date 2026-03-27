@@ -106,17 +106,16 @@ class Scheduler:
                         if nc > n_completed:
                             n_completed = nc
                             n_attempts = na
-                        g = sd.get("gold")
-                        if g is not None and g != float("inf"):
-                            g_ms = int(g * 1000) if g < 1000 else int(g)
-                            if gold_ms is None or g_ms < gold_ms:
-                                gold_ms = g_ms
                     except (json.JSONDecodeError, KeyError):
                         pass
 
-            # Compute clean_gold from attempt history
+            # Compute gold_ms and clean_gold from attempt history
             attempt_rows = self.db.get_segment_attempts(segment_id)
             for ar in attempt_rows:
+                if ar["completed"] and ar.get("time_ms") is not None:
+                    t = ar["time_ms"]
+                    if gold_ms is None or t < gold_ms:
+                        gold_ms = t
                 if ar["completed"] and ar.get("clean_tail_ms") is not None:
                     ct = ar["clean_tail_ms"]
                     if clean_gold_ms is None or ct < clean_gold_ms:

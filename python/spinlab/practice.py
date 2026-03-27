@@ -71,8 +71,9 @@ class PracticeSession:
 
         # Compute expected time
         expected_time_ms = None
-        if picked.estimator_state and picked.estimator_state.mu > 0:
-            expected_time_ms = int(picked.estimator_state.mu * 1000)
+        sel_out = picked.model_outputs.get(picked.selected_model)
+        if sel_out and sel_out.expected_time_ms > 0:
+            expected_time_ms = int(sel_out.expected_time_ms)
 
         # Build overlay label: use custom description or auto-generate from segment fields
         label = picked.description
