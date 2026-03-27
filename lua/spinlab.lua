@@ -497,31 +497,46 @@ end
 
 local exit_this_frame = false
 
-local function detect_death(curr)
-  if curr.player_anim == 9 and prev.player_anim ~= 9 then
-    on_death(curr)
-  end
+-- Shared detection predicates (used by both passive and practice modes)
+
+local function is_death_frame(curr)
+  return curr.player_anim == 9 and prev.player_anim ~= 9
 end
 
-local function detect_checkpoint(curr)
-  -- Checkpoint detection (composite condition)
+-- Returns "midway" or "cp_entrance" if a checkpoint was hit this frame, nil otherwise.
+local function check_checkpoint_hit(curr)
   local got_orb     = curr.io_port == 3
   local got_goal    = curr.fanfare == 1 or curr.io_port == 4
   local got_key     = curr.io_port == 7
   local got_fadeout = curr.io_port == 8
 
-  -- Midway: 0→1 transition, excluding goal/orb/key/fadeout
   local midway_hit = (prev.midway == 0 and curr.midway == 1)
       and not got_orb and not got_goal and not got_key and not got_fadeout
 
-  -- CPEntrance: value shifted, not to firstRoom, excluding goal/orb/key/fadeout
   local cp_entrance_hit = (prev.cp_entrance ~= nil and curr.cp_entrance ~= prev.cp_entrance
       and curr.cp_entrance ~= transition_state.first_cp_entrance)
       and not got_orb and not got_goal and not got_key and not got_fadeout
 
-  local cp_hit = midway_hit or cp_entrance_hit
+  if midway_hit then return "midway"
+  elseif cp_entrance_hit then return "cp_entrance"
+  else return nil end
+end
 
-  if cp_hit then
+local function is_exit_frame(curr)
+  return curr.exit_mode ~= 0 and prev.exit_mode == 0
+end
+
+-- Passive mode handlers (use shared predicates + emit TCP events)
+
+local function detect_death(curr)
+  if is_death_frame(curr) then
+    on_death(curr)
+  end
+end
+
+local function detect_checkpoint(curr)
+  local cp_type = check_checkpoint_hit(curr)
+  if cp_type then
     transition_state.cp_ordinal = transition_state.cp_ordinal + 1
     cp_acquired = true
     -- After first CP, clear firstRoom so future cpEntrance shifts are real CPs
@@ -534,13 +549,13 @@ local function detect_checkpoint(curr)
       local event_data = {
         event       = "checkpoint",
         level_num   = curr.level_num,
-        cp_type     = midway_hit and "midway" or "cp_entrance",
+        cp_type     = cp_type,
         cp_ordinal  = transition_state.cp_ordinal,
         timestamp_ms = ts_ms(),
         state_path  = state_path,
       }
       send_event(event_data)
-      log("Checkpoint: level " .. curr.level_num .. " cp" .. transition_state.cp_ordinal .. " (" .. (midway_hit and "midway" or "cp_entrance") .. ")")
+      log("Checkpoint: level " .. curr.level_num .. " cp" .. transition_state.cp_ordinal .. " (" .. cp_type .. ")")
     end
   end
 end
@@ -550,7 +565,7 @@ local function detect_exit(curr)
   -- exit_mode both transition 0→1 on the same frame (common during SMW goal
   -- sequences), exit must consume ref_pending_start first so the entrance
   -- handler doesn't overwrite it.
-  exit_this_frame = curr.exit_mode ~= 0 and prev.exit_mode == 0
+  exit_this_frame = is_exit_frame(curr)
   if exit_this_frame then
     on_level_exit(curr)
   end
@@ -652,30 +667,16 @@ local function handle_practice(curr)
 
   elseif practice.state == PSTATE_PLAYING then
     -- Death check (higher priority than exit/finish)
-    if curr.player_anim == 9 and prev.player_anim ~= 9 then
+    if is_death_frame(curr) then
       table.insert(pending_loads, practice.segment.state_path)
       log("Practice: death — reloading state")
 
-    elseif practice.segment.end_type == "checkpoint" then
-      -- Checkpoint end-condition: composite CP detection (same as passive)
-      local got_orb     = curr.io_port == 3
-      local got_goal    = curr.fanfare == 1 or curr.io_port == 4
-      local got_key     = curr.io_port == 7
-      local got_fadeout = curr.io_port == 8
-
-      local midway_hit = (prev.midway == 0 and curr.midway == 1)
-          and not got_orb and not got_goal and not got_key and not got_fadeout
-      local cp_entrance_hit = (prev.cp_entrance ~= nil and curr.cp_entrance ~= prev.cp_entrance
-          and curr.cp_entrance ~= transition_state.first_cp_entrance)
-          and not got_orb and not got_goal and not got_key and not got_fadeout
-
-      if midway_hit or cp_entrance_hit then
-        practice.elapsed_ms = ts_ms() - practice.start_ms
-        practice.completed  = true
-        practice.state      = PSTATE_RESULT
-        practice.result_start_ms = ts_ms()
-        log("Practice: CHECKPOINT — " .. practice.elapsed_ms .. "ms")
-      end
+    elseif practice.segment.end_type == "checkpoint" and check_checkpoint_hit(curr) then
+      practice.elapsed_ms = ts_ms() - practice.start_ms
+      practice.completed  = true
+      practice.state      = PSTATE_RESULT
+      practice.result_start_ms = ts_ms()
+      log("Practice: CHECKPOINT — " .. practice.elapsed_ms .. "ms")
 
     elseif practice.segment.end_on_goal and detect_finish(curr) then
       -- Early finish: goal/orb/key/boss detected, skip fanfare wait
@@ -686,7 +687,7 @@ local function handle_practice(curr)
       practice.result_start_ms = ts_ms()
       log("Practice: FINISH (" .. finish_goal .. ") — " .. practice.elapsed_ms .. "ms")
 
-    elseif curr.exit_mode ~= 0 and prev.exit_mode == 0 then
+    elseif is_exit_frame(curr) then
       -- Late exit: full exit_mode transition (fallback when end_on_goal is off)
       local goal = goal_type(curr)
       practice.elapsed_ms = ts_ms() - practice.start_ms

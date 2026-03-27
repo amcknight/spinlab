@@ -8,4 +8,5 @@ __pycache__/
 .playwright-mcp/
 *.egg-info/
 spinlab.db
+.spinlab-ports
 reference/

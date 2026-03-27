@@ -11,7 +11,8 @@ game:
   category: "any%"  # default category for auto-discovered games
 
 network:
-  port: 15482
+  port: 15482          # Lua TCP server port (must match TCP_PORT in lua/spinlab.lua)
+  dashboard_port: 15483  # Dashboard HTTP port
   host: "127.0.0.1"
 
 scheduler:
