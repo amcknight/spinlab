@@ -118,6 +118,8 @@ class PracticeSession:
             session_id=self.session_id,
             completed=result["completed"],
             time_ms=result.get("time_ms"),
+            deaths=result.get("deaths", 0),
+            clean_tail_ms=result.get("clean_tail_ms"),
             source="practice",
         )
         self.db.log_attempt(attempt)
@@ -125,6 +127,8 @@ class PracticeSession:
             result["segment_id"],
             time_ms=result.get("time_ms", 0),
             completed=result["completed"],
+            deaths=result.get("deaths", 0),
+            clean_tail_ms=result.get("clean_tail_ms"),
         )
         self.segments_attempted += 1
         if result["completed"]:
