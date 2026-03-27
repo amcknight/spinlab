@@ -3,7 +3,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from spinlab.models import AttemptRecord, ModelOutput
 
 
 @dataclass
@@ -26,35 +29,34 @@ class Estimator(ABC):
     name: str
 
     @abstractmethod
-    def init_state(self, first_time: float, priors: dict) -> EstimatorState:
-        """Initialize state from the first observed time."""
+    def init_state(
+        self, first_attempt: "AttemptRecord", priors: dict
+    ) -> EstimatorState:
+        """Initialize state from the first completed attempt."""
         ...
 
     @abstractmethod
     def process_attempt(
-        self, state: EstimatorState, observed_time: float | None
+        self,
+        state: EstimatorState,
+        new_attempt: "AttemptRecord",
+        all_attempts: list["AttemptRecord"],
     ) -> EstimatorState:
-        """Process one attempt. observed_time=None for incomplete (death/abort)."""
+        """Process one attempt. Uses new_attempt and/or all_attempts as needed."""
         ...
 
     @abstractmethod
-    def marginal_return(self, state: EstimatorState) -> float:
-        """Compute marginal return m_i = -d_i / mu_i."""
+    def model_output(
+        self, state: EstimatorState, all_attempts: list["AttemptRecord"]
+    ) -> "ModelOutput":
+        """Produce standardized ModelOutput from current state."""
         ...
 
     @abstractmethod
-    def drift_info(self, state: EstimatorState) -> dict:
-        """Return drift value, confidence interval, and label for dashboard."""
-        ...
-
-    @abstractmethod
-    def get_population_priors(self, all_states: list[EstimatorState]) -> dict:
-        """Compute population-level priors from all splits with enough data."""
-        ...
-
-    @abstractmethod
-    def rebuild_state(self, attempts: list[float | None]) -> EstimatorState:
-        """Rebuild state by replaying all attempts. None = incomplete."""
+    def rebuild_state(
+        self, attempts: list["AttemptRecord"]
+    ) -> EstimatorState:
+        """Rebuild state by replaying all attempts."""
         ...
 
 
