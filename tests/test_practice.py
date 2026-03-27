@@ -115,6 +115,8 @@ class TestReceiveResult:
         mock_segment.end_type = "goal"
         mock_segment.description = "Test"
         mock_segment.estimator_state = None
+        mock_segment.model_outputs = {}
+        mock_segment.selected_model = "kalman"
 
         ps.scheduler.pick_next = MagicMock(return_value=mock_segment)
         ps.scheduler.peek_next_n = MagicMock(return_value=[])

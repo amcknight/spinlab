@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from spinlab.models import Mode
 from spinlab.session_manager import SessionManager
 
 
@@ -48,13 +49,13 @@ class TestStopReferenceCreatesDraft:
     async def test_stop_reference_enters_draft_state(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
         await sm.start_reference()
-        run_id = sm.ref_capture_run_id
-        sm.ref_segments_count = 5
+        run_id = sm.ref_capture.capture_run_id
+        sm.ref_capture.segments_count = 5
 
         await sm.stop_reference()
-        assert sm.mode == "idle"
-        assert sm.draft_run_id == run_id
-        assert sm.draft_segments_count == 5
+        assert sm.mode == Mode.IDLE
+        assert sm.draft.run_id == run_id
+        assert sm.draft.segments_count == 5
 
     @pytest.mark.asyncio
     async def test_start_reference_creates_draft_run(self, tmp_path):
@@ -77,35 +78,35 @@ class TestReplayCreatesDraft:
     async def test_replay_finished_enters_draft_state(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
         # Simulate active replay
-        sm.mode = "replay"
-        sm.ref_capture_run_id = "replay_abc"
-        sm.ref_segments_count = 8
+        sm.mode = Mode.REPLAY
+        sm.ref_capture.capture_run_id = "replay_abc"
+        sm.ref_capture.segments_count = 8
 
         await sm.route_event({"event": "replay_finished", "frames_played": 5000})
-        assert sm.mode == "idle"
-        assert sm.draft_run_id == "replay_abc"
-        assert sm.draft_segments_count == 8
+        assert sm.mode == Mode.IDLE
+        assert sm.draft.run_id == "replay_abc"
+        assert sm.draft.segments_count == 8
 
     @pytest.mark.asyncio
     async def test_replay_error_with_segments_enters_draft(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
-        sm.mode = "replay"
-        sm.ref_capture_run_id = "replay_abc"
-        sm.ref_segments_count = 3
+        sm.mode = Mode.REPLAY
+        sm.ref_capture.capture_run_id = "replay_abc"
+        sm.ref_capture.segments_count = 3
 
         await sm.route_event({"event": "replay_error", "message": "fail"})
-        assert sm.draft_run_id == "replay_abc"
-        assert sm.draft_segments_count == 3
+        assert sm.draft.run_id == "replay_abc"
+        assert sm.draft.segments_count == 3
 
     @pytest.mark.asyncio
     async def test_replay_error_no_segments_auto_discards(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
-        sm.mode = "replay"
-        sm.ref_capture_run_id = "replay_abc"
-        sm.ref_segments_count = 0
+        sm.mode = Mode.REPLAY
+        sm.ref_capture.capture_run_id = "replay_abc"
+        sm.ref_capture.segments_count = 0
 
         await sm.route_event({"event": "replay_error", "message": "fail"})
-        assert sm.draft_run_id is None
+        assert sm.draft.run_id is None
         db.hard_delete_capture_run.assert_called_once_with("replay_abc")
 
 
@@ -113,21 +114,21 @@ class TestDraftGuards:
     @pytest.mark.asyncio
     async def test_start_reference_blocked_by_draft(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
-        sm.draft_run_id = "draft_pending"
+        sm.draft.run_id = "draft_pending"
         result = await sm.start_reference()
         assert result["status"] == "draft_pending"
 
     @pytest.mark.asyncio
     async def test_start_replay_blocked_by_draft(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
-        sm.draft_run_id = "draft_pending"
+        sm.draft.run_id = "draft_pending"
         result = await sm.start_replay("/data/test.spinrec")
         assert result["status"] == "draft_pending"
 
     @pytest.mark.asyncio
     async def test_start_practice_blocked_by_draft(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
-        sm.draft_run_id = "draft_pending"
+        sm.draft.run_id = "draft_pending"
         result = await sm.start_practice()
         assert result["status"] == "draft_pending"
 
@@ -136,26 +137,26 @@ class TestSaveAndDiscard:
     @pytest.mark.asyncio
     async def test_save_draft(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
-        sm.draft_run_id = "live_abc"
-        sm.draft_segments_count = 5
+        sm.draft.run_id = "live_abc"
+        sm.draft.segments_count = 5
 
         result = await sm.save_draft("My Run")
         assert result["status"] == "ok"
-        assert sm.draft_run_id is None
-        assert sm.draft_segments_count == 0
+        assert sm.draft.run_id is None
+        assert sm.draft.segments_count == 0
         db.promote_draft.assert_called_once_with("live_abc", "My Run")
         db.set_active_capture_run.assert_called_once_with("live_abc")
 
     @pytest.mark.asyncio
     async def test_discard_draft(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
-        sm.draft_run_id = "live_abc"
-        sm.draft_segments_count = 5
+        sm.draft.run_id = "live_abc"
+        sm.draft.segments_count = 5
 
         result = await sm.discard_draft()
         assert result["status"] == "ok"
-        assert sm.draft_run_id is None
-        assert sm.draft_segments_count == 0
+        assert sm.draft.run_id is None
+        assert sm.draft.segments_count == 0
         db.hard_delete_capture_run.assert_called_once_with("live_abc")
 
     @pytest.mark.asyncio
@@ -169,55 +170,55 @@ class TestStopReplayDraft:
     @pytest.mark.asyncio
     async def test_stop_replay_with_segments_enters_draft(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
-        sm.mode = "replay"
-        sm.ref_capture_run_id = "replay_abc"
-        sm.ref_segments_count = 5
+        sm.mode = Mode.REPLAY
+        sm.ref_capture.capture_run_id = "replay_abc"
+        sm.ref_capture.segments_count = 5
 
         result = await sm.stop_replay()
         assert result["status"] == "stopped"
-        assert sm.draft_run_id == "replay_abc"
-        assert sm.draft_segments_count == 5
+        assert sm.draft.run_id == "replay_abc"
+        assert sm.draft.segments_count == 5
 
     @pytest.mark.asyncio
     async def test_stop_replay_no_segments_auto_discards(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
-        sm.mode = "replay"
-        sm.ref_capture_run_id = "replay_abc"
-        sm.ref_segments_count = 0
+        sm.mode = Mode.REPLAY
+        sm.ref_capture.capture_run_id = "replay_abc"
+        sm.ref_capture.segments_count = 0
 
         result = await sm.stop_replay()
         assert result["status"] == "stopped"
-        assert sm.draft_run_id is None
+        assert sm.draft.run_id is None
         db.hard_delete_capture_run.assert_called_once_with("replay_abc")
 
 
 class TestOnDisconnectDraft:
     def test_disconnect_with_segments_enters_draft(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
-        sm.mode = "reference"
-        sm.ref_capture_run_id = "live_abc"
-        sm.ref_segments_count = 3
+        sm.mode = Mode.REFERENCE
+        sm.ref_capture.capture_run_id = "live_abc"
+        sm.ref_capture.segments_count = 3
 
         sm.on_disconnect()
-        assert sm.draft_run_id == "live_abc"
-        assert sm.draft_segments_count == 3
+        assert sm.draft.run_id == "live_abc"
+        assert sm.draft.segments_count == 3
 
     def test_disconnect_no_segments_auto_discards(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
-        sm.mode = "reference"
-        sm.ref_capture_run_id = "live_abc"
-        sm.ref_segments_count = 0
+        sm.mode = Mode.REFERENCE
+        sm.ref_capture.capture_run_id = "live_abc"
+        sm.ref_capture.segments_count = 0
 
         sm.on_disconnect()
-        assert sm.draft_run_id is None
+        assert sm.draft.run_id is None
         db.hard_delete_capture_run.assert_called_once_with("live_abc")
 
     def test_disconnect_no_ref_state_is_noop(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
-        sm.mode = "idle"
+        sm.mode = Mode.IDLE
 
         sm.on_disconnect()
-        assert sm.draft_run_id is None
+        assert sm.draft.run_id is None
         db.hard_delete_capture_run.assert_not_called()
 
 
@@ -225,8 +226,8 @@ class TestGetStateDraft:
     @pytest.mark.asyncio
     async def test_get_state_includes_draft(self, tmp_path):
         sm, db, tcp = make_sm(tmp_path)
-        sm.draft_run_id = "live_abc"
-        sm.draft_segments_count = 12
+        sm.draft.run_id = "live_abc"
+        sm.draft.segments_count = 12
         state = sm.get_state()
         assert state["draft"] == {"run_id": "live_abc", "segments_captured": 12}
 

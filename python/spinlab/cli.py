@@ -71,9 +71,10 @@ def main(args: list[str] | None = None) -> None:
 
     elif parsed.command == "replay":
         import requests
+        ref_id = Path(parsed.path).stem
         resp = requests.post(
             f"http://127.0.0.1:{parsed.port}/api/replay/start",
-            json={"path": parsed.path, "speed": parsed.speed},
+            json={"ref_id": ref_id, "speed": parsed.speed},
         )
         print(resp.json())
 

@@ -6,8 +6,11 @@ selection only affects which ModelOutput the allocator reads.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from spinlab.allocators import SegmentWithModel, get_allocator, list_allocators
 from spinlab.allocators.greedy import GreedyAllocator  # ensure registered
@@ -80,24 +83,23 @@ class Scheduler:
 
     def _load_segments_with_model(self) -> list[SegmentWithModel]:
         rows = self.db.get_all_segments_with_model(self.game_id)
-        segments = []
+        all_model_states = self.db.load_all_model_states_for_game(self.game_id)
+        golds = self.db.compute_golds(self.game_id)
 
+        segments = []
         for row in rows:
             segment_id = row["id"]
             model_outputs: dict[str, ModelOutput] = {}
             n_completed = 0
             n_attempts = 0
-            gold_ms = None
-            clean_gold_ms = None
 
-            state_rows = self.db.load_all_model_states_for_segment(segment_id)
-            for sr in state_rows:
+            for sr in all_model_states.get(segment_id, []):
                 if sr["output_json"]:
                     try:
                         out = ModelOutput.from_dict(json.loads(sr["output_json"]))
                         model_outputs[sr["estimator"]] = out
                     except (json.JSONDecodeError, KeyError):
-                        pass
+                        logger.warning("Failed to deserialize model output for segment=%s estimator=%s", segment_id, sr["estimator"])
                 if sr["state_json"]:
                     try:
                         sd = json.loads(sr["state_json"])
@@ -107,19 +109,11 @@ class Scheduler:
                             n_completed = nc
                             n_attempts = na
                     except (json.JSONDecodeError, KeyError):
-                        pass
+                        logger.warning("Failed to deserialize model state for segment=%s estimator=%s", segment_id, sr["estimator"])
 
-            # Compute gold_ms and clean_gold from attempt history
-            attempt_rows = self.db.get_segment_attempts(segment_id)
-            for ar in attempt_rows:
-                if ar["completed"] and ar.get("time_ms") is not None:
-                    t = ar["time_ms"]
-                    if gold_ms is None or t < gold_ms:
-                        gold_ms = t
-                if ar["completed"] and ar.get("clean_tail_ms") is not None:
-                    ct = ar["clean_tail_ms"]
-                    if clean_gold_ms is None or ct < clean_gold_ms:
-                        clean_gold_ms = ct
+            gold_data = golds.get(segment_id, {})
+            gold_ms = gold_data.get("gold_ms")
+            clean_gold_ms = gold_data.get("clean_gold_ms")
 
             segments.append(SegmentWithModel(
                 segment_id=segment_id,

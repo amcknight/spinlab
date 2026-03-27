@@ -2,7 +2,32 @@
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import Enum
 from typing import Optional
+
+
+class Mode(Enum):
+    IDLE = "idle"
+    REFERENCE = "reference"
+    PRACTICE = "practice"
+    REPLAY = "replay"
+    FILL_GAP = "fill_gap"
+
+
+_LEGAL_TRANSITIONS: dict[Mode, set[Mode]] = {
+    Mode.IDLE: {Mode.REFERENCE, Mode.PRACTICE, Mode.FILL_GAP},
+    Mode.REFERENCE: {Mode.IDLE, Mode.REPLAY},
+    Mode.PRACTICE: {Mode.IDLE},
+    Mode.REPLAY: {Mode.IDLE},
+    Mode.FILL_GAP: {Mode.IDLE},
+}
+
+
+def transition_mode(current: Mode, target: Mode) -> Mode:
+    """Validate and return the target mode, or raise ValueError."""
+    if target not in _LEGAL_TRANSITIONS.get(current, set()):
+        raise ValueError(f"Illegal mode transition: {current.value} -> {target.value}")
+    return target
 
 
 class TransitionEvent(str):

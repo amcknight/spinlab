@@ -11,10 +11,33 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from .db import Database
+from .models import Mode
 from .session_manager import SessionManager
 from .tcp_manager import TcpManager
 
 logger = logging.getLogger(__name__)
+
+_ERROR_STATUS_CODES = {
+    "not_connected": 503,
+    "draft_pending": 409,
+    "practice_active": 409,
+    "reference_active": 409,
+    "already_running": 409,
+    "already_replaying": 409,
+    "not_in_reference": 409,
+    "not_replaying": 409,
+    "not_running": 409,
+    "no_draft": 404,
+    "no_hot_variant": 404,
+}
+
+
+def _check_result(result: dict) -> dict:
+    status = result.get("status", "")
+    code = _ERROR_STATUS_CODES.get(status)
+    if code:
+        raise HTTPException(status_code=code, detail=status)
+    return result
 
 
 def create_app(
@@ -86,19 +109,19 @@ def create_app(
 
     @app.post("/api/reference/start")
     async def reference_start():
-        return await session.start_reference()
+        return _check_result(await session.start_reference())
 
     @app.post("/api/reference/stop")
     async def reference_stop():
-        return await session.stop_reference()
+        return _check_result(await session.stop_reference())
 
     @app.post("/api/practice/start")
     async def practice_start():
-        return await session.start_practice()
+        return _check_result(await session.start_practice())
 
     @app.post("/api/practice/stop")
     async def practice_stop():
-        return await session.stop_practice()
+        return _check_result(await session.stop_practice())
 
     @app.post("/api/replay/start")
     async def replay_start(req: Request):
@@ -109,11 +132,11 @@ def create_app(
             raise HTTPException(status_code=400, detail="ref_id required")
         gid = session.game_id or "unknown"
         spinrec_path = str(session.data_dir / gid / "rec" / f"{ref_id}.spinrec")
-        return await session.start_replay(spinrec_path, speed=speed)
+        return _check_result(await session.start_replay(spinrec_path, speed=speed))
 
     @app.post("/api/replay/stop")
     async def replay_stop():
-        return await session.stop_replay()
+        return _check_result(await session.stop_replay())
 
     # -- Model / allocator / estimator --
 
@@ -150,14 +173,22 @@ def create_app(
 
     @app.post("/api/allocator")
     def switch_allocator(body: dict):
+        from .allocators import list_allocators
         name = body.get("name")
+        valid = list_allocators()
+        if name not in valid:
+            raise HTTPException(status_code=400, detail=f"Unknown allocator: {name}. Valid: {valid}")
         sched = session._get_scheduler()
         sched.switch_allocator(name)
         return {"allocator": name}
 
     @app.post("/api/estimator")
     def switch_estimator(body: dict):
+        from .estimators import list_estimators
         name = body.get("name")
+        valid = list_estimators()
+        if name not in valid:
+            raise HTTPException(status_code=400, detail=f"Unknown estimator: {name}. Valid: {valid}")
         sched = session._get_scheduler()
         sched.switch_estimator(name)
         return {"estimator": name}
@@ -165,13 +196,13 @@ def create_app(
     @app.post("/api/reset")
     async def reset_data():
         await session.stop_practice()
-        if session.mode == "reference":
-            session._clear_ref_state()
+        if session.mode == Mode.REFERENCE:
+            session._clear_ref_and_idle()
         gid = session.game_id
         if gid:
             db.reset_game_data(gid)
         session.scheduler = None
-        session.mode = "idle"
+        session.mode = Mode.IDLE
         return {"status": "ok"}
 
     @app.get("/api/segments")
@@ -207,11 +238,11 @@ def create_app(
     async def draft_save(req: Request):
         body = await req.json()
         name = body.get("name", "Untitled")
-        return await session.save_draft(name)
+        return _check_result(await session.save_draft(name))
 
     @app.post("/api/references/draft/discard")
     async def draft_discard():
-        return await session.discard_draft()
+        return _check_result(await session.discard_draft())
 
     @app.get("/api/references/{ref_id}/spinrec")
     def check_spinrec(ref_id: str):
@@ -246,17 +277,21 @@ def create_app(
 
     @app.patch("/api/segments/{segment_id}")
     def update_segment_endpoint(segment_id: str, body: dict):
+        if not db.segment_exists(segment_id):
+            raise HTTPException(status_code=404, detail="Segment not found")
         db.update_segment(segment_id, **body)
         return {"status": "ok"}
 
     @app.delete("/api/segments/{segment_id}")
     def delete_segment(segment_id: str):
+        if not db.segment_exists(segment_id):
+            raise HTTPException(status_code=404, detail="Segment not found")
         db.soft_delete_segment(segment_id)
         return {"status": "ok"}
 
     @app.post("/api/segments/{segment_id}/fill-gap")
     async def fill_gap(segment_id: str):
-        return await session.start_fill_gap(segment_id)
+        return _check_result(await session.start_fill_gap(segment_id))
 
     # -- ROM listing --
 
@@ -281,17 +316,24 @@ def create_app(
         cfg = app.state.config
         emu_path = cfg.get("emulator", {}).get("path", "")
         if not emu_path or not Path(emu_path).exists():
-            return {"status": "error", "message": f"Emulator not found: {emu_path}"}
+            raise HTTPException(status_code=400, detail=f"Emulator not found: {emu_path}")
 
         # ROM: from request body, or fall back to config
-        rom_dir = cfg.get("rom", {}).get("dir", "")
+        rom_dir_str = cfg.get("rom", {}).get("dir", "")
         rom_name = (body or {}).get("rom", "")
-        if rom_name and rom_dir:
-            rom_path = Path(rom_dir) / rom_name
+        if rom_name and rom_dir_str:
+            rom_path = Path(rom_dir_str) / rom_name
         else:
             rom_path = Path(cfg.get("rom", {}).get("path", ""))
+
+        if rom_dir_str:
+            resolved_rom = rom_path.resolve()
+            resolved_dir = Path(rom_dir_str).resolve()
+            if not str(resolved_rom).startswith(str(resolved_dir)):
+                raise HTTPException(status_code=400, detail="ROM path outside rom_dir")
+
         if not rom_path.is_file():
-            return {"status": "error", "message": f"ROM not found: {rom_path}"}
+            raise HTTPException(status_code=400, detail=f"ROM not found: {rom_path}")
 
         lua_script = cfg.get("emulator", {}).get("lua_script", "")
         cmd = [emu_path, str(rom_path)]

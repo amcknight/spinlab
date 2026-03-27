@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from spinlab.models import Mode
 from spinlab.session_manager import SessionManager
 
 
@@ -45,7 +46,7 @@ class TestStartReplay:
 
         result = await sm.start_replay("/data/test.spinrec", speed=0)
         assert result["status"] == "started"
-        assert sm.mode == "replay"
+        assert sm.mode == Mode.REPLAY
 
         msg = json.loads(tcp.send.call_args[0][0])
         assert msg["event"] == "replay"
@@ -58,7 +59,7 @@ class TestStartReplay:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
         sm.game_id = "abcdef0123456789"
-        sm.mode = "practice"
+        sm.mode = Mode.PRACTICE
 
         result = await sm.start_replay("/data/test.spinrec")
         assert result["status"] == "practice_active"
@@ -69,7 +70,7 @@ class TestStartReplay:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
         sm.game_id = "abcdef0123456789"
-        sm.mode = "reference"
+        sm.mode = Mode.REFERENCE
 
         result = await sm.start_replay("/data/test.spinrec")
         assert result["status"] == "reference_active"
@@ -83,11 +84,11 @@ class TestStopReplay:
         sm = SessionManager(db=db, tcp=tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
         sm.game_id = "abcdef0123456789"
         sm.game_name = "Test Game"
-        sm.mode = "replay"
+        sm.mode = Mode.REPLAY
 
         result = await sm.stop_replay()
         assert result["status"] == "stopped"
-        assert sm.mode == "idle"
+        assert sm.mode == Mode.IDLE
 
         msg = json.loads(tcp.send.call_args[0][0])
         assert msg["event"] == "replay_stop"
@@ -101,10 +102,10 @@ class TestReplayEvents:
         sm = SessionManager(db=db, tcp=tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
         sm.game_id = "abcdef0123456789"
         sm.game_name = "Test Game"
-        sm.mode = "replay"
+        sm.mode = Mode.REPLAY
 
         await sm.route_event({"event": "replay_finished", "path": "/data/test.spinrec", "frames_played": 5000})
-        assert sm.mode == "idle"
+        assert sm.mode == Mode.IDLE
 
     @pytest.mark.asyncio
     async def test_replay_error_returns_to_idle(self, tmp_path):
@@ -112,10 +113,10 @@ class TestReplayEvents:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
         sm.game_id = "abcdef0123456789"
-        sm.mode = "replay"
+        sm.mode = Mode.REPLAY
 
         await sm.route_event({"event": "replay_error", "message": "game_id mismatch"})
-        assert sm.mode == "idle"
+        assert sm.mode == Mode.IDLE
 
     @pytest.mark.asyncio
     async def test_replay_events_still_capture_segments(self, tmp_path):
@@ -125,8 +126,8 @@ class TestReplayEvents:
         sm = SessionManager(db=db, tcp=tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
         sm.game_id = "abcdef0123456789"
         sm.game_name = "Test Game"
-        sm.mode = "replay"
-        sm.ref_capture_run_id = "replay_test123"
+        sm.mode = Mode.REPLAY
+        sm.ref_capture.capture_run_id = "replay_test123"
 
         # Simulate a level entrance during replay
         await sm.route_event({
@@ -141,4 +142,4 @@ class TestReplayEvents:
             "source": "replay",
         })
         # Reference capture works during replay — segments are created
-        assert sm.ref_pending_start is not None
+        assert sm.ref_capture.pending_start is not None

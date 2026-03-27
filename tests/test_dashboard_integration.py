@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from spinlab.db import Database
-from spinlab.models import Segment, SegmentVariant, Attempt
+from spinlab.models import Mode, Segment, SegmentVariant, Attempt
 
 
 # -- fixtures ----------------------------------------------------------------
@@ -90,7 +90,10 @@ def seeded_db(tmp_path):
     for segment_id, mu, d, mr in MODEL_STATES:
         state = {"mu": mu, "P": 1.0, "d": d, "Q_mu": 0.5, "Q_d": 0.01, "R": 1.0, "n": 5,
                  "gold": gold_times[segment_id], "n_completed": 3, "n_attempts": 3}
-        db.save_model_state(segment_id, "kalman", json.dumps(state), mr)
+        output = {"expected_time_ms": mu * 1000, "clean_expected_ms": mu * 1000,
+                  "ms_per_attempt": mr * 1000, "floor_estimate_ms": mu * 800,
+                  "clean_floor_estimate_ms": mu * 800}
+        db.save_model_state(segment_id, "kalman", json.dumps(state), json.dumps(output))
 
     return db
 
@@ -127,7 +130,7 @@ def active_client(seeded_db):
     ps.session_id = "sess1"  # match the session already in DB
 
     app.state.session.practice_session = ps
-    app.state.session.mode = "practice"
+    app.state.session.mode = Mode.PRACTICE
 
     return TestClient(app)
 
@@ -153,12 +156,11 @@ class TestLiveState:
         data = active_client.get("/api/state").json()
         assert data["current_segment"]["attempt_count"] == 3  # s1 has 3 attempts
 
-    def test_current_segment_has_drift_info(self, active_client):
+    def test_current_segment_has_model_outputs(self, active_client):
         data = active_client.get("/api/state").json()
-        drift = data["current_segment"]["drift_info"]
-        assert drift is not None
-        assert drift["label"] == "improving"  # d = -0.15
-        assert drift["drift"] == pytest.approx(-0.15)
+        outputs = data["current_segment"]["model_outputs"]
+        assert "kalman" in outputs
+        assert outputs["kalman"]["expected_time_ms"] is not None
 
     def test_queue_contains_next_segments(self, active_client):
         """Queue is now computed server-side: peek 3, exclude current, cap at 2."""
@@ -194,18 +196,18 @@ class TestModelEndpoint:
         assert len(data["segments"]) == 5
         assert data["estimator"] == "kalman"
 
-    def test_segments_have_kalman_fields(self, active_client):
+    def test_segments_have_model_outputs(self, active_client):
         data = active_client.get("/api/model").json()
         s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
-        assert s1["mu"] == pytest.approx(3.8)
-        assert s1["drift"] == pytest.approx(-0.15, abs=0.001)
-        assert s1["drift_info"]["label"] == "improving"
+        assert "kalman" in s1["model_outputs"]
+        kalman = s1["model_outputs"]["kalman"]
+        assert kalman["expected_time_ms"] == pytest.approx(3800, abs=100)
+        assert kalman["ms_per_attempt"] is not None
 
-    def test_segment_without_model_has_nulls(self, active_client):
+    def test_segment_without_model_has_empty_outputs(self, active_client):
         data = active_client.get("/api/model").json()
         s5 = next(s for s in data["segments"] if s["segment_id"] == "s5")
-        assert s5["mu"] is None
-        assert s5["drift"] is None
+        assert s5["model_outputs"] == {}
 
     def test_segment_has_start_end_types(self, active_client):
         """Segments should expose start_type and end_type instead of goal/reference_time."""
@@ -222,10 +224,11 @@ class TestModelEndpoint:
         s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
         assert s1["gold_ms"] is not None
 
-    def test_marginal_return_present(self, active_client):
+    def test_ms_per_attempt_present(self, active_client):
         data = active_client.get("/api/model").json()
         s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
-        assert s1["marginal_return"] == pytest.approx(0.0395, abs=0.01)
+        kalman = s1["model_outputs"]["kalman"]
+        assert kalman["ms_per_attempt"] is not None
 
 
 # -- Allocator / estimator switching -----------------------------------------

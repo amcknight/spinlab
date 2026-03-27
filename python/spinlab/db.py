@@ -1,6 +1,8 @@
 """SpinLab database layer — SQLite."""
 
 import sqlite3
+from collections import defaultdict
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
@@ -141,6 +143,16 @@ class Database:
 
     def close(self) -> None:
         self.conn.close()
+
+    @contextmanager
+    def transaction(self):
+        """Context manager for grouping operations in a single transaction."""
+        try:
+            yield self
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
 
     # -- Games --
 
@@ -334,7 +346,7 @@ class Database:
                FROM attempts a
                JOIN segments s ON a.segment_id = s.id
                WHERE s.game_id = ?
-               ORDER BY a.created_at DESC
+               ORDER BY a.created_at DESC, a.id DESC
                LIMIT ?""",
             (game_id, limit),
         ).fetchall()
@@ -409,6 +421,71 @@ class Database:
         )
         cols = ["segment_id", "estimator", "state_json", "output_json", "updated_at"]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    def load_all_model_states_for_game(self, game_id: str) -> dict[str, list[dict]]:
+        """Load all estimator states for all active segments in a game.
+
+        Returns a dict keyed by segment_id, where each value is a list of
+        model state rows (same format as load_all_model_states_for_segment).
+        """
+        cur = self.conn.execute(
+            """SELECT m.segment_id, m.estimator, m.state_json, m.output_json, m.updated_at
+               FROM model_state m
+               JOIN segments s ON m.segment_id = s.id
+               WHERE s.game_id = ? AND s.active = 1""",
+            (game_id,),
+        )
+        cols = ["segment_id", "estimator", "state_json", "output_json", "updated_at"]
+        result: dict[str, list[dict]] = defaultdict(list)
+        for row in cur.fetchall():
+            d = dict(zip(cols, row))
+            result[d["segment_id"]].append(d)
+        return result
+
+    def get_all_attempts_by_segment(self, game_id: str) -> dict[str, list[dict]]:
+        """Load all attempts for all active segments in a game.
+
+        Returns a dict keyed by segment_id, where each value is a list of
+        attempt rows (same format as get_segment_attempts).
+        """
+        cur = self.conn.execute(
+            """SELECT a.segment_id, a.completed, a.time_ms, a.deaths, a.clean_tail_ms,
+                      a.created_at
+               FROM attempts a
+               JOIN segments s ON a.segment_id = s.id
+               WHERE s.game_id = ? AND s.active = 1
+               ORDER BY a.created_at""",
+            (game_id,),
+        )
+        cols = ["segment_id", "completed", "time_ms", "deaths", "clean_tail_ms", "created_at"]
+        result: dict[str, list[dict]] = defaultdict(list)
+        for row in cur.fetchall():
+            d = dict(zip(cols, row))
+            result[d["segment_id"]].append(d)
+        return result
+
+    def compute_golds(self, game_id: str) -> dict[str, dict]:
+        """Compute gold times for all active segments in a game.
+
+        For each segment with completed attempts, computes MIN(time_ms) as
+        gold_ms and MIN(clean_tail_ms) as clean_gold_ms.
+
+        Returns dict keyed by segment_id with {"gold_ms": int|None, "clean_gold_ms": int|None}.
+        """
+        cur = self.conn.execute(
+            """SELECT a.segment_id,
+                      MIN(CASE WHEN a.completed = 1 THEN a.time_ms END) AS gold_ms,
+                      MIN(CASE WHEN a.completed = 1 THEN a.clean_tail_ms END) AS clean_gold_ms
+               FROM attempts a
+               JOIN segments s ON a.segment_id = s.id
+               WHERE s.game_id = ? AND s.active = 1
+               GROUP BY a.segment_id""",
+            (game_id,),
+        )
+        result: dict[str, dict] = {}
+        for row in cur.fetchall():
+            result[row[0]] = {"gold_ms": row[1], "clean_gold_ms": row[2]}
+        return result
 
     def save_allocator_config(self, key: str, value: str) -> None:
         self.conn.execute(
@@ -604,6 +681,12 @@ class Database:
             f"UPDATE segments SET {sets}, updated_at = ? WHERE id = ?", vals
         )
         self.conn.commit()
+
+    def segment_exists(self, segment_id: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM segments WHERE id = ?", (segment_id,)
+        ).fetchone()
+        return row is not None
 
     def soft_delete_segment(self, segment_id: str) -> None:
         self.update_segment(segment_id, active=0)

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from spinlab.models import Mode
 from spinlab.session_manager import SessionManager
 
 
@@ -41,7 +42,7 @@ class TestSessionManagerInit:
             rom_dir=None,
             default_category="any%",
         )
-        assert sm.mode == "idle"
+        assert sm.mode == Mode.IDLE
         assert sm.game_id is None
         assert sm.game_name is None
         assert sm.scheduler is None
@@ -113,8 +114,8 @@ class TestRouteEvent:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
         sm.game_id = "game1"
-        sm.mode = "reference"
-        sm.ref_capture_run_id = "run1"
+        sm.mode = Mode.REFERENCE
+        sm.ref_capture.capture_run_id = "run1"
 
         await sm.route_event({
             "event": "level_entrance",
@@ -123,8 +124,8 @@ class TestRouteEvent:
             "state_path": "/path/to/state.mss",
         })
 
-        assert sm.ref_pending_start is not None
-        assert sm.ref_pending_start["level_num"] == 105
+        assert sm.ref_capture.pending_start is not None
+        assert sm.ref_capture.pending_start["level_num"] == 105
 
     @pytest.mark.asyncio
     async def test_level_exit_pairs_with_entrance(self):
@@ -133,8 +134,8 @@ class TestRouteEvent:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
         sm.game_id = "game1"
-        sm.mode = "reference"
-        sm.ref_capture_run_id = "run1"
+        sm.mode = Mode.REFERENCE
+        sm.ref_capture.capture_run_id = "run1"
 
         # Buffer entrance
         await sm.route_event({
@@ -153,7 +154,7 @@ class TestRouteEvent:
             "elapsed_ms": 5000,
         })
 
-        assert sm.ref_segments_count == 1
+        assert sm.ref_capture.segments_count == 1
         db.upsert_segment.assert_called_once()
 
     @pytest.mark.asyncio
@@ -163,8 +164,8 @@ class TestRouteEvent:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
         sm.game_id = "game1"
-        sm.mode = "reference"
-        sm.ref_capture_run_id = "run1"
+        sm.mode = Mode.REFERENCE
+        sm.ref_capture.capture_run_id = "run1"
 
         # Entrance in room 0
         await sm.route_event({
@@ -183,7 +184,7 @@ class TestRouteEvent:
             "elapsed_ms": 8000,
         })
 
-        assert sm.ref_segments_count == 1
+        assert sm.ref_capture.segments_count == 1
         db.upsert_segment.assert_called_once()
         # Segment should use entrance level number
         seg = db.upsert_segment.call_args[0][0]
@@ -196,7 +197,7 @@ class TestRouteEvent:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
         sm.game_id = "game1"
-        sm.mode = "reference"
+        sm.mode = Mode.REFERENCE
 
         await sm.route_event({
             "event": "level_entrance",
@@ -210,7 +211,7 @@ class TestRouteEvent:
             "goal": "abort",
         })
 
-        assert sm.ref_segments_count == 0
+        assert sm.ref_capture.segments_count == 0
         db.upsert_segment.assert_not_called()
 
     @pytest.mark.asyncio
@@ -220,13 +221,13 @@ class TestRouteEvent:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
         sm.game_id = "game1"
-        sm.mode = "idle"
+        sm.mode = Mode.IDLE
 
         await sm.route_event({"event": "level_entrance", "level": 1, "room": 0})
         await sm.route_event({"event": "level_exit", "level": 1, "room": 0, "goal": "normal"})
 
-        assert sm.ref_pending_start is None
-        assert sm.ref_segments_count == 0
+        assert sm.ref_capture.pending_start is None
+        assert sm.ref_capture.segments_count == 0
 
 
     @pytest.mark.asyncio
@@ -259,7 +260,7 @@ class TestRouteEvent:
         })
 
         # Should have created entrance.0->checkpoint.1 segment
-        assert sm.ref_segments_count == 1
+        assert sm.ref_capture.segments_count == 1
         db.upsert_segment.assert_called_once()
         seg = db.upsert_segment.call_args[0][0]
         assert seg.start_type == "entrance"
@@ -273,9 +274,9 @@ class TestRouteEvent:
         assert variant.variant_type == "cold"
         assert variant.state_path == "/states/105_entrance.mss"
 
-        # ref_pending_start should now be the checkpoint
-        assert sm.ref_pending_start["type"] == "checkpoint"
-        assert sm.ref_pending_start["ordinal"] == 1
+        # ref_capture.pending_start should now be the checkpoint
+        assert sm.ref_capture.pending_start["type"] == "checkpoint"
+        assert sm.ref_capture.pending_start["ordinal"] == 1
 
     @pytest.mark.asyncio
     async def test_reference_checkpoint_then_exit(self):
@@ -310,7 +311,7 @@ class TestRouteEvent:
             "elapsed_ms": 10000,
         })
 
-        assert sm.ref_segments_count == 2
+        assert sm.ref_capture.segments_count == 2
         assert db.upsert_segment.call_count == 2
 
         # Second segment should start from checkpoint
@@ -326,10 +327,10 @@ class TestRouteEvent:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
         sm.game_id = "game1"
-        sm.mode = "reference"
+        sm.mode = Mode.REFERENCE
 
         await sm.route_event({"event": "death"})
-        assert sm.ref_died is True
+        assert sm.ref_capture.died is True
 
     @pytest.mark.asyncio
     async def test_entrance_clears_ref_died(self):
@@ -338,9 +339,9 @@ class TestRouteEvent:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
         sm.game_id = "game1"
-        sm.mode = "reference"
-        sm.ref_capture_run_id = "run1"
-        sm.ref_died = True
+        sm.mode = Mode.REFERENCE
+        sm.ref_capture.capture_run_id = "run1"
+        sm.ref_capture.died = True
 
         await sm.route_event({
             "event": "level_entrance",
@@ -348,7 +349,7 @@ class TestRouteEvent:
             "room": 0,
             "state_path": "/states/105.mss",
         })
-        assert sm.ref_died is False
+        assert sm.ref_capture.died is False
 
 
 class TestReferenceMode:
@@ -362,8 +363,8 @@ class TestReferenceMode:
         result = await sm.start_reference()
 
         assert result["status"] == "started"
-        assert sm.mode == "reference"
-        assert sm.ref_capture_run_id is not None
+        assert sm.mode == Mode.REFERENCE
+        assert sm.ref_capture.capture_run_id is not None
         db.create_capture_run.assert_called_once()
 
     @pytest.mark.asyncio
@@ -381,7 +382,7 @@ class TestReferenceMode:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
         sm.game_id = "game1"
-        sm.mode = "practice"
+        sm.mode = Mode.PRACTICE
 
         result = await sm.start_reference()
         assert result["status"] == "practice_active"
@@ -407,7 +408,7 @@ class TestReferenceMode:
 
         result = await sm.stop_reference()
         assert result["status"] == "stopped"
-        assert sm.mode == "idle"
+        assert sm.mode == Mode.IDLE
 
 
 class TestPracticeMode:
@@ -420,7 +421,7 @@ class TestPracticeMode:
 
         result = await sm.start_practice()
         assert result["status"] == "started"
-        assert sm.mode == "practice"
+        assert sm.mode == Mode.PRACTICE
         assert sm.practice_session is not None
 
     @pytest.mark.asyncio
@@ -433,7 +434,7 @@ class TestPracticeMode:
 
         result = await sm.stop_practice()
         assert result["status"] == "stopped"
-        assert sm.mode == "idle"
+        assert sm.mode == Mode.IDLE
 
     @pytest.mark.asyncio
     async def test_start_practice_not_connected(self):
@@ -455,7 +456,7 @@ class TestAttemptResultRouting:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
         sm.game_id = "game1"
-        sm.mode = "practice"
+        sm.mode = Mode.PRACTICE
 
         # Inject a mock practice session
         mock_ps = MagicMock()
@@ -480,7 +481,7 @@ class TestAttemptResultRouting:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
         sm.game_id = "game1"
-        sm.mode = "idle"
+        sm.mode = Mode.IDLE
 
         mock_ps = MagicMock()
         sm.practice_session = mock_ps
@@ -501,7 +502,7 @@ class TestAttemptResultRouting:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
         sm.game_id = "game1"
-        sm.mode = "practice"
+        sm.mode = Mode.PRACTICE
 
         mock_ps = MagicMock()
         mock_ps.is_running = True
@@ -528,12 +529,12 @@ class TestPracticeDoneNotification:
         db = make_mock_db()
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
-        sm.mode = "practice"
+        sm.mode = Mode.PRACTICE
 
         mock_task = MagicMock()
         sm._on_practice_done(mock_task)
 
-        assert sm.mode == "idle"
+        assert sm.mode == Mode.IDLE
 
     @pytest.mark.asyncio
     async def test_on_practice_done_sends_sse(self):
@@ -541,7 +542,7 @@ class TestPracticeDoneNotification:
         db = make_mock_db()
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
-        sm.mode = "practice"
+        sm.mode = Mode.PRACTICE
 
         q = sm.subscribe_sse()
 
@@ -588,7 +589,7 @@ class TestFillGap:
         tcp = make_mock_tcp()
         sm = SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
         sm.game_id = "game1"
-        sm.ref_capture_run_id = "run1"
+        sm.ref_capture.capture_run_id = "run1"
 
         # Create a segment with hot variant but no cold
         seg = Segment(
@@ -631,7 +632,7 @@ class TestFillGap:
         assert cold_calls[0][0][0].state_path == "/cold.mss"
         assert cold_calls[0][0][0].is_default is True
         assert sm.fill_gap_segment_id is None  # fill-gap ended
-        assert sm.mode == "idle"
+        assert sm.mode == Mode.IDLE
 
     @pytest.mark.asyncio
     async def test_fill_gap_not_connected(self):
@@ -710,7 +711,7 @@ class TestRecording:
 
         result = await sm.start_reference()
         assert result["status"] == "started"
-        assert sm.mode == "reference"
+        assert sm.mode == Mode.REFERENCE
 
         # Verify TCP command was sent with path
         tcp.send.assert_called()
@@ -750,4 +751,4 @@ class TestRecording:
         await sm.start_reference()
 
         await sm.route_event({"event": "rec_saved", "path": "/data/test.spinrec", "frame_count": 1000})
-        assert sm.rec_path == "/data/test.spinrec"
+        assert sm.ref_capture.rec_path == "/data/test.spinrec"

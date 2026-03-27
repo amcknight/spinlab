@@ -109,8 +109,8 @@ class TestImportManifest:
 class TestDraftEndpoints:
     def test_save_draft(self, client):
         # Inject draft state
-        client.app.state.session.draft_run_id = "live_abc"
-        client.app.state.session.draft_segments_count = 5
+        client.app.state.session.draft.run_id = "live_abc"
+        client.app.state.session.draft.segments_count = 5
         client.app.state.session.save_draft = AsyncMock(return_value={"status": "ok"})
 
         resp = client.post("/api/references/draft/save", json={"name": "My Run"})
@@ -118,7 +118,7 @@ class TestDraftEndpoints:
         assert resp.json()["status"] == "ok"
 
     def test_discard_draft(self, client):
-        client.app.state.session.draft_run_id = "live_abc"
+        client.app.state.session.draft.run_id = "live_abc"
         client.app.state.session.discard_draft = AsyncMock(return_value={"status": "ok"})
 
         resp = client.post("/api/references/draft/discard")

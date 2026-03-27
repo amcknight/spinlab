@@ -32,10 +32,19 @@
       "Bash(python -c \"import spinlab; print\\(spinlab.__file__\\)\")",
       "Bash(python -c \"import struct; struct.pack\\(''<4sH16sI6s'', b''SREC'', 1, b''abc'', 0, b''\\\\x00''*6\\)\")",
       "Bash(python -c \"import struct; result = struct.pack\\(''<4sH16sI6s'', b''SREC'', 1, b''abc'', 0, b''\\\\x00''*6\\); print\\(repr\\(result[6:22]\\)\\)\")",
-      "Bash(git -C /c/Users/thedo/git/spinlab/.worktrees/dashboard-restructure log --oneline -5)"
+      "Bash(git -C /c/Users/thedo/git/spinlab/.worktrees/dashboard-restructure log --oneline -5)",
+      "Bash(python -c \"from spinlab.estimators import Estimator, EstimatorState; print\\(''OK''\\)\")",
+      "Bash(ls -la /c/Users/thedo/Git/spinlab/python/spinlab/*.py)",
+      "Bash(PYTHONPATH=python python -m pytest tests/ -x -q)",
+      "Bash(C:/Users/thedo/Git/spinlab/.venv/Scripts/python.exe -m pytest tests/ -x -v)",
+      "Bash(C:/Users/thedo/Git/spinlab/.venv/Scripts/python.exe -m pytest tests/ -x -v --ignore=tests/test_model_b.py)",
+      "Bash(C:/Users/thedo/Git/spinlab/.venv/Scripts/python.exe -m pytest tests/ -v -k \"not test_practice_mode_with_current_segment\")",
+      "Bash(C:/Users/thedo/Git/spinlab/.venv/Scripts/python.exe -m pytest tests/ -v)",
+      "Bash(pip install:*)"
     ]
   },
   "enabledPlugins": {
-    "playwright@claude-plugins-official": true
+    "playwright@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true
   }
 }

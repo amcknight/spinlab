@@ -23,6 +23,7 @@ local socket = require("socket.core")
 local TCP_PORT   = 15482
 local TCP_HOST   = "127.0.0.1"
 local JSONL_LOGGING = false  -- set true to enable passive_log.jsonl (debugging)
+local MAX_RECORDING_FRAMES = 360000  -- 100 minutes at 60fps
 local game_id    = nil  -- set dynamically from dashboard via game_context
 local DATA_DIR   = emu.getScriptDataFolder()
 local STATE_DIR  = DATA_DIR .. "/states"
@@ -59,8 +60,8 @@ local client    = nil   -- connected TCP client
 local initialized = false
 
 -- cpuExec-deferred save/load/reset
-local pending_save  = nil
-local pending_load  = nil
+local pending_saves = {}
+local pending_loads = {}
 local pending_reset = false
 
 -- Keyboard debounce
@@ -68,21 +69,33 @@ local key_was_pressed = {}
 
 -- Passive recorder state
 local prev = {}              -- previous frame memory values
-local died_flag    = false   -- set on death, cleared on next fresh entrance
 local level_start_frame = 0  -- frame when current level entrance was logged
 local frame_counter = 0      -- increments every startFrame
 local script_start_ms = os.clock() * 1000
 
 -- Checkpoint tracking
-local cp_ordinal     = 0      -- per-level counter, incremented on each new CP
 local cp_acquired    = false  -- true when a new CP was hit without cold capture yet
-local first_cp_entrance = 0   -- initial cpEntrance value at level start
+
+-- Transition detection state (grouped for clean reset)
+local transition_state = {
+  died_flag = false,
+  cp_ordinal = 0,
+  first_cp_entrance = 0,
+  last_event_key = nil,
+}
+
+local function reset_transition_state()
+  transition_state.died_flag = false
+  transition_state.cp_ordinal = 0
+  transition_state.first_cp_entrance = 0
+  transition_state.last_event_key = nil
+end
 
 -- Practice mode state
 local PSTATE_IDLE    = "idle"
 local PSTATE_LOADING = "loading"
 local PSTATE_PLAYING = "playing"
-local PSTATE_RESULT  = "RESULT"
+local PSTATE_RESULT  = "result"
 
 local practice = {
     active = false,
@@ -104,6 +117,7 @@ local function practice_reset()
     practice.completed = false
     practice.result_start_ms = 0
     practice.auto_advance_ms = 2000
+    reset_transition_state()
 end
 
 -- Recording state (passive mode input capture)
@@ -451,7 +465,7 @@ local function on_level_entrance(curr, state_path)
 end
 
 local function on_death(curr)
-  if not died_flag then
+  if not transition_state.died_flag then
     local event_data = {
       event      = "death",
       level_num  = curr.level_num,
@@ -459,7 +473,7 @@ local function on_death(curr)
     }
     send_event(event_data)
   end
-  died_flag = true
+  transition_state.died_flag = true
   log("Death at level " .. curr.level_num)
 end
 
@@ -481,11 +495,15 @@ local function on_level_exit(curr)
   log("Level exit: " .. curr.level_num .. " goal=" .. goal .. " elapsed=" .. elapsed .. "ms")
 end
 
-local function detect_transitions(curr)
+local exit_this_frame = false
+
+local function detect_death(curr)
   if curr.player_anim == 9 and prev.player_anim ~= 9 then
     on_death(curr)
   end
+end
 
+local function detect_checkpoint(curr)
   -- Checkpoint detection (composite condition)
   local got_orb     = curr.io_port == 3
   local got_goal    = curr.fanfare == 1 or curr.io_port == 4
@@ -498,57 +516,61 @@ local function detect_transitions(curr)
 
   -- CPEntrance: value shifted, not to firstRoom, excluding goal/orb/key/fadeout
   local cp_entrance_hit = (prev.cp_entrance ~= nil and curr.cp_entrance ~= prev.cp_entrance
-      and curr.cp_entrance ~= first_cp_entrance)
+      and curr.cp_entrance ~= transition_state.first_cp_entrance)
       and not got_orb and not got_goal and not got_key and not got_fadeout
 
   local cp_hit = midway_hit or cp_entrance_hit
 
   if cp_hit then
-    cp_ordinal = cp_ordinal + 1
+    transition_state.cp_ordinal = transition_state.cp_ordinal + 1
     cp_acquired = true
     -- After first CP, clear firstRoom so future cpEntrance shifts are real CPs
     -- Setting to 0 is safe: cpEntrance values are room IDs (non-zero in levels)
-    first_cp_entrance = 0
+    transition_state.first_cp_entrance = 0
     -- Capture hot save state
     if game_id then
-      local state_path = STATE_DIR .. "/" .. game_id .. "/" .. curr.level_num .. "_cp" .. cp_ordinal .. "_hot.mss"
-      pending_save = state_path
+      local state_path = STATE_DIR .. "/" .. game_id .. "/" .. curr.level_num .. "_cp" .. transition_state.cp_ordinal .. "_hot.mss"
+      table.insert(pending_saves, state_path)
       local event_data = {
         event       = "checkpoint",
         level_num   = curr.level_num,
         cp_type     = midway_hit and "midway" or "cp_entrance",
-        cp_ordinal  = cp_ordinal,
+        cp_ordinal  = transition_state.cp_ordinal,
         timestamp_ms = ts_ms(),
         state_path  = state_path,
       }
       send_event(event_data)
-      log("Checkpoint: level " .. curr.level_num .. " cp" .. cp_ordinal .. " (" .. (midway_hit and "midway" or "cp_entrance") .. ")")
+      log("Checkpoint: level " .. curr.level_num .. " cp" .. transition_state.cp_ordinal .. " (" .. (midway_hit and "midway" or "cp_entrance") .. ")")
     end
   end
+end
 
+local function detect_exit(curr)
   -- Exit detection MUST come before entrance detection.  If level_start and
   -- exit_mode both transition 0→1 on the same frame (common during SMW goal
   -- sequences), exit must consume ref_pending_start first so the entrance
   -- handler doesn't overwrite it.
-  local exit_this_frame = curr.exit_mode ~= 0 and prev.exit_mode == 0
+  exit_this_frame = curr.exit_mode ~= 0 and prev.exit_mode == 0
   if exit_this_frame then
     on_level_exit(curr)
   end
+end
 
+local function detect_entrance(curr)
   -- Level entrance: levelStart 0→1 (kaizosplits "LevelStart").
   -- Fires once when the player appears in the level — does NOT fire for
   -- sublevel pipe/door transitions, only for fresh level entry or death respawn.
   -- Suppress if exit_mode also transitioned this frame (spurious transition
   -- during goal sequence — not a real level entry).
   if curr.level_start == 1 and prev.level_start == 0 and not exit_this_frame then
-    if died_flag then
+    if transition_state.died_flag then
       -- Spawn: respawn after death
       local state_captured = false
       local state_path = nil
       local was_cp_acquired = cp_acquired  -- capture before clearing
       if cp_acquired and game_id then
-        state_path = STATE_DIR .. "/" .. game_id .. "/" .. curr.level_num .. "_cp" .. cp_ordinal .. "_cold.mss"
-        pending_save = state_path
+        state_path = STATE_DIR .. "/" .. game_id .. "/" .. curr.level_num .. "_cp" .. transition_state.cp_ordinal .. "_cold.mss"
+        table.insert(pending_saves, state_path)
         state_captured = true
         cp_acquired = false  -- only capture first cold spawn per CP
       end
@@ -556,19 +578,19 @@ local function detect_transitions(curr)
         event          = "spawn",
         level_num      = curr.level_num,
         is_cold_cp     = was_cp_acquired,
-        cp_ordinal     = cp_ordinal,
+        cp_ordinal     = transition_state.cp_ordinal,
         timestamp_ms   = ts_ms(),
         state_captured = state_captured,
         state_path     = state_path or "",
       }
       send_event(event_data)
-      died_flag = false
-      log("Spawn at level " .. curr.level_num .. (was_cp_acquired and (" — cold CP" .. cp_ordinal .. " captured") or ""))
+      transition_state.died_flag = false
+      log("Spawn at level " .. curr.level_num .. (was_cp_acquired and (" — cold CP" .. transition_state.cp_ordinal .. " captured") or ""))
     else
       -- Put: fresh level entry
-      cp_ordinal = 0
+      transition_state.cp_ordinal = 0
       cp_acquired = false
-      first_cp_entrance = curr.cp_entrance  -- record initial entrance
+      transition_state.first_cp_entrance = curr.cp_entrance
       local state_path
       if not game_id then
         log("No game context yet, skipping state save")
@@ -578,14 +600,19 @@ local function detect_transitions(curr)
       else
         local state_fname = curr.level_num .. "_" .. curr.room_num .. ".mss"
         state_path = STATE_DIR .. "/" .. game_id .. "/" .. state_fname
-        if pending_save then
-          log("WARNING: pending_save overwritten (was: " .. pending_save .. ")")
-        end
-        pending_save = state_path
+        table.insert(pending_saves, state_path)
       end
       on_level_entrance(curr, state_path)
     end
   end
+end
+
+local function detect_transitions(curr)
+  detect_death(curr)
+  detect_checkpoint(curr)
+  -- Exit MUST come before entrance (same-frame ordering)
+  detect_exit(curr)
+  detect_entrance(curr)
 end
 
 -----------------------------------------------------------------------
@@ -626,7 +653,7 @@ local function handle_practice(curr)
   elseif practice.state == PSTATE_PLAYING then
     -- Death check (higher priority than exit/finish)
     if curr.player_anim == 9 and prev.player_anim ~= 9 then
-      pending_load = practice.segment.state_path
+      table.insert(pending_loads, practice.segment.state_path)
       log("Practice: death — reloading state")
 
     elseif practice.segment.end_type == "checkpoint" then
@@ -639,7 +666,7 @@ local function handle_practice(curr)
       local midway_hit = (prev.midway == 0 and curr.midway == 1)
           and not got_orb and not got_goal and not got_key and not got_fadeout
       local cp_entrance_hit = (prev.cp_entrance ~= nil and curr.cp_entrance ~= prev.cp_entrance
-          and curr.cp_entrance ~= first_cp_entrance)
+          and curr.cp_entrance ~= transition_state.first_cp_entrance)
           and not got_orb and not got_goal and not got_key and not got_fadeout
 
       if midway_hit or cp_entrance_hit then
@@ -692,6 +719,40 @@ local function handle_practice(curr)
 end
 
 -----------------------------------------------------------------------
+-- DISCONNECT CLEANUP
+-----------------------------------------------------------------------
+local function disconnect_cleanup()
+  if practice.active then
+    practice_reset()
+    pending_loads     = {}
+    pending_saves     = {}
+    pending_reset     = true
+    log("Practice auto-cleared on disconnect — reset queued")
+  end
+  if recording.active then
+    recording.active = false
+    recording.buffer = {}
+    recording.frame_index = 0
+    if recording.output_path then
+      local mss = recording.output_path:gsub("%.spinrec$", ".mss")
+      os.remove(mss)
+    end
+    recording.output_path = nil
+    log("Recording auto-cleared on disconnect")
+  end
+  if replay.active then
+    replay.active = false
+    replay.frames = {}
+    replay.index = 1
+    if replay.prev_speed and emu.setSpeed then
+      emu.setSpeed(replay.prev_speed)
+    end
+    replay.path = nil
+    log("Replay auto-cleared on disconnect")
+  end
+end
+
+-----------------------------------------------------------------------
 -- TCP SERVER
 -----------------------------------------------------------------------
 local function init_tcp()
@@ -711,247 +772,232 @@ end
 local heartbeat_counter = 0
 local HEARTBEAT_INTERVAL = 60  -- frames between heartbeat pings (~1 second)
 
-local function handle_tcp()
-  if not client then
-    local c = server:accept()
-    if c then
-      c:settimeout(0)
-      client = c
-      heartbeat_counter = 0
-      log("TCP client connected")
-      -- Send ROM info for game auto-discovery
-      local rom_fname = get_rom_filename()
-      c:send(to_json({event = "rom_info", filename = rom_fname}) .. "\n")
-      log("Sent rom_info: " .. rom_fname)
+local function tcp_accept()
+  local c = server:accept()
+  if c then
+    c:settimeout(0)
+    client = c
+    heartbeat_counter = 0
+    log("TCP client connected")
+    -- Send ROM info for game auto-discovery
+    local rom_fname = get_rom_filename()
+    c:send(to_json({event = "rom_info", filename = rom_fname}) .. "\n")
+    log("Sent rom_info: " .. rom_fname)
+  end
+end
+
+local function tcp_heartbeat()
+  heartbeat_counter = heartbeat_counter + 1
+  if heartbeat_counter >= HEARTBEAT_INTERVAL then
+    heartbeat_counter = 0
+    local _, send_err = client:send("heartbeat\n")
+    if send_err then
+      log("TCP heartbeat failed: " .. tostring(send_err) .. " — client is dead")
+      pcall(function() client:close() end)
+      client = nil
+      disconnect_cleanup()
+      return false
+    end
+  end
+  return true
+end
+
+local function handle_json_message(line)
+  local decoded_event = json_get_str(line, "event")
+  if decoded_event == "game_context" then
+    game_id = json_get_str(line, "game_id")
+    local gname = json_get_str(line, "game_name") or game_id or "unknown"
+    if game_id then
+      ensure_dir(STATE_DIR .. "/" .. game_id)
+    end
+    log("Game context: " .. gname .. " (" .. (game_id or "nil") .. ")")
+  elseif decoded_event == "reference_start" then
+    local path = json_get_str(line, "path")
+    if not path or path == "" then
+      client:send(to_json({event = "error", message = "reference_start requires path"}) .. "\n")
+    else
+      recording.active = true
+      recording.buffer = {}
+      recording.frame_index = 0
+      recording.output_path = path
+      client:send("ok:recording\n")
+      log("Recording started: " .. path)
+    end
+  elseif decoded_event == "reference_stop" then
+    if recording.active then
+      recording.active = false
+      local path = recording.output_path
+      local count = #recording.buffer
+      if count > 0 and path then
+        flush_spinrec(path, game_id, recording.buffer)
+        send_event({event = "rec_saved", path = path, frame_count = count})
+      end
+      recording.buffer = {}
+      recording.frame_index = 0
+      recording.output_path = nil
+      client:send("ok:stopped\n")
+      log("Recording stopped: " .. count .. " frames")
+    else
+      client:send("ok:not_recording\n")
+    end
+  elseif decoded_event == "replay" then
+    if practice.active or recording.active then
+      client:send(to_json({event = "replay_error", message = "cannot replay during practice or recording"}) .. "\n")
+    else
+      local path = json_get_str(line, "path")
+      local speed = json_get_num(line, "speed") or 0
+      if not path then
+        client:send(to_json({event = "replay_error", message = "replay requires path"}) .. "\n")
+      else
+        local rec, read_err = read_spinrec(path)
+        if not rec then
+          client:send(to_json({event = "replay_error", message = read_err}) .. "\n")
+        elseif game_id and rec.game_id:gsub("%z+$", "") ~= game_id then
+          client:send(to_json({event = "replay_error", message = "game_id mismatch"}) .. "\n")
+        else
+          replay.frames = rec.frames
+          replay.total = rec.frame_count
+          replay.index = 1
+          replay.path = path
+          replay.speed = speed
+          replay.last_progress_ms = os.clock() * 1000
+          -- Load companion .mss
+          local mss_path = path:gsub("%.spinrec$", ".mss")
+          table.insert(pending_loads, mss_path)
+          -- Set speed (PoC validation: confirm emu.setSpeed exists)
+          replay.prev_speed = json_get_num(line, "prev_speed") or 100
+          if emu.setSpeed then
+            emu.setSpeed(speed)
+          end
+          replay.active = true
+          client:send(to_json({event = "replay_started", path = path, frame_count = rec.frame_count}) .. "\n")
+          log("Replay started: " .. path .. " (" .. rec.frame_count .. " frames, speed=" .. speed .. ")")
+        end
+      end
+    end
+  elseif decoded_event == "replay_stop" then
+    if replay.active then
+      replay.active = false
+      replay.frames = {}
+      replay.index = 1
+      if replay.prev_speed and emu.setSpeed then
+        emu.setSpeed(replay.prev_speed)
+      end
+      replay.path = nil
+      client:send("ok:replay_stopped\n")
+      log("Replay stopped by command")
+    else
+      client:send("ok:not_replaying\n")
+    end
+  end
+end
+
+local text_commands = {
+  save = function()
+    table.insert(pending_saves, TEST_STATE_FILE)
+    client:send("ok:queued\n")
+  end,
+  load = function()
+    table.insert(pending_loads, TEST_STATE_FILE)
+    client:send("ok:queued\n")
+  end,
+  practice_stop = function()
+    practice_reset()
+    pending_loads     = {}
+    client:send("ok\n")
+    log("Practice mode stopped")
+  end,
+  reset = function()
+    practice_reset()
+    pending_loads     = {}
+    pending_saves     = {}
+    pending_reset     = true
+    client:send("ok\n")
+    log("Reset queued: practice cleared, SNES reset on next cpuExec")
+  end,
+  ping = function()
+    client:send("pong\n")
+  end,
+  quit = function()
+    client:send("bye\n")
+    client:close()
+    client = nil
+    log("TCP client disconnected")
+  end,
+}
+
+local prefixed_commands = {
+  ["load"] = function(arg)
+    table.insert(pending_loads, arg)
+    client:send("ok:queued\n")
+  end,
+  ["save"] = function(arg)
+    table.insert(pending_saves, arg)
+    client:send("ok:queued\n")
+  end,
+  ["practice_load"] = function(arg)
+    local json_str = arg
+    practice.segment         = parse_practice_segment(json_str)
+    practice.auto_advance_ms = practice.segment.auto_advance_delay_ms or 2000
+    practice.active          = true
+    practice.state           = PSTATE_LOADING
+    local sp = practice.segment.state_path
+    if not sp or sp == "" then
+      log("ERROR: No valid state_path for segment " .. (practice.segment.id or "?"))
+      client:send("err:no_state_path\n")
+      practice_reset()
+    else
+      table.insert(pending_loads, sp)
+      practice.start_ms = ts_ms()
+      client:send("ok:queued\n")
+      log("Practice load queued: " .. (practice.segment.id or "?"))
+    end
+  end,
+}
+
+local function tcp_dispatch(line)
+  log("TCP received: " .. line)
+  if line:sub(1, 1) == "{" then
+    handle_json_message(line)
+    return
+  end
+
+  -- Exact-match text commands
+  local handler = text_commands[line]
+  if handler then
+    handler()
+    return
+  end
+
+  -- Prefixed commands (prefix:argument)
+  local prefix, arg = line:match("^([^:]+):(.+)$")
+  if prefix then
+    local pfx_handler = prefixed_commands[prefix]
+    if pfx_handler then
+      pfx_handler(arg)
+      return
     end
   end
 
-  if client then
-    -- Periodic heartbeat: send() detects dead connections that receive() misses
-    heartbeat_counter = heartbeat_counter + 1
-    if heartbeat_counter >= HEARTBEAT_INTERVAL then
-      heartbeat_counter = 0
-      local _, send_err = client:send("heartbeat\n")
-      if send_err then
-        log("TCP heartbeat failed: " .. tostring(send_err) .. " — client is dead")
-        pcall(function() client:close() end)
-        client = nil
-        if practice.active then
-          practice_reset()
-          pending_load      = nil
-          pending_save      = nil
-          died_flag         = false
-          pending_reset     = true
-          log("Practice auto-cleared on disconnect — reset queued")
-        end
-        if recording.active then
-          recording.active = false
-          recording.buffer = {}
-          recording.frame_index = 0
-          -- Delete partial .mss if it exists
-          if recording.output_path then
-            local mss = recording.output_path:gsub("%.spinrec$", ".mss")
-            os.remove(mss)
-          end
-          recording.output_path = nil
-          log("Recording auto-cleared on disconnect")
-        end
-        if replay.active then
-          replay.active = false
-          replay.frames = {}
-          replay.index = 1
-          if replay.prev_speed and emu.setSpeed then
-            emu.setSpeed(replay.prev_speed)
-          end
-          replay.path = nil
-          log("Replay auto-cleared on disconnect")
-        end
-        return
-      end
-    end
+  client:send("err:unknown_command\n")
+end
 
-    local line, err = client:receive("*l")
-    if line then
-      log("TCP received: " .. line)
-      if line:sub(1, 1) == "{" then
-        -- Handle JSON messages from dashboard
-        local decoded_event = json_get_str(line, "event")
-        if decoded_event == "game_context" then
-          game_id = json_get_str(line, "game_id")
-          local gname = json_get_str(line, "game_name") or game_id or "unknown"
-          if game_id then
-            ensure_dir(STATE_DIR .. "/" .. game_id)
-          end
-          log("Game context: " .. gname .. " (" .. (game_id or "nil") .. ")")
-        elseif decoded_event == "reference_start" then
-          local path = json_get_str(line, "path")
-          if not path or path == "" then
-            client:send(to_json({event = "error", message = "reference_start requires path"}) .. "\n")
-          else
-            recording.active = true
-            recording.buffer = {}
-            recording.frame_index = 0
-            recording.output_path = path
-            client:send("ok:recording\n")
-            log("Recording started: " .. path)
-          end
-        elseif decoded_event == "reference_stop" then
-          if recording.active then
-            recording.active = false
-            local path = recording.output_path
-            local count = #recording.buffer
-            if count > 0 and path then
-              flush_spinrec(path, game_id, recording.buffer)
-              send_event({event = "rec_saved", path = path, frame_count = count})
-            end
-            recording.buffer = {}
-            recording.frame_index = 0
-            recording.output_path = nil
-            client:send("ok:stopped\n")
-            log("Recording stopped: " .. count .. " frames")
-          else
-            client:send("ok:not_recording\n")
-          end
-        elseif decoded_event == "replay" then
-          if practice.active or recording.active then
-            client:send(to_json({event = "replay_error", message = "cannot replay during practice or recording"}) .. "\n")
-          else
-            local path = json_get_str(line, "path")
-            local speed = json_get_num(line, "speed") or 0
-            if not path then
-              client:send(to_json({event = "replay_error", message = "replay requires path"}) .. "\n")
-            else
-              local rec, read_err = read_spinrec(path)
-              if not rec then
-                client:send(to_json({event = "replay_error", message = read_err}) .. "\n")
-              elseif game_id and rec.game_id:gsub("%z+$", "") ~= game_id then
-                client:send(to_json({event = "replay_error", message = "game_id mismatch"}) .. "\n")
-              else
-                replay.frames = rec.frames
-                replay.total = rec.frame_count
-                replay.index = 1
-                replay.path = path
-                replay.speed = speed
-                replay.last_progress_ms = os.clock() * 1000
-                -- Load companion .mss
-                local mss_path = path:gsub("%.spinrec$", ".mss")
-                pending_load = mss_path
-                -- Set speed (PoC validation: confirm emu.setSpeed exists)
-                replay.prev_speed = 100  -- assume normal speed was active
-                if emu.setSpeed then
-                  emu.setSpeed(speed)
-                end
-                replay.active = true
-                client:send(to_json({event = "replay_started", path = path, frame_count = rec.frame_count}) .. "\n")
-                log("Replay started: " .. path .. " (" .. rec.frame_count .. " frames, speed=" .. speed .. ")")
-              end
-            end
-          end
-        elseif decoded_event == "replay_stop" then
-          if replay.active then
-            replay.active = false
-            replay.frames = {}
-            replay.index = 1
-            if replay.prev_speed and emu.setSpeed then
-              emu.setSpeed(replay.prev_speed)
-            end
-            replay.path = nil
-            client:send("ok:replay_stopped\n")
-            log("Replay stopped by command")
-          else
-            client:send("ok:not_replaying\n")
-          end
-        end
-        -- Don't fall through to text command parsing for JSON messages
-      elseif line == "save" then
-        pending_save = TEST_STATE_FILE
-        client:send("ok:queued\n")
-      elseif line == "load" then
-        pending_load = TEST_STATE_FILE
-        client:send("ok:queued\n")
-      elseif line:sub(1, 5) == "load:" then
-        pending_load = line:sub(6)
-        client:send("ok:queued\n")
-      elseif line:sub(1, 5) == "save:" then
-        pending_save = line:sub(6)
-        client:send("ok:queued\n")
-      elseif line:sub(1, 14) == "practice_load:" then
-        local json_str = line:sub(15)
-        practice.segment         = parse_practice_segment(json_str)
-        practice.auto_advance_ms = practice.segment.auto_advance_delay_ms or 2000
-        practice.active          = true
-        practice.state           = PSTATE_LOADING
-        local sp = practice.segment.state_path
-        if not sp or sp == "" then
-          log("ERROR: No valid state_path for segment " .. (practice.segment.id or "?"))
-          client:send("err:no_state_path\n")
-          practice_reset()
-        else
-          pending_load      = sp
-          practice.start_ms = ts_ms()
-          client:send("ok:queued\n")
-          log("Practice load queued: " .. (practice.segment.id or "?"))
-        end
-      elseif line == "practice_stop" then
-        practice_reset()
-        pending_load      = nil  -- prevent ghost reload if stopped mid-death-retry
-        client:send("ok\n")
-        log("Practice mode stopped")
-      elseif line == "reset" then
-        practice_reset()
-        pending_load      = nil
-        pending_save      = nil
-        died_flag         = false  -- clear so first post-reset entrance is recorded
-        pending_reset     = true
-        client:send("ok\n")
-        log("Reset queued: practice cleared, SNES reset on next cpuExec")
-      elseif line == "ping" then
-        client:send("pong\n")
-      elseif line == "quit" then
-        client:send("bye\n")
-        client:close()
-        client = nil
-        log("TCP client disconnected")
-      else
-        client:send("err:unknown_command\n")
-      end
-    elseif err ~= "timeout" then
-      -- any error other than "no data yet" = connection gone (closed, reset, etc.)
-      log("TCP client disconnected: " .. tostring(err))
-      pcall(function() client:close() end)  -- safe close, may already be dead
-      client = nil
-      if practice.active then
-        -- Orchestrator died while practice was active — auto-clear and reset
-        practice_reset()
-        pending_load      = nil
-        pending_save      = nil
-        died_flag         = false
-        pending_reset     = true
-        log("Practice auto-cleared on disconnect — reset queued")
-      end
-      if recording.active then
-        recording.active = false
-        recording.buffer = {}
-        recording.frame_index = 0
-        -- Delete partial .mss if it exists
-        if recording.output_path then
-          local mss = recording.output_path:gsub("%.spinrec$", ".mss")
-          os.remove(mss)
-        end
-        recording.output_path = nil
-        log("Recording auto-cleared on disconnect")
-      end
-      if replay.active then
-        replay.active = false
-        replay.frames = {}
-        replay.index = 1
-        if replay.prev_speed and emu.setSpeed then
-          emu.setSpeed(replay.prev_speed)
-        end
-        replay.path = nil
-        log("Replay auto-cleared on disconnect")
-      end
-    end
+local function handle_tcp()
+  if not client then
+    tcp_accept()
+    return
+  end
+  if not tcp_heartbeat() then return end
+
+  local line, err = client:receive("*l")
+  if line then
+    tcp_dispatch(line)
+  elseif err ~= "timeout" then
+    -- any error other than "no data yet" = connection gone (closed, reset, etc.)
+    log("TCP client disconnected: " .. tostring(err))
+    pcall(function() client:close() end)  -- safe close, may already be dead
+    client = nil
+    disconnect_cleanup()
   end
 end
 
@@ -967,14 +1013,13 @@ end
 
 local function check_keyboard()
   -- T = save state, Y = load state (fires once per keypress)
-  if key_just_pressed("T") then pending_save = TEST_STATE_FILE end
-  if key_just_pressed("Y") then pending_load = TEST_STATE_FILE end
+  if key_just_pressed("T") then table.insert(pending_saves, TEST_STATE_FILE) end
+  if key_just_pressed("Y") then table.insert(pending_loads, TEST_STATE_FILE) end
 end
 
 local function on_cpu_exec(address)
-  if pending_save then
-    local path = pending_save
-    pending_save = nil
+  while #pending_saves > 0 do
+    local path = table.remove(pending_saves, 1)
     save_state_to_file(path)
   end
   if pending_rec_save then
@@ -982,9 +1027,8 @@ local function on_cpu_exec(address)
     pending_rec_save = nil
     save_state_to_file(path)
   end
-  if pending_load then
-    local path = pending_load
-    pending_load = nil
+  while #pending_loads > 0 do
+    local path = table.remove(pending_loads, 1)
     load_state_from_file(path)
   end
   if pending_reset then
@@ -1004,6 +1048,19 @@ local function on_input_polled()
     local input = emu.getInput(0)
     recording.buffer[#recording.buffer + 1] = encode_input(input)
     recording.frame_index = recording.frame_index + 1
+    if recording.frame_index >= MAX_RECORDING_FRAMES then
+      log("WARNING: Recording hit MAX_RECORDING_FRAMES (" .. MAX_RECORDING_FRAMES .. "), auto-stopping")
+      local path = recording.output_path
+      local count = #recording.buffer
+      if count > 0 and path then
+        flush_spinrec(path, game_id, recording.buffer)
+        send_event({event = "rec_saved", path = path, frame_count = count})
+      end
+      recording.active = false
+      recording.buffer = {}
+      recording.frame_index = 0
+      recording.output_path = nil
+    end
   elseif replay.active and replay.index <= replay.total then
     emu.setInput(0, decode_input(replay.frames[replay.index]))
     replay.index = replay.index + 1

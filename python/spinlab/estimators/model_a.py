@@ -44,7 +44,9 @@ class ModelAEstimator(Estimator):
             return ModelOutput(0.0, 0.0, 0.0, 0.0, 0.0)
 
         total_times = [a.time_ms for a in completed]
-        clean_tails = [a.clean_tail_ms for a in completed]
+        clean_tails = [a.clean_tail_ms for a in completed if a.clean_tail_ms is not None]
+        if not clean_tails:
+            clean_tails = total_times[:]
         n = len(completed)
 
         # Window sizes

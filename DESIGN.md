@@ -2,23 +2,27 @@
 
 ## 1. System Overview
 
-SpinLab turns speedrun practice into a spaced-repetition loop. It has three runtime modes:
+SpinLab turns speedrun practice into a spaced-repetition loop. It has five runtime modes:
 
-**Passive Mode**: Always on during normal play. Watches SNES memory for section transitions, logs times to a JSONL file. Zero overhead — just lightweight memory reads on frame callbacks. Real-run data feeds into practice scheduling.
+**Idle Mode** (default): Lua is passive. Watches SNES memory for section transitions, logs times. Zero overhead — just lightweight memory reads on frame callbacks.
 
-**Capture Mode**: Extension of passive mode during a designated "reference run." On each transition, also saves a state file to disk. Produces a manifest mapping split IDs to state files and reference times.
+**Reference Mode**: Extension of idle mode during a designated "reference run." On each transition, saves a state file to disk and records controller inputs to a `.spinrec` binary file. Produces segments with save states in the database.
 
-**Practice Mode**: The core loop. Python orchestrator connects via TCP, tells Lua which state to load. Player completes the section (or dies). Lua detects completion, shows overlay with time and rating prompt. Player rates via L+D-pad. Orchestrator picks next split. Repeat.
+**Replay Mode**: Loads a `.spinrec` recording + companion `.mss` save state, injects recorded inputs via `emu.setInput()` at configurable speed. Segment events fire through `detect_transitions()` tagged with `source: "replay"`.
+
+**Practice Mode**: The core loop. Python orchestrator connects via TCP, tells Lua which state to load. Player completes the section (or dies). Lua detects completion, shows overlay with time and rating prompt. Orchestrator picks next segment via estimator+allocator pipeline. Repeat.
+
+**Fill-gap Mode**: Loads a "hot" save state for a segment so the player can die and capture the missing "cold" (respawn) variant.
 
 ---
 
 ## 2. Lua Script Operations
 
-The Lua script (`lua/split_tank.lua`) is a single always-on script loaded at Mesen2 startup. It handles all emulator-side logic.
+The Lua script (`lua/spinlab.lua`) is a single always-on script loaded at Mesen2 startup. It handles all emulator-side logic.
 
 ### 2.1 Startup / Initialization
 
-- Load game-specific memory address config (from a Lua table at top of script, or a separate `addresses.lua` file)
+- Load game-specific memory address config (from a Lua table at top of script — `ADDR_*` constants)
 - Initialize state tracking variables (current_level, current_room, player_state, timer)
 - Register `startFrame` event callback (main loop hook)
 - Register `stateLoaded` / `stateSaved` event callbacks (detect manual save/load for passive logging)
@@ -41,51 +45,43 @@ EVERY FRAME:
      - checkpoint_flags
      - frame_counter (for timing)
 
-  2. Detect transitions:
-     - Level start: level_number changed AND player_state == alive
-     - Room change: room_id changed within same level
-     - Death: player_state transitioned to dead
-     - Goal reached: player_state == goal (check goal_type for normal/secret)
-     - CP reached: checkpoint_flag newly set
+  2. Detect transitions (via `detect_transitions()`):
+     - Level entrance: `level_start` 0→1 (fires `level_entrance` event)
+     - Death: `player_anim` transitioned to 9 (fires `death` event)
+     - Spawn: `level_start` 0→1 after death flag set (fires `spawn` event)
+     - Checkpoint: midway 0→1 or cp_entrance changed (fires `checkpoint` event)
+     - Level exit: `exit_mode` 0→non-zero (fires `level_exit` event)
+     - Exit order matters: exit detection runs before entrance to prevent spurious re-entries
 
   3. On any transition:
-     IF mode == PASSIVE or mode == CAPTURE:
-       - Log transition event to JSONL (append to file)
-       - IF mode == CAPTURE:
-         - Save state: data = emu.saveSavestate()
-         - Write to file: io.open(path, "wb"):write(data)
-         - Log state file path in capture manifest
+     IF NOT in practice mode:
+       - Optionally log transition event to JSONL (if `JSONL_LOGGING = true`)
+       - Send event over TCP via `send_event()` (tagged with `source: "replay"` if replaying)
+       - If `game_id` is set, save state files at level entrances, checkpoints, and cold spawns
 
      IF mode == PRACTICE:
-       - IF transition is "section complete" (goal reached or next-split-start):
+       - `send_event()` is suppressed — practice mode uses its own completion detection
+       - IF transition is "section complete" (goal reached):
          - Record completion time
-         - Enter RATING state (sublstate of practice)
+         - Enter RESULT state (substate of practice)
        - IF transition is "death":
-         - Record death
-         - Enter RATING state with completed=false
+         - Record death, increment death counter
+         - Reload current segment's save state (retry loop)
 
-  4. IF mode == PRACTICE and state == RATING:
-     - Draw overlay: split name, goal, your time vs reference, rating prompt
-     - Read controller via joypad/input:
-       L + Left  = "again"  (needs much more practice)
-       L + Down  = "hard"   (keep at current frequency)
-       L + Up    = "good"   (can space out more)
-       L + Right = "easy"   (push way back)
-       R         = skip (no rating, just next)
-       Select+Start = exit practice mode
-     - On rating received:
-       - Send result to orchestrator via TCP
-       - Wait for next command from orchestrator
-       - Load state: data = io.open(path, "rb"):read("*a"); emu.loadSavestate(data)
-       - Clear overlay, resume play
+  4. IF mode == PRACTICE and state == RESULT:
+     - Draw overlay: segment name, goal, your time vs expected, auto-advance timer
+     - After `auto_advance_delay_ms`, send `attempt_result` event over TCP
+     - Wait for next `practice_load:` command from orchestrator
+     - Load state: data = io.open(path, "rb"):read("*a"); emu.loadSavestate(data)
+     - Clear overlay, resume play
 
   5. IF mode == PRACTICE and state == PLAYING:
-     - Draw minimal overlay: split name, goal variant, running timer
+     - Draw minimal overlay: segment name, end condition, running timer
      - Non-blocking TCP check for abort/skip commands (very cheap)
 
-  6. IF mode == PASSIVE:
-     - Non-blocking TCP accept (check for orchestrator connecting)
-     - If connection received and handshake valid, switch to PRACTICE mode
+  6. IF idle (no practice/replay active):
+     - Non-blocking TCP accept (check for dashboard connecting)
+     - If connection received, send `rom_info` event for game auto-discovery
 ```
 
 ### 2.3 Overlay Drawing
@@ -96,31 +92,27 @@ Using Mesen2's `emu.drawString()` / `emu.drawRectangle()`:
 ```
 ┌─────────────────────────────┐
 │ Forest of Illusion 2        │
-│ Goal: SECRET EXIT           │
+│ End: GOAL                   │
 │ ⏱ 12.43                    │
 └─────────────────────────────┘
 ```
 
-**During practice (rating):**
+**During practice (result — auto-advancing):**
 ```
 ┌─────────────────────────────┐
 │ Forest of Illusion 2        │
-│ Goal: SECRET EXIT           │
-│ Time: 34.21  (ref: 34.20)  │
-│                             │
-│ L+←Again  L+↓Hard          │
-│ L+↑Good   L+→Easy   R=Skip │
+│ End: GOAL                   │
+│ Time: 34.21  (exp: 34.20)  │
+│ Auto-advance in 1.0s        │
 └─────────────────────────────┘
 ```
 
-**During practice (death):**
+**During practice (death — auto-retries):**
 ```
 ┌─────────────────────────────┐
 │ Forest of Illusion 2  DIED  │
-│ Goal: SECRET EXIT           │
-│                             │
-│ L+←Again  L+↓Hard          │
-│ L+↑Good   L+→Easy   R=Skip │
+│ Deaths: 2                   │
+│ Reloading...                │
 └─────────────────────────────┘
 ```
 
@@ -130,9 +122,9 @@ Lua hosts a TCP server. Python connects as client. One connection at a time.
 
 ### 2.5 File I/O
 
-- **JSONL log** (`data/passive_log.jsonl`): Append-only, one JSON object per line per transition event
-- **Save state files** (`data/states/{split_id}.mss`): Binary blobs from `emu.saveSavestate()`
-- **Capture manifest** (`data/captures/{timestamp}_manifest.yaml`): Generated during reference runs
+- **JSONL log** (`{scriptDataFolder}/passive_log.jsonl`): Append-only, one JSON object per line per transition event (only if `JSONL_LOGGING = true`)
+- **Save state files** (`{scriptDataFolder}/states/{game_id}/{level}_{room}.mss`, `{level}_cp{n}_hot.mss`, `{level}_cp{n}_cold.mss`): Binary blobs from `emu.createSavestate()`
+- **Input recordings** (`data/{game_id}/rec/{run_id}.spinrec`): Binary `.spinrec` files with companion `.mss` save states
 
 ---
 
@@ -142,328 +134,375 @@ TCP socket, newline-delimited JSON messages. Port 15482 (configurable).
 
 ### 3.1 Python → Lua Messages
 
+Messages use `"event"` as the type field. Two formats are supported:
+
+**JSON messages** (start with `{`):
 ```jsonc
-// Handshake (first message after connect)
-{"type": "hello", "version": 1}
+// Set game context (sent after rom_info auto-discovery)
+{"event": "game_context", "game_id": "abc123", "game_name": "SMW Hack"}
 
-// Enter practice mode with first split
-{"type": "practice_start", "split": {
-  "id": "foi2-secret",
-  "state_path": "/abs/path/to/foi2_start.mss",
-  "goal": "secret_exit",
-  "description": "Take pipe at CP, keyhole in hidden room",
-  "reference_time_ms": 34200
-}}
+// Start recording controller inputs during reference run
+{"event": "reference_start", "path": "/abs/path/to/run.spinrec"}
 
-// Load next split (sent after receiving rating result)
-{"type": "load_split", "split": {
-  "id": "vanilla_dome_2-normal",
-  "state_path": "/abs/path/to/vd2_start.mss",
-  "goal": "normal_exit",
-  "description": "",
-  "reference_time_ms": 28100
-}}
+// Stop recording
+{"event": "reference_stop"}
 
-// Abort current practice
-{"type": "practice_stop"}
+// Start replay of a .spinrec file
+{"event": "replay", "path": "/abs/path/to/run.spinrec", "speed": 0}
 
-// Request current status
-{"type": "status"}
+// Stop replay
+{"event": "replay_stop"}
+
+// Load state for fill-gap mode
+{"event": "fill_gap_load", "state_path": "/abs/path/to/state.mss", "message": "Die to capture cold start"}
+```
+
+**Text commands** (plain strings, no JSON):
+```
+ping                                    → pong
+save                                    → ok:queued (save test state)
+load                                    → ok:queued (load test state)
+save:/abs/path.mss                      → ok:queued
+load:/abs/path.mss                      → ok:queued
+practice_load:{json}                    → ok:queued (load segment for practice)
+practice_stop                           → ok
+reset                                   → ok (stops practice, queues SNES reset)
+quit                                    → bye (closes connection)
+```
+
+The `practice_load` JSON payload matches `SegmentCommand.to_dict()`:
+```jsonc
+{"id": "gameid:105:entrance.0:goal.0",
+ "state_path": "/abs/path/to/state.mss",
+ "description": "Level description",
+ "end_type": "goal",
+ "expected_time_ms": 34200,
+ "auto_advance_delay_ms": 1000}
 ```
 
 ### 3.2 Lua → Python Messages
 
+**JSON events** (sent via `send_event()`):
 ```jsonc
-// Handshake response
-{"type": "hello_ack", "game": "smw_cod", "emulator": "mesen2"}
+// Auto-discovery: sent immediately on TCP connect
+{"event": "rom_info", "filename": "hack.sfc"}
 
-// Section completed
-{"type": "split_result", "split_id": "foi2-secret",
- "completed": true, "time_ms": 34210,
- "goal_matched": true,  // did they take the right exit?
- "death_count": 0}
+// Transition events (sent in idle, reference, and replay modes):
+{"event": "level_entrance", "level": 105, "room": 1, "frame": 0, "ts_ms": 12345, "state_path": "/path.mss"}
+{"event": "death", "level_num": 105, "timestamp_ms": 12345}
+{"event": "spawn", "level_num": 105, "is_cold_cp": true, "cp_ordinal": 1, "state_captured": true, "state_path": "/path.mss"}
+{"event": "checkpoint", "level_num": 105, "cp_type": "midway", "cp_ordinal": 1, "state_path": "/path.mss"}
+{"event": "level_exit", "level": 105, "room": 1, "goal": "normal", "elapsed_ms": 34210, "frame": 2050, "ts_ms": 46555}
 
-// Player rated the split
-{"type": "rating", "split_id": "foi2-secret", "rating": "good"}
-// rating is one of: "again", "hard", "good", "easy", "skip"
+// Replay events fire with "source": "replay" added to transition events
+{"event": "replay_started", "path": "/path.spinrec", "frame_count": 12000}
+{"event": "replay_progress", "frame": 6000, "total": 12000}
+{"event": "replay_finished", "path": "/path.spinrec", "frames_played": 12000}
+{"event": "replay_error", "message": "game_id mismatch"}
 
-// Practice mode exited by player (Select+Start)
-{"type": "practice_exit"}
+// Recording saved
+{"event": "rec_saved", "path": "/path.spinrec", "frame_count": 12000}
 
-// Status response
-{"type": "status_ack", "mode": "passive", "current_level": 105,
- "session_splits_completed": 0}
-
-// Passive mode event (logged to JSONL too, but also sent over TCP if connected)
-{"type": "transition", "event": "level_start", "level": 105,
- "room": 1, "timestamp_ms": 1234567890}
+// Practice result (sent after auto-advance delay)
+{"event": "attempt_result", "segment_id": "gameid:105:entrance.0:goal.0",
+ "completed": true, "time_ms": 34210, "goal": "goal"}
 ```
+
+**Plain text responses**: `pong`, `ok`, `ok:queued`, `ok:recording`, `ok:stopped`, `ok:replay_stopped`, `bye`, `err:unknown_command`, `err:no_state_path`, `heartbeat`
 
 ### 3.3 Connection Lifecycle
 
 1. Lua starts TCP server on init, non-blocking accept
-2. Python orchestrator connects when user starts a practice session
-3. Python sends `hello`, Lua responds `hello_ack`
-4. Python sends `practice_start` with first split
-5. Loop: Lua sends `split_result` + `rating` → Python sends `load_split`
-6. Session ends via `practice_stop` (from Python) or `practice_exit` (from Lua/player)
-7. TCP connection closes, Lua reverts to passive mode
+2. Dashboard's `TcpManager` connects (auto-reconnect loop)
+3. Lua sends `rom_info` immediately; dashboard responds with `game_context`
+4. Dashboard sends `reference_start` / `replay` / `practice_load:` as needed
+5. Practice loop: Lua sends `attempt_result` → Python sends next `practice_load:`
+6. Reference/replay: Lua sends transition events → Python routes via `SessionManager.route_event()`
+7. Heartbeat: Lua sends `heartbeat` every N frames to detect dead connections
+8. On disconnect, `SessionManager.on_disconnect()` enters draft mode if segments were captured
+
+### 3.4 SSE Contract
+
+The dashboard uses Server-Sent Events (`GET /api/events`) as the primary update mechanism with polling fallback (`GET /api/state`).
+
+**Endpoint**: `GET /api/events` (text/event-stream)
+
+Each SSE message is a `data:` frame containing the full state JSON (same shape as `GET /api/state`):
+
+```jsonc
+{
+  "mode": "practice",           // "idle" | "reference" | "practice" | "replay" | "fill_gap"
+  "tcp_connected": true,
+  "game_id": "abc123def456",
+  "game_name": "SMW Hack",
+  "current_segment": {          // null if not practicing
+    "id": "abc123:105:entrance.0:goal.0",
+    "description": "Level name",
+    "level_number": 105,
+    "state_path": "/path.mss",
+    "attempt_count": 3,
+    "model_outputs": {          // all estimator outputs for current segment
+      "kalman": {"expected_time_ms": 34200, "clean_expected_ms": 30000, ...},
+      "model_a": {...},
+      "model_b": {...}
+    },
+    "selected_model": "kalman"
+  },
+  "queue": [],                  // next 2 segments to practice
+  "recent": [],                 // last 8 attempts
+  "session": {                  // null if not practicing
+    "id": "uuid",
+    "started_at": "2026-03-27T...",
+    "segments_attempted": 5,
+    "segments_completed": 3
+  },
+  "sections_captured": 0,      // segments captured during reference/replay
+  "allocator": "greedy",
+  "estimator": "kalman",
+  "draft": null,                // or {"run_id": "...", "segments_captured": N}
+  "replay": null                // or {"rec_path": "/path.spinrec"} during replay
+}
+```
+
+Keepalive comments (`: keepalive\n\n`) are sent every 30s when idle. The frontend reconnects automatically on disconnect.
+
+---
+
+### 3.5 Architecture: Python Module Decomposition
+
+The Python backend is decomposed as follows:
+
+- **`SessionManager`** (`session_manager.py`): Central state owner. Owns mode, game context, scheduler reference, practice session. Single `route_event()` entry point dispatches TCP events to handlers. Pushes state updates to SSE subscribers.
+
+- **`ReferenceCapture`** (`reference_capture.py`): Stateful handler for pairing transition events into segments during reference runs and replays. Tracks pending start, segment count, death flag. Extracted from SessionManager.
+
+- **`DraftManager`** (`draft_manager.py`): Manages draft capture run lifecycle (save/discard/recover). Extracted from SessionManager.
+
+- **`TcpManager`** (`tcp_manager.py`): Async TCP client wrapper. Single reader coroutine dispatches events to an `asyncio.Queue`. Both reference capture and practice loop read from the same queue.
+
+- **`Scheduler`** (`scheduler.py`): Wires estimators + allocator together. Runs all registered estimators on each attempt; the active estimator selection only affects which `ModelOutput` the allocator reads.
+
+- **`PracticeSession`** (`practice.py`): Manages the practice loop — picks segments via scheduler, sends `practice_load:` commands, receives `attempt_result` events, logs attempts.
+
+**Mode enum with legal transitions** (`models.py`):
+```
+IDLE → REFERENCE, PRACTICE, FILL_GAP
+REFERENCE → IDLE, REPLAY
+PRACTICE → IDLE
+REPLAY → IDLE
+FILL_GAP → IDLE
+```
 
 ---
 
 ## 4. Database Schema
 
-SQLite. File: `data/split_tank.db`
+SQLite. File: `data/spinlab.db`
 
 ```sql
--- A game + category combination
+-- A game + category combination (auto-discovered from ROM checksums)
 CREATE TABLE games (
-  id TEXT PRIMARY KEY,          -- e.g. "smw_cod"
-  name TEXT NOT NULL,           -- "SMW: City of Dreams"
+  id TEXT PRIMARY KEY,          -- truncated SHA-256 of ROM file (16 hex chars)
+  name TEXT NOT NULL,           -- derived from ROM filename
   category TEXT NOT NULL,       -- "any%"
   created_at TEXT NOT NULL      -- ISO 8601
 );
 
--- A section/split that can be practiced
-CREATE TABLE splits (
-  id TEXT PRIMARY KEY,          -- deterministic from game state: "{game_id}:{level}:{room}:{goal}"
+-- A segment that can be practiced (deterministic ID from game state)
+CREATE TABLE segments (
+  id TEXT PRIMARY KEY,          -- "{game_id}:{level}:{start_type}.{start_ord}:{end_type}.{end_ord}"
   game_id TEXT NOT NULL REFERENCES games(id),
   level_number INTEGER NOT NULL,
-  room_id INTEGER,
-  goal TEXT NOT NULL,            -- "normal_exit", "secret_exit", "checkpoint", etc.
-  description TEXT DEFAULT '',   -- human notes, displayed on overlay
-  state_path TEXT,               -- path to .mss save state file (null if not yet captured)
-  reference_time_ms INTEGER,     -- from reference run
-  strat_version INTEGER DEFAULT 1,  -- incremented on strat change
-  active INTEGER DEFAULT 1,      -- 0 if archived (removed from reference)
+  start_type TEXT NOT NULL,       -- 'entrance', 'checkpoint'
+  start_ordinal INTEGER NOT NULL DEFAULT 0,
+  end_type TEXT NOT NULL,         -- 'checkpoint', 'goal'
+  end_ordinal INTEGER NOT NULL DEFAULT 0,
+  description TEXT DEFAULT '',
+  strat_version INTEGER DEFAULT 1,
+  active INTEGER DEFAULT 1,       -- 0 if archived
+  ordinal INTEGER,                -- display/practice order
+  reference_id TEXT REFERENCES capture_runs(id),  -- which capture run created this
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 
--- Spaced repetition schedule state per split
-CREATE TABLE schedule (
-  split_id TEXT PRIMARY KEY REFERENCES splits(id),
-  ease_factor REAL DEFAULT 2.5,    -- SM-2 ease factor, min 1.3
-  interval_minutes REAL DEFAULT 5, -- adapted from SM-2 days to minutes
-  repetitions INTEGER DEFAULT 0,   -- consecutive successful reviews
-  next_review TEXT NOT NULL,       -- ISO 8601 datetime
-  updated_at TEXT NOT NULL
+-- Save state variants per segment (cold = respawn, hot = checkpoint moment)
+CREATE TABLE segment_variants (
+  segment_id TEXT NOT NULL REFERENCES segments(id),
+  variant_type TEXT NOT NULL,     -- 'cold', 'hot'
+  state_path TEXT NOT NULL,
+  is_default INTEGER DEFAULT 0,
+  PRIMARY KEY (segment_id, variant_type)
 );
 
 -- Every practice attempt
 CREATE TABLE attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  split_id TEXT NOT NULL REFERENCES splits(id),
-  session_id TEXT NOT NULL,        -- groups attempts within a practice session
-  completed INTEGER NOT NULL,      -- 0 or 1
-  time_ms INTEGER,                 -- null if died before completion
-  goal_matched INTEGER,            -- did they take the correct exit?
-  rating TEXT,                     -- "again"/"hard"/"good"/"easy"/"skip"/null
-  strat_version INTEGER NOT NULL,  -- snapshot of split's strat_version at time of attempt
-  source TEXT DEFAULT 'practice',  -- "practice" or "passive" (from real runs)
+  segment_id TEXT NOT NULL REFERENCES segments(id),
+  session_id TEXT NOT NULL,
+  completed INTEGER NOT NULL,
+  time_ms INTEGER,
+  goal_matched INTEGER,
+  rating TEXT,
+  strat_version INTEGER NOT NULL,
+  source TEXT DEFAULT 'practice',
+  deaths INTEGER DEFAULT 0,
+  clean_tail_ms INTEGER,          -- time from last death to finish
   created_at TEXT NOT NULL
 );
 
--- Raw transition log from passive mode (denormalized, append-heavy)
+-- Raw transition log (denormalized, append-heavy)
 CREATE TABLE transitions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   game_id TEXT NOT NULL,
-  event TEXT NOT NULL,              -- "level_start", "room_change", "death", "goal", "cp"
+  event TEXT NOT NULL,
   level_number INTEGER NOT NULL,
   room_id INTEGER,
   goal_type TEXT,
-  timestamp_ms INTEGER NOT NULL,   -- emulator frame-based timestamp
-  session_type TEXT NOT NULL,       -- "real_run" or "practice"
+  timestamp_ms INTEGER NOT NULL,
+  session_type TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 
 -- Practice sessions for grouping
 CREATE TABLE sessions (
-  id TEXT PRIMARY KEY,              -- UUID
+  id TEXT PRIMARY KEY,
   game_id TEXT NOT NULL REFERENCES games(id),
   started_at TEXT NOT NULL,
   ended_at TEXT,
-  splits_attempted INTEGER DEFAULT 0,
-  splits_completed INTEGER DEFAULT 0
+  segments_attempted INTEGER DEFAULT 0,
+  segments_completed INTEGER DEFAULT 0
+);
+
+-- Per-segment estimator state (multi-estimator: one row per segment per estimator)
+CREATE TABLE model_state (
+  segment_id TEXT NOT NULL REFERENCES segments(id),
+  estimator TEXT NOT NULL,        -- estimator name (e.g. 'kalman', 'model_a', 'model_b')
+  state_json TEXT NOT NULL,       -- serialized estimator-specific state
+  output_json TEXT NOT NULL DEFAULT '{}',  -- serialized ModelOutput
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (segment_id, estimator)
+);
+
+-- Persistent allocator/estimator selection
+CREATE TABLE allocator_config (
+  key TEXT PRIMARY KEY,           -- 'allocator', 'estimator'
+  value TEXT
+);
+
+-- Reference capture runs (groups of segments from one recording/replay)
+CREATE TABLE capture_runs (
+  id TEXT PRIMARY KEY,
+  game_id TEXT NOT NULL REFERENCES games(id),
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  active INTEGER DEFAULT 0,       -- currently active reference
+  draft INTEGER DEFAULT 0         -- pending save/discard
 );
 ```
 
 ### Index Strategy
 
 ```sql
-CREATE INDEX idx_attempts_split ON attempts(split_id, created_at);
+CREATE INDEX idx_attempts_segment ON attempts(segment_id, created_at);
 CREATE INDEX idx_attempts_session ON attempts(session_id);
-CREATE INDEX idx_schedule_next ON schedule(next_review);
 CREATE INDEX idx_transitions_game ON transitions(game_id, created_at);
 ```
 
 ---
 
-## 5. Scheduler: Adapted SM-2
+## 5. Scheduler: Estimator + Allocator Pipeline
 
-### 5.1 How SM-2 Works
+The scheduler has been decomposed into two pluggable components:
 
-SM-2 tracks three variables per item: **ease factor** (EF, starts 2.5, min 1.3), **interval** (time until next review), and **repetitions** (consecutive successes). After each review, the user gives a quality rating 0-5.
+### 5.1 Estimators
 
-The core formula:
-- If quality < 3 (failure): reset repetitions to 0, interval = first step
-- If quality >= 3 (success):
-  - First review: interval = base interval
-  - Second review: interval = base × 6
-  - Subsequent: interval = previous_interval × ease_factor
-- EF adjustment: `EF' = EF + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))`
+Estimators track per-segment performance and produce `ModelOutput` predictions. **All registered estimators run on every attempt**, but only the "active" estimator's output feeds the allocator.
 
-### 5.2 Our Adaptation: 4 Buttons → Quality Score
+`ModelOutput` fields:
+- `expected_time_ms` — E[total_time] for next attempt
+- `clean_expected_ms` — E[clean_tail] (time from last death to finish)
+- `ms_per_attempt` — improvement rate (positive = improving)
+- `floor_estimate_ms` — E[total_time | infinite practice]
+- `clean_floor_estimate_ms` — E[clean_tail | infinite practice]
 
-We map 4 controller buttons to SM-2 quality scores:
+Registered estimators (`python/spinlab/estimators/`):
+- **`kalman`** — Kalman filter (default)
+- **`model_a`** — Alternative model A
+- **`model_b`** — Alternative model B
 
-| Button    | Meaning                        | SM-2 Quality | EF Change  |
-|-----------|--------------------------------|-------------|------------|
-| L+Left    | **Again** — need much more     | 1           | -0.30, reset reps |
-| L+Down    | **Hard** — keep current freq   | 3           | -0.14      |
-| L+Up      | **Good** — can space out       | 4           | 0.00       |
-| L+Right   | **Easy** — push way back       | 5           | +0.10      |
+Estimator interface (`Estimator` ABC):
+- `init_state(first_attempt, priors)` — initialize from first completed attempt
+- `process_attempt(state, new_attempt, all_attempts)` — update state
+- `model_output(state, all_attempts)` — produce `ModelOutput`
+- `rebuild_state(attempts)` — replay all attempts to reconstruct state
 
-This matches Anki's 4-button system (Again/Hard/Good/Easy).
+States are persisted per-segment per-estimator in the `model_state` table. The dashboard's model tab shows all estimators side-by-side.
 
-### 5.3 Time Scale: Minutes, Not Days
+### 5.2 Allocators
 
-SM-2 was designed for daily review over weeks. We're in a single 60-90 minute session. So we remap:
+Allocators pick the next segment to practice from the list of `SegmentWithModel` objects.
 
-- SM-2 "1 day" → our "5 minutes" (configurable base interval)
-- SM-2 "6 days" → our "30 minutes"
-- The ease factor multiplier works the same way
-- `next_review` is a datetime; during a session, we just pick from splits where `next_review <= now`
+Registered allocators (`python/spinlab/allocators/`):
+- **`greedy`** — picks the segment with highest expected improvement (default)
+- **`round_robin`** — cycles through segments in order
+- **`random`** — random selection
 
-Between sessions: if you come back tomorrow, splits that were due "30 minutes from now" in yesterday's session are now overdue and get prioritized. This naturally handles multi-session learning.
+Allocator interface (`Allocator` ABC):
+- `pick_next(segment_states)` — pick next segment_id
+- `peek_next_n(segment_states, n)` — preview next N without side effects
 
-### 5.4 Selection Algorithm
+### 5.3 Plugin Registries
 
-When the orchestrator needs the next split:
-
+Both estimators and allocators use decorator-based registries:
 ```python
-def pick_next_split(db) -> Split:
-    now = datetime.utcnow()
-
-    # 1. Get all due splits (next_review <= now), ordered by most overdue first
-    due = db.get_due_splits(now)
-
-    if due:
-        # Pick the most overdue one
-        return due[0]
-
-    # 2. If nothing is due, find the split that will be due soonest
-    upcoming = db.get_next_due_split()
-    if upcoming:
-        # Optionally wait, or just serve it early
-        return upcoming
-
-    # 3. If everything has been reviewed and nothing is coming up,
-    #    pick the split with the worst historical performance
-    return db.get_worst_performing_split()
+from spinlab.estimators import register_estimator, get_estimator, list_estimators
+from spinlab.allocators import register_allocator, get_allocator, list_allocators
 ```
 
-### 5.5 Strat Changes
+The active estimator and allocator are persisted in the `allocator_config` table and can be switched at runtime via the dashboard API (`POST /api/estimator`, `POST /api/allocator`).
 
-When the player resets a strat for a split:
+### 5.4 Strat Changes
+
+When the player resets a strat for a segment:
 
 ```python
-def reset_strat(split_id):
-    # Increment strat version on the split
-    db.increment_strat_version(split_id)
-
-    # Reset schedule to "new card" state
-    db.update_schedule(split_id,
-        ease_factor=2.5,
-        interval_minutes=5,
-        repetitions=0,
-        next_review=now
-    )
+def reset_strat(segment_id):
+    db.increment_strat_version(segment_id)
     # Historical attempts are preserved but tagged with old strat_version
 ```
 
-### 5.6 Incorporating Passive Data
-
-When passive mode records a real-run completion of a section, the orchestrator can optionally treat it as a practice attempt with an auto-derived rating based on time vs reference:
-
-```python
-def auto_rate_from_passive(time_ms, reference_ms, completed):
-    if not completed:
-        return "again"  # death
-    ratio = time_ms / reference_ms
-    if ratio <= 1.0:
-        return "easy"   # at or better than reference
-    elif ratio <= 1.15:
-        return "good"
-    elif ratio <= 1.3:
-        return "hard"
-    else:
-        return "again"  # way too slow
-```
-
-This is optional and configurable. The player might not want real-run data to affect practice scheduling (different pressure, different context).
-
-### 5.7 Future: VoI-Style Optimizer
-
-The scheduler interface is designed so that `pick_next_split()` can be replaced with a more sophisticated optimizer later. The key data for a VoI approach:
-
-- **Expected time saved per minute of practice** = f(current_failure_rate, time_variance, time_vs_reference, section_weight_in_run)
-- Section weight = how much of the total run time this section represents
-- Practice has diminishing returns per session (fatigue, tilt)
-
-The `attempts` table logs everything needed to compute these. The scheduler module is deliberately isolated to make swapping algorithms easy.
-
 ---
 
-## 6. Manifest Format
+## 6. Reference Capture & Draft Lifecycle
 
-Generated during reference capture, manually editable after.
+Reference captures are now managed through a database-backed flow with draft/save/discard semantics, replacing the old YAML manifest approach.
 
-```yaml
-# data/captures/2026-03-15_cod_any_percent.yaml
-game_id: smw_cod
-category: any%
-captured_at: "2026-03-15T14:30:00Z"
-emulator: mesen2
-rom_hash: abc123def456  # for integrity checking
+### 6.1 Capture Flow
 
-splits:
-  - id: "smw_cod:105:1:normal_exit"
-    level_number: 105
-    room_id: 1
-    goal: normal_exit
-    description: "Yoshi's Island 2 — standard clear"
-    state_path: "states/smw_cod_105_1_normal.mss"
-    reference_time_ms: 28100
+1. User clicks "Start Reference" → `reference_start` sent to Lua with `.spinrec` path
+2. Lua records controller inputs and saves states at level entrances, checkpoints, and spawns
+3. As transition events arrive, `ReferenceCapture` pairs them into segments and writes to DB
+4. User clicks "Stop Reference" → `reference_stop` sent; segments enter draft state
+5. User saves or discards the draft via the dashboard
 
-  - id: "smw_cod:106:1:secret_exit"
-    level_number: 106
-    room_id: 1
-    goal: secret_exit
-    description: "Donut Plains 1 — cape flight to key"
-    state_path: "states/smw_cod_106_1_secret.mss"
-    reference_time_ms: 34200
+### 6.2 Replay Capture
 
-  - id: "smw_cod:106:1:normal_exit"
-    level_number: 106
-    room_id: 1
-    goal: normal_exit
-    description: "Donut Plains 1 — standard orb finish"
-    state_path: "states/smw_cod_106_1_normal.mss"
-    reference_time_ms: 28100
-    # Note: same level_number and room as above, different goal
-```
+Same segment creation flow as reference, but driven by replaying a `.spinrec` file:
+1. User clicks "Replay" → `replay` sent to Lua with path and speed
+2. Lua injects recorded inputs; transition events fire naturally with `source: "replay"`
+3. On `replay_finished`, captured segments enter draft state
 
-### Reference Run Diffing
+### 6.3 Draft Manager (`DraftManager`)
 
-When re-capturing a reference run:
+After a reference or replay capture, segments are in draft state (`capture_runs.draft = 1`):
+- **Save**: promote draft to saved reference (`draft = 0`), set as active
+- **Discard**: hard-delete the capture run and all associated segments/variants
+- **Recovery**: on startup, checks for orphaned drafts and restores draft state
 
-1. Generate new manifest from the new capture
-2. Diff split IDs between old and new manifests:
-   - **New splits** (in new, not in old): Add to DB with fresh schedule
-   - **Removed splits** (in old, not in new): Set `active=0`, keep history
-   - **Unchanged splits** (same ID in both): Update `reference_time_ms` and `state_path`, keep practice history and schedule
-3. The diff is shown to the user for confirmation before applying
+### 6.4 Legacy Manifest Import
+
+YAML manifests can still be imported via `POST /api/import-manifest` for backwards compatibility.
 
 ---
 
@@ -473,37 +512,16 @@ When re-capturing a reference run:
 # config.yaml
 emulator:
   path: "C:/path/to/Mesen2.exe"  # or just "mesen" if on PATH
-  type: mesen2  # or snes9x_rr for fallback
-  lua_script: "lua/split_tank.lua"
+  lua_script: "lua/spinlab.lua"
 
 rom:
-  path: "C:/roms/smw_cod.smc"
-
-game:
-  id: smw_cod
-  name: "SMW: City of Dreams"
-  category: "any%"
-
-network:
-  port: 15482
-  host: "127.0.0.1"
-
-scheduler:
-  algorithm: sm2  # future: voi
-  base_interval_minutes: 5
-  auto_rate_passive: false  # auto-create ratings from real-run data
+  dir: "C:/roms"  # directory containing ROM files (listed in dashboard)
 
 data:
   dir: "data"  # relative to project root
-
-# Game-specific memory addresses (can also be in a separate file)
-memory_addresses:
-  level_number: {address: 0x0013BF, size: 2}
-  room_id: {address: 0x00141A, size: 1}
-  player_state: {address: 0x000071, size: 1}
-  goal_type: {address: 0x001493, size: 1}
-  # ... more addresses from kaizosplits
 ```
+
+Memory addresses are hardcoded in the Lua script's CONFIG section (`ADDR_*` constants), not in config.yaml. Game discovery is automatic from ROM checksums — no manual `game.id` configuration needed.
 
 ---
 
@@ -511,11 +529,7 @@ memory_addresses:
 
 ### Step 0 — Launch Harness [15 min]
 
-Create `scripts/launch.sh` (and `.bat` for Windows) that starts Mesen2 with:
-```bash
-mesen --lua lua/split_tank.lua --rom "$ROM_PATH"
-```
-Verify the Lua script loads and prints a message. Establish that you never manually load scripts.
+Create `scripts/launch.sh` (and `.bat` for Windows) that starts Mesen2 with the Lua script auto-loaded. Verify the Lua script loads and prints a message. Establish that you never manually load scripts.
 
 ### Step 1 — Save State Proof of Concept [30-60 min]
 
@@ -543,64 +557,56 @@ Port memory addresses from kaizosplits into the Lua script. Implement transition
 
 Deliverables:
 - Lua config section with memory addresses
-- Transition detection (level start, room change, death, goal)
+- Transition detection (level entrance, checkpoint, death, spawn, goal)
 - JSONL logging with timestamps
-- Split timing (start → goal)
+- Segment timing (start → goal)
 
 ### Step 3 — Reference Capture [1-2 hours]
 
-Extend the passive recorder: on each transition, also save a state file. After the run, a Python script processes the JSONL + state files into a YAML manifest.
+Extend the passive recorder: on each transition, also save a state file and record controller inputs to `.spinrec`. Build `ReferenceCapture` to pair transitions into segments with save state variants.
 
 Deliverables:
 - Save state capture on transitions
-- Python `capture.py` that generates manifest YAML
-- A complete manifest from one reference run
+- `.spinrec` input recording
+- Segments created in database with cold/hot variants
 
 ### Step 4 — Practice Loop MVP [4-8 hours]
 
 The big integration step. Build:
-- Lua practice mode (state loading, overlay, controller rating input)
-- Python orchestrator (TCP client, round-robin split selection)
+- Lua practice mode (state loading, overlay, auto-advance)
+- Python orchestrator/practice session (TCP client, segment selection)
 - SQLite setup (`db.py`, schema creation)
-- Attempt logging
+- Attempt logging with deaths and clean_tail_ms
 
 Deliverables:
-- Can start a practice session from Python CLI
+- Can start a practice session from dashboard
 - Lua loads states, detects completion, shows overlay
-- Player rates via controller, next state loads automatically
+- Auto-advance after configurable delay, next state loads automatically
 - All attempts logged to SQLite
 
-### Step 5 — SM-2 Scheduling [2-3 hours]
+### Step 5 — Estimator/Allocator Pipeline [2-3 hours]
 
-Replace round-robin with SM-2 adapted scheduler:
-- `scheduler.py` implementing the adapted SM-2 algorithm
-- Schedule table populated on first session
-- `pick_next_split()` respects intervals and ease factors
-- Strat reset command in CLI
+Build pluggable scheduler with estimator + allocator registries:
+- `scheduler.py` wiring all estimators and active allocator
+- Kalman filter estimator (default), model_a, model_b
+- Greedy allocator (default), round-robin, random
+- Model state persisted per-segment per-estimator in `model_state` table
 
-### Step 6 — Polish [ongoing]
+### Step 6 — Dashboard & Polish [ongoing]
 
-- TUI with `rich`/`textual`: session stats, split history, improvement curves
-- Reference run diffing (re-capture without losing practice data)
-- Passive data integration (optional auto-rating from real runs)
-- Multiple game/category support
-- Session summary on exit (splits practiced, time spent, ratings distribution)
-- Edge cases: what if the player soft-resets? What if they pause for 10 minutes?
+- FastAPI dashboard with SSE-based live updates
+- Reference management (capture, replay, draft lifecycle)
+- Model tab showing all estimators side-by-side
+- Segment editing, fill-gap mode for missing cold variants
+- Multiple game support (auto-discovery from ROM checksums)
+- Emulator launch from dashboard
 
 ---
 
 ## 9. Open Questions
 
-1. **Mesen2 command-line Lua loading**: Need to verify exact CLI syntax. May need `--script` instead of `--lua`. Check Mesen2 docs or source.
+1. **Multi-exit detection**: For romhacks with custom ASM, the standard goal_type memory address might not capture all exit types. May need per-game hooks.
 
-2. **Save state size**: SMW states in Mesen2 are probably 100-200KB each. A full romhack might have 50-100 splits. That's 5-20MB total — no concern.
+2. **Overlay positioning**: Need to avoid covering important gameplay elements. The overlay should be configurable (top/bottom, opacity, font size) or auto-positioned based on player position on screen.
 
-3. **TCP latency in Lua**: LuaSocket's non-blocking receive in a `startFrame` callback adds microseconds of overhead. Not a concern. But need to verify `settimeout(0)` works correctly in Mesen2's Lua environment.
-
-4. **SNES9X-rr save state file format**: If we want to support SNES9X as an alternative, we need to understand whether its state files are saved to disk in a predictable location when using `savestate.create()` + `savestate.save()`.
-
-5. **Multi-exit detection**: For romhacks with custom ASM, the standard goal_type memory address might not capture all exit types. May need per-game hooks. The config system should support this.
-
-6. **Timer accuracy**: Frame-counting gives 1/60th second precision (~16.7ms). That's probably fine, but for very short sections, we might want sub-frame timing. Check if Mesen2 exposes cycle counts.
-
-7. **Overlay positioning**: Need to avoid covering important gameplay elements. The overlay should be configurable (top/bottom, opacity, font size) or auto-positioned based on player position on screen.
+3. **SNES9X-rr support**: The Lua API surface is small enough to abstract. Would require file-based IPC instead of TCP. Low priority given Mesen2 works well.

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from spinlab.db import Database
-from spinlab.models import Segment, SegmentVariant, Attempt
+from spinlab.models import Mode, Segment, SegmentVariant, Attempt
 
 
 @pytest.fixture
@@ -89,26 +89,26 @@ def test_root_serves_html(client):
 def test_practice_start_not_connected(client):
     """Practice start should fail gracefully when TCP is not connected."""
     resp = client.post("/api/practice/start")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "not_connected"
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "not_connected"
 
 
 def test_practice_stop_not_running(client):
     resp = client.post("/api/practice/stop")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "not_running"
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "not_running"
 
 
 def test_reference_start_not_connected(client):
     resp = client.post("/api/reference/start")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "not_connected"
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "not_connected"
 
 
 def test_reference_stop_not_in_reference(client):
     resp = client.post("/api/reference/stop")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "not_in_reference"
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "not_in_reference"
 
 
 def test_reset_clears_mode_state(client, db):
@@ -121,8 +121,8 @@ def test_reset_clears_mode_state(client, db):
 
 def test_launch_emulator_no_config(client):
     resp = client.post("/api/emulator/launch")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "error"
+    assert resp.status_code == 400
+    assert "Emulator not found" in resp.json()["detail"]
 
 
 def _sync_switch(app, game_id, game_name):
@@ -155,11 +155,11 @@ def test_fresh_db_reference_start_creates_game(tmp_path):
 def test_practice_stop_clears_stale_mode(client):
     """If practice self-terminates, stop should still reset mode to idle."""
     # Manually set mode to practice (simulating a self-terminated session)
-    client.app.state.session.mode = "practice"
+    client.app.state.session.mode = Mode.PRACTICE
     resp = client.post("/api/practice/stop")
     assert resp.status_code == 200
     assert resp.json()["status"] == "stopped"
-    assert client.app.state.session.mode == "idle"
+    assert client.app.state.session.mode == Mode.IDLE
 
 
 def test_switch_game_sets_context(client, db):

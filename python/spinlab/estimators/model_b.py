@@ -99,8 +99,9 @@ class ModelBEstimator(Estimator):
 
         ns = np.arange(len(completed), dtype=float)
 
-        # Fit on clean tails
-        clean_ts = np.array([a.clean_tail_ms for a in completed], dtype=float)
+        # Fit on clean tails — fall back to time_ms where clean_tail is missing
+        clean_ts = np.array([a.clean_tail_ms if a.clean_tail_ms is not None else a.time_ms
+                             for a in completed], dtype=float)
         a, b, c, sigma = _fit_exp_decay(ns, clean_ts)
         state.amplitude = a
         state.decay_rate = b
@@ -137,7 +138,9 @@ class ModelBEstimator(Estimator):
             return ModelOutput(0.0, 0.0, 0.0, 0.0, 0.0)
 
         total_times = [a.time_ms for a in completed]
-        clean_tails = [a.clean_tail_ms for a in completed]
+        clean_tails = [a.clean_tail_ms for a in completed if a.clean_tail_ms is not None]
+        if not clean_tails:
+            clean_tails = total_times[:]
         n = len(completed)
 
         # Not enough data for a fit — fall back to simple stats
