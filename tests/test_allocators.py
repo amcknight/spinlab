@@ -2,34 +2,33 @@
 import pytest
 from spinlab.allocators import SegmentWithModel
 from spinlab.allocators.greedy import GreedyAllocator
+from spinlab.models import ModelOutput
 
 
-def _make_segment(segment_id: str, marginal_return: float) -> SegmentWithModel:
+def _make_segment(segment_id: str, ms_per_attempt: float = 0.0) -> SegmentWithModel:
+    out = ModelOutput(
+        expected_time_ms=10000.0, clean_expected_ms=10000.0,
+        ms_per_attempt=ms_per_attempt,
+        floor_estimate_ms=8000.0, clean_floor_estimate_ms=8000.0,
+    )
     return SegmentWithModel(
-        segment_id=segment_id,
-        game_id="test",
-        level_number=1,
-        start_type="level_enter",
-        start_ordinal=0,
-        end_type="level_exit",
-        end_ordinal=0,
-        description="test",
-        strat_version=1,
-        state_path=None,
-        active=True,
-        marginal_return=marginal_return,
+        segment_id=segment_id, game_id="test", level_number=1,
+        start_type="level_enter", start_ordinal=0,
+        end_type="level_exit", end_ordinal=0,
+        description="test", strat_version=1, state_path=None, active=True,
+        model_outputs={"kalman": out}, selected_model="kalman",
     )
 
 
 class TestGreedyAllocator:
-    def test_picks_highest_marginal_return(self):
+    def test_picks_highest_ms_per_attempt(self):
         alloc = GreedyAllocator()
-        segments = [_make_segment("a", 0.05), _make_segment("b", 0.10), _make_segment("c", 0.02)]
+        segments = [_make_segment("a", 50.0), _make_segment("b", 100.0), _make_segment("c", 20.0)]
         assert alloc.pick_next(segments) == "b"
 
     def test_peek_returns_sorted_order(self):
         alloc = GreedyAllocator()
-        segments = [_make_segment("a", 0.05), _make_segment("b", 0.10), _make_segment("c", 0.02)]
+        segments = [_make_segment("a", 50.0), _make_segment("b", 100.0), _make_segment("c", 20.0)]
         result = alloc.peek_next_n(segments, 2)
         assert result == ["b", "a"]
 
@@ -43,7 +42,7 @@ class TestGreedyAllocator:
 
     def test_peek_more_than_available(self):
         alloc = GreedyAllocator()
-        segments = [_make_segment("a", 0.05)]
+        segments = [_make_segment("a", 50.0)]
         assert alloc.peek_next_n(segments, 5) == ["a"]
 
 
@@ -90,18 +89,11 @@ class TestRoundRobinAllocator:
 
 def _make_segment_with_ordinal(segment_id: str, ordinal: int) -> SegmentWithModel:
     return SegmentWithModel(
-        segment_id=segment_id,
-        game_id="test",
-        level_number=ordinal * 10,
-        start_type="level_enter",
-        start_ordinal=ordinal,
-        end_type="level_exit",
-        end_ordinal=ordinal,
-        description=f"Segment {segment_id}",
-        strat_version=1,
-        state_path=None,
-        active=True,
-        marginal_return=0.0,
+        segment_id=segment_id, game_id="test", level_number=ordinal * 10,
+        start_type="level_enter", start_ordinal=ordinal,
+        end_type="level_exit", end_ordinal=ordinal,
+        description=f"Segment {segment_id}", strat_version=1,
+        state_path=None, active=True,
     )
 
 

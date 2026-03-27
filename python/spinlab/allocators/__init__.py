@@ -3,16 +3,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
 
-from spinlab.estimators import EstimatorState
+from spinlab.models import ModelOutput
 
 
 @dataclass
 class SegmentWithModel:
-    """Segment metadata combined with estimator output."""
+    """Segment metadata combined with all estimator outputs."""
 
-    # Segment metadata (from segments table)
     segment_id: str
     game_id: str
     level_number: int
@@ -24,13 +22,13 @@ class SegmentWithModel:
     strat_version: int
     state_path: str | None
     active: bool
-    # Estimator output
-    estimator_state: EstimatorState | None = None
-    marginal_return: float = 0.0
-    drift_info: dict = field(default_factory=dict)
+    # Multi-model output
+    model_outputs: dict[str, ModelOutput] = field(default_factory=dict)
+    selected_model: str = "kalman"
     n_completed: int = 0
     n_attempts: int = 0
     gold_ms: int | None = None
+    clean_gold_ms: int | None = None
 
 
 class Allocator(ABC):
