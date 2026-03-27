@@ -9,36 +9,47 @@ export async function fetchModel() {
 function updateModel(data) {
   const body = document.getElementById('model-body');
   if (!data.segments || !data.segments.length) {
-    body.innerHTML = '<tr><td colspan="7" class="dim">No game loaded</td></tr>';
+    body.innerHTML = '<tr><td colspan="8" class="dim">No game loaded</td></tr>';
     return;
   }
   body.innerHTML = '';
   data.segments.forEach(s => {
     const tr = document.createElement('tr');
-    const driftClass = s.drift_info?.label || 'flat';
-    const arrow = s.drift !== null
-      ? (s.drift < 0 ? '\u2193' : s.drift > 0 ? '\u2191' : '\u2192')
-      : '\u2014';
-    tr.className = 'drift-row-' + driftClass;
-    let confCell = '\u2014';
-    if (s.drift_info && s.drift_info.ci_lower != null) {
-      const lo = s.drift_info.ci_lower.toFixed(2);
-      const hi = s.drift_info.ci_upper.toFixed(2);
-      confCell = '<span class="dim">[' + lo + ', ' + hi + ']</span>';
+    const sel = s.model_outputs[s.selected_model];
+
+    let improvClass = 'flat';
+    let arrow = '\u2192';
+    if (sel) {
+      if (sel.ms_per_attempt > 10) { improvClass = 'improving'; arrow = '\u2193'; }
+      else if (sel.ms_per_attempt < -10) { improvClass = 'regressing'; arrow = '\u2191'; }
     }
+    tr.className = 'drift-row-' + improvClass;
+
+    const models = Object.keys(s.model_outputs);
+    let modelCells = '';
+    models.forEach(name => {
+      const out = s.model_outputs[name];
+      const isSel = name === s.selected_model;
+      const val = out.ms_per_attempt.toFixed(1);
+      const cls = isSel ? ' style="font-weight:bold"' : ' class="dim"';
+      modelCells += '<td' + cls + '>' + val + ' ms/att</td>';
+    });
+    for (let i = models.length; i < 3; i++) {
+      modelCells += '<td class="dim">\u2014</td>';
+    }
+
     tr.innerHTML =
       '<td>' + segmentName(s) + '</td>' +
-      '<td>' + (s.mu !== null ? s.mu.toFixed(1) : '\u2014') + '</td>' +
-      '<td class="drift-' + driftClass + '">' + arrow + ' ' +
-        (s.drift !== null ? Math.abs(s.drift).toFixed(2) : '\u2014') + '</td>' +
-      '<td>' + confCell + '</td>' +
-      '<td>' + (s.marginal_return ? s.marginal_return.toFixed(4) : '\u2014') + '</td>' +
+      '<td class="drift-' + improvClass + '">' + arrow + ' ' +
+        (sel ? sel.ms_per_attempt.toFixed(1) : '\u2014') + '</td>' +
+      modelCells +
       '<td>' + s.n_completed + '</td>' +
       '<td>' + formatTime(s.gold_ms) + '</td>';
     body.appendChild(tr);
   });
-  if (data.estimator) {
-    document.getElementById('estimator-select').value = data.estimator;
+  const estSelect = document.getElementById('estimator-select');
+  if (estSelect && data.estimator) {
+    estSelect.value = data.estimator;
   }
 }
 
