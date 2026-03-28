@@ -980,6 +980,12 @@ local function tcp_dispatch(line)
     end
   end
 
+  -- Extension hook: let external scripts handle unrecognized messages
+  if poke_handler then
+    poke_handler(line)
+    return
+  end
+
   client:send("err:unknown_command\n")
 end
 
