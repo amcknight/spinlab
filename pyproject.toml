@@ -20,3 +20,4 @@ where = ["python"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = ["integration: requires Mesen2 headless (--testrunner)"]
