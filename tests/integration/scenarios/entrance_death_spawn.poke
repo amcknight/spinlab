@@ -1,0 +1,9 @@
+# entrance_death_spawn.poke — Enter level, die, respawn
+# Expects: level_entrance, death, spawn
+settle: 30
+
+1: game_mode=20 level_num=0x105 room_num=1
+2: level_start=1
+15: player_anim=9
+25: player_anim=0 level_start=0
+26: level_start=1

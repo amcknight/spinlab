@@ -1,0 +1,10 @@
+# checkpoint_cold_spawn.poke — Enter, hit midway checkpoint, die, cold respawn
+# Expects: level_entrance, checkpoint(cp_ordinal=1), death, spawn(is_cold_cp=true)
+settle: 30
+
+1: game_mode=20 level_num=0x105 room_num=1
+2: level_start=1
+10: midway=1
+20: player_anim=9
+30: player_anim=0 level_start=0 midway=0
+31: level_start=1

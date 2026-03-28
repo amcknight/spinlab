@@ -1,0 +1,10 @@
+# same_frame_exit_entrance.poke — Exit and entrance trigger on same frame
+# Tests the ordering guard: exit_mode and level_start both 0→1 simultaneously.
+# Expects: level_exit fires, entrance is suppressed
+settle: 30
+
+1: game_mode=20 level_num=0x105 room_num=1
+2: level_start=1
+15: exit_mode=1 fanfare=1 level_start=0
+16: exit_mode=0 level_start=0
+20: exit_mode=1 level_start=1
