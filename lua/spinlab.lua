@@ -777,6 +777,7 @@ local function tcp_accept()
   local c = server:accept()
   if c then
     c:settimeout(0)
+    c:setoption("tcp-nodelay", true)
     client = c
     heartbeat_counter = 0
     log("TCP client connected")
@@ -958,6 +959,13 @@ local prefixed_commands = {
 
 local function tcp_dispatch(line)
   log("TCP received: " .. line)
+
+  -- Extension hook: let external scripts handle messages first
+  if poke_handler then
+    local handled = poke_handler(line)
+    if handled then return end
+  end
+
   if line:sub(1, 1) == "{" then
     handle_json_message(line)
     return
@@ -978,12 +986,6 @@ local function tcp_dispatch(line)
       pfx_handler(arg)
       return
     end
-  end
-
-  -- Extension hook: let external scripts handle unrecognized messages
-  if poke_handler then
-    poke_handler(line)
-    return
   end
 
   client:send("err:unknown_command\n")
@@ -1119,7 +1121,7 @@ local function on_start_frame()
   end
   prev = curr
 
-  check_keyboard()
+  pcall(check_keyboard)
   handle_tcp()
 
   draw_practice_overlay()

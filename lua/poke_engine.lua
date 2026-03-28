@@ -85,14 +85,15 @@ end
 -- POKE HANDLER (set as global before dofile so spinlab.lua can call it)
 -----------------------------------------------------------------------
 poke_handler = function(line)
-  if line:sub(1, 1) ~= "{" then return end
+  if line:sub(1, 1) ~= "{" then return false end
   local event = line:match('"event"%s*:%s*"(.-)"')
   if event == "poke_scenario" then
     if parse_poke_scenario(line) then
       scenario_loaded = true
-      -- Will set scenario_start_frame on next on_poke_frame call
     end
+    return true  -- handled
   end
+  return false  -- not our message, let spinlab handle it
 end
 
 -----------------------------------------------------------------------
