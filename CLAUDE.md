@@ -147,7 +147,24 @@ Extract these from the kaizosplits source and define them in a config section in
 
 ## Testing Approach
 
-Red-Green TDD. After tests pass, remove trivial/scaffolding tests and clean up — keep only tests that document behavior or catch regressions. For Lua, use Mesen2's `--testRunner` headless mode where possible; otherwise manual testing in-emulator.
+Red-Green TDD. After tests pass, remove trivial/scaffolding tests and clean up — keep only tests that document behavior or catch regressions.
+
+### Unit tests (fast, no Mesen2)
+`pytest tests/` — runs all unit tests (~30s). In-memory SQLite, mocked TCP, FastAPI TestClient.
+
+### Integration tests (Mesen2 headless)
+`pytest -m integration` — runs Lua+Python integration tests via Mesen2's `--testRunner` headless mode (~7 min). Each test launches Mesen2 with `lua/poke_engine.lua`, which `dofile`s `spinlab.lua` and injects SNES memory writes from `.poke` scenario files. See `tests/integration/README.md` for full details.
+
+**Key headless-mode gotchas:**
+- `emu.isKeyPressed()` crashes in `--testRunner` — guarded with `pcall` in `spinlab.lua`
+- ROM actively overwrites memory every frame — the poke engine holds values persistently
+- TCP requires `tcp-nodelay` to avoid Nagle buffering at max emulation speed
+- Port 15482 TIME_WAIT on Windows needs ~3s cooldown between test runs
+
+**Address maps are defined in three places** (must stay in sync):
+- `lua/spinlab.lua` lines 43-53 (source of truth)
+- `lua/poke_engine.lua` ADDR_MAP
+- `tests/integration/addresses.py` ADDR_MAP
 
 ## Worktrees
 
