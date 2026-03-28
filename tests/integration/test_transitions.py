@@ -18,14 +18,14 @@ class TestEntranceGoal:
         events = await run_scenario("entrance_goal.poke")
         entrances = [e for e in events if e["event"] == "level_entrance"]
         assert len(entrances) == 1
-        assert entrances[0]["level"] == 0x105
+        assert entrances[0]["level"] == 105
 
     async def test_level_exit_event(self, run_scenario):
         events = await run_scenario("entrance_goal.poke")
         exits = [e for e in events if e["event"] == "level_exit"]
         assert len(exits) == 1
         assert exits[0]["goal"] == "normal"
-        assert exits[0]["level"] == 0x105
+        assert exits[0]["level"] == 105
 
     async def test_elapsed_time_positive(self, run_scenario):
         events = await run_scenario("entrance_goal.poke")

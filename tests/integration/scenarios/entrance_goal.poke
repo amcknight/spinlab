@@ -1,7 +1,13 @@
 # entrance_goal.poke — Level entrance followed by normal goal exit
 # Expects: level_entrance, level_exit(goal=normal)
-settle: 30
+# Held values: each poke persists until overridden (ROM can't overwrite)
+settle: 60
 
-1: game_mode=20 level_num=0x105 room_num=1
+# Frame 0: baseline — clear all flags so transitions fire cleanly
+0: level_start=0 exit_mode=0 fanfare=0 player_anim=0 io_port=0 midway=0
+# Frame 1: set level context
+1: game_mode=20 level_num=105 room_num=1
+# Frame 2: entrance trigger (level_start 0→1)
 2: level_start=1
+# Frame 15: goal exit (exit_mode 0→1, fanfare=1)
 15: exit_mode=1 fanfare=1

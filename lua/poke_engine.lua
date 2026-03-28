@@ -37,6 +37,7 @@ local ADDR_MAP = {
 -- STATE
 -----------------------------------------------------------------------
 local poke_schedule = {}   -- {[frame_number] = {{addr=int, value=int}, ...}}
+local held_values = {}     -- {[addr] = value} — actively held until overridden or released
 local scenario_loaded = false
 local scenario_start_frame = nil
 local last_poke_frame = 0
@@ -112,12 +113,17 @@ local function on_poke_frame()
 
   local rel_frame = own_frame_counter - scenario_start_frame
 
-  -- Execute any pokes scheduled for this frame
+  -- Update held values from schedule
   local pokes = poke_schedule[rel_frame]
   if pokes then
     for _, p in ipairs(pokes) do
-      emu.write(p.addr, p.value, SNES)
+      held_values[p.addr] = p.value
     end
+  end
+
+  -- Write ALL held values every frame (ROM overwrites single-frame pokes)
+  for addr, value in pairs(held_values) do
+    emu.write(addr, value, SNES)
   end
 
   -- Stop after settle window

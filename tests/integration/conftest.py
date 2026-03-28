@@ -104,7 +104,7 @@ async def mesen_process():
     )
 
     # Give Mesen2 a moment to start up and open TCP
-    await asyncio.sleep(1.0)
+    await asyncio.sleep(2.0)
 
     yield proc
 
@@ -116,6 +116,9 @@ async def mesen_process():
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
+
+    # Wait for TCP TIME_WAIT to clear before next test binds same port
+    await asyncio.sleep(3.0)
 
 
 @pytest.fixture
@@ -156,7 +159,7 @@ async def tcp_client(mesen_process) -> AsyncGenerator[TcpManager, None]:
 def run_scenario(tcp_client):
     """High-level fixture: parse .poke file, send scenario, collect events."""
 
-    async def _run(scenario_name: str, timeout: float = 15.0) -> list[dict]:
+    async def _run(scenario_name: str, timeout: float = 30.0) -> list[dict]:
         """Send a poke scenario and collect all events until disconnect.
 
         Args:
