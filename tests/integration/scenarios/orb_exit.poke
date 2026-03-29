@@ -1,12 +1,7 @@
-# orb_exit.poke — Enter level, exit with orb
-# Expects: level_entrance, level_exit(goal=orb)
+# orb_exit — entrance, exit(orb)
 settle: 60
 
-# Baseline
 0: level_start=0 exit_mode=0 fanfare=0 player_anim=0 io_port=0 midway=0
-# Level context
 1: game_mode=20 level_num=105 room_num=1
-# Entrance
 2: level_start=1
-# Orb exit (exit_mode 0→1, io_port=3)
 15: exit_mode=1 io_port=3

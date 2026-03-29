@@ -9,7 +9,7 @@ requires-python = ">=3.11"
 dependencies = ["pyyaml>=6,<7", "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "numpy>=2,<3", "scipy>=1.14,<2"]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio", "httpx"]
+dev = ["pytest", "pytest-asyncio", "pytest-cov", "httpx"]
 
 [project.scripts]
 spinlab = "spinlab.cli:main"
@@ -20,4 +20,20 @@ where = ["python"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-markers = ["integration: requires Mesen2 headless (--testrunner)"]
+markers = ["integration: requires Mesen2 headless (--testRunner)"]
+
+[tool.coverage.run]
+source = ["spinlab"]
+data_file = "coverage/.coverage"
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__",
+    "raise NotImplementedError",
+]
+
+[tool.coverage.html]
+directory = "coverage/html"

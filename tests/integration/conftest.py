@@ -1,9 +1,9 @@
 """Pytest fixtures for Mesen2 headless integration tests.
 
 Fixtures:
-    mesen_process  — launches Mesen.exe --testrunner, yields subprocess
-    tcp_client     — connects TcpManager, sends game_context, yields client
-    run_scenario   — parses .poke file, sends scenario, collects events
+    mesen_process  — session-scoped: one Mesen2 launch per pytest session
+    tcp_client     — session-scoped: persistent TCP connection across all tests
+    run_scenario   — function-scoped: sends scenario, collects events until scenario_done
 """
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ import asyncio
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 from typing import AsyncGenerator
 
 import pytest
+import pytest_asyncio
 import yaml
 
 from spinlab.tcp_manager import TcpManager
@@ -88,9 +88,9 @@ skip_no_rom = pytest.mark.skipif(
 )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def mesen_process():
-    """Launch Mesen2 in --testrunner mode with poke_engine.lua."""
+    """Launch Mesen2 in --testrunner mode with poke_engine.lua (once per session)."""
     if not _mesen or not _rom:
         pytest.skip("Mesen2 or test ROM not configured")
 
@@ -103,9 +103,6 @@ async def mesen_process():
         stderr=subprocess.PIPE,
     )
 
-    # Give Mesen2 a moment to start up and open TCP
-    await asyncio.sleep(2.0)
-
     yield proc
 
     # Teardown: kill if still running
@@ -117,26 +114,23 @@ async def mesen_process():
             proc.kill()
             proc.wait()
 
-    # Wait for TCP TIME_WAIT to clear before next test binds same port
-    await asyncio.sleep(3.0)
 
-
-@pytest.fixture
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def tcp_client(mesen_process) -> AsyncGenerator[TcpManager, None]:
-    """Connect TcpManager to the Lua TCP server with retry."""
+    """Connect TcpManager to the Lua TCP server with retry (once per session)."""
     port = _tcp_port()
     client = TcpManager("127.0.0.1", port)
 
     # Retry connection — Mesen2 may need time to start TCP server
     connected = False
-    for attempt in range(10):
+    for attempt in range(20):
         connected = await client.connect(timeout=2.0)
         if connected:
             break
         await asyncio.sleep(0.5)
 
     if not connected:
-        pytest.fail("Could not connect to Lua TCP server after 10 attempts")
+        pytest.fail("Could not connect to Lua TCP server after 20 attempts")
 
     # Wait for rom_info event
     rom_event = await client.recv_event(timeout=5.0)
@@ -152,22 +146,27 @@ async def tcp_client(mesen_process) -> AsyncGenerator[TcpManager, None]:
 
     yield client
 
+    # Send quit to cleanly stop the emulator
+    try:
+        await client.send(json.dumps({"event": "quit"}))
+    except (ConnectionError, OSError):
+        pass
     await client.disconnect()
 
 
 @pytest.fixture
 def run_scenario(tcp_client):
-    """High-level fixture: parse .poke file, send scenario, collect events."""
+    """Send a poke scenario and collect events until scenario_done sentinel."""
 
     async def _run(scenario_name: str, timeout: float = 30.0) -> list[dict]:
-        """Send a poke scenario and collect all events until disconnect.
+        """Send a poke scenario and collect events until scenario_done.
 
         Args:
             scenario_name: filename in tests/integration/scenarios/
             timeout: max seconds to wait for scenario completion
 
         Returns:
-            Ordered list of event dicts received from Lua.
+            Ordered list of event dicts (scenario_done sentinel excluded).
         """
         scenario_path = SCENARIO_DIR / scenario_name
         if not scenario_path.exists():
@@ -176,16 +175,18 @@ def run_scenario(tcp_client):
         scenario = parse_poke_file(str(scenario_path))
         await tcp_client.send(json.dumps(scenario))
 
-        # Collect events until connection drops (emu.stop) or timeout
+        # Collect events until scenario_done sentinel
         events: list[dict] = []
         try:
             while True:
                 event = await tcp_client.recv_event(timeout=timeout)
                 if event is None:
-                    break  # timeout
+                    pytest.fail(f"Timeout waiting for scenario_done ({scenario_name})")
+                if event.get("event") == "scenario_done":
+                    break
                 events.append(event)
         except (ConnectionError, OSError):
-            pass  # connection closed by emu.stop — expected
+            pytest.fail(f"Connection lost during scenario ({scenario_name})")
 
         return events
 

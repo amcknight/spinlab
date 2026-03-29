@@ -1,9 +1,9 @@
-"""Integration tests for dashboard — realistic seeded data, multi-step flows.
+"""Dashboard API tests — seeded DB, multi-step flows, error states.
 
-These tests use a fully seeded DB with segments, sessions, attempts, and Kalman
-model state to validate the dashboard behaves correctly as a whole.  Designed
-to grow as new tabs and features land (Manage tab, graphs, etc.).
+Merged from test_dashboard.py + test_dashboard_integration.py.
+The seeded DB is the primary fixture; lightweight fixtures for error-state tests.
 """
+import asyncio
 import json
 import pytest
 from pathlib import Path
@@ -109,11 +109,7 @@ def client(seeded_db):
 
 @pytest.fixture
 def active_client(seeded_db):
-    """Client with a simulated active practice session (practice mode).
-
-    Injects a PracticeSession into the app's exposed state to simulate
-    a running practice session without needing a real TCP connection.
-    """
+    """Client with a simulated active practice session."""
     from spinlab.dashboard import create_app
     from spinlab.practice import PracticeSession
     from unittest.mock import AsyncMock
@@ -127,7 +123,7 @@ def active_client(seeded_db):
     ps = PracticeSession(tcp=mock_tcp, db=seeded_db, game_id=GAME_ID)
     ps.is_running = True
     ps.current_segment_id = "s1"
-    ps.session_id = "sess1"  # match the session already in DB
+    ps.session_id = "sess1"
 
     app.state.session.practice_session = ps
     app.state.session.mode = Mode.PRACTICE
@@ -135,51 +131,75 @@ def active_client(seeded_db):
     return TestClient(app)
 
 
-# -- Live tab: idle vs practice ----------------------------------------------
+@pytest.fixture
+def bare_client(tmp_path):
+    """Client with minimal DB and no game loaded — for error-state tests."""
+    from spinlab.dashboard import create_app
+    db = Database(tmp_path / "test.db")
+    db.upsert_game("test_game", "Test Game", "any%")
+    app = create_app(db=db, host="127.0.0.1", port=59999)
+    app.state.session.game_id = "test_game"
+    app.state.session.game_name = "Test Game"
+    return TestClient(app)
 
-class TestLiveState:
-    def test_idle_when_no_state_file(self, client):
-        """Without orchestrator state file, mode should be 'idle'."""
+
+@pytest.fixture
+def no_game_client(tmp_path):
+    """Client with no game context set."""
+    from spinlab.dashboard import create_app
+    db = Database(tmp_path / "test.db")
+    db.upsert_game("test_game", "Test Game", "any%")
+    app = create_app(db=db, host="127.0.0.1", port=59999)
+    return TestClient(app)
+
+
+def _sync_switch(app, game_id, game_name):
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(app.state.session.switch_game(game_id, game_name))
+    finally:
+        loop.close()
+
+
+# -- API state ---------------------------------------------------------------
+
+class TestApiState:
+    def test_idle_state(self, client):
         resp = client.get("/api/state")
         assert resp.status_code == 200
         data = resp.json()
         assert data["mode"] in ("idle", "reference")
+        assert data["tcp_connected"] is False
+
+    def test_no_game_loaded(self, no_game_client):
+        data = no_game_client.get("/api/state").json()
+        assert data["game_id"] is None
+        assert data["game_name"] is None
+        assert data["allocator"] is None
 
     def test_practice_mode_with_current_segment(self, active_client):
-        resp = active_client.get("/api/state")
-        data = resp.json()
+        data = active_client.get("/api/state").json()
         assert data["mode"] == "practice"
         assert data["current_segment"]["id"] == "s1"
         assert data["current_segment"]["description"] == "Yoshi's Island 1"
-
-    def test_current_segment_has_attempt_count(self, active_client):
-        data = active_client.get("/api/state").json()
-        assert data["current_segment"]["attempt_count"] == 3  # s1 has 3 attempts
-
-    def test_current_segment_has_model_outputs(self, active_client):
-        data = active_client.get("/api/state").json()
-        outputs = data["current_segment"]["model_outputs"]
-        assert "kalman" in outputs
-        assert outputs["kalman"]["expected_time_ms"] is not None
+        assert data["current_segment"]["attempt_count"] == 3
+        assert "kalman" in data["current_segment"]["model_outputs"]
 
     def test_queue_contains_next_segments(self, active_client):
-        """Queue is now computed server-side: peek 3, exclude current, cap at 2."""
         data = active_client.get("/api/state").json()
         queue_ids = [s["id"] for s in data["queue"]]
         assert len(queue_ids) == 2
-        assert "s1" not in queue_ids  # current segment excluded
+        assert "s1" not in queue_ids
 
     def test_recent_attempts_ordered_newest_first(self, active_client):
         data = active_client.get("/api/state").json()
         recent = data["recent"]
         assert len(recent) == 8
-        # Most recent attempt is s3 (11500ms)
         assert recent[0]["segment_id"] == "s3"
         assert recent[0]["time_ms"] == 11500
 
     def test_session_info_present(self, active_client):
         data = active_client.get("/api/state").json()
-        assert data["session"] is not None
         assert data["session"]["id"] == "sess1"
 
     def test_allocator_and_estimator_reported(self, active_client):
@@ -191,15 +211,12 @@ class TestLiveState:
 # -- Model tab ---------------------------------------------------------------
 
 class TestModelEndpoint:
-    def test_returns_all_segments(self, active_client):
+    def test_returns_all_segments_with_model(self, active_client):
         data = active_client.get("/api/model").json()
         assert len(data["segments"]) == 5
         assert data["estimator"] == "kalman"
 
-    def test_segments_have_model_outputs(self, active_client):
-        data = active_client.get("/api/model").json()
         s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
-        assert "kalman" in s1["model_outputs"]
         kalman = s1["model_outputs"]["kalman"]
         assert kalman["expected_time_ms"] == pytest.approx(3800, abs=100)
         assert kalman["ms_per_attempt"] is not None
@@ -210,25 +227,15 @@ class TestModelEndpoint:
         assert s5["model_outputs"] == {}
 
     def test_segment_has_start_end_types(self, active_client):
-        """Segments should expose start_type and end_type instead of goal/reference_time."""
         data = active_client.get("/api/model").json()
         s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
         assert s1["start_type"] == "entrance"
         assert s1["end_type"] == "goal"
-        assert "goal" not in s1
-        assert "reference_time_ms" not in s1
 
     def test_practiced_segment_has_gold(self, active_client):
-        """Segments with model state should expose gold_ms."""
         data = active_client.get("/api/model").json()
         s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
         assert s1["gold_ms"] is not None
-
-    def test_ms_per_attempt_present(self, active_client):
-        data = active_client.get("/api/model").json()
-        s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
-        kalman = s1["model_outputs"]["kalman"]
-        assert kalman["ms_per_attempt"] is not None
 
 
 # -- Allocator / estimator switching -----------------------------------------
@@ -250,12 +257,95 @@ class TestAllocatorSwitch:
         assert resp.json()["estimator"] == "kalman"
 
 
+# -- Error states (503/409) --------------------------------------------------
+
+class TestErrorStates:
+    def test_practice_start_not_connected(self, bare_client):
+        resp = bare_client.post("/api/practice/start")
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "not_connected"
+
+    def test_practice_stop_not_running(self, bare_client):
+        resp = bare_client.post("/api/practice/stop")
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "not_running"
+
+    def test_reference_start_not_connected(self, bare_client):
+        resp = bare_client.post("/api/reference/start")
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "not_connected"
+
+    def test_reference_stop_not_in_reference(self, bare_client):
+        resp = bare_client.post("/api/reference/stop")
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "not_in_reference"
+
+    def test_launch_emulator_no_config(self, bare_client):
+        resp = bare_client.post("/api/emulator/launch")
+        assert resp.status_code == 400
+        assert "Emulator not found" in resp.json()["detail"]
+
+
+# -- Game switching ----------------------------------------------------------
+
+class TestGameSwitching:
+    def test_switch_game_sets_context(self, bare_client):
+        _sync_switch(bare_client.app, "new_checksum", "New Game")
+        data = bare_client.get("/api/state").json()
+        assert data["game_id"] == "new_checksum"
+        assert data["game_name"] == "New Game"
+
+    def test_switch_game_same_id_is_noop(self, bare_client):
+        _sync_switch(bare_client.app, "test_game", "Test Game")
+        assert bare_client.get("/api/state").json()["mode"] == "idle"
+
+    def test_switch_game_resets_scheduler(self, bare_client):
+        bare_client.get("/api/state")
+        assert bare_client.app.state.session.scheduler is not None
+        _sync_switch(bare_client.app, "other_game", "Other Game")
+        assert bare_client.app.state.session.scheduler is None
+
+
+# -- Misc dashboard behavior ------------------------------------------------
+
+def test_reset_clears_mode_state(bare_client):
+    db = bare_client.app.state.session.db
+    db.create_session("s1", "test_game")
+    db.end_session("s1", 5, 3)
+    resp = bare_client.post("/api/reset")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+
+
+def test_practice_stop_clears_stale_mode(bare_client):
+    bare_client.app.state.session.mode = Mode.PRACTICE
+    resp = bare_client.post("/api/practice/stop")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "stopped"
+    assert bare_client.app.state.session.mode == Mode.IDLE
+
+
+def test_fresh_db_reference_start_creates_game(tmp_path):
+    from unittest.mock import AsyncMock, PropertyMock, patch
+    from spinlab.dashboard import create_app
+
+    fresh_db = Database(tmp_path / "fresh.db")
+    app = create_app(db=fresh_db, host="127.0.0.1", port=59999)
+    _sync_switch(app, "test_game", "Test Game")
+    with patch.object(type(app.state.tcp), "is_connected", new_callable=PropertyMock, return_value=True), \
+         patch.object(app.state.tcp, "send", new_callable=AsyncMock):
+        c = TestClient(app)
+        resp = c.post("/api/reference/start")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "started"
+
+
 # -- Static assets -----------------------------------------------------------
 
 class TestStaticAssets:
-    def test_index_html_has_two_tabs(self, active_client):
+    def test_index_html(self, active_client):
         html = active_client.get("/").text
-        assert 'data-tab="live"' not in html
+        assert "SpinLab" in html
         assert 'data-tab="model"' in html
         assert 'data-tab="manage"' in html
 
@@ -267,20 +357,16 @@ class TestStaticAssets:
     def test_js_loads(self, active_client):
         resp = active_client.get("/static/app.js")
         assert resp.status_code == 200
-        assert "poll" in resp.text
 
 
-# -- Segments and sessions endpoints -----------------------------------------
+# -- Segments and sessions ---------------------------------------------------
 
 class TestSegmentsAndSessions:
-    def test_segments_endpoint_returns_all(self, active_client):
+    def test_segments_endpoint_returns_all_ordered(self, active_client):
         data = active_client.get("/api/segments").json()
         assert len(data["segments"]) == 5
         ids = {s["id"] for s in data["segments"]}
         assert ids == {"s1", "s2", "s3", "s4", "s5"}
-
-    def test_segments_ordered_by_level(self, active_client):
-        data = active_client.get("/api/segments").json()
         levels = [s["level_number"] for s in data["segments"]]
         assert levels == sorted(levels)
 

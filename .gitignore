@@ -10,6 +10,8 @@ __pycache__/
 spinlab.db
 .spinlab-ports
 reference/
+coverage/
+.coverage*
 # Debug logs from integration test development
 *_debug.log
 *_diag.log

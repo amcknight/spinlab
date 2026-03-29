@@ -153,13 +153,17 @@ Red-Green TDD. After tests pass, remove trivial/scaffolding tests and clean up �
 `pytest tests/` — runs all unit tests (~30s). In-memory SQLite, mocked TCP, FastAPI TestClient.
 
 ### Integration tests (Mesen2 headless)
-`pytest -m integration` — runs Lua+Python integration tests via Mesen2's `--testRunner` headless mode (~7 min). Each test launches Mesen2 with `lua/poke_engine.lua`, which `dofile`s `spinlab.lua` and injects SNES memory writes from `.poke` scenario files. See `tests/integration/README.md` for full details.
+`pytest -m integration` — runs Lua+Python integration tests via Mesen2's `--testRunner` headless mode. Session-scoped: one Mesen2 launch per pytest run, scenarios run sequentially over a persistent TCP connection. The poke engine sends `scenario_done` after each scenario and resets state. See `tests/integration/README.md` for full details.
 
 **Key headless-mode gotchas:**
 - `emu.isKeyPressed()` crashes in `--testRunner` — guarded with `pcall` in `spinlab.lua`
 - ROM actively overwrites memory every frame — the poke engine holds values persistently
 - TCP requires `tcp-nodelay` to avoid Nagle buffering at max emulation speed
-- Port 15482 TIME_WAIT on Windows needs ~3s cooldown between test runs
+
+### Coverage reports
+`./scripts/coverage.sh` — unit test coverage (fast, outputs to `coverage/unit-html/`)
+`./scripts/coverage.sh --all` — unit + integration + combined (needs Mesen2, outputs `coverage/{unit,integ,combined}-html/`)
+`./scripts/coverage.sh --html` — unit tests, then opens HTML report in browser
 
 **Address maps are defined in three places** (must stay in sync):
 - `lua/spinlab.lua` lines 43-53 (source of truth)

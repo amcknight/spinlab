@@ -7,30 +7,37 @@ These tests exercise the real Lua-Python IPC boundary by running `spinlab.lua` i
 ```
 pytest                              Mesen2 (headless, max speed)
   |                                   |
-  |  launches                         |
+  |  launches (once per session)      |
   |---------------------------------->| poke_engine.lua
   |                                   |   dofile("spinlab.lua")
   |  TCP connect                      |   TCP server on :15482
   |<=================================>|
   |  <- rom_info                      |
   |  -> game_context                  |
-  |  -> poke_scenario (JSON)          |
-  |                                   |   writes memory each frame
-  |  <- level_entrance                |   spinlab detects transitions
-  |  <- level_exit                    |   sends events over TCP
   |                                   |
-  |  connection closed                |   emu.stop(0)
-  |  assert on collected events       |
+  |  -> poke_scenario (JSON)          |   scenario 1
+  |  <- level_entrance                |   writes memory each frame
+  |  <- level_exit                    |   spinlab detects transitions
+  |  <- scenario_done                 |   resets state
+  |                                   |
+  |  -> poke_scenario (JSON)          |   scenario 2
+  |  <- checkpoint                    |   ...
+  |  <- scenario_done                 |   resets state
+  |  ...                              |
+  |                                   |
+  |  -> quit                          |   emu.stop(0)
 ```
+
+One Mesen2 launch per pytest session. Scenarios run sequentially over a persistent TCP connection. After each scenario's settle window, the poke engine sends `{"event":"scenario_done"}`, resets its own state, and calls `reset_detection_state()` on spinlab.lua. Python sends `{"event":"quit"}` to terminate.
 
 ## Running
 
 ```bash
-# All integration tests (~7 min, launches Mesen2 per test)
+# All integration tests (one Mesen2 launch, ~9 scenarios)
 pytest -m integration -v
 
 # One specific test
-pytest tests/integration/test_transitions.py::TestEntranceGoal -v
+pytest tests/integration/test_transitions.py::test_entrance_goal -v
 
 # Parser unit tests only (no Mesen2 needed, instant)
 pytest tests/integration/test_poke_parser.py -v
@@ -40,10 +47,10 @@ Requires Mesen2 installed. Path resolved from `config.yaml` (`emulator.path`) or
 
 ## The `.poke` scenario format
 
-Each scenario is a text file describing memory writes keyed by frame number:
+Each scenario is a text file with a single-line header and memory writes keyed by frame number:
 
 ```
-# comment
+# scenario_name — expected_event_1, expected_event_2
 settle: 60
 
 0: level_start=0 exit_mode=0 fanfare=0 player_anim=0 io_port=0 midway=0
@@ -80,12 +87,13 @@ This means scenarios describe **state machines**, not point-in-time pokes:
 ## Adding a new scenario
 
 1. Create `tests/integration/scenarios/my_test.poke`
-2. Always start with a frame-0 baseline that zeros all flags
-3. Use `settle: 60` (frames after last poke before `emu.stop`)
-4. Add a test in `test_transitions.py` (or new test file):
+2. Single-line header: `# name — expected events`
+3. Always start with a frame-0 baseline that zeros all flags
+4. Use `settle: 60` (frames after last poke before scenario completes)
+5. Add a test function in `test_transitions.py`:
 
 ```python
-async def test_my_thing(self, run_scenario):
+async def test_my_thing(run_scenario):
     events = await run_scenario("my_test.poke")
     exits = [e for e in events if e["event"] == "level_exit"]
     assert len(exits) == 1
@@ -100,13 +108,10 @@ async def test_my_thing(self, run_scenario):
 Without it, the ROM's existing memory state creates unpredictable `prev` values in `detect_transitions()`, so 0->1 transitions may not fire.
 
 ### Settle time matters
-60 frames gives spinlab.lua time to process all transitions and send events over TCP before `emu.stop()` kills the connection. If you add scenarios with many transitions, increase settle.
-
-### TCP TIME_WAIT between tests
-Each test launches a new Mesen2 on port 15482. Windows TCP TIME_WAIT lasts ~60s. The conftest adds a 3s cooldown between tests, which usually suffices because `SO_REUSEADDR` is set. If tests fail with connection errors, increase the cooldown or wait and re-run.
+60 frames gives spinlab.lua time to process all transitions and send events over TCP before `scenario_done` fires. If you add scenarios with many transitions, increase settle.
 
 ### `emu.isKeyPressed` crashes in headless mode
 `spinlab.lua` wraps `check_keyboard()` in `pcall` to handle this. If you add other keyboard-dependent code, guard it similarly.
 
 ### `poke_handler` must intercept before JSON dispatch
-The hook runs at the top of `tcp_dispatch()`, before `handle_json_message()`. This is because `poke_scenario` is a JSON message and would otherwise be consumed by the JSON handler (which doesn't know about it) and silently ignored.
+The hook runs at the top of `tcp_dispatch()`, before `handle_json_message()`. This is because `poke_scenario` and `quit` are JSON messages that would otherwise be consumed by the JSON handler and silently ignored.

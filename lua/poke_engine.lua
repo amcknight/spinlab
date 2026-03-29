@@ -8,11 +8,11 @@
 --   3. Mesen fires callbacks in registration order:
 --      poke_engine emu.write() → spinlab emu.read() → detect_transitions()
 --
--- Protocol:
---   After Python connects and sends game_context, it sends a poke_scenario
---   JSON message. The engine parses the poke schedule, then on each frame
---   writes the scheduled values to SNES memory. After the last poke plus
---   settle_frames, it calls emu.stop(0).
+-- Protocol (multi-scenario):
+--   Python connects, sends game_context, then sends poke_scenario messages
+--   sequentially. After each scenario completes (settle window expires), the
+--   engine sends {"event":"scenario_done"}, resets all state, and waits for
+--   the next poke_scenario. Send {"event":"quit"} to stop the emulator.
 
 local SNES = emu.memType.snesMemory
 
@@ -37,12 +37,28 @@ local ADDR_MAP = {
 -- STATE
 -----------------------------------------------------------------------
 local poke_schedule = {}   -- {[frame_number] = {{addr=int, value=int}, ...}}
-local held_values = {}     -- {[addr] = value} — actively held until overridden or released
+local held_values = {}     -- {[addr] = value} — actively held until overridden
 local scenario_loaded = false
 local scenario_start_frame = nil
 local last_poke_frame = 0
 local settle_frames = 30
 local own_frame_counter = 0
+
+-----------------------------------------------------------------------
+-- STATE RESET (between scenarios)
+-----------------------------------------------------------------------
+local function reset_poke_state()
+  poke_schedule = {}
+  held_values = {}
+  scenario_loaded = false
+  scenario_start_frame = nil
+  last_poke_frame = 0
+  settle_frames = 30
+  -- Zero all tracked addresses so spinlab sees clean 0→X transitions
+  for _, addr in pairs(ADDR_MAP) do
+    emu.write(addr, 0, SNES)
+  end
+end
 
 -----------------------------------------------------------------------
 -- MINIMAL JSON PARSER (for poke_scenario message)
@@ -93,6 +109,10 @@ poke_handler = function(line)
       scenario_loaded = true
     end
     return true  -- handled
+  elseif event == "quit" then
+    emu.log("[PokeEngine] Quit received, stopping emulator")
+    emu.stop(0)
+    return true
   end
   return false  -- not our message, let spinlab handle it
 end
@@ -126,10 +146,15 @@ local function on_poke_frame()
     emu.write(addr, value, SNES)
   end
 
-  -- Stop after settle window
+  -- After settle window: send scenario_done, reset, wait for next scenario
   if rel_frame > last_poke_frame + settle_frames then
-    emu.log("[PokeEngine] Scenario complete, stopping emulator")
-    emu.stop(0)
+    emu.log("[PokeEngine] Scenario complete, sending scenario_done")
+    send_raw_event('{"event":"scenario_done"}')
+    reset_poke_state()
+    -- Reset spinlab detection state for clean next scenario
+    if reset_detection_state then
+      reset_detection_state()
+    end
   end
 end
 
@@ -145,4 +170,4 @@ emu.addEventCallback(on_poke_frame, emu.eventType.startFrame)
 local script_dir = debug.getinfo(1, "S").source:match("@?(.*[\\/])")
 dofile(script_dir .. "spinlab.lua")
 
-emu.log("[PokeEngine] Harness loaded, waiting for poke_scenario command")
+emu.log("[PokeEngine] Harness loaded, waiting for poke_scenario commands")

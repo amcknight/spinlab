@@ -76,6 +76,9 @@ local script_start_ms = os.clock() * 1000
 -- Checkpoint tracking
 local cp_acquired    = false  -- true when a new CP was hit without cold capture yet
 
+-- Forward-declared so reset_detection_state() can reference it as an upvalue
+local exit_this_frame = false
+
 -- Transition detection state (grouped for clean reset)
 local transition_state = {
   died_flag = false,
@@ -89,6 +92,16 @@ local function reset_transition_state()
   transition_state.cp_ordinal = 0
   transition_state.first_cp_entrance = 0
   transition_state.last_event_key = nil
+end
+
+-- Global reset callable by poke_engine.lua between scenarios.
+-- Zeros all detection state so the next scenario starts clean.
+function reset_detection_state()
+  for k, _ in pairs(prev) do prev[k] = 0 end
+  reset_transition_state()
+  cp_acquired = false
+  level_start_frame = 0
+  exit_this_frame = false
 end
 
 -- Practice mode state
@@ -382,6 +395,12 @@ local function send_event(event)
   client:send(to_json(event) .. "\n")
 end
 
+-- Global: allows poke_engine.lua to send events over the TCP client
+function send_raw_event(json_str)
+  if not client then return end
+  client:send(json_str .. "\n")
+end
+
 -- Input bitmask encoding: matches SNES joypad register layout
 local INPUT_BITS = {
   b = 0, y = 1, select = 2, start = 3,
@@ -440,9 +459,10 @@ end
 -- TRANSITION DETECTION
 -----------------------------------------------------------------------
 local function goal_type(curr)
-  if curr.fanfare == 1 or curr.io_port == 4 then return "normal"
-  elseif curr.io_port == 7 then return "key"
+  if curr.io_port == 7 then return "key"
   elseif curr.io_port == 3 then return "orb"
+  elseif curr.boss_defeat ~= 0 and curr.fanfare == 1 then return "boss"
+  elseif curr.fanfare == 1 or curr.io_port == 4 then return "normal"
   else return "abort"  -- start+select, death exit, etc.
   end
 end
@@ -494,8 +514,6 @@ local function on_level_exit(curr)
   send_event(event_data)
   log("Level exit: " .. curr.level_num .. " goal=" .. goal .. " elapsed=" .. elapsed .. "ms")
 end
-
-local exit_this_frame = false
 
 -- Shared detection predicates (used by both passive and practice modes)
 
