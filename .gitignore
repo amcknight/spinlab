@@ -5,6 +5,9 @@ __pycache__/
 .venv/
 .worktrees/
 .superpowers/
+.claude/settings.local.json
+.claude/homunculus/
+.claude/projects/
 .playwright-mcp/
 *.egg-info/
 spinlab.db

@@ -40,7 +40,23 @@
       "Bash(C:/Users/thedo/Git/spinlab/.venv/Scripts/python.exe -m pytest tests/ -x -v --ignore=tests/test_model_b.py)",
       "Bash(C:/Users/thedo/Git/spinlab/.venv/Scripts/python.exe -m pytest tests/ -v -k \"not test_practice_mode_with_current_segment\")",
       "Bash(C:/Users/thedo/Git/spinlab/.venv/Scripts/python.exe -m pytest tests/ -v)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(gh api:*)",
+      "Read(//tmp/**)",
+      "Read(//c/tmp/**)",
+      "Bash(grep -rn \"ScriptAllowNetworkAccess\\\\|ScriptAllowIoOsAccess\\\\|ConsoleMode\" /tmp/mesen2_src/ --include=*.cs --include=*.cpp --include=*.h)",
+      "Bash(grep -rn \"emu.stop\\\\|emu\\\\.exit\\\\|GetStopCode\\\\|SetStopCode\" /tmp/mesen2_src/ --include=*.cpp --include=*.h --include=*.cs)",
+      "Bash(grep -rn \"ApplyConfig\\\\|ScriptWindow\" /tmp/mesen2_src/UI/Config/ --include=*.cs)",
+      "Bash(grep -rn \"ConfigManager.ProcessSwitch\\\\|ProcessSwitch\" /tmp/mesen2_src/UI/Config/ --include=*.cs)",
+      "Bash(sed -n '818,830p' /tmp/mesen2_src/Core/Debugger/LuaApi.cpp)",
+      "Bash(sed -n '864,920p' /tmp/mesen2_src/Core/Debugger/LuaApi.cpp)",
+      "Bash(timeout 5 \"C:/Apps/Mesen/Mesen.exe\" --testrunner \"C:/Users/thedo/Dropbox/SNES/SMW Hacks/Love Yourself.smc\" \"c:/Users/thedo/Git/spinlab/lua/poke_engine.lua\")",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //F //PID 20448)",
+      "Bash(grep -c \"def test_\" /c/Users/thedo/Git/spinlab/tests/test_*.py)",
+      "Bash(sort -t: -k2 -rn)",
+      "Bash(grep -c \"async def test_\" /c/Users/thedo/Git/spinlab/tests/integration/test_*.py)",
+      "Bash(python -c \"import pytest_asyncio; print\\(pytest_asyncio.__version__\\)\")"
     ]
   },
   "enabledPlugins": {
