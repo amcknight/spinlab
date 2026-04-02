@@ -152,9 +152,9 @@ def create_app(
         return {
             "estimator": sched.estimator.name,
             "estimators": [
-                    {"name": n, "display_name": get_estimator(n).display_name or n}
-                    for n in list_estimators()
-                ],
+                {"name": n, "display_name": get_estimator(n).display_name or n}
+                for n in list_estimators()
+            ],
             "allocator": sched.allocator.name,
             "segments": [
                 {
