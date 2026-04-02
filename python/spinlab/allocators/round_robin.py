@@ -17,12 +17,3 @@ class RoundRobinAllocator(Allocator):
         idx = self._index % len(segment_states)
         self._index += 1
         return segment_states[idx].segment_id
-
-    def peek_next_n(self, segment_states: list[SegmentWithModel], n: int) -> list[str]:
-        if not segment_states:
-            return []
-        result = []
-        for i in range(min(n, len(segment_states))):
-            idx = (self._index + i) % len(segment_states)
-            result.append(segment_states[idx].segment_id)
-        return result

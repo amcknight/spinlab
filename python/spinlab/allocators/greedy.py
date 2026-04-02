@@ -23,9 +23,3 @@ class GreedyAllocator(Allocator):
         best = max(_score(s) for s in segment_states)
         tied = [s for s in segment_states if _score(s) == best]
         return random.choice(tied).segment_id
-
-    def peek_next_n(self, segment_states: list[SegmentWithModel], n: int) -> list[str]:
-        shuffled = list(segment_states)
-        random.shuffle(shuffled)
-        shuffled.sort(key=_score, reverse=True)
-        return [s.segment_id for s in shuffled[:n]]

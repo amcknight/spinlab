@@ -14,7 +14,3 @@ class RandomAllocator(Allocator):
         if not segment_states:
             return None
         return _random.choice(segment_states).segment_id
-
-    def peek_next_n(self, segment_states: list[SegmentWithModel], n: int) -> list[str]:
-        sample_size = min(n, len(segment_states))
-        return [s.segment_id for s in _random.sample(segment_states, sample_size)]

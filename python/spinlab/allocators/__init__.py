@@ -115,11 +115,6 @@ class Allocator(ABC):
         """Pick next segment_id to practice, or None if list is empty."""
         ...
 
-    @abstractmethod
-    def peek_next_n(self, segment_states: list[SegmentWithModel], n: int) -> list[str]:
-        """Preview next N segment_ids without side effects."""
-        ...
-
 
 # Registry: name -> Allocator class
 _ALLOCATOR_REGISTRY: dict[str, type[Allocator]] = {}
