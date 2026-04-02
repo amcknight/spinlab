@@ -12,14 +12,16 @@ class Mode(Enum):
     PRACTICE = "practice"
     REPLAY = "replay"
     FILL_GAP = "fill_gap"
+    COLD_FILL = "cold_fill"
 
 
 _LEGAL_TRANSITIONS: dict[Mode, set[Mode]] = {
-    Mode.IDLE: {Mode.REFERENCE, Mode.PRACTICE, Mode.FILL_GAP},
+    Mode.IDLE: {Mode.REFERENCE, Mode.PRACTICE, Mode.FILL_GAP, Mode.COLD_FILL},
     Mode.REFERENCE: {Mode.IDLE, Mode.REPLAY},
     Mode.PRACTICE: {Mode.IDLE},
     Mode.REPLAY: {Mode.IDLE},
     Mode.FILL_GAP: {Mode.IDLE},
+    Mode.COLD_FILL: {Mode.IDLE},
 }
 
 

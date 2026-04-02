@@ -237,3 +237,23 @@ class TestFillGap:
         assert cold_calls[0][0][0].state_path == "/cold.mss"
         assert sm.fill_gap_segment_id is None
         assert sm.mode == Mode.IDLE
+
+
+class TestColdFillMode:
+    def test_cold_fill_mode_exists(self):
+        assert Mode.COLD_FILL.value == "cold_fill"
+
+    def test_idle_to_cold_fill_legal(self):
+        from spinlab.models import transition_mode
+        result = transition_mode(Mode.IDLE, Mode.COLD_FILL)
+        assert result == Mode.COLD_FILL
+
+    def test_cold_fill_to_idle_legal(self):
+        from spinlab.models import transition_mode
+        result = transition_mode(Mode.COLD_FILL, Mode.IDLE)
+        assert result == Mode.IDLE
+
+    def test_cold_fill_to_practice_illegal(self):
+        from spinlab.models import transition_mode
+        with pytest.raises(ValueError):
+            transition_mode(Mode.COLD_FILL, Mode.PRACTICE)
