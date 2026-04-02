@@ -70,6 +70,15 @@ local key_was_pressed = {}
 -- Passive recorder state
 local prev = {}              -- previous frame memory values
 local level_start_frame = 0  -- frame when current level entrance was logged
+
+-- Cold-fill state (captures cold starts after reference run)
+local cold_fill = {
+  active = false,
+  state = nil,            -- "waiting_death" or "waiting_spawn"
+  segment_id = nil,
+  prev_anim = 0,
+  prev_level_start = 0,
+}
 local frame_counter = 0      -- increments every startFrame
 local script_start_ms = os.clock() * 1000
 
@@ -675,6 +684,49 @@ local function detect_finish(curr)
 end
 
 -----------------------------------------------------------------------
+-- COLD-FILL MODE (captures cold save states after reference run)
+-----------------------------------------------------------------------
+local CFSTATE_WAITING_DEATH = "waiting_death"
+local CFSTATE_WAITING_SPAWN = "waiting_spawn"
+
+local function handle_cold_fill()
+  local anim = emu.read(ADDR_PLAYER_ANIM, SNES, false)
+  local level_start = emu.read(ADDR_LEVEL_START, SNES, false)
+
+  if cold_fill.state == CFSTATE_WAITING_DEATH then
+    -- Detect death: player_anim transitions to 9
+    if anim == 9 and cold_fill.prev_anim ~= 9 then
+      cold_fill.state = CFSTATE_WAITING_SPAWN
+      log("Cold-fill: death detected, waiting for spawn")
+    end
+
+  elseif cold_fill.state == CFSTATE_WAITING_SPAWN then
+    -- Detect spawn: level_start transitions 0 to 1
+    if level_start == 1 and cold_fill.prev_level_start == 0 then
+      -- Capture cold save state
+      local game_dir = STATE_DIR .. "/" .. (game_id or "unknown")
+      ensure_dir(game_dir)
+      local path = game_dir .. "/cold_" .. cold_fill.segment_id:gsub("[:/]", "_") .. ".mss"
+      table.insert(pending_saves, path)
+      send_event({
+        event = "spawn",
+        is_cold_cp = true,
+        state_captured = true,
+        state_path = path,
+        segment_id = cold_fill.segment_id,
+      })
+      log("Cold-fill: spawn captured for " .. cold_fill.segment_id)
+      cold_fill.active = false
+      cold_fill.state = nil
+      cold_fill.segment_id = nil
+    end
+  end
+
+  cold_fill.prev_anim = anim
+  cold_fill.prev_level_start = level_start
+end
+
+-----------------------------------------------------------------------
 -- PRACTICE MODE STATE MACHINE
 -----------------------------------------------------------------------
 local function handle_practice(curr)
@@ -910,6 +962,21 @@ local function handle_json_message(line)
     else
       client:send("ok:not_replaying\n")
     end
+  elseif decoded_event == "cold_fill_load" then
+    local path = json_get_str(line, "state_path")
+    local seg_id = json_get_str(line, "segment_id")
+    if not path or not seg_id then
+      client:send(to_json({event = "error", message = "cold_fill_load requires state_path and segment_id"}) .. "\n")
+    else
+      table.insert(pending_loads, path)
+      cold_fill.active = true
+      cold_fill.state = CFSTATE_WAITING_DEATH
+      cold_fill.segment_id = seg_id
+      cold_fill.prev_anim = 0
+      cold_fill.prev_level_start = 0
+      client:send("ok:cold_fill\n")
+      log("Cold-fill: loaded " .. seg_id .. " -- die to capture cold start")
+    end
   end
 end
 
@@ -1133,7 +1200,9 @@ local function on_start_frame()
   frame_counter = frame_counter + 1
 
   local curr = read_mem()
-  if practice.active then
+  if cold_fill.active then
+    handle_cold_fill()
+  elseif practice.active then
     handle_practice(curr)
   else
     detect_transitions(curr)
