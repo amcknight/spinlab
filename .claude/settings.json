@@ -61,11 +61,21 @@
       "Bash(python -c ':*)",
       "Bash(python -c \"from spinlab.estimators.model_b import ModelBEstimator; print\\('model_b OK'\\)\")",
       "Bash(python -c \"from spinlab.db import *; print\\(dir\\(\\)\\)\")",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Read(//c/Users/thedo/.claude/plugins/marketplaces/homunculus/plugins/homunculus/hooks/**)",
+      "Read(//c/Users/thedo/.claude/plugins/marketplaces/homunculus/plugins/homunculus/scripts/**)",
+      "Bash(find /c/Users/thedo/Git/spinlab -name *test*.py -o -name tests -type d)",
+      "Bash(grep -r \"spaced\\\\|repetition\\\\|Anki\\\\|SM-2\\\\|SM2\\\\|SRS\" /c/Users/thedo/Git/spinlab --include=*.py --include=*.lua --include=*.js --include=*.md --include=*.yaml --include=*.yml --exclude-dir=.venv --exclude-dir=.git --exclude-dir=__pycache__ --exclude-dir=.pytest_cache -n)",
+      "Bash(C:/Users/thedo/Git/spinlab/.venv/Scripts/python.exe -m pytest tests/ -v --tb=short)",
+      "Bash(C:/Users/thedo/Git/spinlab/.venv/Scripts/python.exe -m pytest tests/integration/ -v --tb=short)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\thedo\\Git\\spinlab\\.claude\\homunculus\\instincts\\personal"
     ]
   },
   "enabledPlugins": {
     "playwright@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true
+    "superpowers@claude-plugins-official": true,
+    "homunculus@marketplaces": true
   }
 }

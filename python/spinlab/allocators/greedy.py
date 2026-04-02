@@ -10,7 +10,7 @@ def _score(s: SegmentWithModel) -> float:
     out = s.model_outputs.get(s.selected_model)
     if out is None:
         return 0.0
-    return out.ms_per_attempt
+    return out.total.ms_per_attempt if out.total.ms_per_attempt is not None else 0.0
 
 
 @register_allocator

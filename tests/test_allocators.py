@@ -2,14 +2,13 @@
 import pytest
 from spinlab.allocators import SegmentWithModel
 from spinlab.allocators.greedy import GreedyAllocator
-from spinlab.models import ModelOutput
+from spinlab.models import Estimate, ModelOutput
 
 
 def _make_segment(segment_id: str, ms_per_attempt: float = 0.0) -> SegmentWithModel:
     out = ModelOutput(
-        expected_time_ms=10000.0, clean_expected_ms=10000.0,
-        ms_per_attempt=ms_per_attempt,
-        floor_estimate_ms=8000.0, clean_floor_estimate_ms=8000.0,
+        total=Estimate(expected_ms=10000.0, ms_per_attempt=ms_per_attempt, floor_ms=8000.0),
+        clean=Estimate(expected_ms=10000.0, ms_per_attempt=ms_per_attempt, floor_ms=8000.0),
     )
     return SegmentWithModel(
         segment_id=segment_id, game_id="test", level_number=1,

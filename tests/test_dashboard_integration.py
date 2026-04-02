@@ -90,9 +90,10 @@ def seeded_db(tmp_path):
     for segment_id, mu, d, mr in MODEL_STATES:
         state = {"mu": mu, "P": 1.0, "d": d, "Q_mu": 0.5, "Q_d": 0.01, "R": 1.0, "n": 5,
                  "gold": gold_times[segment_id], "n_completed": 3, "n_attempts": 3}
-        output = {"expected_time_ms": mu * 1000, "clean_expected_ms": mu * 1000,
-                  "ms_per_attempt": mr * 1000, "floor_estimate_ms": mu * 800,
-                  "clean_floor_estimate_ms": mu * 800}
+        output = {
+            "total": {"expected_ms": mu * 1000, "ms_per_attempt": mr * 1000, "floor_ms": mu * 800},
+            "clean": {"expected_ms": None, "ms_per_attempt": None, "floor_ms": None},
+        }
         db.save_model_state(segment_id, "kalman", json.dumps(state), json.dumps(output))
 
     return db
@@ -218,8 +219,8 @@ class TestModelEndpoint:
 
         s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
         kalman = s1["model_outputs"]["kalman"]
-        assert kalman["expected_time_ms"] == pytest.approx(3800, abs=100)
-        assert kalman["ms_per_attempt"] is not None
+        assert kalman["total"]["expected_ms"] == pytest.approx(3800, abs=100)
+        assert kalman["total"]["ms_per_attempt"] is not None
 
     def test_segment_without_model_has_empty_outputs(self, active_client):
         data = active_client.get("/api/model").json()

@@ -1,11 +1,11 @@
-# tests/test_model_b.py
-"""Tests for Model B (exponential decay estimator)."""
+# tests/test_exp_decay.py
+"""Tests for Exp Decay estimator."""
 import math
 import pytest
 
 np = pytest.importorskip("numpy")
-from spinlab.estimators.model_b import ModelBEstimator, ModelBState
-from spinlab.models import AttemptRecord, ModelOutput
+from spinlab.estimators.exp_decay import ExpDecayEstimator, ExpDecayState
+from spinlab.models import AttemptRecord, Estimate, ModelOutput
 
 
 def _attempt(time_ms: int, deaths: int = 0, clean_tail_ms: int | None = None) -> AttemptRecord:
@@ -35,15 +35,15 @@ def _synthetic_exp_attempts(
     ]
 
 
-class TestModelBProcessAttempt:
+class TestExpDecayProcessAttempt:
     def test_init_from_first_attempt(self):
-        est = ModelBEstimator()
+        est = ExpDecayEstimator()
         state = est.init_state(_attempt(12000), priors={})
         assert state.n_completed == 1
         assert state.n_attempts == 1
 
     def test_process_tracks_counts(self):
-        est = ModelBEstimator()
+        est = ExpDecayEstimator()
         attempts = _synthetic_exp_attempts(5)
         state = est.init_state(attempts[0], priors={})
         for a in attempts[1:]:
@@ -52,26 +52,25 @@ class TestModelBProcessAttempt:
         assert state.n_attempts == 5
 
     def test_incomplete_increments_attempts_only(self):
-        est = ModelBEstimator()
+        est = ExpDecayEstimator()
         state = est.init_state(_attempt(12000), priors={})
         state = est.process_attempt(state, _incomplete(), [_attempt(12000), _incomplete()])
         assert state.n_completed == 1
         assert state.n_attempts == 2
 
 
-class TestModelBFit:
+class TestExpDecayFit:
     def test_recovers_known_asymptote(self):
         """Fit on exact exponential data should recover the asymptote."""
-        est = ModelBEstimator()
+        est = ExpDecayEstimator()
         attempts = _synthetic_exp_attempts(25, amplitude=12000, decay_rate=0.1, asymptote=3000)
         state = est.init_state(attempts[0], priors={})
         for a in attempts[1:]:
             state = est.process_attempt(state, a, attempts)
-        # asymptote should be close to 3000
         assert state.asymptote == pytest.approx(3000, rel=0.05)
 
     def test_recovers_known_decay_rate(self):
-        est = ModelBEstimator()
+        est = ExpDecayEstimator()
         attempts = _synthetic_exp_attempts(25, amplitude=12000, decay_rate=0.1, asymptote=3000)
         state = est.init_state(attempts[0], priors={})
         for a in attempts[1:]:
@@ -79,55 +78,59 @@ class TestModelBFit:
         assert state.decay_rate == pytest.approx(0.1, rel=0.1)
 
 
-class TestModelBModelOutput:
+class TestExpDecayModelOutput:
     def test_output_with_enough_data(self):
-        est = ModelBEstimator()
+        est = ExpDecayEstimator()
         attempts = _synthetic_exp_attempts(25)
         state = est.init_state(attempts[0], priors={})
         for a in attempts[1:]:
             state = est.process_attempt(state, a, attempts)
         out = est.model_output(state, attempts)
         assert isinstance(out, ModelOutput)
-        assert out.ms_per_attempt > 0
-        assert out.floor_estimate_ms > 0
-        assert out.clean_floor_estimate_ms > 0
-        assert out.clean_floor_estimate_ms < out.expected_time_ms
+        assert out.total.ms_per_attempt > 0
+        assert out.total.floor_ms > 0
+        assert out.clean.floor_ms > 0
+        assert out.clean.floor_ms < out.total.expected_ms
 
-    def test_ms_per_attempt_matches_derivative(self):
-        """ms_per_attempt should approximate a*b*exp(-b*(n-1)) for synthetic data."""
-        est = ModelBEstimator()
+    def test_ms_per_attempt_is_discrete_difference(self):
+        """ms_per_attempt should be f(n) - f(n+1) from total fit."""
+        est = ExpDecayEstimator()
         a, b, c = 12000.0, 0.1, 3000.0
         attempts = _synthetic_exp_attempts(25, amplitude=a, decay_rate=b, asymptote=c)
         state = est.init_state(attempts[0], priors={})
         for att in attempts[1:]:
             state = est.process_attempt(state, att, attempts)
         out = est.model_output(state, attempts)
-        expected_deriv = a * b * math.exp(-b * 24)  # derivative at n=24
-        assert out.ms_per_attempt == pytest.approx(expected_deriv, rel=0.15)
+        # Discrete difference at n=25: f(25) - f(26)
+        f_n = a * math.exp(-b * 25) + c
+        f_n1 = a * math.exp(-b * 26) + c
+        expected_mpa = f_n - f_n1
+        assert out.total.ms_per_attempt == pytest.approx(expected_mpa, rel=0.15)
 
     def test_floor_never_negative(self):
-        est = ModelBEstimator()
+        est = ExpDecayEstimator()
         attempts = _synthetic_exp_attempts(25, asymptote=100)
         state = est.init_state(attempts[0], priors={})
         for a in attempts[1:]:
             state = est.process_attempt(state, a, attempts)
         out = est.model_output(state, attempts)
-        assert out.floor_estimate_ms >= 0
-        assert out.clean_floor_estimate_ms >= 0
+        assert out.total.floor_ms >= 0
+        assert out.clean.floor_ms >= 0
 
-    def test_fallback_with_few_points(self):
-        """With <3 completed, falls back to simple stats."""
-        est = ModelBEstimator()
+    def test_few_points_returns_none(self):
+        """With <3 completed, returns all None — no silent fallback."""
+        est = ExpDecayEstimator()
         attempts = [_attempt(12000), _attempt(11500)]
         state = est.init_state(attempts[0], priors={})
         state = est.process_attempt(state, attempts[1], attempts)
         out = est.model_output(state, attempts)
-        assert isinstance(out, ModelOutput)
-        assert out.floor_estimate_ms > 0
+        assert out.total.expected_ms is None
+        assert out.total.ms_per_attempt is None
+        assert out.total.floor_ms is None
+        assert out.clean.expected_ms is None
 
     def test_two_fits_total_and_clean(self):
-        """With dirty attempts, total and clean floors should differ."""
-        est = ModelBEstimator()
+        est = ExpDecayEstimator()
         n = 25
         attempts = []
         for i in range(n):
@@ -139,12 +142,12 @@ class TestModelBModelOutput:
         for a in attempts[1:]:
             state = est.process_attempt(state, a, attempts)
         out = est.model_output(state, attempts)
-        assert out.floor_estimate_ms > out.clean_floor_estimate_ms
+        assert out.total.floor_ms > out.clean.floor_ms
 
 
-class TestModelBRebuild:
+class TestExpDecayRebuild:
     def test_rebuild_from_attempts(self):
-        est = ModelBEstimator()
+        est = ExpDecayEstimator()
         attempts = [_attempt(12000), _incomplete(), _attempt(11000)]
         state = est.rebuild_state(attempts)
         assert state.n_completed == 2
