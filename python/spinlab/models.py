@@ -115,29 +115,58 @@ class AttemptRecord:
 
 
 @dataclass
-class ModelOutput:
-    """What every estimator produces."""
-    expected_time_ms: float             # E[total_time] for next attempt
-    clean_expected_ms: float            # E[clean_tail] for next attempt
-    ms_per_attempt: float               # improvement rate (positive = improving)
-    floor_estimate_ms: float            # E[total_time | infinite practice]
-    clean_floor_estimate_ms: float      # E[clean_tail | infinite practice]
+class Estimate:
+    """One coherent set of predictions for a single time series."""
+    expected_ms: float | None = None
+    ms_per_attempt: float | None = None
+    floor_ms: float | None = None
 
     def to_dict(self) -> dict:
         return {
-            "expected_time_ms": self.expected_time_ms,
-            "clean_expected_ms": self.clean_expected_ms,
+            "expected_ms": self.expected_ms,
             "ms_per_attempt": self.ms_per_attempt,
-            "floor_estimate_ms": self.floor_estimate_ms,
-            "clean_floor_estimate_ms": self.clean_floor_estimate_ms,
+            "floor_ms": self.floor_ms,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Estimate":
+        return cls(
+            expected_ms=d.get("expected_ms"),
+            ms_per_attempt=d.get("ms_per_attempt"),
+            floor_ms=d.get("floor_ms"),
+        )
+
+
+@dataclass
+class ModelOutput:
+    """What every estimator produces — predictions for total time and clean tail."""
+    total: Estimate
+    clean: Estimate
+
+    def to_dict(self) -> dict:
+        return {
+            "total": self.total.to_dict(),
+            "clean": self.clean.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "ModelOutput":
+        # V2 nested format
+        if "total" in d:
+            return cls(
+                total=Estimate.from_dict(d["total"]),
+                clean=Estimate.from_dict(d["clean"]),
+            )
+        # V1 backward compatibility: flat keys -> map to sides
         return cls(
-            expected_time_ms=d["expected_time_ms"],
-            clean_expected_ms=d["clean_expected_ms"],
-            ms_per_attempt=d["ms_per_attempt"],
-            floor_estimate_ms=d["floor_estimate_ms"],
-            clean_floor_estimate_ms=d["clean_floor_estimate_ms"],
+            total=Estimate(
+                expected_ms=d.get("expected_time_ms"),
+                ms_per_attempt=d.get("ms_per_attempt"),
+                floor_ms=d.get("floor_estimate_ms"),
+            ),
+            clean=Estimate(
+                expected_ms=d.get("clean_expected_ms"),
+                ms_per_attempt=None,
+                floor_ms=d.get("clean_floor_estimate_ms"),
+            ),
         )

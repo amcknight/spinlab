@@ -1,5 +1,5 @@
 """Tests for AttemptRecord and ModelOutput dataclasses."""
-from spinlab.models import AttemptRecord, ModelOutput
+from spinlab.models import AttemptRecord, Estimate, ModelOutput
 
 
 class TestAttemptRecord:
@@ -30,30 +30,72 @@ class TestAttemptRecord:
         assert ar.clean_tail_ms == ar.time_ms
 
 
+class TestEstimate:
+    def test_round_trip_serialization(self):
+        e = Estimate(expected_ms=12000.0, ms_per_attempt=150.0, floor_ms=7000.0)
+        d = e.to_dict()
+        e2 = Estimate.from_dict(d)
+        assert e2.expected_ms == 12000.0
+        assert e2.ms_per_attempt == 150.0
+        assert e2.floor_ms == 7000.0
+
+    def test_all_none(self):
+        e = Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None)
+        d = e.to_dict()
+        e2 = Estimate.from_dict(d)
+        assert e2.expected_ms is None
+        assert e2.ms_per_attempt is None
+        assert e2.floor_ms is None
+
+
 class TestModelOutput:
     def test_round_trip_serialization(self):
         mo = ModelOutput(
-            expected_time_ms=12000.0,
-            clean_expected_ms=8000.0,
-            ms_per_attempt=150.0,
-            floor_estimate_ms=7000.0,
-            clean_floor_estimate_ms=6000.0,
+            total=Estimate(expected_ms=12000.0, ms_per_attempt=150.0, floor_ms=9500.0),
+            clean=Estimate(expected_ms=8000.0, ms_per_attempt=80.0, floor_ms=6200.0),
         )
         d = mo.to_dict()
         mo2 = ModelOutput.from_dict(d)
-        assert mo2.expected_time_ms == 12000.0
-        assert mo2.clean_expected_ms == 8000.0
-        assert mo2.ms_per_attempt == 150.0
-        assert mo2.floor_estimate_ms == 7000.0
-        assert mo2.clean_floor_estimate_ms == 6000.0
+        assert mo2.total.expected_ms == 12000.0
+        assert mo2.total.ms_per_attempt == 150.0
+        assert mo2.total.floor_ms == 9500.0
+        assert mo2.clean.expected_ms == 8000.0
+        assert mo2.clean.ms_per_attempt == 80.0
+        assert mo2.clean.floor_ms == 6200.0
 
-    def test_all_five_fields_present(self):
-        mo = ModelOutput(0.0, 0.0, 0.0, 0.0, 0.0)
+    def test_nested_dict_structure(self):
+        mo = ModelOutput(
+            total=Estimate(expected_ms=1.0, ms_per_attempt=2.0, floor_ms=3.0),
+            clean=Estimate(expected_ms=4.0, ms_per_attempt=5.0, floor_ms=6.0),
+        )
         d = mo.to_dict()
-        assert set(d.keys()) == {
-            "expected_time_ms", "clean_expected_ms", "ms_per_attempt",
-            "floor_estimate_ms", "clean_floor_estimate_ms",
+        assert set(d.keys()) == {"total", "clean"}
+        assert set(d["total"].keys()) == {"expected_ms", "ms_per_attempt", "floor_ms"}
+
+    def test_v1_backward_compat(self):
+        """V1 flat dict should load into total side, clean gets all None."""
+        v1 = {
+            "expected_time_ms": 12000.0, "clean_expected_ms": 8000.0,
+            "ms_per_attempt": 150.0, "floor_estimate_ms": 7000.0,
+            "clean_floor_estimate_ms": 6000.0,
         }
+        mo = ModelOutput.from_dict(v1)
+        assert mo.total.expected_ms == 12000.0
+        assert mo.total.ms_per_attempt == 150.0
+        assert mo.total.floor_ms == 7000.0
+        assert mo.clean.expected_ms == 8000.0
+        assert mo.clean.ms_per_attempt is None
+        assert mo.clean.floor_ms == 6000.0
+
+    def test_all_none_sides(self):
+        mo = ModelOutput(
+            total=Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None),
+            clean=Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None),
+        )
+        d = mo.to_dict()
+        mo2 = ModelOutput.from_dict(d)
+        assert mo2.total.expected_ms is None
+        assert mo2.clean.expected_ms is None
 
 
 import json
