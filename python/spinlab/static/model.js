@@ -14,6 +14,7 @@ const ALLOCATOR_LABELS = {
 const ALLOCATOR_ORDER = ['greedy', 'random', 'round_robin'];
 
 let _currentWeights = null;
+let _tuningParams = null;
 
 function renderWeightSlider(weights) {
   _currentWeights = { ...weights };
@@ -224,13 +225,90 @@ export function updatePracticeControls(data) {
   stopBtn.style.display = isPracticing ? '' : 'none';
 }
 
+async function fetchTuningParams() {
+  const data = await fetchJSON('/api/estimator-params');
+  if (!data) return;
+  _tuningParams = data;
+  renderTuningParams(data);
+}
+
+function renderTuningParams(data) {
+  const container = document.getElementById('tuning-params');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!data.params || data.params.length === 0) {
+    container.innerHTML = '<p class="tuning-empty">No tunable parameters</p>';
+    return;
+  }
+  data.params.forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'tuning-row';
+    row.innerHTML =
+      '<span class="tuning-label">' + p.display_name + '</span>' +
+      '<input type="range" class="tuning-slider" ' +
+        'data-param="' + p.name + '" ' +
+        'min="' + p.min + '" max="' + p.max + '" step="' + p.step + '" ' +
+        'value="' + p.value + '">' +
+      '<input type="number" class="tuning-value" ' +
+        'data-param="' + p.name + '" ' +
+        'min="' + p.min + '" max="' + p.max + '" step="' + p.step + '" ' +
+        'value="' + p.value + '">';
+    container.appendChild(row);
+
+    const slider = row.querySelector('.tuning-slider');
+    const input = row.querySelector('.tuning-value');
+    slider.addEventListener('input', () => { input.value = slider.value; });
+    input.addEventListener('input', () => { slider.value = input.value; });
+  });
+}
+
+function collectTuningParams() {
+  const params = {};
+  document.querySelectorAll('#tuning-params .tuning-slider').forEach(slider => {
+    params[slider.dataset.param] = parseFloat(slider.value);
+  });
+  return params;
+}
+
+async function applyTuningParams() {
+  const params = collectTuningParams();
+  await postJSON('/api/estimator-params', { params });
+  fetchModel();
+}
+
+async function resetTuningDefaults() {
+  if (!_tuningParams) return;
+  _tuningParams.params.forEach(p => {
+    const slider = document.querySelector('.tuning-slider[data-param="' + p.name + '"]');
+    const input = document.querySelector('.tuning-value[data-param="' + p.name + '"]');
+    if (slider) slider.value = p.default;
+    if (input) input.value = p.default;
+  });
+  await applyTuningParams();
+}
+
 export function initModelTab() {
   document.getElementById('estimator-select').addEventListener('change', async (e) => {
     await postJSON('/api/estimator', { name: e.target.value });
     fetchModel();
+    fetchTuningParams();
   });
   document.getElementById('btn-practice-start').addEventListener('click', () =>
     postJSON('/api/practice/start'));
   document.getElementById('btn-practice-stop').addEventListener('click', () =>
     postJSON('/api/practice/stop'));
+
+  const toggle = document.getElementById('tuning-toggle');
+  const panel = document.getElementById('tuning-panel');
+  const body = document.getElementById('tuning-body');
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      panel.classList.toggle('collapsed');
+      body.style.display = panel.classList.contains('collapsed') ? 'none' : '';
+    });
+  }
+  document.getElementById('btn-tuning-apply')?.addEventListener('click', applyTuningParams);
+  document.getElementById('btn-tuning-reset')?.addEventListener('click', resetTuningDefaults);
+
+  fetchTuningParams();
 }

@@ -511,3 +511,27 @@ h3 {
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+/* Tuning panel */
+.tuning-panel { margin: 8px 0; }
+.tuning-toggle {
+  background: none; border: none; color: var(--text-dim);
+  cursor: pointer; font-size: 13px; padding: 4px 0;
+}
+.tuning-toggle:hover { color: var(--text); }
+.tuning-caret { display: inline-block; transition: transform 0.2s; }
+.tuning-panel:not(.collapsed) .tuning-caret { transform: rotate(90deg); }
+.tuning-body { padding: 8px 0; }
+.tuning-row {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 6px; font-size: 12px;
+}
+.tuning-label { min-width: 120px; color: var(--text-dim); }
+.tuning-slider { flex: 1; accent-color: var(--accent); }
+.tuning-value {
+  width: 64px; background: var(--surface); border: 1px solid var(--card);
+  color: var(--text); text-align: right; padding: 2px 4px; font-size: 12px;
+}
+.tuning-desc { font-size: 11px; color: var(--text-dim); margin: 0 0 8px 128px; }
+.tuning-actions { display: flex; gap: 8px; margin-top: 8px; }
+.tuning-empty { color: var(--text-dim); font-size: 12px; font-style: italic; }

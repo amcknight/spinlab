@@ -68,6 +68,18 @@
         <select id="estimator-select">
         </select>
       </div>
+      <div id="tuning-panel" class="tuning-panel collapsed">
+        <button id="tuning-toggle" class="tuning-toggle">
+          <span class="tuning-caret">&#9656;</span> Tuning
+        </button>
+        <div id="tuning-body" class="tuning-body" style="display:none">
+          <div id="tuning-params"></div>
+          <div class="tuning-actions">
+            <button id="btn-tuning-apply" class="btn-primary btn-sm">Apply</button>
+            <button id="btn-tuning-reset" class="btn-sm">Reset Defaults</button>
+          </div>
+        </div>
+      </div>
       <table id="model-table">
         <thead>
           <tr>
