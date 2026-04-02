@@ -49,9 +49,9 @@ class TestKalmanModelOutput:
         state = est.init_state(a1, priors={})
         out = est.model_output(state, [a1])
         assert isinstance(out, ModelOutput)
-        # expected = (mu + d) * 1000 = (12.0 + -0.5) * 1000 = 11500
-        assert out.total.expected_ms == pytest.approx(11500.0)
-        assert out.total.ms_per_attempt == pytest.approx(500.0)  # -d * 1000
+        # expected = (mu + d) * 1000 = (12.0 + 0.0) * 1000 = 12000
+        assert out.total.expected_ms == pytest.approx(12000.0)
+        assert out.total.ms_per_attempt == pytest.approx(0.0)  # -d * 1000
         assert out.total.floor_ms is None
 
     def test_clean_side_is_all_none(self):
@@ -79,7 +79,7 @@ class TestKalmanModelOutput:
         est = KalmanEstimator()
         a1 = _attempt(12000, True)
         state = est.init_state(a1, priors={})
-        # mu=12.0, d=-0.5 after init, so predicted next = 11.5s = 11500ms
+        # mu=12.0, d=0.0 after init, so predicted next = 12.0s = 12000ms
         out = est.model_output(state, [a1])
         assert out.total.expected_ms == pytest.approx((state.mu + state.d) * 1000)
 
@@ -117,7 +117,7 @@ class TestKalmanGetPriors:
         db.upsert_game("g1", "Game", "any%")
         est = KalmanEstimator()
         priors = est.get_priors(db, "g1")
-        assert priors["d"] == -0.5
+        assert priors["d"] == 0.0
         assert priors["R"] == 25.0
 
     def test_population_priors_from_mature_states(self, tmp_path):

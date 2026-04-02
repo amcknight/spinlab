@@ -221,8 +221,7 @@ class TestConstantTrend:
     def test_flat_data(self, estimator):
         out = _feed_attempts(estimator, CONSTANT_TIMES)
         if out.total.ms_per_attempt is not None:
-            # Kalman has a prior bias toward improvement (d=-0.5) that doesn't
-            # fully converge to 0 in 10 constant attempts. 200ms tolerance.
+            # Kalman starts with d=0.0, should stay near 0 for constant data.
             assert abs(out.total.ms_per_attempt) < 200, (
                 f"{estimator.name}: ms_per_attempt = {out.total.ms_per_attempt} for constant data"
             )

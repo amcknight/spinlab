@@ -11,14 +11,16 @@ if TYPE_CHECKING:
     from spinlab.db import Database
 
 # === Defaults ===
-DEFAULT_D = -0.5
+DEFAULT_D = 0.0
 DEFAULT_R = 25.0
 DEFAULT_P_D0 = 1.0
 DEFAULT_Q_MM = 0.1
 DEFAULT_Q_MD = 0.0
 DEFAULT_Q_DD = 0.01
 R_FLOOR = 1.0
-R_REESTIMATE_INTERVAL = 10
+R_BLEND = 0.3
+CI_MULTIPLIER = 1.96
+MATURITY_THRESHOLD = 10
 
 
 @dataclass
@@ -76,6 +78,31 @@ class KalmanEstimator(Estimator):
     name = "kalman"
     display_name = "Kalman Filter"
 
+    def declared_params(self) -> list["ParamDef"]:
+        from spinlab.estimators import ParamDef
+        return [
+            ParamDef("D0", "Initial Drift", 0.0, -5.0, 5.0, 0.1,
+                     "Assumed improvement rate before data (seconds/attempt). 0 = no assumption."),
+            ParamDef("R", "Obs. Noise", 25.0, 0.01, 1000.0, 0.1,
+                     "How noisy individual attempts are. Higher = smoother, slower to react."),
+            ParamDef("P_D0", "Drift Variance", 1.0, 0.01, 50.0, 0.1,
+                     "Initial uncertainty about drift. Higher = more willing to learn drift from data."),
+            ParamDef("Q_mm", "Process Noise (Mean)", 0.1, 0.001, 10.0, 0.01,
+                     "How fast true skill is expected to change. Higher = more reactive."),
+            ParamDef("Q_dd", "Process Noise (Drift)", 0.01, 0.001, 5.0, 0.001,
+                     "How fast drift itself changes. Higher = trend estimates shift faster."),
+            ParamDef("R_floor", "Noise Floor", 1.0, 0.01, 10.0, 0.01,
+                     "Minimum observation noise. Prevents filter from over-trusting single attempts."),
+            ParamDef("R_blend", "R Learning Rate", 0.3, 0.01, 1.0, 0.01,
+                     "How fast observation noise adapts. 1.0 = fully trust new estimate."),
+        ]
+
+    def _resolve_params(self, params: dict | None) -> dict:
+        defaults = {p.name: p.default for p in self.declared_params()}
+        if params:
+            defaults.update(params)
+        return defaults
+
     def _predict(self, state: KalmanState) -> KalmanState:
         mu_pred = state.mu + state.d
         d_pred = state.d
@@ -104,23 +131,26 @@ class KalmanEstimator(Estimator):
             P_mm=P_mm_new, P_md=P_md_new, P_dm=P_dm_new, P_dd=P_dd_new,
         )
 
-    def _reestimate_R(self, state: KalmanState, predicted: KalmanState, observed_time: float) -> KalmanState:
+    def _reestimate_R(self, state: KalmanState, predicted: KalmanState,
+                      observed_time: float, r_floor: float, r_blend: float) -> KalmanState:
         innovation_sq = (observed_time - predicted.mu) ** 2
         R_est = innovation_sq - predicted.P_mm
-        R_new = max(R_est, R_FLOOR)
-        R_blended = 0.7 * state.R + 0.3 * R_new
-        return replace(state, R=max(R_blended, R_FLOOR))
+        R_new = max(R_est, r_floor)
+        R_blended = (1 - r_blend) * state.R + r_blend * R_new
+        return replace(state, R=max(R_blended, r_floor))
 
-    def init_state(self, first_attempt: AttemptRecord, priors: dict) -> KalmanState:
+    def init_state(self, first_attempt: AttemptRecord, priors: dict,
+                   params: dict | None = None) -> KalmanState:
+        p = self._resolve_params(params)
         first_time = first_attempt.time_ms / 1000.0
-        d = priors.get("d", DEFAULT_D)
-        R = priors.get("R", DEFAULT_R)
-        Q_mm = priors.get("Q_mm", DEFAULT_Q_MM)
+        d = priors.get("d", p["D0"])
+        R = priors.get("R", p["R"])
+        Q_mm = priors.get("Q_mm", p["Q_mm"])
         Q_md = priors.get("Q_md", DEFAULT_Q_MD)
-        Q_dd = priors.get("Q_dd", DEFAULT_Q_DD)
+        Q_dd = priors.get("Q_dd", p["Q_dd"])
         return KalmanState(
             mu=first_time, d=d,
-            P_mm=R, P_md=0.0, P_dm=0.0, P_dd=DEFAULT_P_D0,
+            P_mm=R, P_md=0.0, P_dm=0.0, P_dd=p["P_D0"],
             R=R, Q_mm=Q_mm, Q_md=Q_md, Q_dm=Q_md, Q_dd=Q_dd,
             gold=first_time, n_completed=1, n_attempts=1,
         )
@@ -128,6 +158,7 @@ class KalmanEstimator(Estimator):
     def process_attempt(
         self, state: KalmanState, new_attempt: AttemptRecord,
         all_attempts: list[AttemptRecord],
+        params: dict | None = None,
     ) -> KalmanState:
         observed_time = (
             new_attempt.time_ms / 1000.0
@@ -137,6 +168,7 @@ class KalmanEstimator(Estimator):
         if observed_time is None:
             return replace(state, n_attempts=state.n_attempts + 1)
 
+        p = self._resolve_params(params)
         predicted = self._predict(state)
         updated = self._update(predicted, observed_time)
         n_completed = state.n_completed + 1
@@ -146,8 +178,9 @@ class KalmanEstimator(Estimator):
             Q_mm=state.Q_mm, Q_md=state.Q_md, Q_dm=state.Q_dm, Q_dd=state.Q_dd,
             gold=gold, n_completed=n_completed, n_attempts=state.n_attempts + 1,
         )
-        if n_completed >= R_REESTIMATE_INTERVAL and n_completed % R_REESTIMATE_INTERVAL == 0:
-            result = self._reestimate_R(result, predicted, observed_time)
+        if n_completed >= 2:
+            result = self._reestimate_R(result, predicted, observed_time,
+                                         r_floor=p["R_floor"], r_blend=p["R_blend"])
         return result
 
     def model_output(self, state: KalmanState, all_attempts: list[AttemptRecord]) -> ModelOutput:
@@ -166,27 +199,21 @@ class KalmanEstimator(Estimator):
     def drift_info(self, state: KalmanState) -> dict:
         import math
         p_dd_sqrt = math.sqrt(max(state.P_dd, 0.0))
-        ci_lower = state.d - 1.96 * p_dd_sqrt
-        ci_upper = state.d + 1.96 * p_dd_sqrt
+        ci_lower = state.d - CI_MULTIPLIER * p_dd_sqrt
+        ci_upper = state.d + CI_MULTIPLIER * p_dd_sqrt
         if state.d < 0:
             label = "improving"
         elif state.d > 0:
             label = "regressing"
         else:
             label = "flat"
-        if ci_lower > 0 or ci_upper < 0:
-            confidence = "confident"
-        elif p_dd_sqrt < 0.5:
-            confidence = "moderate"
-        else:
-            confidence = "uncertain"
         return {
             "drift": state.d, "ci_lower": ci_lower, "ci_upper": ci_upper,
-            "label": label, "confidence": confidence,
+            "label": label,
         }
 
     def get_population_priors(self, all_states: list[KalmanState]) -> dict:
-        mature = [s for s in all_states if s.n_completed >= R_REESTIMATE_INTERVAL]
+        mature = [s for s in all_states if s.n_completed >= MATURITY_THRESHOLD]
         if not mature:
             return {"d": DEFAULT_D, "R": DEFAULT_R, "Q_mm": DEFAULT_Q_MM, "Q_dd": DEFAULT_Q_DD}
         n = len(mature)
@@ -211,15 +238,16 @@ class KalmanEstimator(Estimator):
                     pass
         return self.get_population_priors(all_states)
 
-    def rebuild_state(self, attempts: list[AttemptRecord]) -> KalmanState:
+    def rebuild_state(self, attempts: list[AttemptRecord],
+                      params: dict | None = None) -> KalmanState:
         completed = [a for a in attempts if a.completed and a.time_ms is not None]
         if not completed:
             return KalmanState(n_attempts=len(attempts))
         first = completed[0]
-        state = self.init_state(first, priors={})
+        state = self.init_state(first, priors={}, params=params)
         first_idx = attempts.index(first)
         for a in attempts[:first_idx]:
-            state = self.process_attempt(state, a, attempts)
+            state = self.process_attempt(state, a, attempts, params=params)
         for a in attempts[first_idx + 1:]:
-            state = self.process_attempt(state, a, attempts)
+            state = self.process_attempt(state, a, attempts, params=params)
         return state

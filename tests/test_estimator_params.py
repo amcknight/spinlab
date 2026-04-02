@@ -46,3 +46,68 @@ class TestDeclaredParamsABC:
             assert isinstance(params, list)
             for p in params:
                 assert isinstance(p, ParamDef)
+
+
+from spinlab.estimators.kalman import KalmanEstimator, KalmanState
+from spinlab.models import AttemptRecord
+
+
+def _attempt(time_ms: int | None, completed: bool) -> AttemptRecord:
+    clean = time_ms if completed and time_ms is not None else None
+    return AttemptRecord(
+        time_ms=time_ms, completed=completed, deaths=0,
+        clean_tail_ms=clean, created_at="2026-01-01T00:00:00",
+    )
+
+
+class TestKalmanDeclaredParams:
+    def test_returns_params(self):
+        est = KalmanEstimator()
+        params = est.declared_params()
+        assert len(params) == 7
+        names = {p.name for p in params}
+        assert names == {"D0", "R", "P_D0", "Q_mm", "Q_dd", "R_floor", "R_blend"}
+
+    def test_defaults_match_module_constants(self):
+        est = KalmanEstimator()
+        params = est.declared_params()
+        by_name = {p.name: p for p in params}
+        assert by_name["D0"].default == 0.0
+        assert by_name["R"].default == 25.0
+        assert by_name["Q_mm"].default == 0.1
+
+
+class TestKalmanParamsAwareRebuild:
+    def test_rebuild_with_custom_D0(self):
+        est = KalmanEstimator()
+        attempts = [_attempt(12000, True), _attempt(11000, True), _attempt(10000, True)]
+        state_default = est.rebuild_state(attempts)
+        state_custom = est.rebuild_state(attempts, params={"D0": -2.0})
+        assert state_default.mu != state_custom.mu
+
+    def test_rebuild_with_custom_R(self):
+        est = KalmanEstimator()
+        attempts = [_attempt(12000, True), _attempt(11000, True), _attempt(10000, True)]
+        state_low_R = est.rebuild_state(attempts, params={"R": 1.0})
+        state_high_R = est.rebuild_state(attempts, params={"R": 100.0})
+        assert state_low_R.mu != state_high_R.mu
+
+    def test_rebuild_with_no_params_uses_defaults(self):
+        est = KalmanEstimator()
+        attempts = [_attempt(12000, True), _attempt(11000, True)]
+        state_none = est.rebuild_state(attempts, params=None)
+        state_empty = est.rebuild_state(attempts, params={})
+        assert state_none.mu == state_empty.mu
+
+
+class TestKalmanRReestimateEveryAttempt:
+    def test_r_changes_after_second_attempt(self):
+        """R should re-estimate on every completed attempt, not just every 10th."""
+        est = KalmanEstimator()
+        a1 = _attempt(12000, True)
+        state = est.init_state(a1, priors={})
+        initial_R = state.R
+        for i in range(5):
+            a = _attempt(12000 - (i + 1) * 500, True)
+            state = est.process_attempt(state, a, [a1])
+        assert state.R != initial_R, "R should re-estimate before 10 attempts"
