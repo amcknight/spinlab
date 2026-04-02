@@ -119,7 +119,6 @@ class TestReceiveResult:
         mock_segment.selected_model = "kalman"
 
         ps.scheduler.pick_next = MagicMock(return_value=mock_segment)
-        ps.scheduler.peek_next_n = MagicMock(return_value=[])
         ps.scheduler.process_attempt = MagicMock()
 
         # Schedule receive_result after a short delay

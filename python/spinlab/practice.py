@@ -41,7 +41,6 @@ class PracticeSession:
 
         self.is_running = False
         self.current_segment_id: str | None = None
-        self.queue: list[str] = []
         self.segments_attempted = 0
         self.segments_completed = 0
 
@@ -92,7 +91,6 @@ class PracticeSession:
         )
 
         self.current_segment_id = cmd.id
-        self.queue = [q for q in self.scheduler.peek_next_n(3) if q != cmd.id][:2]
 
         await self.tcp.send("practice_load:" + json.dumps(cmd.to_dict()))
 

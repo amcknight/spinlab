@@ -122,11 +122,6 @@ class Scheduler:
                 json.dumps(state.to_dict()), json.dumps(output.to_dict()),
             )
 
-    def peek_next_n(self, n: int) -> list[str]:
-        segments = SegmentWithModel.load_all(self.db, self.game_id, self.estimator.name)
-        practicable = [s for s in segments if s.state_path and os.path.exists(s.state_path)]
-        return self.allocator.peek_next_n(practicable, n)
-
     def get_all_model_states(self) -> list[SegmentWithModel]:
         return SegmentWithModel.load_all(self.db, self.game_id, self.estimator.name)
 

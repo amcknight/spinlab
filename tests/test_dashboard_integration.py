@@ -186,12 +186,6 @@ class TestApiState:
         assert data["current_segment"]["attempt_count"] == 3
         assert "kalman" in data["current_segment"]["model_outputs"]
 
-    def test_queue_contains_next_segments(self, active_client):
-        data = active_client.get("/api/state").json()
-        queue_ids = [s["id"] for s in data["queue"]]
-        assert len(queue_ids) == 2
-        assert "s1" not in queue_ids
-
     def test_recent_attempts_ordered_newest_first(self, active_client):
         data = active_client.get("/api/state").json()
         recent = data["recent"]

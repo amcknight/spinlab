@@ -97,7 +97,6 @@ class SessionManager:
             "game_id": self.game_id,
             "game_name": self.game_name,
             "current_segment": None,
-            "queue": [],
             "recent": [],
             "session": None,
             "sections_captured": self.capture.sections_captured,
@@ -163,13 +162,6 @@ class SessionManager:
                 current_seg["model_outputs"] = model_outputs
                 current_seg["selected_model"] = sched.estimator.name
                 base["current_segment"] = current_seg
-
-        queue_ids = sched.peek_next_n(3)
-        if ps.current_segment_id:
-            queue_ids = [q for q in queue_ids if q != ps.current_segment_id][:2]
-        segments_all = self.db.get_all_segments_with_model(self.game_id)
-        smap = {s["id"]: s for s in segments_all}
-        base["queue"] = [smap[sid] for sid in queue_ids if sid in smap]
 
     def _get_scheduler(self):
         """Lazy-init scheduler for current game."""

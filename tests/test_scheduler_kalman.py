@@ -90,14 +90,6 @@ class TestSchedulerProcessAttempt:
         assert len(rows) == len(list_estimators())
 
 
-class TestSchedulerPeek:
-    def test_peek_next_n(self, db_with_segments):
-        sched = Scheduler(db_with_segments, "g1")
-        results = sched.peek_next_n(3)
-        assert len(results) == 3
-        assert all(isinstance(r, str) for r in results)
-
-
 class TestSchedulerSwitch:
     def test_switch_allocator(self, db_with_segments):
         sched = Scheduler(db_with_segments, "g1")
