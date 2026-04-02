@@ -78,6 +78,9 @@ class ExpDecayState(EstimatorState):
         )
 
 
+EstimatorState.register_state("exp_decay", ExpDecayState)
+
+
 @register_estimator
 class ExpDecayEstimator(Estimator):
     name = "exp_decay"

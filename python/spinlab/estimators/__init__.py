@@ -1,6 +1,7 @@
 """Estimator abstract base class and registry."""
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -14,6 +15,18 @@ if TYPE_CHECKING:
 class EstimatorState(ABC):
     """Base class for estimator-specific state."""
 
+    @classmethod
+    def register_state(cls, name: str, state_cls: type["EstimatorState"]) -> None:
+        cls._state_classes[name] = state_cls
+
+    @classmethod
+    def deserialize(cls, estimator_name: str, state_json: str) -> "EstimatorState":
+        """Deserialize state JSON for a named estimator."""
+        state_cls = cls._state_classes.get(estimator_name)
+        if state_cls is None:
+            raise ValueError(f"No state class for estimator: {estimator_name}")
+        return state_cls.from_dict(json.loads(state_json))
+
     @abstractmethod
     def to_dict(self) -> dict:
         ...
@@ -22,6 +35,10 @@ class EstimatorState(ABC):
     @abstractmethod
     def from_dict(cls, d: dict) -> "EstimatorState":
         ...
+
+
+# Class-level registry — set after class body to avoid dataclass field issues
+EstimatorState._state_classes: dict[str, type[EstimatorState]] = {}
 
 
 class Estimator(ABC):

@@ -24,6 +24,9 @@ class RollingMeanState(EstimatorState):
         return cls(n_completed=d.get("n_completed", 0), n_attempts=d.get("n_attempts", 0))
 
 
+EstimatorState.register_state("rolling_mean", RollingMeanState)
+
+
 @register_estimator
 class RollingMeanEstimator(Estimator):
     name = "rolling_mean"

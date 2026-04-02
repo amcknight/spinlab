@@ -68,6 +68,9 @@ class KalmanState(EstimatorState):
         )
 
 
+EstimatorState.register_state("kalman", KalmanState)
+
+
 @register_estimator
 class KalmanEstimator(Estimator):
     name = "kalman"
