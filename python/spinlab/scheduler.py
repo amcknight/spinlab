@@ -118,17 +118,18 @@ class Scheduler:
         all_attempts_with_new = all_attempts + [new_attempt]
 
         for est in [get_estimator(n) for n in list_estimators()]:
+            params = self._load_estimator_params(est.name)
             row = self.db.load_model_state(segment_id, est.name)
 
             if row and row["state_json"]:
                 state = EstimatorState.deserialize(est.name, row["state_json"])
-                state = est.process_attempt(state, new_attempt, all_attempts)
+                state = est.process_attempt(state, new_attempt, all_attempts, params=params)
             else:
                 if completed and time_ms is not None:
                     priors = est.get_priors(self.db, self.game_id)
-                    state = est.init_state(new_attempt, priors)
+                    state = est.init_state(new_attempt, priors, params=params)
                 else:
-                    state = est.rebuild_state([new_attempt])
+                    state = est.rebuild_state([new_attempt], params=params)
                     output = est.model_output(state, all_attempts_with_new)
                     self.db.save_model_state(
                         segment_id, est.name,
@@ -162,6 +163,13 @@ class Scheduler:
         self.estimator = get_estimator(name)
         self.db.save_allocator_config("estimator", name)
 
+    def _load_estimator_params(self, estimator_name: str) -> dict | None:
+        """Load tunable params from DB for an estimator, or None for defaults."""
+        raw = self.db.load_allocator_config(f"estimator_params:{estimator_name}")
+        if raw:
+            return json.loads(raw)
+        return None
+
     def rebuild_all_states(self) -> None:
         segments = self.db.get_all_segments_with_model(self.game_id)
         for row in segments:
@@ -171,7 +179,8 @@ class Scheduler:
                 continue
             all_attempts = _attempts_from_rows(attempt_rows)
             for est in [get_estimator(n) for n in list_estimators()]:
-                state = est.rebuild_state(all_attempts)
+                params = self._load_estimator_params(est.name)
+                state = est.rebuild_state(all_attempts, params=params)
                 output = est.model_output(state, all_attempts)
                 self.db.save_model_state(
                     segment_id, est.name,
