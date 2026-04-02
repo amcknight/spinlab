@@ -134,6 +134,25 @@ class SegmentsMixin:
             state_path=row[2], is_default=bool(row[3]),
         )
 
+    def segments_missing_cold(self, game_id: str) -> list[dict]:
+        """Return segments that have a hot variant but no cold variant."""
+        rows = self.conn.execute(
+            """SELECT s.id AS segment_id, hot.state_path AS hot_state_path,
+                      s.level_number, s.start_type, s.start_ordinal,
+                      s.end_type, s.end_ordinal, s.description
+               FROM segments s
+               JOIN segment_variants hot
+                 ON hot.segment_id = s.id AND hot.variant_type = 'hot'
+               LEFT JOIN segment_variants cold
+                 ON cold.segment_id = s.id AND cold.variant_type = 'cold'
+               WHERE s.game_id = ? AND s.active = 1 AND cold.segment_id IS NULL
+               ORDER BY s.ordinal, s.level_number, s.start_ordinal""",
+            (game_id,),
+        ).fetchall()
+        cols = ["segment_id", "hot_state_path", "level_number",
+                "start_type", "start_ordinal", "end_type", "end_ordinal", "description"]
+        return [dict(zip(cols, r)) for r in rows]
+
     def get_default_variant(self, segment_id: str) -> SegmentVariant | None:
         """Get default variant; falls back to any variant if none marked default."""
         row = self.conn.execute(

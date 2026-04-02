@@ -93,3 +93,31 @@ def test_segments_with_model_includes_state_path(db, segment):
     assert rows[0]["state_path"] == "/cold.mss"
     assert rows[0]["start_type"] == "entrance"
     assert rows[0]["end_type"] == "checkpoint"
+
+
+def test_segments_missing_cold(db):
+    """Get segments that have a hot variant but no cold variant."""
+    db.create_capture_run("run1", "g1", "run 1")
+    # Create two segments
+    s1 = Segment(
+        id="g1:105:entrance.0:checkpoint.1", game_id="g1",
+        level_number=105, start_type="entrance", start_ordinal=0,
+        end_type="checkpoint", end_ordinal=1, reference_id="run1",
+    )
+    s2 = Segment(
+        id="g1:105:checkpoint.1:goal.0", game_id="g1",
+        level_number=105, start_type="checkpoint", start_ordinal=1,
+        end_type="goal", end_ordinal=0, reference_id="run1",
+    )
+    db.upsert_segment(s1)
+    db.upsert_segment(s2)
+
+    # s1 has both hot and cold; s2 has only hot
+    db.add_variant(SegmentVariant(s1.id, "hot", "/hot1.mss", False))
+    db.add_variant(SegmentVariant(s1.id, "cold", "/cold1.mss", True))
+    db.add_variant(SegmentVariant(s2.id, "hot", "/hot2.mss", False))
+
+    missing = db.segments_missing_cold("g1")
+    assert len(missing) == 1
+    assert missing[0]["segment_id"] == s2.id
+    assert missing[0]["hot_state_path"] == "/hot2.mss"
