@@ -60,7 +60,8 @@
       "Bash(python -c \"import spinlab.db; print\\(spinlab.db.__file__\\)\")",
       "Bash(python -c ':*)",
       "Bash(python -c \"from spinlab.estimators.model_b import ModelBEstimator; print\\('model_b OK'\\)\")",
-      "Bash(python -c \"from spinlab.db import *; print\\(dir\\(\\)\\)\")"
+      "Bash(python -c \"from spinlab.db import *; print\\(dir\\(\\)\\)\")",
+      "Bash(git rm:*)"
     ]
   },
   "enabledPlugins": {
