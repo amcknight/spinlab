@@ -111,3 +111,7 @@ class ModelStateMixin:
         )
         row = cur.fetchone()
         return row[0] if row else None
+
+    def delete_allocator_config(self, key: str) -> None:
+        self.conn.execute("DELETE FROM allocator_config WHERE key = ?", (key,))
+        self.conn.commit()

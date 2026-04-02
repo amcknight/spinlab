@@ -55,6 +55,9 @@ class Scheduler:
         self.estimator: Estimator = get_estimator(saved_est or estimator_name)
         self.allocator: MixAllocator = self._build_mix_from_db()
         self._weights_json: str = self.db.load_allocator_config("allocator_weights") or ""
+        # Clean up legacy single-allocator config key
+        if db.load_allocator_config("allocator") is not None:
+            db.delete_allocator_config("allocator")
 
     def _build_mix_from_db(self) -> MixAllocator:
         raw = self.db.load_allocator_config("allocator_weights")

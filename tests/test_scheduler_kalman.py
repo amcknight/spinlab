@@ -139,6 +139,13 @@ class TestSchedulerRebuild:
         assert len(rows) == len(list_estimators())
 
 
+class TestOldConfigCleanup:
+    def test_old_allocator_key_deleted_on_init(self, db_with_segments):
+        db_with_segments.save_allocator_config("allocator", "greedy")
+        Scheduler(db_with_segments, "g1")
+        assert db_with_segments.load_allocator_config("allocator") is None
+
+
 class TestStateFileFilter:
     def test_pick_next_skips_missing_state_files(self, tmp_path):
         from spinlab.models import Segment, SegmentVariant
