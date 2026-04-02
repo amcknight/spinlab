@@ -199,6 +199,38 @@ def create_app(
         sched.switch_estimator(name)
         return {"estimator": name}
 
+    @app.get("/api/estimator-params")
+    def get_estimator_params():
+        sched = session._get_scheduler()
+        est = sched.estimator
+        declared = est.declared_params()
+        raw = db.load_allocator_config(f"estimator_params:{est.name}")
+        saved = json.loads(raw) if raw else {}
+        return {
+            "estimator": est.name,
+            "params": [
+                {
+                    **p.to_dict(),
+                    "value": saved.get(p.name, p.default),
+                }
+                for p in declared
+            ],
+        }
+
+    @app.post("/api/estimator-params")
+    def set_estimator_params(body: dict):
+        sched = session._get_scheduler()
+        est = sched.estimator
+        params = body.get("params", {})
+        # Validate param names
+        valid_names = {p.name for p in est.declared_params()}
+        for name in params:
+            if name not in valid_names:
+                raise HTTPException(status_code=400, detail=f"Unknown param: {name}")
+        db.save_allocator_config(f"estimator_params:{est.name}", json.dumps(params))
+        sched.rebuild_all_states()
+        return {"status": "ok"}
+
     @app.post("/api/reset")
     async def reset_data():
         await session.stop_practice()

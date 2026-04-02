@@ -151,3 +151,46 @@ class TestSchedulerParamsWiring:
 
         # Different D0 should produce different state
         assert state_default["mu"] != state_custom["mu"]
+
+
+class TestEstimatorParamsAPI:
+    def test_get_estimator_params_returns_schema(self, tmp_path):
+        from spinlab.db import Database
+        from spinlab.dashboard import create_app
+        from starlette.testclient import TestClient
+
+        db = Database(str(tmp_path / "test.db"))
+        db.upsert_game("g1", "TestGame", "any%")
+        app = create_app(db=db, default_category="any%")
+        client = TestClient(app)
+        app.state.session.game_id = "g1"
+        app.state.session.game_name = "TestGame"
+
+        resp = client.get("/api/estimator-params")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "estimator" in data
+        assert "params" in data
+        assert isinstance(data["params"], list)
+
+    def test_post_estimator_params_saves(self, tmp_path):
+        from spinlab.db import Database
+        from spinlab.dashboard import create_app
+        from starlette.testclient import TestClient
+
+        db = Database(str(tmp_path / "test.db"))
+        db.upsert_game("g1", "TestGame", "any%")
+        app = create_app(db=db, default_category="any%")
+        client = TestClient(app)
+        app.state.session.game_id = "g1"
+        app.state.session.game_name = "TestGame"
+
+        resp = client.post("/api/estimator-params", json={"params": {"D0": 1.0}})
+        assert resp.status_code == 200
+
+        # Verify it was saved
+        raw = db.load_allocator_config("estimator_params:kalman")
+        assert raw is not None
+        import json
+        saved = json.loads(raw)
+        assert saved["D0"] == 1.0
