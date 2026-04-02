@@ -1,6 +1,122 @@
 import { segmentName, formatTime, elapsedStr } from './format.js';
 import { fetchJSON, postJSON } from './api.js';
 
+const ALLOCATOR_COLORS = {
+  greedy: '#4caf50',
+  random: '#2196f3',
+  round_robin: '#ff9800',
+};
+const ALLOCATOR_LABELS = {
+  greedy: 'Greedy',
+  random: 'Random',
+  round_robin: 'Round Robin',
+};
+const ALLOCATOR_ORDER = ['greedy', 'random', 'round_robin'];
+
+let _currentWeights = null;
+
+function renderWeightSlider(weights) {
+  _currentWeights = { ...weights };
+  const slider = document.getElementById('weight-slider');
+  const legend = document.getElementById('weight-legend');
+  if (!slider || !legend) return;
+
+  slider.innerHTML = '';
+  legend.innerHTML = '';
+
+  const entries = ALLOCATOR_ORDER.filter(k => k in weights);
+
+  // Segments
+  entries.forEach(name => {
+    const seg = document.createElement('div');
+    seg.className = 'weight-segment';
+    seg.style.flex = weights[name];
+    seg.style.background = ALLOCATOR_COLORS[name] || '#666';
+    seg.dataset.allocator = name;
+    slider.appendChild(seg);
+  });
+
+  // Handles (between segments)
+  const totalWidth = () => slider.getBoundingClientRect().width;
+  for (let i = 0; i < entries.length - 1; i++) {
+    const handle = document.createElement('div');
+    handle.className = 'weight-handle';
+    handle.dataset.index = i;
+    _positionHandle(handle, entries, weights, slider);
+    slider.appendChild(handle);
+
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      handle.classList.add('dragging');
+      const left = entries[i];
+      const right = entries[i + 1];
+      const startX = e.clientX;
+      const startLeftW = weights[left];
+      const startRightW = weights[right];
+      const pxPerPercent = totalWidth() / 100;
+
+      const onMove = (ev) => {
+        const dx = ev.clientX - startX;
+        const dp = Math.round(dx / pxPerPercent);
+        const newLeft = Math.max(0, Math.min(startLeftW + startRightW, startLeftW + dp));
+        const newRight = startLeftW + startRightW - newLeft;
+        weights[left] = newLeft;
+        weights[right] = newRight;
+        _updateSliderVisuals(entries, weights, slider, legend);
+      };
+      const onUp = () => {
+        handle.classList.remove('dragging');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        _currentWeights = { ...weights };
+        _postWeights(weights);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  // Legend
+  _renderLegend(entries, weights, legend);
+}
+
+function _positionHandle(handle, entries, weights, slider) {
+  let cumulative = 0;
+  const idx = parseInt(handle.dataset.index);
+  for (let i = 0; i <= idx; i++) cumulative += weights[entries[i]];
+  handle.style.left = cumulative + '%';
+}
+
+function _updateSliderVisuals(entries, weights, slider, legend) {
+  const segments = slider.querySelectorAll('.weight-segment');
+  entries.forEach((name, i) => {
+    if (segments[i]) segments[i].style.flex = weights[name];
+  });
+  const handles = slider.querySelectorAll('.weight-handle');
+  handles.forEach(h => _positionHandle(h, entries, weights, slider));
+  _renderLegend(entries, weights, legend);
+}
+
+function _renderLegend(entries, weights, legend) {
+  legend.innerHTML = '';
+  entries.forEach(name => {
+    const item = document.createElement('span');
+    item.className = 'weight-legend-item';
+    const dot = document.createElement('span');
+    dot.className = 'weight-dot';
+    dot.style.background = ALLOCATOR_COLORS[name] || '#666';
+    item.appendChild(dot);
+    item.appendChild(document.createTextNode(
+      (ALLOCATOR_LABELS[name] || name) + ' ' + weights[name] + '%'
+    ));
+    legend.appendChild(item);
+  });
+}
+
+async function _postWeights(weights) {
+  await postJSON('/api/allocator-weights', weights);
+}
+
 export async function fetchModel() {
   const data = await fetchJSON('/api/model');
   if (data) updateModel(data);
@@ -75,14 +191,6 @@ export function updatePracticeCard(data) {
     insight.textContent = 'No data yet';
   }
 
-  const queue = document.getElementById('queue');
-  queue.innerHTML = '';
-  (data.queue || []).forEach(q => {
-    const li = document.createElement('li');
-    li.textContent = segmentName(q);
-    queue.appendChild(li);
-  });
-
   const recent = document.getElementById('recent');
   recent.innerHTML = '';
   (data.recent || []).forEach(r => {
@@ -101,8 +209,8 @@ export function updatePracticeCard(data) {
       elapsedStr(data.session.started_at);
   }
 
-  if (data.allocator) {
-    document.getElementById('allocator-select').value = data.allocator;
+  if (data.allocator_weights) {
+    renderWeightSlider(data.allocator_weights);
   }
 }
 
@@ -117,9 +225,6 @@ export function updatePracticeControls(data) {
 }
 
 export function initModelTab() {
-  document.getElementById('allocator-select').addEventListener('change', async (e) => {
-    await postJSON('/api/allocator', { name: e.target.value });
-  });
   document.getElementById('estimator-select').addEventListener('change', async (e) => {
     await postJSON('/api/estimator', { name: e.target.value });
     fetchModel();
