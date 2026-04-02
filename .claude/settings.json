@@ -70,7 +70,8 @@
       "Bash(C:/Users/thedo/Git/spinlab/.venv/Scripts/python.exe -m pytest tests/integration/ -v --tb=short)",
       "Read(//c/Users/thedo/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/skills/brainstorming/**)",
       "Read(//c/Users/thedo/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/scripts/**)",
-      "Read(//c/Users/thedo/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/skills/subagent-driven-development/**)"
+      "Read(//c/Users/thedo/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/skills/subagent-driven-development/**)",
+      "Bash(git stash:*)"
     ],
     "additionalDirectories": [
       "c:\\Users\\thedo\\Git\\spinlab\\.claude\\homunculus\\instincts\\personal"
