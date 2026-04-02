@@ -146,7 +146,7 @@ def create_app(
     @app.get("/api/model")
     def api_model():
         if session.game_id is None:
-            return {"estimator": None, "estimators": [], "allocator": None, "segments": []}
+            return {"estimator": None, "estimators": [], "allocator_weights": None, "segments": []}
         sched = session._get_scheduler()
         segments = sched.get_all_model_states()
         return {
@@ -155,7 +155,7 @@ def create_app(
                 {"name": n, "display_name": get_estimator(n).display_name or n}
                 for n in list_estimators()
             ],
-            "allocator": {alloc.name: w for alloc, w in sched.allocator.entries},
+            "allocator_weights": {alloc.name: int(w) for alloc, w in sched.allocator.entries},
             "segments": [
                 {
                     "segment_id": s.segment_id,
@@ -179,17 +179,14 @@ def create_app(
             ],
         }
 
-    @app.post("/api/allocator")
+    @app.post("/api/allocator-weights")
     def set_allocator_weights(body: dict):
         sched = session._get_scheduler()
-        weights = body.get("weights")
-        if weights is None:
-            raise HTTPException(status_code=400, detail="Body must contain 'weights' dict")
         try:
-            sched.set_allocator_weights(weights)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        return {"weights": weights}
+            sched.set_allocator_weights(body)
+        except (ValueError, TypeError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return {"weights": body}
 
     @app.post("/api/estimator")
     def switch_estimator(body: dict):

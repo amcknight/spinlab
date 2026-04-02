@@ -100,7 +100,7 @@ class SessionManager:
             "recent": [],
             "session": None,
             "sections_captured": self.capture.sections_captured,
-            "allocator": None,
+            "allocator_weights": None,
             "estimator": None,
         }
 
@@ -108,7 +108,7 @@ class SessionManager:
             return base
 
         sched = self._get_scheduler()
-        base["allocator"] = {alloc.name: w for alloc, w in sched.allocator.entries}
+        base["allocator_weights"] = {alloc.name: w for alloc, w in sched.allocator.entries}
         base["estimator"] = sched.estimator.name
 
         if self.mode == Mode.PRACTICE and self.practice_session:
