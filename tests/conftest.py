@@ -32,4 +32,5 @@ def mock_db():
     db.get_active_segments = MagicMock(return_value=[])
     db.promote_draft = MagicMock()
     db.hard_delete_capture_run = MagicMock()
+    db.segments_missing_cold = MagicMock(return_value=[])
     return db
