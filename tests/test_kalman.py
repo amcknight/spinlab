@@ -108,3 +108,40 @@ class TestKalmanDriftInfo:
         assert "drift" in info
         assert "label" in info
         assert "ci_lower" in info
+
+
+class TestKalmanGetPriors:
+    def test_no_mature_states_returns_defaults(self, tmp_path):
+        from spinlab.db import Database
+        db = Database(str(tmp_path / "test.db"))
+        db.upsert_game("g1", "Game", "any%")
+        est = KalmanEstimator()
+        priors = est.get_priors(db, "g1")
+        assert priors["d"] == -0.5
+        assert priors["R"] == 25.0
+
+    def test_population_priors_from_mature_states(self, tmp_path):
+        import json
+        from spinlab.db import Database
+        from spinlab.models import Segment
+        db = Database(str(tmp_path / "test.db"))
+        db.upsert_game("g1", "Game", "any%")
+        # Create two segments with mature kalman states (n_completed >= 10)
+        for i in range(2):
+            seg = Segment(
+                id=f"s{i}", game_id="g1", level_number=i,
+                start_type="entrance", start_ordinal=0,
+                end_type="checkpoint", end_ordinal=0,
+            )
+            db.upsert_segment(seg)
+            state = KalmanState(
+                mu=10.0 + i, d=-0.3 - (0.1 * i), R=20.0 + i,
+                Q_mm=0.2, Q_dd=0.02,
+                n_completed=15, n_attempts=20,
+            )
+            db.save_model_state(f"s{i}", "kalman", json.dumps(state.to_dict()), "{}")
+        est = KalmanEstimator()
+        priors = est.get_priors(db, "g1")
+        # Should be averages of the two states
+        assert priors["d"] == pytest.approx((-0.3 + -0.4) / 2)
+        assert priors["R"] == pytest.approx((20.0 + 21.0) / 2)

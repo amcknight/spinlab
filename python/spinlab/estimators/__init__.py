@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from spinlab.db import Database
     from spinlab.models import AttemptRecord, ModelOutput
 
 
@@ -59,6 +60,10 @@ class Estimator(ABC):
     ) -> EstimatorState:
         """Rebuild state by replaying all attempts."""
         ...
+
+    def get_priors(self, db: "Database", game_id: str) -> dict:
+        """Return population priors for init_state. Default: no priors."""
+        return {}
 
 
 # Registry: name -> Estimator class

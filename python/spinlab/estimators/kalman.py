@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 
 from spinlab.estimators import Estimator, EstimatorState, register_estimator
 from spinlab.models import AttemptRecord, Estimate, ModelOutput
+
+if TYPE_CHECKING:
+    from spinlab.db import Database
 
 # === Defaults ===
 DEFAULT_D = -0.5
@@ -144,6 +148,9 @@ class KalmanEstimator(Estimator):
         return result
 
     def model_output(self, state: KalmanState, all_attempts: list[AttemptRecord]) -> ModelOutput:
+        none_estimate = Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None)
+        if state.n_completed == 0:
+            return ModelOutput(total=none_estimate, clean=none_estimate)
         return ModelOutput(
             total=Estimate(
                 expected_ms=(state.mu + state.d) * 1000,
@@ -186,6 +193,20 @@ class KalmanEstimator(Estimator):
             "Q_mm": sum(s.Q_mm for s in mature) / n,
             "Q_dd": sum(s.Q_dd for s in mature) / n,
         }
+
+    def get_priors(self, db: "Database", game_id: str) -> dict:
+        """Load population priors from all mature kalman states for this game."""
+        import json
+        all_rows = db.load_all_model_states(game_id)
+        kalman_rows = [r for r in all_rows if r["estimator"] == "kalman"]
+        all_states = []
+        for r in kalman_rows:
+            if r["state_json"]:
+                try:
+                    all_states.append(KalmanState.from_dict(json.loads(r["state_json"])))
+                except (json.JSONDecodeError, KeyError):
+                    pass
+        return self.get_population_priors(all_states)
 
     def rebuild_state(self, attempts: list[AttemptRecord]) -> KalmanState:
         completed = [a for a in attempts if a.completed and a.time_ms is not None]
