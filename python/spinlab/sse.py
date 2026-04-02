@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Callable
 
+SSE_QUEUE_MAX = 16
+
 
 class SSEBroadcaster:
     """Manages SSE subscriber queues. Decoupled from what state is pushed."""
@@ -11,7 +13,7 @@ class SSEBroadcaster:
     def __init__(self) -> None:
         self._subscribers: list[asyncio.Queue] = []
 
-    def subscribe(self, maxsize: int = 16) -> asyncio.Queue:
+    def subscribe(self, maxsize: int = SSE_QUEUE_MAX) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
         self._subscribers.append(q)
         return q

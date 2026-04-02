@@ -5,6 +5,8 @@ import argparse
 import sys
 from pathlib import Path
 
+SOCKET_CONNECT_TIMEOUT_S = 2
+
 
 def _write_ports_file(project_dir: Path, tcp_port: int, dashboard_port: int) -> None:
     """Write .spinlab-ports for external tools (AHK scripts, etc.)."""
@@ -109,7 +111,7 @@ def main(args: list[str] | None = None) -> None:
         tcp_host = network.get("host", "127.0.0.1")
         tcp_port = network.get("port", 15482)
         try:
-            with socket.create_connection((tcp_host, tcp_port), timeout=2) as s:
+            with socket.create_connection((tcp_host, tcp_port), timeout=SOCKET_CONNECT_TIMEOUT_S) as s:
                 for cmd in parsed.commands:
                     s.sendall((cmd + "\n").encode())
         except OSError:

@@ -18,6 +18,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+RECENT_ATTEMPTS_LIMIT = 8
+PRACTICE_STOP_TIMEOUT_S = 5
+
 
 class SessionManager:
     """Central coordinator for the SpinLab dashboard.
@@ -128,7 +131,7 @@ class SessionManager:
             if cf_state:
                 base["cold_fill"] = cf_state
 
-        base["recent"] = self.db.get_recent_attempts(self.game_id, limit=8)
+        base["recent"] = self.db.get_recent_attempts(self.game_id, limit=RECENT_ATTEMPTS_LIMIT)
         return base
 
     def _build_practice_state(self, base: dict, sched) -> None:
@@ -401,7 +404,7 @@ class SessionManager:
             self.practice_session.is_running = False
             if self.practice_task:
                 try:
-                    await asyncio.wait_for(self.practice_task, timeout=5)
+                    await asyncio.wait_for(self.practice_task, timeout=PRACTICE_STOP_TIMEOUT_S)
                 except asyncio.TimeoutError:
                     self.practice_task.cancel()
             self.mode = Mode.IDLE

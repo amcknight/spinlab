@@ -24,6 +24,8 @@ local TCP_PORT   = 15482
 local TCP_HOST   = "127.0.0.1"
 local JSONL_LOGGING = false  -- set true to enable passive_log.jsonl (debugging)
 local MAX_RECORDING_FRAMES = 360000  -- 100 minutes at 60fps
+local AUTO_ADVANCE_DEFAULT_MS = 2000
+local REPLAY_PROGRESS_INTERVAL_MS = 100
 local game_id    = nil  -- set dynamically from dashboard via game_context
 local DATA_DIR   = emu.getScriptDataFolder()
 local STATE_DIR  = DATA_DIR .. "/states"
@@ -127,7 +129,7 @@ local practice = {
     elapsed_ms = 0,
     completed = false,
     result_start_ms = 0,
-    auto_advance_ms = 2000,
+    auto_advance_ms = AUTO_ADVANCE_DEFAULT_MS,
 }
 
 local function practice_reset()
@@ -138,7 +140,7 @@ local function practice_reset()
     practice.elapsed_ms = 0
     practice.completed = false
     practice.result_start_ms = 0
-    practice.auto_advance_ms = 2000
+    practice.auto_advance_ms = AUTO_ADVANCE_DEFAULT_MS
     reset_transition_state()
 end
 
@@ -303,7 +305,7 @@ local function parse_practice_segment(json_str)
     goal                   = json_get_str(json_str, "goal") or "",
     description            = json_get_str(json_str, "description") or "",
     reference_time_ms      = json_get_num(json_str, "reference_time_ms"),
-    auto_advance_delay_ms  = json_get_num(json_str, "auto_advance_delay_ms") or 2000,
+    auto_advance_delay_ms  = json_get_num(json_str, "auto_advance_delay_ms") or AUTO_ADVANCE_DEFAULT_MS,
     expected_time_ms       = json_get_num(json_str, "expected_time_ms"),
     end_on_goal            = end_on_goal,
     end_type               = end_type,
@@ -1161,7 +1163,7 @@ local function on_input_polled()
     replay.index = replay.index + 1
     -- Progress reporting (wall-clock throttled)
     local now = os.clock() * 1000
-    if now - replay.last_progress_ms >= 100 then
+    if now - replay.last_progress_ms >= REPLAY_PROGRESS_INTERVAL_MS then
       replay.last_progress_ms = now
       send_event({event = "replay_progress", frame = replay.index - 1, total = replay.total})
     end

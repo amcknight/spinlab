@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+SEGMENT_LOAD_TIMEOUT_S = 1.0
+
 
 class PracticeSession:
     """Manages a practice session: picks segments, sends to Lua, processes results."""
@@ -100,7 +102,7 @@ class PracticeSession:
 
         while self.is_running and self.tcp.is_connected:
             try:
-                await asyncio.wait_for(self._result_event.wait(), timeout=1.0)
+                await asyncio.wait_for(self._result_event.wait(), timeout=SEGMENT_LOAD_TIMEOUT_S)
                 break
             except asyncio.TimeoutError:
                 continue

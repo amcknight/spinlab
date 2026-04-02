@@ -1,3 +1,6 @@
+const TOAST_TIMEOUT_MS = 8000;
+const FALLBACK_POLL_MS = 5000;
+
 let toastTimer = null;
 
 function showToast(msg) {
@@ -10,7 +13,7 @@ function showToast(msg) {
   el.textContent = msg;
   el.classList.add('visible');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('visible'), 8000);
+  toastTimer = setTimeout(() => el.classList.remove('visible'), TOAST_TIMEOUT_MS);
 }
 
 export async function fetchJSON(url, opts = {}) {
@@ -60,5 +63,5 @@ function startFallbackPoll(onMessage) {
   fallbackInterval = setInterval(async () => {
     const data = await fetchJSON('/api/state');
     if (data) onMessage(data);
-  }, 5000);
+  }, FALLBACK_POLL_MS);
 }

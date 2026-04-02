@@ -18,6 +18,11 @@ from .tcp_manager import TcpManager
 
 logger = logging.getLogger(__name__)
 
+TCP_CONNECT_TIMEOUT_S = 2
+TCP_RETRY_DELAY_S = 2
+TCP_EVENT_TIMEOUT_S = 1.0
+SSE_KEEPALIVE_S = 30
+
 _ERROR_STATUS_CODES = {
     "not_connected": 503,
     "draft_pending": 409,
@@ -45,12 +50,12 @@ async def event_loop(session: SessionManager, tcp: TcpManager) -> None:
     """Bridge TCP events to SessionManager. Extracted for testability."""
     while True:
         if not tcp.is_connected:
-            await tcp.connect(timeout=2)
+            await tcp.connect(timeout=TCP_CONNECT_TIMEOUT_S)
             if not tcp.is_connected:
-                await asyncio.sleep(2)
+                await asyncio.sleep(TCP_RETRY_DELAY_S)
                 continue
         try:
-            event = await tcp.recv_event(timeout=1.0)
+            event = await tcp.recv_event(timeout=TCP_EVENT_TIMEOUT_S)
             if event:
                 await session.route_event(event)
         except Exception:
@@ -407,7 +412,7 @@ def create_app(
             try:
                 while True:
                     try:
-                        state = await asyncio.wait_for(queue.get(), timeout=30)
+                        state = await asyncio.wait_for(queue.get(), timeout=SSE_KEEPALIVE_S)
                         yield f"data: {json.dumps(state)}\n\n"
                     except asyncio.TimeoutError:
                         yield ": keepalive\n\n"

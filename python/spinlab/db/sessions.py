@@ -3,6 +3,8 @@
 from datetime import UTC, datetime
 from typing import Optional
 
+SESSION_HISTORY_LIMIT = 10
+
 
 class SessionsMixin:
     """Practice session lifecycle."""
@@ -33,7 +35,7 @@ class SessionsMixin:
         ).fetchone()
         return dict(row) if row else None
 
-    def get_session_history(self, game_id: str, limit: int = 10) -> list[dict]:
+    def get_session_history(self, game_id: str, limit: int = SESSION_HISTORY_LIMIT) -> list[dict]:
         """Recent sessions, most recent first."""
         rows = self.conn.execute(
             """SELECT * FROM sessions

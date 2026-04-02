@@ -6,6 +6,8 @@ from typing import Optional
 
 from ..models import Attempt
 
+RECENT_ATTEMPTS_DB_LIMIT = 8
+
 
 class AttemptsMixin:
     """Attempt logging and statistics."""
@@ -53,7 +55,7 @@ class AttemptsMixin:
         ).fetchone()
         return row["cnt"]
 
-    def get_recent_attempts(self, game_id: str, limit: int = 8) -> list[dict]:
+    def get_recent_attempts(self, game_id: str, limit: int = RECENT_ATTEMPTS_DB_LIMIT) -> list[dict]:
         """Last N attempts joined with segment info, most recent first."""
         rows = self.conn.execute(
             """SELECT a.*, s.description, s.level_number,
