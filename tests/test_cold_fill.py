@@ -108,3 +108,52 @@ class TestHandleColdFillSpawn:
         assert done is False
         # Queue unchanged — still on first segment
         assert cc.cold_fill_current == "g1:105:cp.1:cp.2"
+
+
+class TestGetColdFillState:
+    async def test_returns_none_before_start(self, tcp, db):
+        cc = CaptureController()
+        assert cc.get_cold_fill_state() is None
+
+    async def test_returns_progress_mid_fill(self, tcp, db):
+        cc = CaptureController()
+        await cc.start_cold_fill("g1", tcp, db)
+
+        state = cc.get_cold_fill_state()
+        assert state["current"] == 1
+        assert state["total"] == 2
+        assert state["segment_label"] == "L105 cp1 > cp2"
+
+    async def test_progress_advances(self, tcp, db):
+        cc = CaptureController()
+        await cc.start_cold_fill("g1", tcp, db)
+
+        await cc.handle_cold_fill_spawn(
+            {"state_captured": True, "state_path": "/cold1.mss"}, tcp, db,
+        )
+        state = cc.get_cold_fill_state()
+        assert state["current"] == 2
+        assert state["total"] == 2
+        assert state["segment_label"] == "L105 cp2 > goal"
+
+    async def test_returns_none_after_complete(self, tcp, db):
+        cc = CaptureController()
+        await cc.start_cold_fill("g1", tcp, db)
+        await cc.handle_cold_fill_spawn(
+            {"state_captured": True, "state_path": "/cold1.mss"}, tcp, db,
+        )
+        await cc.handle_cold_fill_spawn(
+            {"state_captured": True, "state_path": "/cold2.mss"}, tcp, db,
+        )
+        assert cc.get_cold_fill_state() is None
+
+    async def test_uses_description_when_present(self, tcp, db):
+        db.segments_missing_cold.return_value = [
+            {"segment_id": "seg1", "hot_state_path": "/hot.mss",
+             "level_number": 105, "start_type": "checkpoint", "start_ordinal": 1,
+             "end_type": "goal", "end_ordinal": 0, "description": "My Custom Name"},
+        ]
+        cc = CaptureController()
+        await cc.start_cold_fill("g1", tcp, db)
+        state = cc.get_cold_fill_state()
+        assert state["segment_label"] == "My Custom Name"

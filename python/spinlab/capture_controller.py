@@ -179,9 +179,6 @@ class CaptureController:
         return await self._load_next_cold_fill(tcp)
 
     async def _load_next_cold_fill(self, tcp: "TcpManager") -> dict:
-        if not self.cold_fill_queue:
-            self.cold_fill_current = None
-            return {"status": "complete", "new_mode": Mode.COLD_FILL}
         seg = self.cold_fill_queue[0]
         self.cold_fill_current = seg["segment_id"]
         await tcp.send(json.dumps({
@@ -218,14 +215,13 @@ class CaptureController:
     def get_cold_fill_state(self) -> dict | None:
         if not self.cold_fill_current:
             return None
-        current_num = self.cold_fill_total - len(self.cold_fill_queue)
+        current_num = self.cold_fill_total - len(self.cold_fill_queue) + 1
         seg = self.cold_fill_queue[0] if self.cold_fill_queue else None
         label = ""
         if seg:
-            s = seg
-            start = "start" if s["start_type"] == "entrance" else f"cp{s['start_ordinal']}"
-            end = "goal" if s["end_type"] == "goal" else f"cp{s['end_ordinal']}"
-            label = s.get("description") or f"L{s['level_number']} {start} > {end}"
+            start = "start" if seg["start_type"] == "entrance" else f"cp{seg['start_ordinal']}"
+            end = "goal" if seg["end_type"] == "goal" else f"cp{seg['end_ordinal']}"
+            label = seg.get("description") or f"L{seg['level_number']} {start} > {end}"
         return {
             "current": current_num,
             "total": self.cold_fill_total,
