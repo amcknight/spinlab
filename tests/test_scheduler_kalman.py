@@ -90,16 +90,42 @@ class TestSchedulerProcessAttempt:
         assert len(rows) == len(list_estimators())
 
 
-class TestSchedulerSwitch:
-    def test_switch_allocator(self, db_with_segments):
+class TestSchedulerWeights:
+    def test_set_weights_persists_and_rebuilds(self, db_with_segments):
         sched = Scheduler(db_with_segments, "g1")
-        sched.switch_allocator("random")
-        assert sched.allocator.name == "random"
+        sched.set_allocator_weights({"greedy": 50, "random": 50})
+        raw = db_with_segments.load_allocator_config("allocator_weights")
+        import json
+        saved = json.loads(raw)
+        assert saved == {"greedy": 50, "random": 50}
 
-    def test_switch_unknown_allocator_raises(self, db_with_segments):
+    def test_set_weights_invalid_sum_raises(self, db_with_segments):
         sched = Scheduler(db_with_segments, "g1")
-        with pytest.raises(ValueError):
-            sched.switch_allocator("nonexistent")
+        with pytest.raises(ValueError, match="must sum to 100"):
+            sched.set_allocator_weights({"greedy": 50, "random": 30})
+
+    def test_set_weights_unknown_allocator_raises(self, db_with_segments):
+        sched = Scheduler(db_with_segments, "g1")
+        with pytest.raises(ValueError, match="Unknown allocator"):
+            sched.set_allocator_weights({"greedy": 50, "nonexistent": 50})
+
+    def test_default_weights_uniform(self, db_with_segments):
+        sched = Scheduler(db_with_segments, "g1")
+        from spinlab.allocators import list_allocators
+        n = len(list_allocators())
+        assert len(sched.allocator.entries) == n
+
+    def test_sync_picks_up_weight_change(self, db_with_segments):
+        sched = Scheduler(db_with_segments, "g1")
+        import json
+        db_with_segments.save_allocator_config(
+            "allocator_weights", json.dumps({"random": 100})
+        )
+        sched._sync_config_from_db()
+        assert len(sched.allocator.entries) == 1
+        alloc, weight = sched.allocator.entries[0]
+        assert alloc.name == "random"
+        assert weight == 100
 
 
 class TestSchedulerRebuild:

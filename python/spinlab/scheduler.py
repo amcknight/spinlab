@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 logger = logging.getLogger(__name__)
 
 from spinlab.allocators import SegmentWithModel, get_allocator, list_allocators
+from spinlab.allocators.mix import MixAllocator
 from spinlab.allocators.greedy import GreedyAllocator  # ensure registered
 from spinlab.allocators.random import RandomAllocator
 from spinlab.allocators.round_robin import RoundRobinAllocator
@@ -26,7 +27,6 @@ except ImportError:
 from spinlab.models import AttemptRecord, ModelOutput
 
 if TYPE_CHECKING:
-    from spinlab.allocators import Allocator
     from spinlab.db import Database
     from spinlab.estimators import Estimator
 
@@ -47,19 +47,36 @@ def _attempts_from_rows(rows: list[dict]) -> list[AttemptRecord]:
 class Scheduler:
     def __init__(
         self, db: "Database", game_id: str,
-        estimator_name: str = "kalman", allocator_name: str = "greedy",
+        estimator_name: str = "kalman",
     ) -> None:
         self.db = db
         self.game_id = game_id
-        saved_alloc = db.load_allocator_config("allocator")
         saved_est = db.load_allocator_config("estimator")
         self.estimator: Estimator = get_estimator(saved_est or estimator_name)
-        self.allocator: Allocator = get_allocator(saved_alloc or allocator_name)
+        self.allocator: MixAllocator = self._build_mix_from_db()
+        self._weights_json: str = self.db.load_allocator_config("allocator_weights") or ""
+
+    def _build_mix_from_db(self) -> MixAllocator:
+        raw = self.db.load_allocator_config("allocator_weights")
+        if raw:
+            weights = json.loads(raw)
+        else:
+            names = list_allocators()
+            base = 100 // len(names)
+            remainder = 100 - base * len(names)
+            weights = {n: base + (1 if i < remainder else 0) for i, n in enumerate(names)}
+        return self._build_mix(weights)
+
+    @staticmethod
+    def _build_mix(weights: dict[str, int]) -> MixAllocator:
+        entries = [(get_allocator(name), w) for name, w in weights.items() if w > 0]
+        return MixAllocator(entries=entries)
 
     def _sync_config_from_db(self) -> None:
-        saved_alloc = self.db.load_allocator_config("allocator")
-        if saved_alloc and saved_alloc != self.allocator.name:
-            self.allocator = get_allocator(saved_alloc)
+        raw = self.db.load_allocator_config("allocator_weights") or ""
+        if raw != self._weights_json:
+            self._weights_json = raw
+            self.allocator = self._build_mix_from_db()
         saved_est = self.db.load_allocator_config("estimator")
         if saved_est and saved_est != self.estimator.name:
             self.estimator = get_estimator(saved_est)
@@ -125,9 +142,18 @@ class Scheduler:
     def get_all_model_states(self) -> list[SegmentWithModel]:
         return SegmentWithModel.load_all(self.db, self.game_id, self.estimator.name)
 
-    def switch_allocator(self, name: str) -> None:
-        self.allocator = get_allocator(name)
-        self.db.save_allocator_config("allocator", name)
+    def set_allocator_weights(self, weights: dict[str, int]) -> None:
+        total = sum(weights.values())
+        if total != 100:
+            raise ValueError(f"Weights must sum to 100, got {total}")
+        valid = set(list_allocators())
+        for name in weights:
+            if name not in valid:
+                raise ValueError(f"Unknown allocator: {name!r}. Available: {valid}")
+        raw = json.dumps(weights)
+        self.db.save_allocator_config("allocator_weights", raw)
+        self._weights_json = raw
+        self.allocator = self._build_mix(weights)
 
     def switch_estimator(self, name: str) -> None:
         self.estimator = get_estimator(name)

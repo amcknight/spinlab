@@ -155,7 +155,7 @@ def create_app(
                 {"name": n, "display_name": get_estimator(n).display_name or n}
                 for n in list_estimators()
             ],
-            "allocator": sched.allocator.name,
+            "allocator": {alloc.name: w for alloc, w in sched.allocator.entries},
             "segments": [
                 {
                     "segment_id": s.segment_id,
@@ -180,15 +180,16 @@ def create_app(
         }
 
     @app.post("/api/allocator")
-    def switch_allocator(body: dict):
-        from .allocators import list_allocators
-        name = body.get("name")
-        valid = list_allocators()
-        if name not in valid:
-            raise HTTPException(status_code=400, detail=f"Unknown allocator: {name}. Valid: {valid}")
+    def set_allocator_weights(body: dict):
         sched = session._get_scheduler()
-        sched.switch_allocator(name)
-        return {"allocator": name}
+        weights = body.get("weights")
+        if weights is None:
+            raise HTTPException(status_code=400, detail="Body must contain 'weights' dict")
+        try:
+            sched.set_allocator_weights(weights)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"weights": weights}
 
     @app.post("/api/estimator")
     def switch_estimator(body: dict):

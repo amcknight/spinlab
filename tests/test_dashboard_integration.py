@@ -199,7 +199,8 @@ class TestApiState:
 
     def test_allocator_and_estimator_reported(self, active_client):
         data = active_client.get("/api/state").json()
-        assert data["allocator"] == "greedy"
+        assert isinstance(data["allocator"], dict)
+        assert sum(data["allocator"].values()) == 100
         assert data["estimator"] == "kalman"
 
 
@@ -236,15 +237,23 @@ class TestModelEndpoint:
 # -- Allocator / estimator switching -----------------------------------------
 
 class TestAllocatorSwitch:
-    def test_switch_allocator(self, active_client):
-        resp = active_client.post("/api/allocator", json={"name": "random"})
+    def test_set_allocator_weights(self, active_client):
+        resp = active_client.post("/api/allocator", json={"weights": {"random": 100}})
         assert resp.status_code == 200
-        assert resp.json()["allocator"] == "random"
+        assert resp.json()["weights"] == {"random": 100}
 
-    def test_switch_allocator_round_robin(self, active_client):
-        resp = active_client.post("/api/allocator", json={"name": "round_robin"})
+    def test_set_allocator_weights_mixed(self, active_client):
+        resp = active_client.post("/api/allocator", json={"weights": {"greedy": 50, "round_robin": 50}})
         assert resp.status_code == 200
-        assert resp.json()["allocator"] == "round_robin"
+        assert resp.json()["weights"] == {"greedy": 50, "round_robin": 50}
+
+    def test_set_allocator_weights_invalid_sum(self, active_client):
+        resp = active_client.post("/api/allocator", json={"weights": {"random": 50}})
+        assert resp.status_code == 400
+
+    def test_set_allocator_weights_missing_body(self, active_client):
+        resp = active_client.post("/api/allocator", json={"name": "random"})
+        assert resp.status_code == 400
 
     def test_switch_estimator(self, active_client):
         resp = active_client.post("/api/estimator", json={"name": "kalman"})

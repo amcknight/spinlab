@@ -108,7 +108,7 @@ class SessionManager:
             return base
 
         sched = self._get_scheduler()
-        base["allocator"] = sched.allocator.name
+        base["allocator"] = {alloc.name: w for alloc, w in sched.allocator.entries}
         base["estimator"] = sched.estimator.name
 
         if self.mode == Mode.PRACTICE and self.practice_session:
