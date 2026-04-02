@@ -30,6 +30,10 @@ class CaptureController:
         self.ref_capture = ReferenceCapture()
         self.draft = DraftManager()
         self.fill_gap_segment_id: str | None = None
+        # Cold-fill state
+        self.cold_fill_queue: list[dict] = []
+        self.cold_fill_current: str | None = None
+        self.cold_fill_total: int = 0
 
     @property
     def sections_captured(self) -> int:
@@ -160,6 +164,73 @@ class CaptureController:
         db.add_variant(variant)
         self.fill_gap_segment_id = None
         return True
+
+    # --- Cold-fill ---
+
+    async def start_cold_fill(self, game_id: str, tcp: "TcpManager", db: "Database") -> dict:
+        if not tcp.is_connected:
+            return {"status": "not_connected"}
+        gaps = db.segments_missing_cold(game_id)
+        if not gaps:
+            return {"status": "no_gaps"}
+        self.cold_fill_queue = gaps
+        self.cold_fill_total = len(gaps)
+        self.cold_fill_current = None
+        return await self._load_next_cold_fill(tcp)
+
+    async def _load_next_cold_fill(self, tcp: "TcpManager") -> dict:
+        if not self.cold_fill_queue:
+            self.cold_fill_current = None
+            return {"status": "complete", "new_mode": Mode.COLD_FILL}
+        seg = self.cold_fill_queue[0]
+        self.cold_fill_current = seg["segment_id"]
+        await tcp.send(json.dumps({
+            "event": "cold_fill_load",
+            "state_path": seg["hot_state_path"],
+            "segment_id": seg["segment_id"],
+        }))
+        current_num = self.cold_fill_total - len(self.cold_fill_queue) + 1
+        return {
+            "status": "started",
+            "new_mode": Mode.COLD_FILL,
+            "current": current_num,
+            "total": self.cold_fill_total,
+        }
+
+    async def handle_cold_fill_spawn(self, event: dict, tcp: "TcpManager", db: "Database") -> bool:
+        """Store cold variant, advance queue. Returns True when all done."""
+        if not event.get("state_captured") or not self.cold_fill_current:
+            return False
+        variant = SegmentVariant(
+            segment_id=self.cold_fill_current,
+            variant_type="cold",
+            state_path=event["state_path"],
+            is_default=True,
+        )
+        db.add_variant(variant)
+        self.cold_fill_queue.pop(0)
+        if not self.cold_fill_queue:
+            self.cold_fill_current = None
+            return True
+        await self._load_next_cold_fill(tcp)
+        return False
+
+    def get_cold_fill_state(self) -> dict | None:
+        if not self.cold_fill_current:
+            return None
+        current_num = self.cold_fill_total - len(self.cold_fill_queue)
+        seg = self.cold_fill_queue[0] if self.cold_fill_queue else None
+        label = ""
+        if seg:
+            s = seg
+            start = "start" if s["start_type"] == "entrance" else f"cp{s['start_ordinal']}"
+            end = "goal" if s["end_type"] == "goal" else f"cp{s['end_ordinal']}"
+            label = s.get("description") or f"L{s['level_number']} {start} > {end}"
+        return {
+            "current": current_num,
+            "total": self.cold_fill_total,
+            "segment_label": label,
+        }
 
     # --- Capture event routing ---
 
