@@ -239,6 +239,75 @@ class TestFillGap:
         assert sm.mode == Mode.IDLE
 
 
+class TestColdFill:
+    async def test_save_draft_triggers_cold_fill(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.game_id = "game1"
+
+        # Set up draft
+        sm.capture.draft.enter_draft("run1", 3)
+
+        # Mock: 2 segments missing cold
+        mock_db.segments_missing_cold = MagicMock(return_value=[
+            {"segment_id": "seg1", "hot_state_path": "/hot1.mss",
+             "level_number": 105, "start_type": "checkpoint", "start_ordinal": 1,
+             "end_type": "checkpoint", "end_ordinal": 2, "description": ""},
+            {"segment_id": "seg2", "hot_state_path": "/hot2.mss",
+             "level_number": 105, "start_type": "checkpoint", "start_ordinal": 2,
+             "end_type": "goal", "end_ordinal": 0, "description": ""},
+        ])
+
+        result = await sm.save_draft("Test")
+        assert result["status"] == "ok"
+        assert sm.mode == Mode.COLD_FILL
+
+    async def test_save_draft_no_gaps_stays_idle(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.game_id = "game1"
+        sm.capture.draft.enter_draft("run1", 3)
+        mock_db.segments_missing_cold = MagicMock(return_value=[])
+
+        result = await sm.save_draft("Test")
+        assert result["status"] == "ok"
+        assert sm.mode == Mode.IDLE
+
+    async def test_cold_fill_spawn_routes_correctly(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.game_id = "game1"
+        sm.mode = Mode.COLD_FILL
+        sm.capture.cold_fill_current = "seg1"
+        sm.capture.cold_fill_queue = [
+            {"segment_id": "seg1", "hot_state_path": "/hot1.mss",
+             "level_number": 105, "start_type": "checkpoint", "start_ordinal": 1,
+             "end_type": "goal", "end_ordinal": 0, "description": ""},
+        ]
+        sm.capture.cold_fill_total = 1
+
+        await sm.route_event({
+            "event": "spawn",
+            "state_captured": True,
+            "state_path": "/cold1.mss",
+        })
+        assert sm.mode == Mode.IDLE
+
+    async def test_cold_fill_state_in_get_state(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.game_id = "game1"
+        sm.mode = Mode.COLD_FILL
+        sm.capture.cold_fill_current = "seg1"
+        sm.capture.cold_fill_queue = [
+            {"segment_id": "seg1", "hot_state_path": "/hot1.mss",
+             "level_number": 105, "start_type": "checkpoint", "start_ordinal": 1,
+             "end_type": "goal", "end_ordinal": 0, "description": ""},
+        ]
+        sm.capture.cold_fill_total = 2
+
+        state = sm.get_state()
+        assert state["mode"] == "cold_fill"
+        assert "cold_fill" in state
+        assert state["cold_fill"]["total"] == 2
+
+
 class TestColdFillMode:
     def test_cold_fill_mode_exists(self):
         assert Mode.COLD_FILL.value == "cold_fill"

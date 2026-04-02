@@ -124,6 +124,11 @@ class SessionManager:
         if draft_state:
             base["draft"] = draft_state
 
+        if self.mode == Mode.COLD_FILL:
+            cf_state = self.capture.get_cold_fill_state()
+            if cf_state:
+                base["cold_fill"] = cf_state
+
         base["recent"] = self.db.get_recent_attempts(self.game_id, limit=8)
         return base
 
@@ -258,11 +263,18 @@ class SessionManager:
         await self._notify_sse()
 
     async def _handle_death(self, event: dict) -> None:
-        if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
+        if self.mode not in (Mode.REFERENCE, Mode.REPLAY, Mode.COLD_FILL):
             return
-        self.capture.handle_death()
+        if self.mode in (Mode.REFERENCE, Mode.REPLAY):
+            self.capture.handle_death()
 
     async def _handle_spawn(self, event: dict) -> None:
+        if self.mode == Mode.COLD_FILL:
+            done = await self.capture.handle_cold_fill_spawn(event, self.tcp, self.db)
+            if done:
+                self.mode = Mode.IDLE
+            await self._notify_sse()
+            return
         if self.mode == Mode.FILL_GAP:
             if self.capture.handle_fill_gap_spawn(event, self.db):
                 self.mode = Mode.IDLE
@@ -349,6 +361,12 @@ class SessionManager:
 
     async def save_draft(self, name: str) -> dict:
         result = await self.capture.save_draft(self.db, name)
+        if result.get("status") == "ok" and self.game_id and self.tcp.is_connected:
+            cf_result = await self.capture.start_cold_fill(
+                self.game_id, self.tcp, self.db,
+            )
+            if cf_result.get("new_mode") == Mode.COLD_FILL:
+                self.mode = Mode.COLD_FILL
         await self._notify_sse()
         return result
 
