@@ -71,6 +71,23 @@ function updateManage(refs, segments) {
   const selectedRef = refs.find(r => r.id === sel.value);
   btnReplay.disabled = busy || hasDraft || !selectedRef?.has_spinrec || !lastState?.tcp_connected;
 
+  // Cold-fill progress banner
+  const cfBanner = document.getElementById('cold-fill-banner');
+  if (cfBanner) {
+    if (lastState?.mode === 'cold_fill' && lastState?.cold_fill) {
+      const cf = lastState.cold_fill;
+      cfBanner.innerHTML =
+        '<div class="cold-fill-status">' +
+        '<strong>Capturing cold starts</strong> — ' +
+        'Die to continue (' + cf.current + '/' + cf.total + ')' +
+        (cf.segment_label ? ' — ' + cf.segment_label : '') +
+        '</div>';
+      cfBanner.style.display = 'block';
+    } else {
+      cfBanner.style.display = 'none';
+    }
+  }
+
   // Segments table
   const body = document.getElementById('segment-body');
   body.innerHTML = '';
