@@ -290,6 +290,19 @@ class TestColdFill:
         })
         assert sm.mode == Mode.IDLE
 
+    async def test_disconnect_during_cold_fill_returns_idle(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.game_id = "game1"
+        sm.mode = Mode.COLD_FILL
+        sm.capture.cold_fill_current = "seg1"
+        sm.capture.cold_fill_queue = [{"segment_id": "seg1"}]
+        sm.capture.cold_fill_total = 1
+
+        sm.on_disconnect()
+        assert sm.mode == Mode.IDLE
+        assert sm.capture.cold_fill_current is None
+        assert sm.capture.cold_fill_queue == []
+
     async def test_cold_fill_state_in_get_state(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"

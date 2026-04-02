@@ -423,6 +423,7 @@ class SessionManager:
     def on_disconnect(self) -> None:
         if self.practice_session and self.practice_session.is_running:
             self.practice_session.is_running = False
+        self.capture.clear_cold_fill()
         self.capture.handle_disconnect(self.db)
         self._clear_ref_and_idle()
 

@@ -212,6 +212,12 @@ class CaptureController:
         await self._load_next_cold_fill(tcp)
         return False
 
+    def clear_cold_fill(self) -> None:
+        """Reset cold-fill state (e.g., on disconnect)."""
+        self.cold_fill_queue = []
+        self.cold_fill_current = None
+        self.cold_fill_total = 0
+
     def get_cold_fill_state(self) -> dict | None:
         if not self.cold_fill_current:
             return None
