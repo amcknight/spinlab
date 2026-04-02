@@ -32,12 +32,13 @@ class RollingMeanEstimator(Estimator):
     name = "rolling_mean"
     display_name = "Rolling Mean"
 
-    def init_state(self, first_attempt: AttemptRecord, priors: dict) -> RollingMeanState:
+    def init_state(self, first_attempt: AttemptRecord, priors: dict, params: dict | None = None) -> RollingMeanState:
         return RollingMeanState(n_completed=1, n_attempts=1)
 
     def process_attempt(
         self, state: RollingMeanState, new_attempt: AttemptRecord,
         all_attempts: list[AttemptRecord],
+        params: dict | None = None,
     ) -> RollingMeanState:
         n_completed = state.n_completed + (1 if new_attempt.completed else 0)
         return RollingMeanState(n_completed=n_completed, n_attempts=state.n_attempts + 1)
@@ -91,6 +92,6 @@ class RollingMeanEstimator(Estimator):
             clean=clean_estimate,
         )
 
-    def rebuild_state(self, attempts: list[AttemptRecord]) -> RollingMeanState:
+    def rebuild_state(self, attempts: list[AttemptRecord], params: dict | None = None) -> RollingMeanState:
         n_completed = sum(1 for a in attempts if a.completed)
         return RollingMeanState(n_completed=n_completed, n_attempts=len(attempts))

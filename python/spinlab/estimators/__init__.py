@@ -12,6 +12,25 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class ParamDef:
+    """Describes a tunable estimator parameter."""
+    name: str
+    display_name: str
+    default: float
+    min_val: float
+    max_val: float
+    step: float
+    description: str
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name, "display_name": self.display_name,
+            "default": self.default, "min": self.min_val, "max": self.max_val,
+            "step": self.step, "description": self.description,
+        }
+
+
+@dataclass
 class EstimatorState(ABC):
     """Base class for estimator-specific state."""
 
@@ -47,9 +66,14 @@ class Estimator(ABC):
     name: str
     display_name: str = ""
 
+    def declared_params(self) -> list["ParamDef"]:
+        """Tunable params with metadata. Default: no params."""
+        return []
+
     @abstractmethod
     def init_state(
-        self, first_attempt: "AttemptRecord", priors: dict
+        self, first_attempt: "AttemptRecord", priors: dict,
+        params: dict | None = None,
     ) -> EstimatorState:
         """Initialize state from the first completed attempt."""
         ...
@@ -60,6 +84,7 @@ class Estimator(ABC):
         state: EstimatorState,
         new_attempt: "AttemptRecord",
         all_attempts: list["AttemptRecord"],
+        params: dict | None = None,
     ) -> EstimatorState:
         """Process one attempt. Uses new_attempt and/or all_attempts as needed."""
         ...
@@ -73,7 +98,8 @@ class Estimator(ABC):
 
     @abstractmethod
     def rebuild_state(
-        self, attempts: list["AttemptRecord"]
+        self, attempts: list["AttemptRecord"],
+        params: dict | None = None,
     ) -> EstimatorState:
         """Rebuild state by replaying all attempts."""
         ...
