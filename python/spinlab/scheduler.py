@@ -17,12 +17,10 @@ from spinlab.allocators.greedy import GreedyAllocator  # ensure registered
 from spinlab.allocators.random import RandomAllocator
 from spinlab.allocators.round_robin import RoundRobinAllocator
 from spinlab.estimators import EstimatorState, get_estimator, list_estimators
-from spinlab.estimators.kalman import KalmanEstimator, KalmanState  # ensure registered
-from spinlab.estimators.rolling_mean import RollingMeanEstimator, RollingMeanState  # ensure registered
-_has_exp_decay = False
+from spinlab.estimators.kalman import KalmanEstimator  # noqa: F401 — ensure registered
+from spinlab.estimators.rolling_mean import RollingMeanEstimator  # noqa: F401 — ensure registered
 try:
-    from spinlab.estimators.exp_decay import ExpDecayEstimator, ExpDecayState  # ensure registered
-    _has_exp_decay = True
+    from spinlab.estimators.exp_decay import ExpDecayEstimator  # noqa: F401 — ensure registered
 except ImportError:
     logger.warning("exp_decay unavailable (numpy/scipy not installed)")
 from spinlab.models import AttemptRecord, ModelOutput
@@ -31,14 +29,6 @@ if TYPE_CHECKING:
     from spinlab.allocators import Allocator
     from spinlab.db import Database
     from spinlab.estimators import Estimator
-
-# Maps estimator name -> state class for deserialization
-_STATE_CLASSES: dict[str, type[EstimatorState]] = {
-    "kalman": KalmanState,
-    "rolling_mean": RollingMeanState,
-}
-if _has_exp_decay:
-    _STATE_CLASSES["exp_decay"] = ExpDecayState
 
 
 def _attempts_from_rows(rows: list[dict]) -> list[AttemptRecord]:
@@ -74,81 +64,9 @@ class Scheduler:
         if saved_est and saved_est != self.estimator.name:
             self.estimator = get_estimator(saved_est)
 
-    def _all_estimators(self) -> list[Estimator]:
-        return [get_estimator(name) for name in list_estimators()]
-
-    def _all_estimators_names(self) -> list[str]:
-        return list_estimators()
-
-    def _all_estimators_info(self) -> list[dict]:
-        return [{"name": e.name, "display_name": e.display_name or e.name}
-                for e in self._all_estimators()]
-
-    def _deserialize_state(self, estimator_name: str, state_json: str) -> EstimatorState:
-        d = json.loads(state_json)
-        cls = _STATE_CLASSES.get(estimator_name)
-        if cls is None:
-            raise ValueError(f"No state class for estimator: {estimator_name}")
-        return cls.from_dict(d)
-
-    def _load_segments_with_model(self) -> list[SegmentWithModel]:
-        rows = self.db.get_all_segments_with_model(self.game_id)
-        all_model_states = self.db.load_all_model_states_for_game(self.game_id)
-        golds = self.db.compute_golds(self.game_id)
-
-        segments = []
-        for row in rows:
-            segment_id = row["id"]
-            model_outputs: dict[str, ModelOutput] = {}
-            n_completed = 0
-            n_attempts = 0
-
-            for sr in all_model_states.get(segment_id, []):
-                if sr["output_json"]:
-                    try:
-                        out = ModelOutput.from_dict(json.loads(sr["output_json"]))
-                        model_outputs[sr["estimator"]] = out
-                    except (json.JSONDecodeError, KeyError):
-                        logger.warning("Failed to deserialize model output for segment=%s estimator=%s", segment_id, sr["estimator"])
-                if sr["state_json"]:
-                    try:
-                        sd = json.loads(sr["state_json"])
-                        nc = sd.get("n_completed", 0)
-                        na = sd.get("n_attempts", 0)
-                        if nc > n_completed:
-                            n_completed = nc
-                            n_attempts = na
-                    except (json.JSONDecodeError, KeyError):
-                        logger.warning("Failed to deserialize model state for segment=%s estimator=%s", segment_id, sr["estimator"])
-
-            gold_data = golds.get(segment_id, {})
-            gold_ms = gold_data.get("gold_ms")
-            clean_gold_ms = gold_data.get("clean_gold_ms")
-
-            segments.append(SegmentWithModel(
-                segment_id=segment_id,
-                game_id=row["game_id"],
-                level_number=row["level_number"],
-                start_type=row["start_type"],
-                start_ordinal=row["start_ordinal"],
-                end_type=row["end_type"],
-                end_ordinal=row["end_ordinal"],
-                description=row["description"],
-                strat_version=row["strat_version"],
-                state_path=row.get("state_path"),
-                active=bool(row["active"]),
-                model_outputs=model_outputs,
-                selected_model=self.estimator.name,
-                n_completed=n_completed,
-                n_attempts=n_attempts,
-                gold_ms=gold_ms,
-                clean_gold_ms=clean_gold_ms,
-            ))
-        return segments
-
     def pick_next(self) -> SegmentWithModel | None:
         self._sync_config_from_db()
-        segments = self._load_segments_with_model()
+        segments = SegmentWithModel.load_all(self.db, self.game_id, self.estimator.name)
         if not segments:
             return None
         practicable = [s for s in segments if s.state_path and os.path.exists(s.state_path)]
@@ -179,15 +97,15 @@ class Scheduler:
         # Include the new attempt in the list passed to model_output
         all_attempts_with_new = all_attempts + [new_attempt]
 
-        for est in self._all_estimators():
+        for est in [get_estimator(n) for n in list_estimators()]:
             row = self.db.load_model_state(segment_id, est.name)
 
             if row and row["state_json"]:
-                state = self._deserialize_state(est.name, row["state_json"])
+                state = EstimatorState.deserialize(est.name, row["state_json"])
                 state = est.process_attempt(state, new_attempt, all_attempts)
             else:
                 if completed and time_ms is not None:
-                    priors = self._get_priors(est)
+                    priors = est.get_priors(self.db, self.game_id)
                     state = est.init_state(new_attempt, priors)
                 else:
                     state = est.rebuild_state([new_attempt])
@@ -204,27 +122,13 @@ class Scheduler:
                 json.dumps(state.to_dict()), json.dumps(output.to_dict()),
             )
 
-    def _get_priors(self, est: Estimator) -> dict:
-        if isinstance(est, KalmanEstimator):
-            all_rows = self.db.load_all_model_states(self.game_id)
-            kalman_rows = [r for r in all_rows if r["estimator"] == "kalman"]
-            all_states = []
-            for r in kalman_rows:
-                if r["state_json"]:
-                    try:
-                        all_states.append(KalmanState.from_dict(json.loads(r["state_json"])))
-                    except (json.JSONDecodeError, KeyError):
-                        pass
-            return est.get_population_priors(all_states)
-        return {}
-
     def peek_next_n(self, n: int) -> list[str]:
-        segments = self._load_segments_with_model()
+        segments = SegmentWithModel.load_all(self.db, self.game_id, self.estimator.name)
         practicable = [s for s in segments if s.state_path and os.path.exists(s.state_path)]
         return self.allocator.peek_next_n(practicable, n)
 
     def get_all_model_states(self) -> list[SegmentWithModel]:
-        return self._load_segments_with_model()
+        return SegmentWithModel.load_all(self.db, self.game_id, self.estimator.name)
 
     def switch_allocator(self, name: str) -> None:
         self.allocator = get_allocator(name)
@@ -242,7 +146,7 @@ class Scheduler:
             if not attempt_rows:
                 continue
             all_attempts = _attempts_from_rows(attempt_rows)
-            for est in self._all_estimators():
+            for est in [get_estimator(n) for n in list_estimators()]:
                 state = est.rebuild_state(all_attempts)
                 output = est.model_output(state, all_attempts)
                 self.db.save_model_state(

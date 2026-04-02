@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from .db import Database
+from .estimators import get_estimator, list_estimators
 from .models import Mode
 from .session_manager import SessionManager
 from .tcp_manager import TcpManager
@@ -150,7 +151,10 @@ def create_app(
         segments = sched.get_all_model_states()
         return {
             "estimator": sched.estimator.name,
-            "estimators": sched._all_estimators_info(),
+            "estimators": [
+                    {"name": n, "display_name": get_estimator(n).display_name or n}
+                    for n in list_estimators()
+                ],
             "allocator": sched.allocator.name,
             "segments": [
                 {
