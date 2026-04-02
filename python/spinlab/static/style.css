@@ -257,11 +257,6 @@ nav#tabs {
   white-space: nowrap;
 }
 
-/* Drift colors */
-.drift-improving { color: var(--green); }
-.drift-regressing { color: var(--red); }
-.drift-flat { color: var(--text-dim); }
-
 /* Dim text */
 .dim { color: var(--text-dim); }
 

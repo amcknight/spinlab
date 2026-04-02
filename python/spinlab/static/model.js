@@ -134,19 +134,10 @@ function updateModel(data) {
     const tr = document.createElement('tr');
     const sel = s.model_outputs[s.selected_model];
 
-    let improvClass = 'flat';
-    let arrow = '\u2192';
-    if (sel) {
-      if (sel.ms_per_attempt > 10) { improvClass = 'improving'; arrow = '\u2193'; }
-      else if (sel.ms_per_attempt < -10) { improvClass = 'regressing'; arrow = '\u2191'; }
-    }
-    tr.className = 'drift-row-' + improvClass;
-
     tr.innerHTML =
       '<td>' + segmentName(s) + '</td>' +
       '<td>' + formatTime(sel ? sel.expected_time_ms : null) + '</td>' +
-      '<td class="drift-' + improvClass + '">' + arrow + ' ' +
-        (sel ? sel.ms_per_attempt.toFixed(1) + ' ms/att' : '\u2014') + '</td>' +
+      '<td>' + (sel && sel.ms_per_attempt != null ? sel.ms_per_attempt.toFixed(1) + ' ms/att' : '\u2014') + '</td>' +
       '<td>' + formatTime(sel ? sel.floor_estimate_ms : null) + '</td>' +
       '<td>' + s.n_completed + '</td>' +
       '<td>' + formatTime(s.gold_ms) + '</td>';
@@ -183,11 +174,7 @@ export function updatePracticeCard(data) {
   const selOut = cs.model_outputs && cs.model_outputs[cs.selected_model];
   if (selOut) {
     const mpa = selOut.ms_per_attempt;
-    const arrow = mpa > 10 ? '\u2193' : mpa < -10 ? '\u2191' : '\u2192';
-    const label = mpa > 10 ? 'improving' : mpa < -10 ? 'regressing' : 'flat';
-    insight.innerHTML =
-      '<span class="drift-' + label + '">' +
-      arrow + ' ' + Math.abs(mpa).toFixed(1) + ' ms/att</span>';
+    insight.innerHTML = '<span>' + mpa.toFixed(1) + ' ms/att</span>';
   } else {
     insight.textContent = 'No data yet';
   }
