@@ -100,7 +100,7 @@ class TestModelOutput:
 
 import json
 from spinlab.db import Database
-from spinlab.models import Attempt, AttemptRecord, ModelOutput, Segment
+from spinlab.models import Attempt, AttemptRecord, Estimate, ModelOutput, Segment
 
 
 class TestDBMultiModel:
@@ -117,24 +117,33 @@ class TestDBMultiModel:
 
     def test_save_and_load_multi_model_state(self):
         db = self._setup_db()
-        out_k = ModelOutput(12000.0, 12000.0, 500.0, 10000.0, 10000.0)
-        out_a = ModelOutput(12500.0, 12500.0, 300.0, 11000.0, 11000.0)
+        out_k = ModelOutput(
+            total=Estimate(expected_ms=12000.0, ms_per_attempt=500.0, floor_ms=None),
+            clean=Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None),
+        )
+        out_r = ModelOutput(
+            total=Estimate(expected_ms=12500.0, ms_per_attempt=300.0, floor_ms=11000.0),
+            clean=Estimate(expected_ms=12500.0, ms_per_attempt=300.0, floor_ms=11000.0),
+        )
         db.save_model_state("s1", "kalman", '{"mu": 12.0}', json.dumps(out_k.to_dict()))
-        db.save_model_state("s1", "model_a", '{"n_completed": 5}', json.dumps(out_a.to_dict()))
+        db.save_model_state("s1", "rolling_mean", '{"n_completed": 5}', json.dumps(out_r.to_dict()))
         rows = db.load_all_model_states_for_segment("s1")
         assert len(rows) == 2
         names = {r["estimator"] for r in rows}
-        assert names == {"kalman", "model_a"}
+        assert names == {"kalman", "rolling_mean"}
 
     def test_load_model_state_by_estimator(self):
         db = self._setup_db()
-        out = ModelOutput(12000.0, 12000.0, 500.0, 10000.0, 10000.0)
+        out = ModelOutput(
+            total=Estimate(expected_ms=12000.0, ms_per_attempt=500.0, floor_ms=None),
+            clean=Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None),
+        )
         db.save_model_state("s1", "kalman", '{"mu": 12.0}', json.dumps(out.to_dict()))
         row = db.load_model_state("s1", "kalman")
         assert row is not None
         assert row["estimator"] == "kalman"
         loaded_out = ModelOutput.from_dict(json.loads(row["output_json"]))
-        assert loaded_out.expected_time_ms == 12000.0
+        assert loaded_out.total.expected_ms == 12000.0
 
     def test_attempt_with_deaths_and_clean_tail(self):
         db = self._setup_db()

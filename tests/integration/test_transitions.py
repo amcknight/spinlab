@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-pytestmark = [pytest.mark.integration]
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
 
 async def test_entrance_goal(run_scenario):

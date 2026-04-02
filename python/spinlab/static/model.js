@@ -9,7 +9,7 @@ export async function fetchModel() {
 function updateModel(data) {
   const body = document.getElementById('model-body');
   if (!data.segments || !data.segments.length) {
-    body.innerHTML = '<tr><td colspan="8" class="dim">No game loaded</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="dim">No game loaded</td></tr>';
     return;
   }
   body.innerHTML = '';
@@ -25,31 +25,27 @@ function updateModel(data) {
     }
     tr.className = 'drift-row-' + improvClass;
 
-    const models = Object.keys(s.model_outputs);
-    let modelCells = '';
-    models.forEach(name => {
-      const out = s.model_outputs[name];
-      const isSel = name === s.selected_model;
-      const val = out.ms_per_attempt.toFixed(1);
-      const cls = isSel ? ' style="font-weight:bold"' : ' class="dim"';
-      modelCells += '<td' + cls + '>' + val + ' ms/att</td>';
-    });
-    for (let i = models.length; i < 3; i++) {
-      modelCells += '<td class="dim">\u2014</td>';
-    }
-
     tr.innerHTML =
       '<td>' + segmentName(s) + '</td>' +
+      '<td>' + formatTime(sel ? sel.expected_time_ms : null) + '</td>' +
       '<td class="drift-' + improvClass + '">' + arrow + ' ' +
-        (sel ? sel.ms_per_attempt.toFixed(1) : '\u2014') + '</td>' +
-      modelCells +
+        (sel ? sel.ms_per_attempt.toFixed(1) + ' ms/att' : '\u2014') + '</td>' +
+      '<td>' + formatTime(sel ? sel.floor_estimate_ms : null) + '</td>' +
       '<td>' + s.n_completed + '</td>' +
       '<td>' + formatTime(s.gold_ms) + '</td>';
     body.appendChild(tr);
   });
   const estSelect = document.getElementById('estimator-select');
-  if (estSelect && data.estimator) {
-    estSelect.value = data.estimator;
+  if (estSelect && data.estimators) {
+    const current = data.estimator || estSelect.value;
+    estSelect.innerHTML = '';
+    data.estimators.forEach(e => {
+      const opt = document.createElement('option');
+      opt.value = e.name;
+      opt.textContent = e.display_name;
+      estSelect.appendChild(opt);
+    });
+    estSelect.value = current;
   }
 }
 
@@ -110,6 +106,16 @@ export function updatePracticeCard(data) {
   }
 }
 
+export function updatePracticeControls(data) {
+  const startBtn = document.getElementById('btn-practice-start');
+  const stopBtn = document.getElementById('btn-practice-stop');
+  const isPracticing = data.mode === 'practice';
+  const canStart = data.tcp_connected && data.game_id && data.mode === 'idle';
+  startBtn.style.display = isPracticing ? 'none' : '';
+  startBtn.disabled = !canStart;
+  stopBtn.style.display = isPracticing ? '' : 'none';
+}
+
 export function initModelTab() {
   document.getElementById('allocator-select').addEventListener('change', async (e) => {
     await postJSON('/api/allocator', { name: e.target.value });
@@ -118,4 +124,8 @@ export function initModelTab() {
     await postJSON('/api/estimator', { name: e.target.value });
     fetchModel();
   });
+  document.getElementById('btn-practice-start').addEventListener('click', () =>
+    postJSON('/api/practice/start'));
+  document.getElementById('btn-practice-stop').addEventListener('click', () =>
+    postJSON('/api/practice/stop'));
 }

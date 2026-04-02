@@ -2,6 +2,7 @@
 import json
 import pytest
 from spinlab.db import Database
+from spinlab.estimators import list_estimators
 from spinlab.models import ModelOutput
 from spinlab.scheduler import Scheduler
 
@@ -56,11 +57,15 @@ class TestSchedulerProcessAttempt:
         rows = db_with_segments.load_all_model_states_for_segment(segment_id)
         estimator_names = {r["estimator"] for r in rows}
         assert "kalman" in estimator_names
-        assert "model_a" in estimator_names
-        assert "model_b" in estimator_names
+        assert "rolling_mean" in estimator_names
+        try:
+            import numpy  # noqa: F401
+            assert "exp_decay" in estimator_names
+        except ImportError:
+            pass  # exp_decay unavailable without numpy
         for r in rows:
             out = ModelOutput.from_dict(json.loads(r["output_json"]))
-            assert out.expected_time_ms > 0
+            assert out.total.expected_ms is not None or out.clean.expected_ms is not None
 
     def test_process_attempt_incomplete(self, db_with_segments):
         sched = Scheduler(db_with_segments, "g1")
@@ -80,7 +85,7 @@ class TestSchedulerProcessAttempt:
             deaths=3, clean_tail_ms=4000,
         )
         rows = db_with_segments.load_all_model_states_for_segment(segment_id)
-        assert len(rows) == 3
+        assert len(rows) == len(list_estimators())
 
 
 class TestSchedulerPeek:
@@ -111,7 +116,7 @@ class TestSchedulerRebuild:
         sched.process_attempt(segment_id, time_ms=11000, completed=True)
         sched.rebuild_all_states()
         rows = db_with_segments.load_all_model_states_for_segment(segment_id)
-        assert len(rows) == 3
+        assert len(rows) == len(list_estimators())
 
 
 class TestStateFileFilter:

@@ -8,11 +8,18 @@ export async function fetchManage() {
   if (!refsData) return;
   const refs = refsData.references || [];
 
-  const active = refs.find(r => r.active);
+  // During reference/replay, show segments from the live capture run
   let segments = [];
-  if (active) {
-    const segmentsData = await fetchJSON('/api/references/' + active.id + '/segments');
+  const captureId = lastState?.capture_run_id;
+  if (captureId) {
+    const segmentsData = await fetchJSON('/api/references/' + captureId + '/segments');
     segments = segmentsData?.segments || [];
+  } else {
+    const active = refs.find(r => r.active);
+    if (active) {
+      const segmentsData = await fetchJSON('/api/references/' + active.id + '/segments');
+      segments = segmentsData?.segments || [];
+    }
   }
   updateManage(refs, segments);
 }
@@ -78,8 +85,8 @@ function updateManage(refs, segments) {
         'placeholder="' + segmentName(s) + '" ' +
         'data-id="' + s.id + '" data-field="description"></td>' +
       '<td>' + s.level_number + '</td>' +
-      '<td>' + (s.start_type === 'entrance' ? 'entrance' : 'cp.' + s.start_ordinal) +
-        ' \u2192 ' + (s.end_type === 'goal' ? 'goal' : 'cp.' + s.end_ordinal) + '</td>' +
+      '<td>' + (s.start_type === 'entrance' ? 'start' : 'cp' + s.start_ordinal) +
+        ' \u2192 ' + (s.end_type === 'goal' ? 'goal' : 'cp' + s.end_ordinal) + '</td>' +
       '<td>' + stateCell + '</td>' +
       '<td><button class="btn-x" data-id="' + s.id + '">\u2715</button></td>';
     body.appendChild(tr);

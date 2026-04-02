@@ -62,21 +62,25 @@
         </div>
       </div>
 
+      <!-- Practice controls -->
+      <div id="practice-controls" class="practice-controls">
+        <button id="btn-practice-start" class="btn-primary">Start Practice</button>
+        <button id="btn-practice-stop" class="btn-danger" style="display:none">Stop Practice</button>
+      </div>
+
       <!-- Model table (always visible) -->
       <div class="model-header">
         <h2>Model State</h2>
         <select id="estimator-select">
-          <option value="kalman">Kalman</option>
         </select>
       </div>
       <table id="model-table">
         <thead>
           <tr>
             <th title="Level section being practiced">Segment</th>
-            <th title="Expected completion time in seconds">Avg</th>
-            <th title="How your time changes per run (negative = improving)">Trend</th>
-            <th title="95% confidence interval for the trend">Range</th>
-            <th title="Practice value: how much time you save per run here">Value</th>
+            <th title="Expected completion time">Expected</th>
+            <th title="How your time changes per run (positive = improving)">Trend</th>
+            <th title="Theoretical best with infinite practice">Floor</th>
             <th title="Completed practice attempts">Runs</th>
             <th title="Your fastest completion">Best</th>
           </tr>

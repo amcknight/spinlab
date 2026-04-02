@@ -115,6 +115,8 @@ class SessionManager:
         if self.mode == Mode.PRACTICE and self.practice_session:
             self._build_practice_state(base, sched)
 
+        if self.mode in (Mode.REFERENCE, Mode.REPLAY):
+            base["capture_run_id"] = self.capture.ref_capture.capture_run_id
         if self.mode == Mode.REPLAY:
             base["replay"] = {"rec_path": self.capture.rec_path}
 

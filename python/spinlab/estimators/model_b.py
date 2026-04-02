@@ -24,26 +24,20 @@ def _exp_decay(n: np.ndarray, amplitude: float, decay_rate: float, asymptote: fl
 
 def _fit_exp_decay(ns: np.ndarray, ts: np.ndarray) -> tuple[float, float, float, float]:
     """Fit amplitude*exp(-decay_rate*n)+asymptote. Returns (amplitude, decay_rate, asymptote, sigma)."""
-    c0 = float(np.min(ts)) * 0.95
-    a0 = max(float(np.median(ts[:5])) - c0, 100.0)
-    b0 = 0.03
+    best = float(np.min(ts))
+    initial_amplitude = max(float(np.median(ts)) - best, 1.0)
     try:
         popt, _ = curve_fit(
             _exp_decay, ns, ts,
-            p0=[a0, b0, c0],
-            bounds=([0, 1e-6, 0], [np.inf, 2.0, float(np.min(ts))]),
-            maxfev=5000,
+            p0=[initial_amplitude, 0.05, best],
+            bounds=([0, 0, 0], [np.inf, np.inf, best]),
         )
         amplitude, decay_rate, asymptote = popt
         residuals = ts - _exp_decay(ns, amplitude, decay_rate, asymptote)
         sigma = float(np.std(residuals))
         return float(amplitude), float(decay_rate), float(asymptote), sigma
     except RuntimeError:
-        asymptote = float(np.min(ts)) * 0.95
-        amplitude = max(float(np.median(ts[:5])) - asymptote, 100.0)
-        decay_rate = 0.01
-        sigma = float(np.std(ts))
-        return amplitude, decay_rate, asymptote, sigma
+        return initial_amplitude, 0.0, best, float(np.std(ts))
 
 
 @dataclass
@@ -90,6 +84,7 @@ class ModelBState(EstimatorState):
 @register_estimator
 class ModelBEstimator(Estimator):
     name = "model_b"
+    display_name = "Exp. Decay"
 
     def _run_fits(self, completed: list[AttemptRecord]) -> ModelBState:
         """Run both fits (clean tails and total times) and return updated state."""
@@ -145,11 +140,11 @@ class ModelBEstimator(Estimator):
 
         # Not enough data for a fit — fall back to simple stats
         if n < MIN_POINTS_FOR_FIT:
-            med_total = float(statistics.median(total_times))
-            med_clean = float(statistics.median(clean_tails))
+            avg_total = statistics.mean(total_times)
+            avg_clean = statistics.mean(clean_tails)
             return ModelOutput(
-                expected_time_ms=med_total,
-                clean_expected_ms=med_clean,
+                expected_time_ms=avg_total,
+                clean_expected_ms=avg_clean,
                 ms_per_attempt=0.0,
                 floor_estimate_ms=float(min(total_times)),
                 clean_floor_estimate_ms=float(min(clean_tails)),
@@ -161,12 +156,11 @@ class ModelBEstimator(Estimator):
         clean_expected = float(state.amplitude * np.exp(-state.decay_rate * current_n) + state.asymptote)
         clean_ms_per_attempt = float(state.amplitude * state.decay_rate * np.exp(-state.decay_rate * current_n))
 
-        # Total time: use recent median for expected (not the curve, which may not capture deaths well)
-        n_recent = min(max(3, int(n * 0.2)), n)
-        expected_total = float(statistics.median(total_times[-n_recent:]))
+        # Total time expected from total fit
+        total_expected = float(state.total_amplitude * np.exp(-state.total_decay_rate * current_n) + state.total_asymptote)
 
         return ModelOutput(
-            expected_time_ms=expected_total,
+            expected_time_ms=total_expected,
             clean_expected_ms=clean_expected,
             ms_per_attempt=clean_ms_per_attempt,
             floor_estimate_ms=max(0.0, state.total_asymptote),

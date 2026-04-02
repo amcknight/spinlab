@@ -18,8 +18,13 @@ from spinlab.allocators.random import RandomAllocator
 from spinlab.allocators.round_robin import RoundRobinAllocator
 from spinlab.estimators import EstimatorState, get_estimator, list_estimators
 from spinlab.estimators.kalman import KalmanEstimator, KalmanState  # ensure registered
-from spinlab.estimators.model_a import ModelAEstimator, ModelAState  # ensure registered
-from spinlab.estimators.model_b import ModelBEstimator, ModelBState  # ensure registered
+from spinlab.estimators.rolling_mean import RollingMeanEstimator, RollingMeanState  # ensure registered
+_has_exp_decay = False
+try:
+    from spinlab.estimators.exp_decay import ExpDecayEstimator, ExpDecayState  # ensure registered
+    _has_exp_decay = True
+except ImportError:
+    logger.warning("exp_decay unavailable (numpy/scipy not installed)")
 from spinlab.models import AttemptRecord, ModelOutput
 
 if TYPE_CHECKING:
@@ -30,9 +35,10 @@ if TYPE_CHECKING:
 # Maps estimator name -> state class for deserialization
 _STATE_CLASSES: dict[str, type[EstimatorState]] = {
     "kalman": KalmanState,
-    "model_a": ModelAState,
-    "model_b": ModelBState,
+    "rolling_mean": RollingMeanState,
 }
+if _has_exp_decay:
+    _STATE_CLASSES["exp_decay"] = ExpDecayState
 
 
 def _attempts_from_rows(rows: list[dict]) -> list[AttemptRecord]:
@@ -73,6 +79,10 @@ class Scheduler:
 
     def _all_estimators_names(self) -> list[str]:
         return list_estimators()
+
+    def _all_estimators_info(self) -> list[dict]:
+        return [{"name": e.name, "display_name": e.display_name or e.name}
+                for e in self._all_estimators()]
 
     def _deserialize_state(self, estimator_name: str, state_json: str) -> EstimatorState:
         d = json.loads(state_json)

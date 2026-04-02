@@ -117,25 +117,43 @@ class DatabaseCore:
         self._init_schema()
 
     def _init_schema(self) -> None:
-        cur = self.conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='splits'"
-        )
-        if cur.fetchone():
-            self.conn.executescript("""
-                DROP TABLE IF EXISTS model_state;
-                DROP TABLE IF EXISTS attempts;
-                DROP TABLE IF EXISTS sessions;
-                DROP TABLE IF EXISTS splits;
-                DROP INDEX IF EXISTS idx_attempts_split;
-                DROP INDEX IF EXISTS idx_attempts_session;
-            """)
+        # Drop stale tables whose schema has changed (no data worth migrating yet)
+        stale_tables = ["splits"]  # legacy name
+        for table in ["model_state", "attempts"]:
+            cols = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            if cols and cols != self._expected_columns(table):
+                stale_tables.append(table)
+        if stale_tables:
+            drops = "; ".join(f"DROP TABLE IF EXISTS {t}" for t in stale_tables)
+            self.conn.executescript(drops + ";")
         self.conn.executescript(SCHEMA)
         self.conn.commit()
-        try:
-            self.conn.execute("ALTER TABLE capture_runs ADD COLUMN draft INTEGER DEFAULT 0")
-            self.conn.commit()
-        except sqlite3.OperationalError:
-            pass
+        for migration in [
+            "ALTER TABLE capture_runs ADD COLUMN draft INTEGER DEFAULT 0",
+        ]:
+            try:
+                self.conn.execute(migration)
+                self.conn.commit()
+            except sqlite3.OperationalError:
+                pass
+        # Backfill orphaned segments (created before reference_id column existed)
+        self.conn.execute("""
+            UPDATE segments SET reference_id = (
+                SELECT cr.id FROM capture_runs cr
+                WHERE cr.game_id = segments.game_id
+                ORDER BY cr.created_at ASC LIMIT 1
+            ) WHERE reference_id IS NULL
+        """)
+        self.conn.commit()
+
+    @staticmethod
+    def _expected_columns(table: str) -> set[str]:
+        return {
+            "model_state": {"segment_id", "estimator", "state_json", "output_json", "updated_at"},
+            "attempts": {"id", "segment_id", "session_id", "completed", "time_ms",
+                         "goal_matched", "rating", "strat_version", "source",
+                         "deaths", "clean_tail_ms", "created_at"},
+        }.get(table, set())
 
     def close(self) -> None:
         self.conn.close()

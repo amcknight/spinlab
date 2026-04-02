@@ -531,7 +531,8 @@ local function check_checkpoint_hit(curr)
   local midway_hit = (prev.midway == 0 and curr.midway == 1)
       and not got_orb and not got_goal and not got_key and not got_fadeout
 
-  local cp_entrance_hit = (prev.cp_entrance ~= nil and curr.cp_entrance ~= prev.cp_entrance
+  local cp_entrance_hit = (curr.level_num ~= 0
+      and prev.cp_entrance ~= nil and curr.cp_entrance ~= prev.cp_entrance
       and curr.cp_entrance ~= transition_state.first_cp_entrance)
       and not got_orb and not got_goal and not got_key and not got_fadeout
 

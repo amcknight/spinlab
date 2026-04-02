@@ -78,8 +78,8 @@ class PracticeSession:
         # Build overlay label: use custom description or auto-generate from segment fields
         label = picked.description
         if not label:
-            start = "entrance" if picked.start_type == "entrance" else f"cp.{picked.start_ordinal}"
-            end = "goal" if picked.end_type == "goal" else f"cp.{picked.end_ordinal}"
+            start = "start" if picked.start_type == "entrance" else f"cp{picked.start_ordinal}"
+            end = "goal" if picked.end_type == "goal" else f"cp{picked.end_ordinal}"
             label = f"L{picked.level_number} {start} > {end}"
 
         cmd = SegmentCommand(

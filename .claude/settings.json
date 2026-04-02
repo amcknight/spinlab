@@ -56,7 +56,11 @@
       "Bash(grep -c \"def test_\" /c/Users/thedo/Git/spinlab/tests/test_*.py)",
       "Bash(sort -t: -k2 -rn)",
       "Bash(grep -c \"async def test_\" /c/Users/thedo/Git/spinlab/tests/integration/test_*.py)",
-      "Bash(python -c \"import pytest_asyncio; print\\(pytest_asyncio.__version__\\)\")"
+      "Bash(python -c \"import pytest_asyncio; print\\(pytest_asyncio.__version__\\)\")",
+      "Bash(python -c \"import spinlab.db; print\\(spinlab.db.__file__\\)\")",
+      "Bash(python -c ':*)",
+      "Bash(python -c \"from spinlab.estimators.model_b import ModelBEstimator; print\\('model_b OK'\\)\")",
+      "Bash(python -c \"from spinlab.db import *; print\\(dir\\(\\)\\)\")"
     ]
   },
   "enabledPlugins": {

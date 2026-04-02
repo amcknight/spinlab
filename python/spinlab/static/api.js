@@ -10,12 +10,18 @@ function showToast(msg) {
   el.textContent = msg;
   el.classList.add('visible');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('visible'), 3000);
+  toastTimer = setTimeout(() => el.classList.remove('visible'), 8000);
 }
 
 export async function fetchJSON(url, opts = {}) {
   try {
     const res = await fetch(url, opts);
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { detail = (await res.json()).detail || detail; } catch (_) {}
+      showToast(url + ': ' + detail);
+      return null;
+    }
     return await res.json();
   } catch (e) {
     showToast('Request failed: ' + (e.message || url));

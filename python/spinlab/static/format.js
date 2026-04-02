@@ -1,7 +1,7 @@
 export function segmentName(s) {
   if (s.description) return s.description;
-  const start = s.start_type === 'entrance' ? 'entrance' : s.start_type + '.' + s.start_ordinal;
-  const end = s.end_type === 'goal' ? 'goal' : s.end_type + '.' + s.end_ordinal;
+  const start = s.start_type === 'entrance' ? 'start' : 'cp' + s.start_ordinal;
+  const end = s.end_type === 'goal' ? 'goal' : 'cp' + s.end_ordinal;
   return 'L' + s.level_number + ' ' + start + ' \u2192 ' + end;
 }
 

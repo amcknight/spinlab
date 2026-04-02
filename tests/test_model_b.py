@@ -2,6 +2,8 @@
 """Tests for Model B (exponential decay estimator)."""
 import math
 import pytest
+
+np = pytest.importorskip("numpy")
 from spinlab.estimators.model_b import ModelBEstimator, ModelBState
 from spinlab.models import AttemptRecord, ModelOutput
 

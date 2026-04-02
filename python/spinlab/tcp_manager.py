@@ -33,6 +33,7 @@ class TcpManager:
     async def connect(self, timeout: float = 5.0) -> bool:
         """Connect to Lua TCP server. Returns True on success."""
         try:
+            self.events = asyncio.Queue()  # fresh queue bound to current loop
             self._reader, self._writer = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port),
                 timeout=timeout,

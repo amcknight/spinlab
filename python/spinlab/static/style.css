@@ -71,6 +71,17 @@ header {
   color: var(--text);
 }
 .caret { font-size: 10px; }
+.btn-launch {
+  background: none;
+  border: 1px solid var(--green);
+  color: var(--green);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.btn-launch:hover { background: var(--green); color: #fff; }
 
 /* Game selector popover */
 .popover {
@@ -215,6 +226,17 @@ nav#tabs {
   padding: 4px 8px;
   border-radius: 4px;
   font-family: inherit;
+}
+
+/* Practice controls */
+.practice-controls {
+  padding: 8px;
+  display: flex;
+  gap: 8px;
+}
+.practice-controls button {
+  padding: 6px 16px;
+  font-size: 13px;
 }
 
 /* Model */
@@ -434,4 +456,4 @@ h3 {
   pointer-events: none;
   z-index: 1000;
 }
-#toast.visible { opacity: 1; }
+#toast.visible { opacity: 1; pointer-events: auto; user-select: text; cursor: text; }

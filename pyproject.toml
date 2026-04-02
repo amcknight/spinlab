@@ -20,6 +20,7 @@ where = ["python"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
 markers = ["integration: requires Mesen2 headless (--testRunner)"]
 
 [tool.coverage.run]

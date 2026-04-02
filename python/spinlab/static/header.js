@@ -12,11 +12,10 @@ export async function loadRomList() {
 export function updateHeader(data) {
   // Game name
   const gameEl = document.getElementById('game-name');
-  const name = data.game_name || localStorage.getItem('spinlab_game_name') || 'No game';
-  gameEl.textContent = name;
-  if (data.game_name) {
-    localStorage.setItem('spinlab_game_name', data.game_name);
-    localStorage.setItem('spinlab_game_id', data.game_id);
+  if (data.tcp_connected && data.game_name) {
+    gameEl.textContent = data.game_name;
+  } else {
+    gameEl.textContent = 'No game';
   }
 
   // Mode chip
@@ -54,8 +53,8 @@ export function updateHeader(data) {
 
 function shortSegName(seg) {
   if (seg.description) return seg.description;
-  const start = seg.start_type === 'entrance' ? 'ent' : 'cp.' + seg.start_ordinal;
-  const end = seg.end_type === 'goal' ? 'goal' : 'cp.' + seg.end_ordinal;
+  const start = seg.start_type === 'entrance' ? 'start' : 'cp' + seg.start_ordinal;
+  const end = seg.end_type === 'goal' ? 'goal' : 'cp' + seg.end_ordinal;
   return 'L' + seg.level_number + ' ' + start + '\u2192' + end;
 }
 

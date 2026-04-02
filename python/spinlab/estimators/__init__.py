@@ -27,6 +27,7 @@ class Estimator(ABC):
     """Abstract estimator that tracks per-split performance."""
 
     name: str
+    display_name: str = ""
 
     @abstractmethod
     def init_state(

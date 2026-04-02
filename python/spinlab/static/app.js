@@ -1,16 +1,19 @@
 import { connectSSE, fetchJSON, postJSON } from './api.js';
 import { initHeader, updateHeader, loadRomList } from './header.js';
-import { updatePracticeCard, fetchModel, initModelTab } from './model.js';
+import { updatePracticeCard, updatePracticeControls, fetchModel, initModelTab } from './model.js';
 import { fetchManage, initManageTab, updateManageState } from './manage.js';
 
 function updateFromState(data) {
   updateHeader(data);
   updatePracticeCard(data);
+  updatePracticeControls(data);
   updateManageState(data);
 
   const activeTab = document.querySelector('.tab.active');
   if (activeTab?.dataset.tab === 'model') fetchModel();
-  if (activeTab?.dataset.tab === 'manage') fetchManage();
+  // Always refresh Manage during reference/replay so segments appear live
+  if (activeTab?.dataset.tab === 'manage' ||
+      data.mode === 'reference' || data.mode === 'replay') fetchManage();
 }
 
 // Tab switching

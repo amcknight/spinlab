@@ -144,11 +144,13 @@ def create_app(
 
     @app.get("/api/model")
     def api_model():
+        if session.game_id is None:
+            return {"estimator": None, "estimators": [], "allocator": None, "segments": []}
         sched = session._get_scheduler()
         segments = sched.get_all_model_states()
         return {
             "estimator": sched.estimator.name,
-            "estimators": list(sched._all_estimators_names()),
+            "estimators": sched._all_estimators_info(),
             "allocator": sched.allocator.name,
             "segments": [
                 {
