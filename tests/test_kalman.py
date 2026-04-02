@@ -1,7 +1,7 @@
 """Tests for the Kalman estimator (new multi-model interface)."""
 import pytest
 from spinlab.estimators.kalman import KalmanEstimator, KalmanState
-from spinlab.models import AttemptRecord, ModelOutput
+from spinlab.models import AttemptRecord, Estimate, ModelOutput
 
 
 def _attempt(time_ms: int | None, completed: bool, deaths: int = 0,
@@ -49,19 +49,20 @@ class TestKalmanModelOutput:
         state = est.init_state(a1, priors={})
         out = est.model_output(state, [a1])
         assert isinstance(out, ModelOutput)
-        assert out.expected_time_ms == pytest.approx(12000.0)
-        assert out.ms_per_attempt == pytest.approx(500.0)  # -d * 1000, default d=-0.5
-        # Kalman floor = gold for now (placeholder)
-        assert out.floor_estimate_ms == pytest.approx(12000.0)
-        assert out.clean_floor_estimate_ms == pytest.approx(12000.0)
+        # expected = (mu + d) * 1000 = (12.0 + -0.5) * 1000 = 11500
+        assert out.total.expected_ms == pytest.approx(11500.0)
+        assert out.total.ms_per_attempt == pytest.approx(500.0)  # -d * 1000
+        assert out.total.floor_ms is None
 
-    def test_clean_expected_equals_expected(self):
-        """Kalman doesn't distinguish clean/dirty yet."""
+    def test_clean_side_is_all_none(self):
+        """Kalman has no clean filter — clean side should be None, not a copy."""
         est = KalmanEstimator()
         a1 = _attempt(12000, True)
         state = est.init_state(a1, priors={})
         out = est.model_output(state, [a1])
-        assert out.clean_expected_ms == out.expected_time_ms
+        assert out.clean.expected_ms is None
+        assert out.clean.ms_per_attempt is None
+        assert out.clean.floor_ms is None
 
     def test_improving_attempts_positive_ms_per_attempt(self):
         est = KalmanEstimator()
@@ -71,19 +72,16 @@ class TestKalmanModelOutput:
         for a in attempts[1:]:
             state = est.process_attempt(state, a, attempts)
         out = est.model_output(state, attempts)
-        assert out.ms_per_attempt > 0
+        assert out.total.ms_per_attempt > 0
 
-    def test_floor_equals_gold(self):
-        """Kalman floor is gold_ms (placeholder for future uncertainty-based floor)."""
+    def test_expected_predicts_forward(self):
+        """expected_ms should be mu + d (predicted next), not just mu (current)."""
         est = KalmanEstimator()
-        attempts = [_attempt(t, True) for t in [12000, 11000, 10000]]
-        state = est.init_state(attempts[0], priors={})
-        for a in attempts[1:]:
-            state = est.process_attempt(state, a, attempts)
-        gold_ms = min(a.time_ms for a in attempts) * 1.0
-        out = est.model_output(state, attempts)
-        assert out.floor_estimate_ms == pytest.approx(gold_ms)
-        assert out.clean_floor_estimate_ms == pytest.approx(gold_ms)
+        a1 = _attempt(12000, True)
+        state = est.init_state(a1, priors={})
+        # mu=12.0, d=-0.5 after init, so predicted next = 11.5s = 11500ms
+        out = est.model_output(state, [a1])
+        assert out.total.expected_ms == pytest.approx((state.mu + state.d) * 1000)
 
 
 class TestKalmanRebuildState:

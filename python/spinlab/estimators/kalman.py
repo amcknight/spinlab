@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from spinlab.estimators import Estimator, EstimatorState, register_estimator
-from spinlab.models import AttemptRecord, ModelOutput
+from spinlab.models import AttemptRecord, Estimate, ModelOutput
 
 # === Defaults ===
 DEFAULT_D = -0.5
@@ -67,6 +67,7 @@ class KalmanState(EstimatorState):
 @register_estimator
 class KalmanEstimator(Estimator):
     name = "kalman"
+    display_name = "Kalman Filter"
 
     def _predict(self, state: KalmanState) -> KalmanState:
         mu_pred = state.mu + state.d
@@ -143,13 +144,13 @@ class KalmanEstimator(Estimator):
         return result
 
     def model_output(self, state: KalmanState, all_attempts: list[AttemptRecord]) -> ModelOutput:
-        gold_ms = state.gold * 1000 if state.gold != float("inf") else state.mu * 1000
         return ModelOutput(
-            expected_time_ms=state.mu * 1000,
-            clean_expected_ms=state.mu * 1000,
-            ms_per_attempt=-state.d * 1000,
-            floor_estimate_ms=gold_ms,
-            clean_floor_estimate_ms=gold_ms,
+            total=Estimate(
+                expected_ms=(state.mu + state.d) * 1000,
+                ms_per_attempt=-state.d * 1000,
+                floor_ms=None,
+            ),
+            clean=Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None),
         )
 
     def drift_info(self, state: KalmanState) -> dict:
