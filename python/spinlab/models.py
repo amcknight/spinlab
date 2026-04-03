@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Optional
 
 
@@ -32,13 +32,50 @@ def transition_mode(current: Mode, target: Mode) -> Mode:
     return target
 
 
-class TransitionEvent(str):
-    LEVEL_START = "level_start"
-    ROOM_CHANGE = "room_change"
-    DEATH = "death"
-    GOAL = "goal"
+class EndpointType(StrEnum):
+    ENTRANCE = "entrance"
     CHECKPOINT = "checkpoint"
+    GOAL = "goal"
+
+
+class EventType(StrEnum):
+    ROM_INFO = "rom_info"
+    GAME_CONTEXT = "game_context"
+    LEVEL_ENTRANCE = "level_entrance"
+    CHECKPOINT = "checkpoint"
+    DEATH = "death"
     SPAWN = "spawn"
+    LEVEL_EXIT = "level_exit"
+    ATTEMPT_RESULT = "attempt_result"
+    REC_SAVED = "rec_saved"
+    REPLAY_STARTED = "replay_started"
+    REPLAY_PROGRESS = "replay_progress"
+    REPLAY_FINISHED = "replay_finished"
+    REPLAY_ERROR = "replay_error"
+
+
+class Status(StrEnum):
+    OK = "ok"
+    STARTED = "started"
+    STOPPED = "stopped"
+    NOT_CONNECTED = "not_connected"
+    DRAFT_PENDING = "draft_pending"
+    PRACTICE_ACTIVE = "practice_active"
+    REFERENCE_ACTIVE = "reference_active"
+    ALREADY_RUNNING = "already_running"
+    ALREADY_REPLAYING = "already_replaying"
+    NOT_IN_REFERENCE = "not_in_reference"
+    NOT_REPLAYING = "not_replaying"
+    NOT_RUNNING = "not_running"
+    NO_DRAFT = "no_draft"
+    NO_HOT_VARIANT = "no_hot_variant"
+    NO_GAPS = "no_gaps"
+    SHUTTING_DOWN = "shutting_down"
+
+
+class AttemptSource(StrEnum):
+    PRACTICE = "practice"
+    REPLAY = "replay"
 
 
 @dataclass
