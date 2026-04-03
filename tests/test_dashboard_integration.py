@@ -102,7 +102,8 @@ def seeded_db(tmp_path):
 @pytest.fixture
 def client(seeded_db):
     from spinlab.dashboard import create_app
-    app = create_app(db=seeded_db, host="127.0.0.1", port=59999)
+    from conftest import make_test_config
+    app = create_app(db=seeded_db, config=make_test_config())
     app.state.session.game_id = GAME_ID
     app.state.session.game_name = "SMW Kaizo"
     return TestClient(app)
@@ -115,7 +116,8 @@ def active_client(seeded_db):
     from spinlab.practice import PracticeSession
     from unittest.mock import AsyncMock
 
-    app = create_app(db=seeded_db, host="127.0.0.1", port=59999)
+    from conftest import make_test_config
+    app = create_app(db=seeded_db, config=make_test_config())
     app.state.session.game_id = GAME_ID
     app.state.session.game_name = "SMW Kaizo"
 
@@ -136,9 +138,10 @@ def active_client(seeded_db):
 def bare_client(tmp_path):
     """Client with minimal DB and no game loaded — for error-state tests."""
     from spinlab.dashboard import create_app
+    from conftest import make_test_config
     db = Database(tmp_path / "test.db")
     db.upsert_game("test_game", "Test Game", "any%")
-    app = create_app(db=db, host="127.0.0.1", port=59999)
+    app = create_app(db=db, config=make_test_config())
     app.state.session.game_id = "test_game"
     app.state.session.game_name = "Test Game"
     return TestClient(app)
@@ -148,9 +151,10 @@ def bare_client(tmp_path):
 def no_game_client(tmp_path):
     """Client with no game context set."""
     from spinlab.dashboard import create_app
+    from conftest import make_test_config
     db = Database(tmp_path / "test.db")
     db.upsert_game("test_game", "Test Game", "any%")
-    app = create_app(db=db, host="127.0.0.1", port=59999)
+    app = create_app(db=db, config=make_test_config())
     return TestClient(app)
 
 
@@ -333,8 +337,9 @@ def test_fresh_db_reference_start_creates_game(tmp_path):
     from unittest.mock import AsyncMock, PropertyMock, patch
     from spinlab.dashboard import create_app
 
+    from conftest import make_test_config
     fresh_db = Database(tmp_path / "fresh.db")
-    app = create_app(db=fresh_db, host="127.0.0.1", port=59999)
+    app = create_app(db=fresh_db, config=make_test_config())
     _sync_switch(app, "test_game", "Test Game")
     with patch.object(type(app.state.tcp), "is_connected", new_callable=PropertyMock, return_value=True), \
          patch.object(app.state.tcp, "send", new_callable=AsyncMock):

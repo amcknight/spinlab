@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
+from .config import AppConfig, EmulatorConfig, NetworkConfig
 from .db import Database
 from .estimators import get_estimator, list_estimators
 from .models import Mode
@@ -65,16 +66,21 @@ async def event_loop(session: SessionManager, tcp: TcpManager) -> None:
 
 def create_app(
     db: Database,
-    rom_dir: Path | None = None,
-    host: str = "127.0.0.1",
-    port: int = 15482,
-    config: dict | None = None,
-    default_category: str = "any%",
+    config: AppConfig | None = None,
 ) -> FastAPI:
 
-    tcp = TcpManager(host, port)
-    data_dir = Path(config.get("data", {}).get("dir", "data")) if config else Path("data")
-    session = SessionManager(db, tcp, rom_dir, default_category, data_dir=data_dir)
+    if config is None:
+        config = AppConfig(
+            network=NetworkConfig(),
+            emulator=EmulatorConfig(),
+            data_dir=Path("data"),
+            rom_dir=None,
+        )
+
+    tcp = TcpManager(config.network.host, config.network.port)
+    session = SessionManager(
+        db, tcp, config.rom_dir, config.category, data_dir=config.data_dir,
+    )
     tcp.on_disconnect = session.on_disconnect
 
     @asynccontextmanager
@@ -85,7 +91,7 @@ def create_app(
         await session.shutdown()
 
     app = FastAPI(title="SpinLab Dashboard", lifespan=lifespan)
-    app.state.config = config or {}
+    app.state.config = config
     app.state.tcp = tcp
     app.state.session = session
 
@@ -341,12 +347,13 @@ def create_app(
     @app.get("/api/roms")
     def list_roms():
         cfg = app.state.config
-        rom_dir = cfg.get("rom", {}).get("dir", "")
-        if not rom_dir or not Path(rom_dir).is_dir():
-            return {"roms": [], "error": f"ROM directory not found: {rom_dir}"}
+        rom_dir = cfg.rom_dir
+        if not rom_dir or not rom_dir.is_dir():
+            label = str(rom_dir) if rom_dir else ""
+            return {"roms": [], "error": f"ROM directory not found: {label}"}
         exts = {".sfc", ".smc", ".fig", ".swc"}
         roms = sorted(
-            [p.name for p in Path(rom_dir).iterdir() if p.suffix.lower() in exts],
+            [p.name for p in rom_dir.iterdir() if p.suffix.lower() in exts],
             key=str.lower,
         )
         return {"roms": roms}
@@ -357,33 +364,31 @@ def create_app(
     def launch_emulator(body: dict | None = None):
         import subprocess
         cfg = app.state.config
-        emu_path = cfg.get("emulator", {}).get("path", "")
-        if not emu_path or not Path(emu_path).exists():
+        emu_path = cfg.emulator.path
+        if not emu_path or not emu_path.exists():
             raise HTTPException(status_code=400, detail=f"Emulator not found: {emu_path}")
 
         # ROM: from request body, or fall back to config
-        rom_dir_str = cfg.get("rom", {}).get("dir", "")
+        rom_dir = cfg.rom_dir
         rom_name = (body or {}).get("rom", "")
-        if rom_name and rom_dir_str:
-            rom_path = Path(rom_dir_str) / rom_name
+        if rom_name and rom_dir:
+            rom_path = rom_dir / rom_name
         else:
-            rom_path = Path(cfg.get("rom", {}).get("path", ""))
+            rom_path = Path("")
 
-        if rom_dir_str:
+        if rom_dir:
             resolved_rom = rom_path.resolve()
-            resolved_dir = Path(rom_dir_str).resolve()
+            resolved_dir = rom_dir.resolve()
             if not str(resolved_rom).startswith(str(resolved_dir)):
                 raise HTTPException(status_code=400, detail="ROM path outside rom_dir")
 
         if not rom_path.is_file():
             raise HTTPException(status_code=400, detail=f"ROM not found: {rom_path}")
 
-        lua_script = cfg.get("emulator", {}).get("lua_script", "")
-        cmd = [emu_path, str(rom_path)]
+        lua_script = cfg.emulator.lua_script
+        cmd = [str(emu_path), str(rom_path)]
         if lua_script:
-            script_path = Path(lua_script)
-            if not script_path.is_absolute():
-                script_path = Path.cwd() / script_path
+            script_path = lua_script if lua_script.is_absolute() else Path.cwd() / lua_script
             if script_path.exists():
                 cmd.append(str(script_path))
         subprocess.Popen(cmd)

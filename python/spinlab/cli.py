@@ -56,33 +56,16 @@ def main(args: list[str] | None = None) -> None:
 
     elif parsed.command == "dashboard":
         import uvicorn
-        import yaml
+        from spinlab.config import AppConfig
         from spinlab.dashboard import create_app
         from spinlab.db import Database
 
-        config_path = Path(parsed.config)
-        with config_path.open(encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-        network = config.get("network", {})
-        data_dir = Path(config["data"]["dir"])
-        host = network.get("host", "127.0.0.1")
-        tcp_port = network.get("port", 15482)
-        dashboard_port = parsed.port or network.get("dashboard_port", 15483)
-        rom_dir_str = config.get("rom", {}).get("dir", "")
-        rom_dir = Path(rom_dir_str) if rom_dir_str else None
-        default_category = config.get("game", {}).get("category", "any%")
-        db = Database(data_dir / "spinlab.db")
+        config = AppConfig.from_yaml(Path(parsed.config))
+        dashboard_port = parsed.port or config.network.dashboard_port
+        db = Database(config.data_dir / "spinlab.db")
 
-        app = create_app(
-            db=db,
-            rom_dir=rom_dir,
-            host=host,
-            port=tcp_port,
-            config=config,
-            default_category=default_category,
-        )
-        # Write ports file for external tools (AHK, scripts)
-        _write_ports_file(config_path.parent, tcp_port, dashboard_port)
+        app = create_app(db=db, config=config)
+        _write_ports_file(Path(parsed.config).parent, config.network.port, dashboard_port)
         print(f"SpinLab Dashboard: http://localhost:{dashboard_port}")
         uvicorn.run(app, host="0.0.0.0", port=dashboard_port, log_level="warning")
 

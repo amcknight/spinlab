@@ -1,7 +1,21 @@
 """Shared test fixtures for unit tests."""
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
+
+
+def make_test_config(**overrides) -> AppConfig:
+    """Build an AppConfig for tests. Override any field via kwargs."""
+    return AppConfig(
+        network=NetworkConfig(port=overrides.get("port", 59999)),
+        emulator=overrides.get("emulator", EmulatorConfig()),
+        data_dir=overrides.get("data_dir", Path("data")),
+        rom_dir=overrides.get("rom_dir"),
+        category=overrides.get("category", "any%"),
+    )
 
 
 @pytest.fixture

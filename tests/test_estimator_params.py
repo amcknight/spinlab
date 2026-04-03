@@ -161,7 +161,8 @@ class TestEstimatorParamsAPI:
 
         db = Database(str(tmp_path / "test.db"))
         db.upsert_game("g1", "TestGame", "any%")
-        app = create_app(db=db, default_category="any%")
+        from conftest import make_test_config
+        app = create_app(db=db, config=make_test_config())
         client = TestClient(app)
         app.state.session.game_id = "g1"
         app.state.session.game_name = "TestGame"
@@ -180,7 +181,8 @@ class TestEstimatorParamsAPI:
 
         db = Database(str(tmp_path / "test.db"))
         db.upsert_game("g1", "TestGame", "any%")
-        app = create_app(db=db, default_category="any%")
+        from conftest import make_test_config
+        app = create_app(db=db, config=make_test_config())
         client = TestClient(app)
         app.state.session.game_id = "g1"
         app.state.session.game_name = "TestGame"

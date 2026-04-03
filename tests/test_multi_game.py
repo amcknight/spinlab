@@ -43,9 +43,10 @@ def test_game_name_strips_extension():
 def app_with_rom_dir(tmp_path):
     """Dashboard app with rom_dir pointing to test fixtures."""
     from spinlab.dashboard import create_app
+    from conftest import make_test_config
 
     db = Database(tmp_path / "test.db")
-    app = create_app(db=db, rom_dir=FIXTURES, host="127.0.0.1", port=59999)
+    app = create_app(db=db, config=make_test_config(rom_dir=FIXTURES))
     return app, db
 
 

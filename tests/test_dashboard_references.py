@@ -19,7 +19,8 @@ def db(tmp_path):
 @pytest.fixture
 def client(db, tmp_path):
     from spinlab.dashboard import create_app
-    app = create_app(db=db, host="127.0.0.1", port=59999)
+    from conftest import make_test_config
+    app = create_app(db=db, config=make_test_config())
     app.state.session.game_id = "test_game"
     app.state.session.game_name = "Test Game"
     return TestClient(app)
