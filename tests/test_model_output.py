@@ -72,21 +72,6 @@ class TestModelOutput:
         assert set(d.keys()) == {"total", "clean"}
         assert set(d["total"].keys()) == {"expected_ms", "ms_per_attempt", "floor_ms"}
 
-    def test_v1_backward_compat(self):
-        """V1 flat dict should load into total side, clean gets all None."""
-        v1 = {
-            "expected_time_ms": 12000.0, "clean_expected_ms": 8000.0,
-            "ms_per_attempt": 150.0, "floor_estimate_ms": 7000.0,
-            "clean_floor_estimate_ms": 6000.0,
-        }
-        mo = ModelOutput.from_dict(v1)
-        assert mo.total.expected_ms == 12000.0
-        assert mo.total.ms_per_attempt == 150.0
-        assert mo.total.floor_ms == 7000.0
-        assert mo.clean.expected_ms == 8000.0
-        assert mo.clean.ms_per_attempt is None
-        assert mo.clean.floor_ms == 6000.0
-
     def test_all_none_sides(self):
         mo = ModelOutput(
             total=Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None),

@@ -46,8 +46,6 @@ CREATE TABLE IF NOT EXISTS attempts (
   session_id TEXT NOT NULL,
   completed INTEGER NOT NULL,
   time_ms INTEGER,
-  goal_matched INTEGER,
-  rating TEXT,
   strat_version INTEGER NOT NULL,
   source TEXT DEFAULT 'practice',
   deaths INTEGER DEFAULT 0,
@@ -151,7 +149,7 @@ class DatabaseCore:
         return {
             "model_state": {"segment_id", "estimator", "state_json", "output_json", "updated_at"},
             "attempts": {"id", "segment_id", "session_id", "completed", "time_ms",
-                         "goal_matched", "rating", "strat_version", "source",
+                         "strat_version", "source",
                          "deaths", "clean_tail_ms", "created_at"},
         }.get(table, set())
 

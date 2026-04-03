@@ -128,8 +128,6 @@ class Attempt:
     session_id: str
     completed: bool
     time_ms: int | None = None
-    goal_matched: bool | None = None
-    rating: str | None = None
     strat_version: int = 1
     source: str = "practice"
     deaths: int = 0
@@ -205,22 +203,7 @@ class ModelOutput:
 
     @classmethod
     def from_dict(cls, d: dict) -> "ModelOutput":
-        # V2 nested format
-        if "total" in d:
-            return cls(
-                total=Estimate.from_dict(d["total"]),
-                clean=Estimate.from_dict(d["clean"]),
-            )
-        # V1 backward compatibility: flat keys -> map to sides
         return cls(
-            total=Estimate(
-                expected_ms=d.get("expected_time_ms"),
-                ms_per_attempt=d.get("ms_per_attempt"),
-                floor_ms=d.get("floor_estimate_ms"),
-            ),
-            clean=Estimate(
-                expected_ms=d.get("clean_expected_ms"),
-                ms_per_attempt=None,
-                floor_ms=d.get("clean_floor_estimate_ms"),
-            ),
+            total=Estimate.from_dict(d["total"]),
+            clean=Estimate.from_dict(d["clean"]),
         )

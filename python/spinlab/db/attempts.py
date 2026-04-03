@@ -15,12 +15,11 @@ class AttemptsMixin:
     def log_attempt(self, attempt: Attempt) -> None:
         self.conn.execute(
             """INSERT INTO attempts
-               (segment_id, session_id, completed, time_ms, goal_matched,
-                rating, strat_version, source, deaths, clean_tail_ms, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (segment_id, session_id, completed, time_ms,
+                strat_version, source, deaths, clean_tail_ms, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (attempt.segment_id, attempt.session_id, int(attempt.completed),
-             attempt.time_ms, attempt.goal_matched,
-             attempt.rating,
+             attempt.time_ms,
              attempt.strat_version, attempt.source,
              attempt.deaths, attempt.clean_tail_ms,
              attempt.created_at.isoformat()),
