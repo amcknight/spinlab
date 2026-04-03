@@ -13,6 +13,8 @@ from typing import Callable
 
 logger = logging.getLogger(__name__)
 
+_KNOWN_NON_JSON = {"pong", "ok:queued"}
+
 
 class TcpManager:
     """Async wrapper around the Lua TCP socket with event dispatch."""
@@ -102,7 +104,10 @@ class TcpManager:
                     event = json.loads(text)
                     await self.events.put(event)
                 except json.JSONDecodeError:
-                    pass  # skip non-JSON lines (ok:queued, pong, heartbeat)
+                    if text in _KNOWN_NON_JSON:
+                        logger.debug("TCP non-JSON (expected): %s", text)
+                    else:
+                        logger.warning("Unexpected non-JSON from Lua: %r", text)
         except (ConnectionError, OSError, asyncio.CancelledError):
             pass
         finally:

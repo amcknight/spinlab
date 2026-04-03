@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .models import ActionResult, Mode, Status
+from .models import ActionResult, EventType, Mode, Status
 from .capture_controller import CaptureController
 from .sse import SSEBroadcaster
 
@@ -56,20 +56,20 @@ class SessionManager:
         self.sse = SSEBroadcaster()
 
         # Event dispatch table
-        self._event_handlers: dict[str, callable] = {
-            "rom_info": self._handle_rom_info,
-            "game_context": self._handle_game_context,
-            "level_entrance": self._handle_level_entrance,
-            "checkpoint": self._handle_checkpoint,
-            "death": self._handle_death,
-            "spawn": self._handle_spawn,
-            "level_exit": self._handle_level_exit,
-            "attempt_result": self._handle_attempt_result,
-            "rec_saved": self._handle_rec_saved,
-            "replay_started": self._handle_replay_started,
-            "replay_progress": self._handle_replay_progress,
-            "replay_finished": self._handle_replay_finished,
-            "replay_error": self._handle_replay_error,
+        self._event_handlers: dict[EventType, callable] = {
+            EventType.ROM_INFO: self._handle_rom_info,
+            EventType.GAME_CONTEXT: self._handle_game_context,
+            EventType.LEVEL_ENTRANCE: self._handle_level_entrance,
+            EventType.CHECKPOINT: self._handle_checkpoint,
+            EventType.DEATH: self._handle_death,
+            EventType.SPAWN: self._handle_spawn,
+            EventType.LEVEL_EXIT: self._handle_level_exit,
+            EventType.ATTEMPT_RESULT: self._handle_attempt_result,
+            EventType.REC_SAVED: self._handle_rec_saved,
+            EventType.REPLAY_STARTED: self._handle_replay_started,
+            EventType.REPLAY_PROGRESS: self._handle_replay_progress,
+            EventType.REPLAY_FINISHED: self._handle_replay_finished,
+            EventType.REPLAY_ERROR: self._handle_replay_error,
         }
 
     # --- Backward-compatible properties for tests and dashboard ---
@@ -213,7 +213,12 @@ class SessionManager:
     # --- Event routing ---
 
     async def route_event(self, event: dict) -> None:
-        evt_type = event.get("event")
+        evt_type_str = event.get("event")
+        try:
+            evt_type = EventType(evt_type_str)
+        except ValueError:
+            logger.warning("Unknown event type from Lua: %r", evt_type_str)
+            return
         handler = self._event_handlers.get(evt_type)
         if handler:
             await handler(event)
