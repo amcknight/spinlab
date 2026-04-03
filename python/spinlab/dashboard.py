@@ -2,18 +2,16 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
 from .config import AppConfig, EmulatorConfig, NetworkConfig
 from .db import Database
-from .estimators import get_estimator, list_estimators
-from .models import ActionResult, Mode, Status
+from .models import ActionResult, Status
 from .session_manager import SessionManager
 from .tcp_manager import TcpManager
 
@@ -93,6 +91,7 @@ def create_app(
     app.state.config = config
     app.state.tcp = tcp
     app.state.session = session
+    app.state.db = db
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.is_dir():
@@ -110,332 +109,24 @@ def create_app(
 
     app.add_middleware(NoCacheStaticMiddleware)
 
-    # -- Endpoints --
+    # -- Routers --
+
+    from .routes.practice import router as practice_router
+    from .routes.reference import router as reference_router
+    from .routes.model import router as model_router
+    from .routes.segments import router as segments_router
+    from .routes.system import router as system_router
+
+    app.include_router(practice_router)
+    app.include_router(reference_router)
+    app.include_router(model_router)
+    app.include_router(segments_router)
+    app.include_router(system_router)
+
+    # -- Root endpoint --
 
     @app.get("/")
     def root():
         return FileResponse(str(static_dir / "index.html"))
-
-    @app.get("/api/state")
-    def api_state():
-        return session.get_state()
-
-    @app.post("/api/reference/start")
-    async def reference_start():
-        return _check_result(await session.start_reference())
-
-    @app.post("/api/reference/stop")
-    async def reference_stop():
-        return _check_result(await session.stop_reference())
-
-    @app.post("/api/practice/start")
-    async def practice_start():
-        return _check_result(await session.start_practice())
-
-    @app.post("/api/practice/stop")
-    async def practice_stop():
-        return _check_result(await session.stop_practice())
-
-    @app.post("/api/replay/start")
-    async def replay_start(req: Request):
-        body = await req.json()
-        ref_id = body.get("ref_id")
-        speed = body.get("speed", 0)
-        if not ref_id:
-            raise HTTPException(status_code=400, detail="ref_id required")
-        gid = session.game_id or "unknown"
-        spinrec_path = str(session.data_dir / gid / "rec" / f"{ref_id}.spinrec")
-        return _check_result(await session.start_replay(spinrec_path, speed=speed))
-
-    @app.post("/api/replay/stop")
-    async def replay_stop():
-        return _check_result(await session.stop_replay())
-
-    # -- Model / allocator / estimator --
-
-    @app.get("/api/model")
-    def api_model():
-        if session.game_id is None:
-            return {"estimator": None, "estimators": [], "allocator_weights": None, "segments": []}
-        sched = session._get_scheduler()
-        segments = sched.get_all_model_states()
-        return {
-            "estimator": sched.estimator.name,
-            "estimators": [
-                {"name": n, "display_name": get_estimator(n).display_name or n}
-                for n in list_estimators()
-            ],
-            "allocator_weights": {alloc.name: int(w) for alloc, w in sched.allocator.entries},
-            "segments": [
-                {
-                    "segment_id": s.segment_id,
-                    "description": s.description,
-                    "level_number": s.level_number,
-                    "start_type": s.start_type,
-                    "start_ordinal": s.start_ordinal,
-                    "end_type": s.end_type,
-                    "end_ordinal": s.end_ordinal,
-                    "selected_model": s.selected_model,
-                    "model_outputs": {
-                        name: out.to_dict()
-                        for name, out in s.model_outputs.items()
-                    },
-                    "n_completed": s.n_completed,
-                    "n_attempts": s.n_attempts,
-                    "gold_ms": s.gold_ms,
-                    "clean_gold_ms": s.clean_gold_ms,
-                }
-                for s in segments
-            ],
-        }
-
-    @app.post("/api/allocator-weights")
-    def set_allocator_weights(body: dict):
-        sched = session._get_scheduler()
-        try:
-            sched.set_allocator_weights(body)
-        except (ValueError, TypeError) as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        return {"weights": body}
-
-    @app.post("/api/estimator")
-    def switch_estimator(body: dict):
-        from .estimators import list_estimators
-        name = body.get("name")
-        valid = list_estimators()
-        if name not in valid:
-            raise HTTPException(status_code=400, detail=f"Unknown estimator: {name}. Valid: {valid}")
-        sched = session._get_scheduler()
-        sched.switch_estimator(name)
-        return {"estimator": name}
-
-    @app.get("/api/estimator-params")
-    def get_estimator_params():
-        sched = session._get_scheduler()
-        est = sched.estimator
-        declared = est.declared_params()
-        raw = db.load_allocator_config(f"estimator_params:{est.name}")
-        saved = json.loads(raw) if raw else {}
-        return {
-            "estimator": est.name,
-            "params": [
-                {
-                    **p.to_dict(),
-                    "value": saved.get(p.name, p.default),
-                }
-                for p in declared
-            ],
-        }
-
-    @app.post("/api/estimator-params")
-    def set_estimator_params(body: dict):
-        sched = session._get_scheduler()
-        est = sched.estimator
-        params = body.get("params", {})
-        # Validate param names
-        valid_names = {p.name for p in est.declared_params()}
-        for name in params:
-            if name not in valid_names:
-                raise HTTPException(status_code=400, detail=f"Unknown param: {name}")
-        db.save_allocator_config(f"estimator_params:{est.name}", json.dumps(params))
-        sched.rebuild_all_states()
-        return {"status": "ok"}
-
-    @app.post("/api/reset")
-    async def reset_data():
-        await session.stop_practice()
-        if session.mode == Mode.REFERENCE:
-            session._clear_ref_and_idle()
-        gid = session.game_id
-        if gid:
-            db.reset_game_data(gid)
-        session.scheduler = None
-        session.mode = Mode.IDLE
-        return {"status": "ok"}
-
-    @app.get("/api/segments")
-    def api_segments():
-        segments = db.get_all_segments_with_model(session._require_game())
-        return {"segments": segments}
-
-    @app.get("/api/sessions")
-    def api_sessions():
-        sessions = db.get_session_history(session._require_game())
-        return {"sessions": sessions}
-
-    # -- Reference management --
-
-    @app.get("/api/references")
-    def list_references():
-        gid = session._require_game()
-        refs = db.list_capture_runs(gid)
-        for ref in refs:
-            rec_path = session.data_dir / gid / "rec" / f"{ref['id']}.spinrec"
-            ref["has_spinrec"] = rec_path.is_file()
-        return {"references": refs}
-
-    @app.post("/api/references")
-    def create_reference(body: dict):
-        import uuid
-        run_id = f"ref_{uuid.uuid4().hex[:8]}"
-        name = body.get("name", "Untitled")
-        db.create_capture_run(run_id, session._require_game(), name)
-        return {"id": run_id, "name": name}
-
-    @app.post("/api/references/draft/save")
-    async def draft_save(req: Request):
-        body = await req.json()
-        name = body.get("name", "Untitled")
-        return _check_result(await session.save_draft(name))
-
-    @app.post("/api/references/draft/discard")
-    async def draft_discard():
-        return _check_result(await session.discard_draft())
-
-    @app.get("/api/references/{ref_id}/spinrec")
-    def check_spinrec(ref_id: str):
-        gid = session.game_id or "unknown"
-        rec_path = session.data_dir / gid / "rec" / f"{ref_id}.spinrec"
-        if rec_path.is_file():
-            return {"exists": True, "path": str(rec_path)}
-        return {"exists": False}
-
-    @app.patch("/api/references/{ref_id}")
-    def rename_reference(ref_id: str, body: dict):
-        name = body.get("name")
-        if name:
-            db.rename_capture_run(ref_id, name)
-        return {"status": "ok"}
-
-    @app.delete("/api/references/{ref_id}")
-    def delete_reference(ref_id: str):
-        db.delete_capture_run(ref_id)
-        return {"status": "ok"}
-
-    @app.post("/api/references/{ref_id}/activate")
-    def activate_reference(ref_id: str):
-        db.set_active_capture_run(ref_id)
-        return {"status": "ok"}
-
-    @app.get("/api/references/{ref_id}/segments")
-    def get_reference_segments(ref_id: str):
-        return {"segments": db.get_segments_by_reference(ref_id)}
-
-    # -- Segment editing --
-
-    @app.patch("/api/segments/{segment_id}")
-    def update_segment_endpoint(segment_id: str, body: dict):
-        if not db.segment_exists(segment_id):
-            raise HTTPException(status_code=404, detail="Segment not found")
-        db.update_segment(segment_id, **body)
-        return {"status": "ok"}
-
-    @app.delete("/api/segments/{segment_id}")
-    def delete_segment(segment_id: str):
-        if not db.segment_exists(segment_id):
-            raise HTTPException(status_code=404, detail="Segment not found")
-        db.soft_delete_segment(segment_id)
-        return {"status": "ok"}
-
-    @app.post("/api/segments/{segment_id}/fill-gap")
-    async def fill_gap(segment_id: str):
-        return _check_result(await session.start_fill_gap(segment_id))
-
-    # -- ROM listing --
-
-    @app.get("/api/roms")
-    def list_roms():
-        cfg = app.state.config
-        rom_dir = cfg.rom_dir
-        if not rom_dir or not rom_dir.is_dir():
-            label = str(rom_dir) if rom_dir else ""
-            return {"roms": [], "error": f"ROM directory not found: {label}"}
-        exts = {".sfc", ".smc", ".fig", ".swc"}
-        roms = sorted(
-            [p.name for p in rom_dir.iterdir() if p.suffix.lower() in exts],
-            key=str.lower,
-        )
-        return {"roms": roms}
-
-    # -- Emulator launch --
-
-    @app.post("/api/emulator/launch")
-    def launch_emulator(body: dict | None = None):
-        import subprocess
-        cfg = app.state.config
-        emu_path = cfg.emulator.path
-        if not emu_path or not emu_path.exists():
-            raise HTTPException(status_code=400, detail=f"Emulator not found: {emu_path}")
-
-        # ROM: from request body, or fall back to config
-        rom_dir = cfg.rom_dir
-        rom_name = (body or {}).get("rom", "")
-        if rom_name and rom_dir:
-            rom_path = rom_dir / rom_name
-        else:
-            rom_path = Path("")
-
-        if rom_dir:
-            resolved_rom = rom_path.resolve()
-            resolved_dir = rom_dir.resolve()
-            if not str(resolved_rom).startswith(str(resolved_dir)):
-                raise HTTPException(status_code=400, detail="ROM path outside rom_dir")
-
-        if not rom_path.is_file():
-            raise HTTPException(status_code=400, detail=f"ROM not found: {rom_path}")
-
-        lua_script = cfg.emulator.lua_script
-        cmd = [str(emu_path), str(rom_path)]
-        if lua_script:
-            script_path = lua_script if lua_script.is_absolute() else Path.cwd() / lua_script
-            if script_path.exists():
-                cmd.append(str(script_path))
-        subprocess.Popen(cmd)
-        return {"status": "ok"}
-
-    # -- Manifest import --
-
-    @app.post("/api/import-manifest")
-    def import_manifest(body: dict):
-        import yaml
-        from spinlab.manifest import seed_db_from_manifest
-        manifest_path = Path(body["path"])
-        with manifest_path.open(encoding="utf-8") as f:
-            manifest = yaml.safe_load(f)
-        game_name = manifest.get("game_id", session.game_id or "unknown")
-        seed_db_from_manifest(db, manifest, game_name)
-        return {"status": "ok", "segments_imported": len(manifest.get("segments", manifest.get("splits", [])))}
-
-    # -- SSE --
-
-    @app.get("/api/events")
-    async def sse_events():
-        from starlette.responses import StreamingResponse
-        queue = session.subscribe_sse()
-        async def event_stream():
-            try:
-                while True:
-                    try:
-                        state = await asyncio.wait_for(queue.get(), timeout=SSE_KEEPALIVE_S)
-                        yield f"data: {json.dumps(state)}\n\n"
-                    except asyncio.TimeoutError:
-                        yield ": keepalive\n\n"
-            except asyncio.CancelledError:
-                pass
-            finally:
-                session.unsubscribe_sse(queue)
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-    # -- Shutdown --
-
-    @app.post("/api/shutdown")
-    async def api_shutdown():
-        await session.shutdown()
-        import signal
-        try:
-            signal.raise_signal(signal.SIGINT)
-        except (OSError, AttributeError):
-            pass
-        return {"status": "shutting_down"}
 
     return app
