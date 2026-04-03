@@ -19,6 +19,7 @@ except ImportError:
     pass
 
 from spinlab.models import AttemptRecord, Estimate, ModelOutput
+from tests.factories import make_attempt_record, make_incomplete
 
 ALL_ESTIMATOR_NAMES = list_estimators()
 
@@ -26,22 +27,6 @@ ALL_ESTIMATOR_NAMES = list_estimators()
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _attempt(time_ms: int, deaths: int = 0, clean_tail_ms: int | None = None) -> AttemptRecord:
-    if clean_tail_ms is None and deaths == 0:
-        clean_tail_ms = time_ms
-    return AttemptRecord(
-        time_ms=time_ms, completed=True, deaths=deaths,
-        clean_tail_ms=clean_tail_ms, created_at="2026-01-01T00:00:00",
-    )
-
-
-def _incomplete() -> AttemptRecord:
-    return AttemptRecord(
-        time_ms=None, completed=False, deaths=0,
-        clean_tail_ms=None, created_at="2026-01-01T00:00:00",
-    )
-
 
 def _feed_attempts(est: Estimator, attempts: list[AttemptRecord]) -> ModelOutput:
     """Feed a sequence through init_state + process_attempt, return model_output."""
@@ -86,21 +71,21 @@ def estimator(request) -> Estimator:
 # Scenarios
 # ---------------------------------------------------------------------------
 
-CONSTANT_TIMES = [_attempt(10000) for _ in range(10)]
-IMPROVING_TIMES = [_attempt(t) for t in [15000, 14000, 13000, 12000, 11000, 10000, 9000, 8000, 7000, 6000]]
-REGRESSING_TIMES = [_attempt(t) for t in [6000, 7000, 8000, 9000, 10000, 11000, 12000, 13000, 14000, 15000]]
-SINGLE_ATTEMPT = [_attempt(12000)]
-ALL_INCOMPLETE = [_incomplete() for _ in range(5)]
-CLEAN_EQUALS_TOTAL = [_attempt(t, deaths=0) for t in [12000, 11500, 11000, 10500, 10000]]
+CONSTANT_TIMES = [make_attempt_record(10000, True, clean_tail_ms=10000) for _ in range(10)]
+IMPROVING_TIMES = [make_attempt_record(t, True, clean_tail_ms=t) for t in [15000, 14000, 13000, 12000, 11000, 10000, 9000, 8000, 7000, 6000]]
+REGRESSING_TIMES = [make_attempt_record(t, True, clean_tail_ms=t) for t in [6000, 7000, 8000, 9000, 10000, 11000, 12000, 13000, 14000, 15000]]
+SINGLE_ATTEMPT = [make_attempt_record(12000, True, clean_tail_ms=12000)]
+ALL_INCOMPLETE = [make_incomplete() for _ in range(5)]
+CLEAN_EQUALS_TOTAL = [make_attempt_record(t, True, clean_tail_ms=t) for t in [12000, 11500, 11000, 10500, 10000]]
 DIRTY_ATTEMPTS = [
-    _attempt(20000, deaths=2, clean_tail_ms=8000),
-    _attempt(18000, deaths=1, clean_tail_ms=9000),
-    _attempt(15000, deaths=0, clean_tail_ms=15000),
-    _attempt(19000, deaths=2, clean_tail_ms=7000),
-    _attempt(14000, deaths=0, clean_tail_ms=14000),
-    _attempt(17000, deaths=1, clean_tail_ms=8500),
-    _attempt(13000, deaths=0, clean_tail_ms=13000),
-    _attempt(16000, deaths=1, clean_tail_ms=7500),
+    make_attempt_record(20000, True, deaths=2, clean_tail_ms=8000),
+    make_attempt_record(18000, True, deaths=1, clean_tail_ms=9000),
+    make_attempt_record(15000, True, deaths=0, clean_tail_ms=15000),
+    make_attempt_record(19000, True, deaths=2, clean_tail_ms=7000),
+    make_attempt_record(14000, True, deaths=0, clean_tail_ms=14000),
+    make_attempt_record(17000, True, deaths=1, clean_tail_ms=8500),
+    make_attempt_record(13000, True, deaths=0, clean_tail_ms=13000),
+    make_attempt_record(16000, True, deaths=1, clean_tail_ms=7500),
 ]
 
 

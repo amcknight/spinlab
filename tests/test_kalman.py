@@ -2,22 +2,13 @@
 import pytest
 from spinlab.estimators.kalman import KalmanEstimator, KalmanState
 from spinlab.models import AttemptRecord, Estimate, ModelOutput
-
-
-def _attempt(time_ms: int | None, completed: bool, deaths: int = 0,
-             clean_tail_ms: int | None = None) -> AttemptRecord:
-    if clean_tail_ms is None and completed and time_ms is not None:
-        clean_tail_ms = time_ms
-    return AttemptRecord(
-        time_ms=time_ms, completed=completed, deaths=deaths,
-        clean_tail_ms=clean_tail_ms, created_at="2026-01-01T00:00:00",
-    )
+from tests.factories import make_attempt_record, make_incomplete
 
 
 class TestKalmanProcessAttempt:
     def test_first_completed_attempt_initializes(self):
         est = KalmanEstimator()
-        attempt = _attempt(12000, True)
+        attempt = make_attempt_record(12000, True)
         state = est.init_state(attempt, priors={})
         assert state.mu == pytest.approx(12.0)
         assert state.n_completed == 1
@@ -25,18 +16,18 @@ class TestKalmanProcessAttempt:
 
     def test_process_completed_updates_mu(self):
         est = KalmanEstimator()
-        a1 = _attempt(12000, True)
+        a1 = make_attempt_record(12000, True)
         state = est.init_state(a1, priors={})
-        a2 = _attempt(11000, True)
+        a2 = make_attempt_record(11000, True)
         state = est.process_attempt(state, a2, [a1, a2])
         assert state.n_completed == 2
         assert state.mu < 12.0
 
     def test_process_incomplete_increments_attempts_only(self):
         est = KalmanEstimator()
-        a1 = _attempt(12000, True)
+        a1 = make_attempt_record(12000, True)
         state = est.init_state(a1, priors={})
-        a2 = _attempt(None, False)
+        a2 = make_incomplete()
         state = est.process_attempt(state, a2, [a1, a2])
         assert state.n_completed == 1
         assert state.n_attempts == 2
@@ -45,7 +36,7 @@ class TestKalmanProcessAttempt:
 class TestKalmanModelOutput:
     def test_produces_model_output(self):
         est = KalmanEstimator()
-        a1 = _attempt(12000, True)
+        a1 = make_attempt_record(12000, True)
         state = est.init_state(a1, priors={})
         out = est.model_output(state, [a1])
         assert isinstance(out, ModelOutput)
@@ -54,20 +45,66 @@ class TestKalmanModelOutput:
         assert out.total.ms_per_attempt == pytest.approx(0.0)  # -d * 1000
         assert out.total.floor_ms is None
 
-    def test_clean_side_is_all_none(self):
-        """Kalman has no clean filter — clean side should be None, not a copy."""
+    def test_clean_side_tracks_clean_tail(self):
+        """Clean filter should track clean_tail_ms when available."""
         est = KalmanEstimator()
-        a1 = _attempt(12000, True)
+        a1 = make_attempt_record(15000, True, deaths=2, clean_tail_ms=8000)
         state = est.init_state(a1, priors={})
+        out = est.model_output(state, [a1])
+        # clean_tail_ms = 8000 → 8.0s → expected 8000ms
+        assert out.clean.expected_ms == pytest.approx(8000.0)
+        assert out.clean.ms_per_attempt is not None
+
+    def test_clean_side_none_when_no_clean_data(self):
+        """If no clean_tail_ms data exists, clean should be all None."""
+        est = KalmanEstimator()
+        a1 = make_attempt_record(12000, True, deaths=0, clean_tail_ms=None)
+        state = est.init_state(AttemptRecord(
+            time_ms=12000, completed=True, deaths=0,
+            clean_tail_ms=None, created_at="2026-01-01T00:00:00",
+        ), priors={})
         out = est.model_output(state, [a1])
         assert out.clean.expected_ms is None
         assert out.clean.ms_per_attempt is None
         assert out.clean.floor_ms is None
 
+    def test_clean_filter_updates_with_new_data(self):
+        """Clean filter should update when new clean_tail_ms data arrives."""
+        est = KalmanEstimator()
+        a1 = make_attempt_record(15000, True, deaths=2, clean_tail_ms=8000)
+        state = est.init_state(a1, priors={})
+        a2 = make_attempt_record(14000, True, deaths=1, clean_tail_ms=7000)
+        state = est.process_attempt(state, a2, [a1, a2])
+        out = est.model_output(state, [a1, a2])
+        # Should have moved toward 7.0s from initial 8.0s
+        assert out.clean.expected_ms is not None
+        assert out.clean.expected_ms < 8000.0
+
+    def test_clean_filter_ignores_no_clean_tail(self):
+        """Attempts without clean_tail_ms should not update clean filter."""
+        est = KalmanEstimator()
+        a1 = make_attempt_record(15000, True, deaths=2, clean_tail_ms=8000)
+        state = est.init_state(a1, priors={})
+        # Incomplete attempt — no clean tail
+        a2 = make_incomplete()
+        state = est.process_attempt(state, a2, [a1, a2])
+        assert state.c_n_completed == 1  # unchanged
+
+    def test_clean_filter_skips_zero_death_attempts(self):
+        """Zero-death attempts have clean_tail == total; still should update clean."""
+        est = KalmanEstimator()
+        # First attempt has deaths + clean tail
+        a1 = make_attempt_record(15000, True, deaths=2, clean_tail_ms=8000)
+        state = est.init_state(a1, priors={})
+        # Second attempt: 0 deaths, clean_tail_ms == time_ms
+        a2 = make_attempt_record(9000, True, deaths=0, clean_tail_ms=9000)
+        state = est.process_attempt(state, a2, [a1, a2])
+        assert state.c_n_completed == 2
+
     def test_improving_attempts_positive_ms_per_attempt(self):
         est = KalmanEstimator()
         times = [12000, 11500, 11000, 10500, 10000, 9500, 9000, 8500, 8000, 7500]
-        attempts = [_attempt(t, True) for t in times]
+        attempts = [make_attempt_record(t, True) for t in times]
         state = est.init_state(attempts[0], priors={})
         for a in attempts[1:]:
             state = est.process_attempt(state, a, attempts)
@@ -77,7 +114,7 @@ class TestKalmanModelOutput:
     def test_expected_predicts_forward(self):
         """expected_ms should be mu + d (predicted next), not just mu (current)."""
         est = KalmanEstimator()
-        a1 = _attempt(12000, True)
+        a1 = make_attempt_record(12000, True)
         state = est.init_state(a1, priors={})
         # mu=12.0, d=0.0 after init, so predicted next = 12.0s = 12000ms
         out = est.model_output(state, [a1])
@@ -87,10 +124,21 @@ class TestKalmanModelOutput:
 class TestKalmanRebuildState:
     def test_rebuild_from_attempts(self):
         est = KalmanEstimator()
-        attempts = [_attempt(12000, True), _attempt(None, False), _attempt(11000, True)]
+        attempts = [make_attempt_record(12000, True), make_incomplete(), make_attempt_record(11000, True)]
         state = est.rebuild_state(attempts)
         assert state.n_completed == 2
         assert state.n_attempts == 3
+
+    def test_rebuild_includes_clean_state(self):
+        est = KalmanEstimator()
+        attempts = [
+            make_attempt_record(15000, True, deaths=2, clean_tail_ms=8000),
+            make_incomplete(),
+            make_attempt_record(14000, True, deaths=1, clean_tail_ms=7000),
+        ]
+        state = est.rebuild_state(attempts)
+        assert state.c_n_completed == 2
+        assert state.c_mu != 0.0  # should have been initialized
 
     def test_rebuild_empty(self):
         est = KalmanEstimator()
@@ -102,7 +150,7 @@ class TestKalmanRebuildState:
 class TestKalmanDriftInfo:
     def test_drift_info_returns_dict(self):
         est = KalmanEstimator()
-        a1 = _attempt(12000, True)
+        a1 = make_attempt_record(12000, True)
         state = est.init_state(a1, priors={})
         info = est.drift_info(state)
         assert "drift" in info

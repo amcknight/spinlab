@@ -6,20 +6,7 @@ from spinlab.allocators.greedy import GreedyAllocator
 from spinlab.allocators.random import RandomAllocator
 from spinlab.allocators.round_robin import RoundRobinAllocator
 from spinlab.models import Estimate, ModelOutput
-
-
-def _make_segment(segment_id: str, ms_per_attempt: float = 0.0) -> SegmentWithModel:
-    out = ModelOutput(
-        total=Estimate(expected_ms=10000.0, ms_per_attempt=ms_per_attempt, floor_ms=8000.0),
-        clean=Estimate(expected_ms=10000.0, ms_per_attempt=ms_per_attempt, floor_ms=8000.0),
-    )
-    return SegmentWithModel(
-        segment_id=segment_id, game_id="test", level_number=1,
-        start_type="level_enter", start_ordinal=0,
-        end_type="level_exit", end_ordinal=0,
-        description="test", strat_version=1, state_path=None, active=True,
-        model_outputs={"kalman": out}, selected_model="kalman",
-    )
+from tests.factories import make_segment_with_model
 
 
 class TestMixAllocator:
@@ -27,7 +14,7 @@ class TestMixAllocator:
         from spinlab.allocators.mix import MixAllocator
         greedy = GreedyAllocator()
         mix = MixAllocator(entries=[(greedy, 100)])
-        segments = [_make_segment("a", 50.0), _make_segment("b", 100.0)]
+        segments = [make_segment_with_model("a", 50.0), make_segment_with_model("b", 100.0)]
         assert mix.pick_next(segments) == "b"
 
     def test_empty_segments_returns_none(self):
@@ -39,7 +26,7 @@ class TestMixAllocator:
     def test_empty_entries_returns_none(self):
         from spinlab.allocators.mix import MixAllocator
         mix = MixAllocator(entries=[])
-        segments = [_make_segment("a", 50.0)]
+        segments = [make_segment_with_model("a", 50.0)]
         assert mix.pick_next(segments) is None
 
     def test_zero_weight_allocator_never_picked(self):
@@ -47,7 +34,7 @@ class TestMixAllocator:
         greedy = GreedyAllocator()
         random = RandomAllocator()
         mix = MixAllocator(entries=[(greedy, 100), (random, 0)])
-        segments = [_make_segment("a", 50.0), _make_segment("b", 100.0)]
+        segments = [make_segment_with_model("a", 50.0), make_segment_with_model("b", 100.0)]
         results = {mix.pick_next(segments) for _ in range(20)}
         assert results == {"b"}
 
@@ -58,7 +45,7 @@ class TestMixAllocator:
         alloc_b = MagicMock()
         alloc_b.pick_next = MagicMock(return_value="from_b")
         mix = MixAllocator(entries=[(alloc_a, 80), (alloc_b, 20)])
-        segments = [_make_segment("x")]
+        segments = [make_segment_with_model("x")]
         results = [mix.pick_next(segments) for _ in range(1000)]
         a_count = results.count("from_a")
         assert 650 < a_count < 950
@@ -67,6 +54,6 @@ class TestMixAllocator:
         from spinlab.allocators.mix import MixAllocator
         rr = RoundRobinAllocator()
         mix = MixAllocator(entries=[(rr, 100)])
-        segments = [_make_segment("a"), _make_segment("b"), _make_segment("c")]
+        segments = [make_segment_with_model("a"), make_segment_with_model("b"), make_segment_with_model("c")]
         results = [mix.pick_next(segments) for _ in range(6)]
         assert results == ["a", "b", "c", "a", "b", "c"]
