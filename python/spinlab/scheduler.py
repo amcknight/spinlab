@@ -14,16 +14,7 @@ logger = logging.getLogger(__name__)
 
 from spinlab.allocators import SegmentWithModel, get_allocator, list_allocators
 from spinlab.allocators.mix import MixAllocator
-from spinlab.allocators.greedy import GreedyAllocator  # ensure registered
-from spinlab.allocators.random import RandomAllocator
-from spinlab.allocators.round_robin import RoundRobinAllocator
 from spinlab.estimators import EstimatorState, get_estimator, list_estimators
-from spinlab.estimators.kalman import KalmanEstimator  # noqa: F401 — ensure registered
-from spinlab.estimators.rolling_mean import RollingMeanEstimator  # noqa: F401 — ensure registered
-try:
-    from spinlab.estimators.exp_decay import ExpDecayEstimator  # noqa: F401 — ensure registered
-except ImportError:
-    logger.warning("exp_decay unavailable (numpy/scipy not installed)")
 from spinlab.models import AttemptRecord, ModelOutput
 
 if TYPE_CHECKING:

@@ -139,3 +139,10 @@ def get_allocator(name: str) -> Allocator:
 def list_allocators() -> list[str]:
     """Return list of registered allocator names."""
     return list(_ALLOCATOR_REGISTRY.keys())
+
+
+def _register_all():
+    """Import all allocator modules to trigger @register_allocator decorators."""
+    from . import greedy, random, round_robin
+
+_register_all()

@@ -132,3 +132,14 @@ def get_estimator(name: str) -> Estimator:
 def list_estimators() -> list[str]:
     """Return list of registered estimator names."""
     return list(_ESTIMATOR_REGISTRY.keys())
+
+
+def _register_all():
+    """Import all estimator modules to trigger @register_estimator decorators."""
+    from . import kalman, rolling_mean
+    try:
+        from . import exp_decay
+    except ImportError:
+        pass
+
+_register_all()
