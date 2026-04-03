@@ -2,7 +2,7 @@
 
 import pytest
 
-from spinlab.models import AttemptSource, EndpointType, EventType, Status
+from spinlab.models import ActionResult, AttemptSource, EndpointType, EventType, Mode, Status
 
 
 class TestEndpointType:
@@ -111,3 +111,23 @@ class TestAttemptSource:
     def test_invalid_raises(self):
         with pytest.raises(ValueError):
             AttemptSource("bogus")
+
+
+class TestActionResult:
+    def test_to_response_basic(self):
+        r = ActionResult(status=Status.OK)
+        assert r.to_response() == {"status": "ok"}
+
+    def test_to_response_with_session_id(self):
+        r = ActionResult(status=Status.STARTED, session_id="abc123")
+        assert r.to_response() == {"status": "started", "session_id": "abc123"}
+
+    def test_to_response_strips_new_mode(self):
+        r = ActionResult(status=Status.STARTED, new_mode=Mode.REFERENCE)
+        resp = r.to_response()
+        assert "new_mode" not in resp
+        assert resp == {"status": "started"}
+
+    def test_new_mode_accessible(self):
+        r = ActionResult(status=Status.OK, new_mode=Mode.PRACTICE)
+        assert r.new_mode == Mode.PRACTICE

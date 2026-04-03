@@ -79,6 +79,21 @@ class AttemptSource(StrEnum):
 
 
 @dataclass
+class ActionResult:
+    """Typed result from controller actions. Replaces untyped status dicts."""
+    status: Status
+    new_mode: Mode | None = None
+    session_id: str | None = None
+
+    def to_response(self) -> dict:
+        """API-safe dict — strips internal fields like new_mode."""
+        d: dict = {"status": self.status.value}
+        if self.session_id is not None:
+            d["session_id"] = self.session_id
+        return d
+
+
+@dataclass
 class Segment:
     id: str
     game_id: str
