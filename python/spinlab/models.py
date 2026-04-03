@@ -1,5 +1,6 @@
 """SpinLab data models."""
 
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, StrEnum
@@ -98,9 +99,9 @@ class Segment:
     id: str
     game_id: str
     level_number: int
-    start_type: str          # 'entrance', 'checkpoint'
+    start_type: EndpointType
     start_ordinal: int
-    end_type: str            # 'checkpoint', 'goal'
+    end_type: EndpointType
     end_ordinal: int
     description: str = ""
     strat_version: int = 1
@@ -129,7 +130,7 @@ class Attempt:
     completed: bool
     time_ms: int | None = None
     strat_version: int = 1
-    source: str = "practice"
+    source: AttemptSource = AttemptSource.PRACTICE
     deaths: int = 0
     clean_tail_ms: int | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -146,14 +147,7 @@ class SegmentCommand:
     auto_advance_delay_ms: int = 1000
 
     def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "state_path": self.state_path,
-            "description": self.description,
-            "end_type": self.end_type,
-            "expected_time_ms": self.expected_time_ms,
-            "auto_advance_delay_ms": self.auto_advance_delay_ms,
-        }
+        return dataclasses.asdict(self)
 
 
 @dataclass
