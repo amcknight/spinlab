@@ -2,9 +2,37 @@
 
 from collections import defaultdict
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Optional, TypedDict
 
 from ..models import Attempt
+
+
+class AttemptRow(TypedDict):
+    segment_id: str
+    completed: int
+    time_ms: int | None
+    deaths: int
+    clean_tail_ms: int | None
+    created_at: str
+
+
+class RecentAttemptRow(TypedDict, total=False):
+    id: int
+    segment_id: str
+    session_id: str
+    completed: int
+    time_ms: int | None
+    strat_version: int
+    source: str
+    deaths: int
+    clean_tail_ms: int | None
+    created_at: str
+    description: str
+    level_number: int
+    start_type: str
+    start_ordinal: int
+    end_type: str
+    end_ordinal: int
 
 RECENT_ATTEMPTS_DB_LIMIT = 8
 
@@ -54,7 +82,7 @@ class AttemptsMixin:
         ).fetchone()
         return row["cnt"]
 
-    def get_recent_attempts(self, game_id: str, limit: int = RECENT_ATTEMPTS_DB_LIMIT) -> list[dict]:
+    def get_recent_attempts(self, game_id: str, limit: int = RECENT_ATTEMPTS_DB_LIMIT) -> list[RecentAttemptRow]:
         """Last N attempts joined with segment info, most recent first."""
         rows = self.conn.execute(
             """SELECT a.*, s.description, s.level_number,
@@ -69,7 +97,7 @@ class AttemptsMixin:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_segment_attempts(self, segment_id: str) -> list[dict]:
+    def get_segment_attempts(self, segment_id: str) -> list[AttemptRow]:
         """Get all attempts for a segment, ordered by created_at."""
         cur = self.conn.execute(
             "SELECT segment_id, completed, time_ms, deaths, clean_tail_ms, created_at "
@@ -79,7 +107,7 @@ class AttemptsMixin:
         cols = ["segment_id", "completed", "time_ms", "deaths", "clean_tail_ms", "created_at"]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
-    def get_all_attempts_by_segment(self, game_id: str) -> dict[str, list[dict]]:
+    def get_all_attempts_by_segment(self, game_id: str) -> dict[str, list[AttemptRow]]:
         """Load all attempts for all active segments in a game."""
         cur = self.conn.execute(
             """SELECT a.segment_id, a.completed, a.time_ms, a.deaths, a.clean_tail_ms,

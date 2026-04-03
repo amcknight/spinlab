@@ -1,6 +1,31 @@
 """Capture run (reference) queries."""
 
 from datetime import UTC, datetime
+from typing import TypedDict
+
+
+class CaptureRunRow(TypedDict):
+    id: str
+    game_id: str
+    name: str
+    created_at: str
+    active: int
+    draft: int
+
+
+class ReferenceSegmentRow(TypedDict):
+    id: str
+    game_id: str
+    level_number: int
+    start_type: str
+    start_ordinal: int
+    end_type: str
+    end_ordinal: int
+    description: str
+    active: int
+    ordinal: int | None
+    reference_id: str | None
+    state_path: str | None
 
 
 class CaptureRunsMixin:
@@ -15,7 +40,7 @@ class CaptureRunsMixin:
         )
         self.conn.commit()
 
-    def list_capture_runs(self, game_id: str) -> list[dict]:
+    def list_capture_runs(self, game_id: str) -> list[CaptureRunRow]:
         rows = self.conn.execute(
             "SELECT id, game_id, name, created_at, active, draft FROM capture_runs "
             "WHERE game_id = ? AND draft = 0 ORDER BY created_at",
@@ -90,7 +115,7 @@ class CaptureRunsMixin:
         self.conn.execute("DELETE FROM capture_runs WHERE id = ?", (run_id,))
         self.conn.commit()
 
-    def get_segments_by_reference(self, reference_id: str) -> list[dict]:
+    def get_segments_by_reference(self, reference_id: str) -> list[ReferenceSegmentRow]:
         cur = self.conn.execute(
             """SELECT id, game_id, level_number, start_type, start_ordinal,
                       end_type, end_ordinal, description, active, ordinal,

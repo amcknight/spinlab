@@ -1,7 +1,16 @@
 """Session queries."""
 
 from datetime import UTC, datetime
-from typing import Optional
+from typing import TypedDict
+
+
+class SessionRow(TypedDict):
+    id: str
+    game_id: str
+    started_at: str
+    ended_at: str | None
+    segments_attempted: int
+    segments_completed: int
 
 SESSION_HISTORY_LIMIT = 10
 
@@ -26,7 +35,7 @@ class SessionsMixin:
         )
         self.conn.commit()
 
-    def get_current_session(self, game_id: str) -> Optional[dict]:
+    def get_current_session(self, game_id: str) -> SessionRow | None:
         """Get active session (ended_at IS NULL)."""
         row = self.conn.execute(
             "SELECT * FROM sessions WHERE game_id = ? AND ended_at IS NULL "
@@ -35,7 +44,7 @@ class SessionsMixin:
         ).fetchone()
         return dict(row) if row else None
 
-    def get_session_history(self, game_id: str, limit: int = SESSION_HISTORY_LIMIT) -> list[dict]:
+    def get_session_history(self, game_id: str, limit: int = SESSION_HISTORY_LIMIT) -> list[SessionRow]:
         """Recent sessions, most recent first."""
         rows = self.conn.execute(
             """SELECT * FROM sessions

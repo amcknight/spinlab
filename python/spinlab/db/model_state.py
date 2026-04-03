@@ -2,6 +2,20 @@
 
 from collections import defaultdict
 from datetime import UTC, datetime
+from typing import TypedDict
+
+
+class ModelStateRow(TypedDict):
+    segment_id: str
+    estimator: str
+    state_json: str | None
+    output_json: str | None
+    updated_at: str
+
+
+class GoldRow(TypedDict):
+    gold_ms: int | None
+    clean_gold_ms: int | None
 
 
 class ModelStateMixin:
@@ -22,7 +36,7 @@ class ModelStateMixin:
         )
         self.conn.commit()
 
-    def load_model_state(self, segment_id: str, estimator: str | None = None) -> dict | None:
+    def load_model_state(self, segment_id: str, estimator: str | None = None) -> ModelStateRow | None:
         if estimator:
             cur = self.conn.execute(
                 "SELECT segment_id, estimator, state_json, output_json, updated_at "
@@ -43,7 +57,7 @@ class ModelStateMixin:
             "output_json": row[3], "updated_at": row[4],
         }
 
-    def load_all_model_states_for_segment(self, segment_id: str) -> list[dict]:
+    def load_all_model_states_for_segment(self, segment_id: str) -> list[ModelStateRow]:
         """Load all estimator states for a single segment."""
         cur = self.conn.execute(
             "SELECT segment_id, estimator, state_json, output_json, updated_at "
@@ -53,7 +67,7 @@ class ModelStateMixin:
         cols = ["segment_id", "estimator", "state_json", "output_json", "updated_at"]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
-    def load_all_model_states(self, game_id: str) -> list[dict]:
+    def load_all_model_states(self, game_id: str) -> list[ModelStateRow]:
         cur = self.conn.execute(
             """SELECT m.segment_id, m.estimator, m.state_json, m.output_json, m.updated_at
                FROM model_state m
@@ -64,7 +78,7 @@ class ModelStateMixin:
         cols = ["segment_id", "estimator", "state_json", "output_json", "updated_at"]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
-    def load_all_model_states_for_game(self, game_id: str) -> dict[str, list[dict]]:
+    def load_all_model_states_for_game(self, game_id: str) -> dict[str, list[ModelStateRow]]:
         """Load all estimator states for all active segments in a game."""
         cur = self.conn.execute(
             """SELECT m.segment_id, m.estimator, m.state_json, m.output_json, m.updated_at
@@ -74,13 +88,13 @@ class ModelStateMixin:
             (game_id,),
         )
         cols = ["segment_id", "estimator", "state_json", "output_json", "updated_at"]
-        result: dict[str, list[dict]] = defaultdict(list)
+        result: dict[str, list[ModelStateRow]] = defaultdict(list)
         for row in cur.fetchall():
             d = dict(zip(cols, row))
             result[d["segment_id"]].append(d)
         return result
 
-    def compute_golds(self, game_id: str) -> dict[str, dict]:
+    def compute_golds(self, game_id: str) -> dict[str, GoldRow]:
         """Compute gold times for all active segments in a game."""
         cur = self.conn.execute(
             """SELECT a.segment_id,
@@ -92,7 +106,7 @@ class ModelStateMixin:
                GROUP BY a.segment_id""",
             (game_id,),
         )
-        result: dict[str, dict] = {}
+        result: dict[str, GoldRow] = {}
         for row in cur.fetchall():
             result[row[0]] = {"gold_ms": row[1], "clean_gold_ms": row[2]}
         return result

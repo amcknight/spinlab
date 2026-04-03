@@ -1,8 +1,35 @@
 """Segment and segment variant queries."""
 
 from datetime import UTC, datetime
+from typing import TypedDict
 
 from ..models import Segment, SegmentVariant
+
+
+class SegmentRow(TypedDict):
+    id: str
+    game_id: str
+    level_number: int
+    start_type: str
+    start_ordinal: int
+    end_type: str
+    end_ordinal: int
+    description: str
+    strat_version: int
+    active: int
+    ordinal: int | None
+    state_path: str | None
+
+
+class MissingColdRow(TypedDict):
+    segment_id: str
+    hot_state_path: str
+    level_number: int
+    start_type: str
+    start_ordinal: int
+    end_type: str
+    end_ordinal: int
+    description: str
 
 
 class SegmentsMixin:
@@ -52,7 +79,7 @@ class SegmentsMixin:
         )
         self.conn.commit()
 
-    def get_all_segments_with_model(self, game_id: str) -> list[dict]:
+    def get_all_segments_with_model(self, game_id: str) -> list[SegmentRow]:
         """Get all active segments with default variant state_path."""
         cur = self.conn.execute(
             """SELECT s.id, s.game_id, s.level_number, s.start_type, s.start_ordinal,
@@ -134,7 +161,7 @@ class SegmentsMixin:
             state_path=row[2], is_default=bool(row[3]),
         )
 
-    def segments_missing_cold(self, game_id: str) -> list[dict]:
+    def segments_missing_cold(self, game_id: str) -> list[MissingColdRow]:
         """Return segments that have a hot variant but no cold variant."""
         rows = self.conn.execute(
             """SELECT s.id AS segment_id, hot.state_path AS hot_state_path,
