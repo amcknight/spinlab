@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from .models import ActionResult, EventType, Mode, Status
 from .capture_controller import CaptureController
 from .sse import SSEBroadcaster
+from .state_builder import StateBuilder
 
 if TYPE_CHECKING:
     from .db import Database
@@ -18,7 +19,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-RECENT_ATTEMPTS_LIMIT = 8
 PRACTICE_STOP_TIMEOUT_S = 5
 
 
@@ -54,6 +54,7 @@ class SessionManager:
         # Delegated components
         self.capture = CaptureController(db, tcp)
         self.sse = SSEBroadcaster()
+        self._state_builder = StateBuilder(db)
 
         # Event dispatch table
         self._event_handlers: dict[EventType, callable] = {
@@ -94,77 +95,7 @@ class SessionManager:
 
     def get_state(self) -> dict:
         """Full state snapshot for API and SSE."""
-        base = {
-            "mode": self.mode.value,
-            "tcp_connected": self.tcp.is_connected,
-            "game_id": self.game_id,
-            "game_name": self.game_name,
-            "current_segment": None,
-            "recent": [],
-            "session": None,
-            "sections_captured": self.capture.sections_captured,
-            "allocator_weights": None,
-            "estimator": None,
-        }
-
-        if self.game_id is None:
-            return base
-
-        sched = self._get_scheduler()
-        base["allocator_weights"] = {alloc.name: int(w) for alloc, w in sched.allocator.entries}
-        base["estimator"] = sched.estimator.name
-
-        if self.mode == Mode.PRACTICE and self.practice_session:
-            self._build_practice_state(base, sched)
-
-        if self.mode in (Mode.REFERENCE, Mode.REPLAY):
-            base["capture_run_id"] = self.capture.ref_capture.capture_run_id
-        if self.mode == Mode.REPLAY:
-            base["replay"] = {"rec_path": self.capture.rec_path}
-
-        draft_state = self.capture.get_draft_state()
-        if draft_state:
-            base["draft"] = draft_state
-
-        if self.mode == Mode.COLD_FILL:
-            cf_state = self.capture.get_cold_fill_state()
-            if cf_state:
-                base["cold_fill"] = cf_state
-
-        base["recent"] = self.db.get_recent_attempts(self.game_id, limit=RECENT_ATTEMPTS_LIMIT)
-        return base
-
-    def _build_practice_state(self, base: dict, sched) -> None:
-        """Populate practice-specific fields into state dict."""
-        ps = self.practice_session
-        base["session"] = {
-            "id": ps.session_id,
-            "started_at": ps.started_at,
-            "segments_attempted": ps.segments_attempted,
-            "segments_completed": ps.segments_completed,
-        }
-        if ps.current_segment_id:
-            segments = self.db.get_all_segments_with_model(self.game_id)
-            seg_map = {s["id"]: s for s in segments}
-            if ps.current_segment_id in seg_map:
-                current_seg = seg_map[ps.current_segment_id]
-                current_seg["attempt_count"] = self.db.get_segment_attempt_count(
-                    ps.current_segment_id, ps.session_id
-                )
-                state_rows = self.db.load_all_model_states_for_segment(ps.current_segment_id)
-                model_outputs = {}
-                for sr in state_rows:
-                    if sr.get("output_json"):
-                        try:
-                            from spinlab.models import ModelOutput
-                            model_outputs[sr["estimator"]] = ModelOutput.from_dict(
-                                json.loads(sr["output_json"])
-                            ).to_dict()
-                        except (json.JSONDecodeError, KeyError):
-                            pass
-                current_seg["model_outputs"] = model_outputs
-                current_seg["selected_model"] = sched.estimator.name
-                base["current_segment"] = current_seg
+        return self._state_builder.build(self)
 
     def _get_scheduler(self):
         """Lazy-init scheduler for current game."""
