@@ -41,18 +41,9 @@ local function get_rom_filename()
     return "unknown.sfc"
 end
 
--- Memory addresses (ported from kaizosplits/Memory.cs)
-local ADDR_GAME_MODE   = 0x0100  -- game mode: 18=prepare level, 20=in level
-local ADDR_LEVEL_NUM   = 0x13BF  -- current level number
-local ADDR_ROOM_NUM    = 0x010B  -- current room/sublevel
-local ADDR_LEVEL_START = 0x1935  -- 0→1 when player appears in level (kaizosplits "levelStart")
-local ADDR_PLAYER_ANIM = 0x0071  -- player animation: 9=death
-local ADDR_EXIT_MODE   = 0x0DD5  -- 0=not exiting, non-zero=exiting level
-local ADDR_IO          = 0x1DFB  -- SPC I/O: 3=orb, 4=goal, 7=key, 8=fadeout
-local ADDR_FANFARE     = 0x0906  -- steps to 1 when goal reached
-local ADDR_BOSS_DEFEAT = 0x13C6  -- 0=alive, non-zero=defeated
-local ADDR_MIDWAY      = 0x13CE  -- midway checkpoint tape: 0→1 when touched
-local ADDR_CP_ENTRANCE = 0x1B403 -- ASM-style checkpoint entrance
+-- Memory addresses — loaded from shared source of truth
+local _spinlab_dir = debug.getinfo(1, "S").source:match("@?(.*[\\/])") or ""
+dofile(_spinlab_dir .. "addresses.lua")
 
 -----------------------------------------------------------------------
 -- STATE

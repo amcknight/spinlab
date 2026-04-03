@@ -17,20 +17,23 @@
 local SNES = emu.memType.snesMemory
 
 -----------------------------------------------------------------------
--- ADDRESS MAP (must match spinlab.lua lines 43-53)
+-- ADDRESS MAP (loaded from shared source of truth)
 -----------------------------------------------------------------------
+local _pe_dir = debug.getinfo(1, "S").source:match("@?(.*[\\/])") or ""
+dofile(_pe_dir .. "addresses.lua")
+
 local ADDR_MAP = {
-  game_mode    = 0x0100,
-  level_num    = 0x13BF,
-  room_num     = 0x010B,
-  level_start  = 0x1935,
-  player_anim  = 0x0071,
-  exit_mode    = 0x0DD5,
-  io_port      = 0x1DFB,
-  fanfare      = 0x0906,
-  boss_defeat  = 0x13C6,
-  midway       = 0x13CE,
-  cp_entrance  = 0x1B403,
+  game_mode    = ADDR_GAME_MODE,
+  level_num    = ADDR_LEVEL_NUM,
+  room_num     = ADDR_ROOM_NUM,
+  level_start  = ADDR_LEVEL_START,
+  player_anim  = ADDR_PLAYER_ANIM,
+  exit_mode    = ADDR_EXIT_MODE,
+  io_port      = ADDR_IO,
+  fanfare      = ADDR_FANFARE,
+  boss_defeat  = ADDR_BOSS_DEFEAT,
+  midway       = ADDR_MIDWAY,
+  cp_entrance  = ADDR_CP_ENTRANCE,
 }
 
 -----------------------------------------------------------------------
