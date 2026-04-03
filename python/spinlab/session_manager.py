@@ -52,7 +52,7 @@ class SessionManager:
         self.practice_task: asyncio.Task | None = None
 
         # Delegated components
-        self.capture = CaptureController()
+        self.capture = CaptureController(db, tcp)
         self.sse = SSEBroadcaster()
 
         # Event dispatch table
@@ -194,7 +194,7 @@ class SessionManager:
         self.game_name = game_name
         self.scheduler = None
         self.mode = Mode.IDLE
-        self.capture.recover_draft(self.db, game_id)
+        self.capture.recover_draft(game_id)
         await self._notify_sse()
 
     # --- SSE (delegate to broadcaster) ---
@@ -259,7 +259,7 @@ class SessionManager:
     async def _handle_checkpoint(self, event: dict) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
-        self.capture.handle_checkpoint(event, self._require_game(), self.db)
+        self.capture.handle_checkpoint(event, self._require_game())
         await self._notify_sse()
 
     async def _handle_death(self, event: dict) -> None:
@@ -270,24 +270,24 @@ class SessionManager:
 
     async def _handle_spawn(self, event: dict) -> None:
         if self.mode == Mode.COLD_FILL:
-            done = await self.capture.handle_cold_fill_spawn(event, self.tcp, self.db)
+            done = await self.capture.handle_cold_fill_spawn(event)
             if done:
                 self.mode = Mode.IDLE
             await self._notify_sse()
             return
         if self.mode == Mode.FILL_GAP:
-            if self.capture.handle_fill_gap_spawn(event, self.db):
+            if self.capture.handle_fill_gap_spawn(event):
                 self.mode = Mode.IDLE
                 await self._notify_sse()
             return
         if self.mode in (Mode.REFERENCE, Mode.REPLAY):
-            self.capture.handle_spawn(event, self._require_game(), self.db)
+            self.capture.handle_spawn(event, self._require_game())
 
     async def _handle_level_exit(self, event: dict) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
         logger.info("level_exit: ref_pending_start=%s", self.capture.ref_capture.pending_start)
-        self.capture.handle_exit(event, self._require_game(), self.db)
+        self.capture.handle_exit(event, self._require_game())
         await self._notify_sse()
 
     async def _handle_attempt_result(self, event: dict) -> None:
@@ -312,7 +312,7 @@ class SessionManager:
         await self._notify_sse()
 
     async def _handle_replay_error(self, event: dict) -> None:
-        self.capture.handle_replay_error(self.db)
+        self.capture.handle_replay_error()
         self._clear_ref_and_idle()
         await self._notify_sse()
 
@@ -320,7 +320,7 @@ class SessionManager:
 
     async def start_reference(self, run_name: str | None = None) -> ActionResult:
         result = await self.capture.start_reference(
-            self.mode, self.tcp, self.db,
+            self.mode,
             self._require_game(), self.data_dir, run_name,
         )
         if result.new_mode is not None:
@@ -329,7 +329,7 @@ class SessionManager:
         return result
 
     async def stop_reference(self) -> ActionResult:
-        result = await self.capture.stop_reference(self.mode, self.tcp)
+        result = await self.capture.stop_reference(self.mode)
         if result.new_mode is not None:
             self.mode = result.new_mode
         await self._notify_sse()
@@ -337,7 +337,7 @@ class SessionManager:
 
     async def start_replay(self, spinrec_path: str, speed: int = 0) -> ActionResult:
         result = await self.capture.start_replay(
-            self.mode, self.tcp, self.db,
+            self.mode,
             self._require_game(), spinrec_path, speed,
         )
         if result.new_mode is not None:
@@ -346,24 +346,24 @@ class SessionManager:
         return result
 
     async def stop_replay(self) -> ActionResult:
-        result = await self.capture.stop_replay(self.mode, self.tcp, self.db)
+        result = await self.capture.stop_replay(self.mode)
         if result.new_mode is not None:
             self.mode = result.new_mode
         await self._notify_sse()
         return result
 
     async def start_fill_gap(self, segment_id: str) -> ActionResult:
-        result = await self.capture.start_fill_gap(segment_id, self.tcp, self.db)
+        result = await self.capture.start_fill_gap(segment_id)
         if result.new_mode is not None:
             self.mode = result.new_mode
         await self._notify_sse()
         return result
 
     async def save_draft(self, name: str) -> ActionResult:
-        result = await self.capture.save_draft(self.db, name)
+        result = await self.capture.save_draft(name)
         if result.status == Status.OK and self.game_id and self.tcp.is_connected:
             cf_result = await self.capture.start_cold_fill(
-                self.game_id, self.tcp, self.db,
+                self.game_id,
             )
             if cf_result.new_mode == Mode.COLD_FILL:
                 self.mode = Mode.COLD_FILL
@@ -371,7 +371,7 @@ class SessionManager:
         return result
 
     async def discard_draft(self) -> ActionResult:
-        result = await self.capture.discard_draft(self.db)
+        result = await self.capture.discard_draft()
         await self._notify_sse()
         return result
 
@@ -424,7 +424,7 @@ class SessionManager:
         if self.practice_session and self.practice_session.is_running:
             self.practice_session.is_running = False
         self.capture.clear_cold_fill()
-        self.capture.handle_disconnect(self.db)
+        self.capture.handle_disconnect()
         self._clear_ref_and_idle()
 
     async def shutdown(self) -> None:
