@@ -10,7 +10,8 @@ class TestKalmanProcessAttempt:
         est = KalmanEstimator()
         attempt = make_attempt_record(12000, True)
         state = est.init_state(attempt, priors={})
-        assert state.mu == pytest.approx(12.0)
+        out = est.model_output(state, [attempt])
+        assert out.total.expected_ms == pytest.approx(12000.0)
         assert state.n_completed == 1
         assert state.n_attempts == 1
 
@@ -20,8 +21,9 @@ class TestKalmanProcessAttempt:
         state = est.init_state(a1, priors={})
         a2 = make_attempt_record(11000, True)
         state = est.process_attempt(state, a2, [a1, a2])
+        out = est.model_output(state, [a1, a2])
         assert state.n_completed == 2
-        assert state.mu < 12.0
+        assert out.total.expected_ms < 12000.0
 
     def test_process_incomplete_increments_attempts_only(self):
         est = KalmanEstimator()
@@ -114,11 +116,15 @@ class TestKalmanModelOutput:
     def test_expected_predicts_forward(self):
         """expected_ms should be mu + d (predicted next), not just mu (current)."""
         est = KalmanEstimator()
-        a1 = make_attempt_record(12000, True)
-        state = est.init_state(a1, priors={})
-        # mu=12.0, d=0.0 after init, so predicted next = 12.0s = 12000ms
-        out = est.model_output(state, [a1])
-        assert out.total.expected_ms == pytest.approx((state.mu + state.d) * 1000)
+        # Feed a consistently improving sequence so drift (d) becomes negative
+        times = [12000, 11000, 10000, 9000, 8000]
+        attempts = [make_attempt_record(t, True) for t in times]
+        state = est.init_state(attempts[0], priors={})
+        for a in attempts[1:]:
+            state = est.process_attempt(state, a, attempts)
+        out = est.model_output(state, attempts)
+        # With negative drift, expected_ms (= (mu + d) * 1000) should be less than mu * 1000
+        assert out.total.expected_ms < state.mu * 1000
 
 
 class TestKalmanRebuildState:
