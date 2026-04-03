@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
+from spinlab.estimators import list_estimators, get_estimator
 
 
 def make_test_config(**overrides) -> AppConfig:
@@ -48,3 +49,15 @@ def mock_db():
     db.hard_delete_capture_run = MagicMock()
     db.segments_missing_cold = MagicMock(return_value=[])
     return db
+
+
+@pytest.fixture(params=list_estimators())
+def estimator_name(request):
+    """Parametrized fixture that yields each registered estimator name."""
+    return request.param
+
+
+@pytest.fixture
+def estimator(estimator_name):
+    """Instantiated estimator from parametrized name."""
+    return get_estimator(estimator_name)
