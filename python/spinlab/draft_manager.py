@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .models import ActionResult, Status
+
 if TYPE_CHECKING:
     from .db import Database
 
@@ -24,24 +26,24 @@ class DraftManager:
         self.run_id = run_id
         self.segments_count = segments_count
 
-    def save(self, db: "Database", name: str) -> dict:
+    def save(self, db: "Database", name: str) -> ActionResult:
         """Promote draft capture run to saved reference."""
         if not self.run_id:
-            return {"status": "no_draft"}
+            return ActionResult(status=Status.NO_DRAFT)
         db.promote_draft(self.run_id, name)
         db.set_active_capture_run(self.run_id)
         self.run_id = None
         self.segments_count = 0
-        return {"status": "ok"}
+        return ActionResult(status=Status.OK)
 
-    def discard(self, db: "Database") -> dict:
+    def discard(self, db: "Database") -> ActionResult:
         """Hard-delete draft capture run and all associated data."""
         if not self.run_id:
-            return {"status": "no_draft"}
+            return ActionResult(status=Status.NO_DRAFT)
         db.hard_delete_capture_run(self.run_id)
         self.run_id = None
         self.segments_count = 0
-        return {"status": "ok"}
+        return ActionResult(status=Status.OK)
 
     def recover(self, db: "Database", game_id: str) -> None:
         """On startup, check for orphaned draft capture runs and restore state."""

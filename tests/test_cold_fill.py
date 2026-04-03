@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 import pytest
 
 from spinlab.capture_controller import CaptureController
-from spinlab.models import Mode, SegmentVariant
+from spinlab.models import Mode, SegmentVariant, Status
 
 
 @pytest.fixture
@@ -37,10 +37,8 @@ class TestStartColdFill:
         cc = CaptureController()
         result = await cc.start_cold_fill("g1", tcp, db)
 
-        assert result["status"] == "started"
-        assert result["new_mode"] == Mode.COLD_FILL
-        assert result["total"] == 2
-        assert result["current"] == 1
+        assert result.status == Status.STARTED
+        assert result.new_mode == Mode.COLD_FILL
 
         # Verify Lua command sent for first segment
         sent = json.loads(tcp.send.call_args[0][0])
@@ -52,13 +50,13 @@ class TestStartColdFill:
         db.segments_missing_cold.return_value = []
         cc = CaptureController()
         result = await cc.start_cold_fill("g1", tcp, db)
-        assert result["status"] == "no_gaps"
+        assert result.status == Status.NO_GAPS
 
     async def test_start_cold_fill_not_connected(self, tcp, db):
         tcp.is_connected = False
         cc = CaptureController()
         result = await cc.start_cold_fill("g1", tcp, db)
-        assert result["status"] == "not_connected"
+        assert result.status == Status.NOT_CONNECTED
 
 
 class TestHandleColdFillSpawn:

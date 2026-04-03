@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .models import Mode
+from .models import ActionResult, Mode, Status
 from .capture_controller import CaptureController
 from .sse import SSEBroadcaster
 
@@ -313,72 +313,72 @@ class SessionManager:
 
     # --- Mode actions (delegate to controllers, apply mode transitions) ---
 
-    async def start_reference(self, run_name: str | None = None) -> dict:
+    async def start_reference(self, run_name: str | None = None) -> ActionResult:
         result = await self.capture.start_reference(
             self.mode, self.tcp, self.db,
             self._require_game(), self.data_dir, run_name,
         )
-        if "new_mode" in result:
-            self.mode = result.pop("new_mode")
+        if result.new_mode is not None:
+            self.mode = result.new_mode
         await self._notify_sse()
         return result
 
-    async def stop_reference(self) -> dict:
+    async def stop_reference(self) -> ActionResult:
         result = await self.capture.stop_reference(self.mode, self.tcp)
-        if "new_mode" in result:
-            self.mode = result.pop("new_mode")
+        if result.new_mode is not None:
+            self.mode = result.new_mode
         await self._notify_sse()
         return result
 
-    async def start_replay(self, spinrec_path: str, speed: int = 0) -> dict:
+    async def start_replay(self, spinrec_path: str, speed: int = 0) -> ActionResult:
         result = await self.capture.start_replay(
             self.mode, self.tcp, self.db,
             self._require_game(), spinrec_path, speed,
         )
-        if "new_mode" in result:
-            self.mode = result.pop("new_mode")
+        if result.new_mode is not None:
+            self.mode = result.new_mode
         await self._notify_sse()
         return result
 
-    async def stop_replay(self) -> dict:
+    async def stop_replay(self) -> ActionResult:
         result = await self.capture.stop_replay(self.mode, self.tcp, self.db)
-        if "new_mode" in result:
-            self.mode = result.pop("new_mode")
+        if result.new_mode is not None:
+            self.mode = result.new_mode
         await self._notify_sse()
         return result
 
-    async def start_fill_gap(self, segment_id: str) -> dict:
+    async def start_fill_gap(self, segment_id: str) -> ActionResult:
         result = await self.capture.start_fill_gap(segment_id, self.tcp, self.db)
-        if "new_mode" in result:
-            self.mode = result.pop("new_mode")
+        if result.new_mode is not None:
+            self.mode = result.new_mode
         await self._notify_sse()
         return result
 
-    async def save_draft(self, name: str) -> dict:
+    async def save_draft(self, name: str) -> ActionResult:
         result = await self.capture.save_draft(self.db, name)
-        if result.get("status") == "ok" and self.game_id and self.tcp.is_connected:
+        if result.status == Status.OK and self.game_id and self.tcp.is_connected:
             cf_result = await self.capture.start_cold_fill(
                 self.game_id, self.tcp, self.db,
             )
-            if cf_result.get("new_mode") == Mode.COLD_FILL:
+            if cf_result.new_mode == Mode.COLD_FILL:
                 self.mode = Mode.COLD_FILL
         await self._notify_sse()
         return result
 
-    async def discard_draft(self) -> dict:
+    async def discard_draft(self) -> ActionResult:
         result = await self.capture.discard_draft(self.db)
         await self._notify_sse()
         return result
 
     # --- Practice mode ---
 
-    async def start_practice(self) -> dict:
+    async def start_practice(self) -> ActionResult:
         if self.capture.has_draft:
-            return {"status": "draft_pending"}
+            return ActionResult(status=Status.DRAFT_PENDING)
         if self.practice_session and self.practice_session.is_running:
-            return {"status": "already_running"}
+            return ActionResult(status=Status.ALREADY_RUNNING)
         if not self.tcp.is_connected:
-            return {"status": "not_connected"}
+            return ActionResult(status=Status.NOT_CONNECTED)
         if self.mode == Mode.REFERENCE:
             self._clear_ref_and_idle()
 
@@ -392,14 +392,14 @@ class SessionManager:
         self.practice_task.add_done_callback(self._on_practice_done)
         self.mode = Mode.PRACTICE
         await self._notify_sse()
-        return {"status": "started", "session_id": ps.session_id}
+        return ActionResult(status=Status.STARTED, session_id=ps.session_id)
 
     def _on_practice_done(self, task: asyncio.Task) -> None:
         if self.mode == Mode.PRACTICE:
             self.mode = Mode.IDLE
             asyncio.ensure_future(self._notify_sse())
 
-    async def stop_practice(self) -> dict:
+    async def stop_practice(self) -> ActionResult:
         if self.practice_session and self.practice_session.is_running:
             self.practice_session.is_running = False
             if self.practice_task:
@@ -409,11 +409,11 @@ class SessionManager:
                     self.practice_task.cancel()
             self.mode = Mode.IDLE
             await self._notify_sse()
-            return {"status": "stopped"}
+            return ActionResult(status=Status.STOPPED)
         if self.mode == Mode.PRACTICE:
             self.mode = Mode.IDLE
-            return {"status": "stopped"}
-        return {"status": "not_running"}
+            return ActionResult(status=Status.STOPPED)
+        return ActionResult(status=Status.NOT_RUNNING)
 
     def on_disconnect(self) -> None:
         if self.practice_session and self.practice_session.is_running:

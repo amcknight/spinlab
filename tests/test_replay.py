@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from spinlab.models import Mode
+from spinlab.models import Mode, Status
 from spinlab.session_manager import SessionManager
 
 
@@ -15,7 +15,7 @@ class TestStartReplay:
         sm.game_name = "Test Game"
 
         result = await sm.start_replay("/data/test.spinrec", speed=0)
-        assert result["status"] == "started"
+        assert result.status == Status.STARTED
         assert sm.mode == Mode.REPLAY
 
         msg = json.loads(mock_tcp.send.call_args[0][0])
@@ -29,7 +29,7 @@ class TestStartReplay:
         sm.mode = Mode.PRACTICE
 
         result = await sm.start_replay("/data/test.spinrec")
-        assert result["status"] == "practice_active"
+        assert result.status == Status.PRACTICE_ACTIVE
 
     async def test_rejects_during_reference(self, mock_db, mock_tcp, tmp_path):
         sm = SessionManager(db=mock_db, tcp=mock_tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
@@ -37,7 +37,7 @@ class TestStartReplay:
         sm.mode = Mode.REFERENCE
 
         result = await sm.start_replay("/data/test.spinrec")
-        assert result["status"] == "reference_active"
+        assert result.status == Status.REFERENCE_ACTIVE
 
 
 class TestReplayEvents:

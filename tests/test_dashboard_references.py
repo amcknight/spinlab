@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 from spinlab.db import Database
-from spinlab.models import Segment, SegmentVariant
+from spinlab.models import ActionResult, Segment, SegmentVariant, Status
 
 
 @pytest.fixture
@@ -112,7 +112,7 @@ class TestDraftEndpoints:
         # Inject draft state
         client.app.state.session.draft.run_id = "live_abc"
         client.app.state.session.draft.segments_count = 5
-        client.app.state.session.save_draft = AsyncMock(return_value={"status": "ok"})
+        client.app.state.session.save_draft = AsyncMock(return_value=ActionResult(status=Status.OK))
 
         resp = client.post("/api/references/draft/save", json={"name": "My Run"})
         assert resp.status_code == 200
@@ -120,7 +120,7 @@ class TestDraftEndpoints:
 
     def test_discard_draft(self, client):
         client.app.state.session.draft.run_id = "live_abc"
-        client.app.state.session.discard_draft = AsyncMock(return_value={"status": "ok"})
+        client.app.state.session.discard_draft = AsyncMock(return_value=ActionResult(status=Status.OK))
 
         resp = client.post("/api/references/draft/discard")
         assert resp.status_code == 200
@@ -150,7 +150,7 @@ class TestReplayByRefId:
     def test_replay_start_with_ref_id(self, client, tmp_path):
         client.app.state.session.game_id = "testgame"
         client.app.state.session.data_dir = tmp_path
-        client.app.state.session.start_replay = AsyncMock(return_value={"status": "started", "run_id": "replay_x"})
+        client.app.state.session.start_replay = AsyncMock(return_value=ActionResult(status=Status.STARTED))
 
         resp = client.post("/api/replay/start", json={"ref_id": "ref_abc", "speed": 1})
         assert resp.status_code == 200

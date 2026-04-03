@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from spinlab.db import Database
-from spinlab.models import Mode, Segment, SegmentVariant
+from spinlab.models import Mode, Segment, SegmentVariant, Status
 from spinlab.session_manager import SessionManager
 
 
@@ -63,7 +63,7 @@ class TestColdFillIntegration:
         sm.capture.draft.enter_draft("run1", 3)
         result = await sm.save_draft("Test Run")
 
-        assert result["status"] == "ok"
+        assert result.status == Status.OK
         assert sm.mode == Mode.COLD_FILL
 
         # Verify first segment loaded

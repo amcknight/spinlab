@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .models import Mode, SegmentVariant
+from .models import ActionResult, Mode, SegmentVariant, Status
 from .reference_capture import ReferenceCapture
 from .draft_manager import DraftManager
 
@@ -69,60 +69,62 @@ class CaptureController:
     async def start_reference(
         self, mode: Mode, tcp: "TcpManager", db: "Database",
         game_id: str, data_dir: Path, run_name: str | None = None,
-    ) -> dict:
+    ) -> ActionResult:
         if self.draft.has_draft:
-            return {"status": "draft_pending"}
-        if mode in (Mode.PRACTICE, Mode.REPLAY):
-            return {"status": f"{mode.value}_active"}
+            return ActionResult(status=Status.DRAFT_PENDING)
+        if mode == Mode.PRACTICE:
+            return ActionResult(status=Status.PRACTICE_ACTIVE)
+        if mode == Mode.REPLAY:
+            return ActionResult(status=Status.ALREADY_REPLAYING)
         if not tcp.is_connected:
-            return {"status": "not_connected"}
+            return ActionResult(status=Status.NOT_CONNECTED)
 
         self.ref_capture.clear()
         run_id = f"live_{uuid.uuid4().hex[:8]}"
-        name = run_name or f"Live {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
-        db.create_capture_run(run_id, game_id, name, draft=True)
+        run_name = run_name or f"Live {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
+        db.create_capture_run(run_id, game_id, run_name, draft=True)
         self.ref_capture.capture_run_id = run_id
         rec_path = str(self._game_rec_dir(data_dir, game_id) / f"{run_id}.spinrec")
         await tcp.send(json.dumps({"event": "reference_start", "path": rec_path}))
-        return {"status": "started", "run_id": run_id, "run_name": name, "new_mode": Mode.REFERENCE}
+        return ActionResult(status=Status.STARTED, new_mode=Mode.REFERENCE)
 
-    async def stop_reference(self, mode: Mode, tcp: "TcpManager") -> dict:
+    async def stop_reference(self, mode: Mode, tcp: "TcpManager") -> ActionResult:
         if mode != Mode.REFERENCE:
-            return {"status": "not_in_reference"}
+            return ActionResult(status=Status.NOT_IN_REFERENCE)
         if tcp.is_connected:
             await tcp.send(json.dumps({"event": "reference_stop"}))
         self._enter_draft_from_capture()
         self.ref_capture.clear()
-        return {"status": "stopped", "new_mode": Mode.IDLE}
+        return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
 
     # --- Replay mode ---
 
     async def start_replay(
         self, mode: Mode, tcp: "TcpManager", db: "Database",
         game_id: str, spinrec_path: str, speed: int = 0,
-    ) -> dict:
+    ) -> ActionResult:
         if self.draft.has_draft:
-            return {"status": "draft_pending"}
+            return ActionResult(status=Status.DRAFT_PENDING)
         if mode == Mode.PRACTICE:
-            return {"status": "practice_active"}
+            return ActionResult(status=Status.PRACTICE_ACTIVE)
         if mode == Mode.REFERENCE:
-            return {"status": "reference_active"}
+            return ActionResult(status=Status.REFERENCE_ACTIVE)
         if mode == Mode.REPLAY:
-            return {"status": "already_replaying"}
+            return ActionResult(status=Status.ALREADY_REPLAYING)
         if not tcp.is_connected:
-            return {"status": "not_connected"}
+            return ActionResult(status=Status.NOT_CONNECTED)
 
         self.ref_capture.clear()
         run_id = f"replay_{uuid.uuid4().hex[:8]}"
-        name = f"Replay {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
-        db.create_capture_run(run_id, game_id, name, draft=True)
+        run_name = f"Replay {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
+        db.create_capture_run(run_id, game_id, run_name, draft=True)
         self.ref_capture.capture_run_id = run_id
         await tcp.send(json.dumps({"event": "replay", "path": spinrec_path, "speed": speed}))
-        return {"status": "started", "run_id": run_id, "new_mode": Mode.REPLAY}
+        return ActionResult(status=Status.STARTED, new_mode=Mode.REPLAY)
 
-    async def stop_replay(self, mode: Mode, tcp: "TcpManager", db: "Database") -> dict:
+    async def stop_replay(self, mode: Mode, tcp: "TcpManager", db: "Database") -> ActionResult:
         if mode != Mode.REPLAY:
-            return {"status": "not_replaying"}
+            return ActionResult(status=Status.NOT_REPLAYING)
         if tcp.is_connected:
             await tcp.send(json.dumps({"event": "replay_stop"}))
         if self.ref_capture.segments_count > 0:
@@ -133,23 +135,23 @@ class CaptureController:
             self.ref_capture.clear()
             if run_id:
                 db.hard_delete_capture_run(run_id)
-        return {"status": "stopped", "new_mode": Mode.IDLE}
+        return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
 
     # --- Fill-gap ---
 
-    async def start_fill_gap(self, segment_id: str, tcp: "TcpManager", db: "Database") -> dict:
+    async def start_fill_gap(self, segment_id: str, tcp: "TcpManager", db: "Database") -> ActionResult:
         if not tcp.is_connected:
-            return {"status": "not_connected"}
+            return ActionResult(status=Status.NOT_CONNECTED)
         hot = db.get_variant(segment_id, "hot")
         if not hot:
-            return {"status": "no_hot_variant"}
+            return ActionResult(status=Status.NO_HOT_VARIANT)
         self.fill_gap_segment_id = segment_id
         await tcp.send(json.dumps({
             "event": "fill_gap_load",
             "state_path": hot.state_path,
             "message": "Die to capture cold start",
         }))
-        return {"status": "started", "segment_id": segment_id, "new_mode": Mode.FILL_GAP}
+        return ActionResult(status=Status.STARTED, new_mode=Mode.FILL_GAP)
 
     def handle_fill_gap_spawn(self, event: dict, db: "Database") -> bool:
         """Returns True if cold variant was captured and mode should return to IDLE."""
@@ -167,18 +169,18 @@ class CaptureController:
 
     # --- Cold-fill ---
 
-    async def start_cold_fill(self, game_id: str, tcp: "TcpManager", db: "Database") -> dict:
+    async def start_cold_fill(self, game_id: str, tcp: "TcpManager", db: "Database") -> ActionResult:
         if not tcp.is_connected:
-            return {"status": "not_connected"}
+            return ActionResult(status=Status.NOT_CONNECTED)
         gaps = db.segments_missing_cold(game_id)
         if not gaps:
-            return {"status": "no_gaps"}
+            return ActionResult(status=Status.NO_GAPS)
         self.cold_fill_queue = gaps
         self.cold_fill_total = len(gaps)
         self.cold_fill_current = None
         return await self._load_next_cold_fill(tcp)
 
-    async def _load_next_cold_fill(self, tcp: "TcpManager") -> dict:
+    async def _load_next_cold_fill(self, tcp: "TcpManager") -> ActionResult:
         seg = self.cold_fill_queue[0]
         self.cold_fill_current = seg["segment_id"]
         await tcp.send(json.dumps({
@@ -186,13 +188,7 @@ class CaptureController:
             "state_path": seg["hot_state_path"],
             "segment_id": seg["segment_id"],
         }))
-        current_num = self.cold_fill_total - len(self.cold_fill_queue) + 1
-        return {
-            "status": "started",
-            "new_mode": Mode.COLD_FILL,
-            "current": current_num,
-            "total": self.cold_fill_total,
-        }
+        return ActionResult(status=Status.STARTED, new_mode=Mode.COLD_FILL)
 
     async def handle_cold_fill_spawn(self, event: dict, tcp: "TcpManager", db: "Database") -> bool:
         """Store cold variant, advance queue. Returns True when all done."""
@@ -281,10 +277,10 @@ class CaptureController:
 
     # --- Draft lifecycle ---
 
-    async def save_draft(self, db: "Database", name: str) -> dict:
+    async def save_draft(self, db: "Database", name: str) -> ActionResult:
         return self.draft.save(db, name)
 
-    async def discard_draft(self, db: "Database") -> dict:
+    async def discard_draft(self, db: "Database") -> ActionResult:
         return self.draft.discard(db)
 
     def recover_draft(self, db: "Database", game_id: str) -> None:

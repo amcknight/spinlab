@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import AppConfig, EmulatorConfig, NetworkConfig
 from .db import Database
 from .estimators import get_estimator, list_estimators
-from .models import Mode
+from .models import ActionResult, Mode, Status
 from .session_manager import SessionManager
 from .tcp_manager import TcpManager
 
@@ -24,27 +24,26 @@ TCP_RETRY_DELAY_S = 2
 TCP_EVENT_TIMEOUT_S = 1.0
 SSE_KEEPALIVE_S = 30
 
-_ERROR_STATUS_CODES = {
-    "not_connected": 503,
-    "draft_pending": 409,
-    "practice_active": 409,
-    "reference_active": 409,
-    "already_running": 409,
-    "already_replaying": 409,
-    "not_in_reference": 409,
-    "not_replaying": 409,
-    "not_running": 409,
-    "no_draft": 404,
-    "no_hot_variant": 404,
+_ERROR_STATUS_CODES: dict[Status, int] = {
+    Status.NOT_CONNECTED: 503,
+    Status.DRAFT_PENDING: 409,
+    Status.PRACTICE_ACTIVE: 409,
+    Status.REFERENCE_ACTIVE: 409,
+    Status.ALREADY_RUNNING: 409,
+    Status.ALREADY_REPLAYING: 409,
+    Status.NOT_IN_REFERENCE: 409,
+    Status.NOT_REPLAYING: 409,
+    Status.NOT_RUNNING: 409,
+    Status.NO_DRAFT: 404,
+    Status.NO_HOT_VARIANT: 404,
 }
 
 
-def _check_result(result: dict) -> dict:
-    status = result.get("status", "")
-    code = _ERROR_STATUS_CODES.get(status)
+def _check_result(result: ActionResult) -> dict:
+    code = _ERROR_STATUS_CODES.get(result.status)
     if code:
-        raise HTTPException(status_code=code, detail=status)
-    return result
+        raise HTTPException(status_code=code, detail=result.status.value)
+    return result.to_response()
 
 
 async def event_loop(session: SessionManager, tcp: TcpManager) -> None:

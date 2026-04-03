@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from spinlab.models import Mode, Segment, SegmentVariant
+from spinlab.models import ActionResult, Mode, Segment, SegmentVariant, Status
 from spinlab.session_manager import SessionManager
 
 
@@ -69,7 +69,7 @@ class TestModeGuards:
         sm.game_id = "game1"
         sm.mode = Mode.PRACTICE
         result = await sm.start_reference()
-        assert result["status"] == "practice_active"
+        assert result.status == Status.PRACTICE_ACTIVE
 
     async def test_on_practice_done_sets_idle(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
@@ -223,7 +223,7 @@ class TestFillGap:
         mock_db.get_variants = MagicMock(return_value=[hot_variant])
 
         result = await sm.start_fill_gap(seg.id)
-        assert result["status"] == "started"
+        assert result.status == Status.STARTED
 
         await sm.route_event({
             "event": "spawn", "level_num": 105,
@@ -258,7 +258,7 @@ class TestColdFill:
         ])
 
         result = await sm.save_draft("Test")
-        assert result["status"] == "ok"
+        assert result.status == Status.OK
         assert sm.mode == Mode.COLD_FILL
 
     async def test_save_draft_no_gaps_stays_idle(self, mock_db, mock_tcp):
@@ -268,7 +268,7 @@ class TestColdFill:
         mock_db.segments_missing_cold = MagicMock(return_value=[])
 
         result = await sm.save_draft("Test")
-        assert result["status"] == "ok"
+        assert result.status == Status.OK
         assert sm.mode == Mode.IDLE
 
     async def test_cold_fill_spawn_routes_correctly(self, mock_db, mock_tcp):

@@ -1,7 +1,7 @@
 """Tests for draft reference lifecycle in SessionManager."""
 import pytest
 
-from spinlab.models import Mode
+from spinlab.models import Mode, Status
 from spinlab.session_manager import SessionManager
 
 
@@ -63,19 +63,19 @@ class TestDraftGuards:
         sm = make_sm(mock_db, mock_tcp, tmp_path)
         sm.draft.run_id = "draft_pending"
         result = await sm.start_reference()
-        assert result["status"] == "draft_pending"
+        assert result.status == Status.DRAFT_PENDING
 
     async def test_start_replay_blocked_by_draft(self, mock_db, mock_tcp, tmp_path):
         sm = make_sm(mock_db, mock_tcp, tmp_path)
         sm.draft.run_id = "draft_pending"
         result = await sm.start_replay("/data/test.spinrec")
-        assert result["status"] == "draft_pending"
+        assert result.status == Status.DRAFT_PENDING
 
     async def test_start_practice_blocked_by_draft(self, mock_db, mock_tcp, tmp_path):
         sm = make_sm(mock_db, mock_tcp, tmp_path)
         sm.draft.run_id = "draft_pending"
         result = await sm.start_practice()
-        assert result["status"] == "draft_pending"
+        assert result.status == Status.DRAFT_PENDING
 
 
 class TestSaveAndDiscard:
@@ -85,7 +85,7 @@ class TestSaveAndDiscard:
         sm.draft.segments_count = 5
 
         result = await sm.save_draft("My Run")
-        assert result["status"] == "ok"
+        assert result.status == Status.OK
         assert sm.draft.run_id is None
         assert sm.draft.segments_count == 0
         mock_db.promote_draft.assert_called_once_with("live_abc", "My Run")
@@ -97,7 +97,7 @@ class TestSaveAndDiscard:
         sm.draft.segments_count = 5
 
         result = await sm.discard_draft()
-        assert result["status"] == "ok"
+        assert result.status == Status.OK
         assert sm.draft.run_id is None
         assert sm.draft.segments_count == 0
         mock_db.hard_delete_capture_run.assert_called_once_with("live_abc")
@@ -105,7 +105,7 @@ class TestSaveAndDiscard:
     async def test_save_no_draft_returns_error(self, mock_db, mock_tcp, tmp_path):
         sm = make_sm(mock_db, mock_tcp, tmp_path)
         result = await sm.save_draft("Name")
-        assert result["status"] == "no_draft"
+        assert result.status == Status.NO_DRAFT
 
 
 class TestStopReplayDraft:
@@ -116,7 +116,7 @@ class TestStopReplayDraft:
         sm.ref_capture.segments_count = 5
 
         result = await sm.stop_replay()
-        assert result["status"] == "stopped"
+        assert result.status == Status.STOPPED
         assert sm.draft.run_id == "replay_abc"
         assert sm.draft.segments_count == 5
 
@@ -127,7 +127,7 @@ class TestStopReplayDraft:
         sm.ref_capture.segments_count = 0
 
         result = await sm.stop_replay()
-        assert result["status"] == "stopped"
+        assert result.status == Status.STOPPED
         assert sm.draft.run_id is None
         mock_db.hard_delete_capture_run.assert_called_once_with("replay_abc")
 
