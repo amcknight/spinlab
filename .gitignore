@@ -18,3 +18,6 @@ coverage/
 # Debug logs from integration test development
 *_debug.log
 *_diag.log
+
+# Frontend build tooling
+frontend/node_modules/
