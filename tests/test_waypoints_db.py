@@ -37,3 +37,28 @@ def test_segment_variants_table_dropped():
         "SELECT name FROM sqlite_master WHERE type='table' AND name='segment_variants'"
     ).fetchone()
     assert row is None
+
+
+from spinlab.models import Waypoint
+
+
+def test_upsert_and_get_waypoint():
+    db = Database(":memory:")
+    db.upsert_game("g1", "Game", "any%")
+    w = Waypoint.make("g1", 5, "checkpoint", 1, {"powerup": "big"})
+    db.upsert_waypoint(w)
+    got = db.get_waypoint(w.id)
+    assert got is not None
+    assert got.id == w.id
+    assert got.conditions_json == w.conditions_json
+    assert got.endpoint_type == "checkpoint"
+
+
+def test_upsert_waypoint_idempotent():
+    db = Database(":memory:")
+    db.upsert_game("g1", "Game", "any%")
+    w = Waypoint.make("g1", 5, "goal", 0, {"powerup": "small"})
+    db.upsert_waypoint(w)
+    db.upsert_waypoint(w)
+    rows = db.conn.execute("SELECT COUNT(*) FROM waypoints").fetchone()
+    assert rows[0] == 1

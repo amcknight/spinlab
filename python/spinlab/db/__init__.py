@@ -10,9 +10,11 @@ from .attempts import AttemptsMixin
 from .sessions import SessionsMixin
 from .model_state import ModelStateMixin
 from .capture_runs import CaptureRunsMixin
+from .waypoints import WaypointsMixin
 
 
 class Database(
+    WaypointsMixin,
     SegmentsMixin,
     AttemptsMixin,
     SessionsMixin,
