@@ -156,3 +156,36 @@ def test_snapshot_expected_times_at_start(db):
     # clean_tail_ms was not supplied but completed+deaths=0 implies it equals time_ms
     assert ps.initial_expected_clean_ms is not None
     assert ps.initial_expected_clean_ms > 0
+
+
+def test_snapshot_skips_segments_without_state_path(db, tmp_path):
+    """Segments whose state_path does not exist on disk are excluded."""
+    from spinlab.models import Segment
+    # Add a second segment with no variant -> state_path = None
+    seg2 = Segment(
+        id="g:2:entrance.0:goal.0",
+        game_id="g",
+        level_number=2,
+        start_type="entrance",
+        start_ordinal=0,
+        end_type="goal",
+        end_ordinal=0,
+        description="L2",
+        ordinal=2,
+    )
+    db.upsert_segment(seg2)
+
+    # Seed attempts on BOTH segments so they each have estimates.
+    sched = Scheduler(db, "g")
+    sched.process_attempt(SEG_ID, time_ms=5000, completed=True, deaths=0)
+    sched.process_attempt("g:2:entrance.0:goal.0", time_ms=8000, completed=True, deaths=0)
+
+    tcp = AsyncMock()
+    tcp.is_connected = True
+    ps = PracticeSession(tcp=tcp, db=db, game_id="g")
+    ps.start()
+
+    # Only SEG_ID had a real state_path; seg2 contributes nothing.
+    # The sum should reflect only SEG_ID's expected_ms (~5000).
+    assert ps.initial_expected_total_ms is not None
+    assert ps.initial_expected_total_ms < 6000
