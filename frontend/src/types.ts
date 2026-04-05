@@ -7,3 +7,15 @@ export interface SegmentLike {
   end_type: string;
   end_ordinal: number;
 }
+
+/** Application state received from API. */
+export interface AppState {
+  tcp_connected: boolean;
+  game_name?: string;
+  mode: "idle" | "reference" | "practice" | "replay";
+  draft?: {
+    segments_captured: number;
+  };
+  sections_captured?: number;
+  current_segment?: SegmentLike;
+}
