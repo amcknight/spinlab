@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from spinlab.db import Database
-from spinlab.models import Mode, Segment, SegmentVariant, Attempt
+from spinlab.models import Mode, Segment, Attempt
 
 
 # -- fixtures ----------------------------------------------------------------

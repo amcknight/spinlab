@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 from spinlab.db import Database
-from spinlab.models import ActionResult, Segment, SegmentVariant, Status
+from spinlab.models import ActionResult, Segment, Status
 
 
 @pytest.fixture

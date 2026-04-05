@@ -12,9 +12,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .models import ActionResult, Mode, SegmentVariant, Status
+from .models import ActionResult, Mode, Status
 from .reference_capture import ReferenceCapture
 from .draft_manager import DraftManager
+from .condition_registry import ConditionRegistry
 
 if TYPE_CHECKING:
     from .db import Database
@@ -32,10 +33,17 @@ class CaptureController:
         self.ref_capture = ReferenceCapture()
         self.draft = DraftManager()
         self.fill_gap_segment_id: str | None = None
+        # Empty registry by default; Task 11 will set the real one at startup.
+        self.condition_registry: ConditionRegistry = ConditionRegistry()
         # Cold-fill state
         self.cold_fill_queue: list[dict] = []
         self.cold_fill_current: str | None = None
+        self.cold_fill_cold_waypoint_id: str | None = None  # waypoint to attach cold state to
         self.cold_fill_total: int = 0
+
+    def set_condition_registry(self, registry: ConditionRegistry) -> None:
+        """Replace the condition registry (called at startup with game config)."""
+        self.condition_registry = registry
 
     @property
     def sections_captured(self) -> int:
@@ -144,10 +152,17 @@ class CaptureController:
     async def start_fill_gap(self, segment_id: str) -> ActionResult:
         if not self.tcp.is_connected:
             return ActionResult(status=Status.NOT_CONNECTED)
-        hot = self.db.get_variant(segment_id, "hot")
+        # Look up the start waypoint for this segment and get its hot save state.
+        row = self.db.conn.execute(
+            "SELECT start_waypoint_id FROM segments WHERE id = ?", (segment_id,)
+        ).fetchone()
+        start_waypoint_id = row[0] if row else None
+        hot = (self.db.get_save_state(start_waypoint_id, "hot")
+               if start_waypoint_id else None)
         if not hot:
             return ActionResult(status=Status.NO_HOT_VARIANT)
         self.fill_gap_segment_id = segment_id
+        self._fill_gap_waypoint_id = start_waypoint_id
         await self.tcp.send(json.dumps({
             "event": "fill_gap_load",
             "state_path": hot.state_path,
@@ -156,17 +171,20 @@ class CaptureController:
         return ActionResult(status=Status.STARTED, new_mode=Mode.FILL_GAP)
 
     def handle_fill_gap_spawn(self, event: dict) -> bool:
-        """Returns True if cold variant was captured and mode should return to IDLE."""
+        """Returns True if cold save state was captured and mode should return to IDLE."""
         if not event.get("state_captured") or not self.fill_gap_segment_id:
             return False
-        variant = SegmentVariant(
-            segment_id=self.fill_gap_segment_id,
-            variant_type="cold",
-            state_path=event["state_path"],
-            is_default=True,
-        )
-        self.db.add_variant(variant)
+        waypoint_id = getattr(self, "_fill_gap_waypoint_id", None)
+        if waypoint_id:
+            from .models import WaypointSaveState
+            self.db.add_save_state(WaypointSaveState(
+                waypoint_id=waypoint_id,
+                variant_type="cold",
+                state_path=event["state_path"],
+                is_default=True,
+            ))
         self.fill_gap_segment_id = None
+        self._fill_gap_waypoint_id = None
         return True
 
     # --- Cold-fill ---
@@ -185,6 +203,12 @@ class CaptureController:
     async def _load_next_cold_fill(self) -> ActionResult:
         seg = self.cold_fill_queue[0]
         self.cold_fill_current = seg["segment_id"]
+        # Look up the start waypoint so handle_cold_fill_spawn knows where to attach cold state.
+        row = self.db.conn.execute(
+            "SELECT start_waypoint_id FROM segments WHERE id = ?",
+            (seg["segment_id"],),
+        ).fetchone()
+        self.cold_fill_cold_waypoint_id = row[0] if row else None
         await self.tcp.send(json.dumps({
             "event": "cold_fill_load",
             "state_path": seg["hot_state_path"],
@@ -193,19 +217,21 @@ class CaptureController:
         return ActionResult(status=Status.STARTED, new_mode=Mode.COLD_FILL)
 
     async def handle_cold_fill_spawn(self, event: dict) -> bool:
-        """Store cold variant, advance queue. Returns True when all done."""
+        """Store cold save state on start waypoint, advance queue. Returns True when all done."""
         if not event.get("state_captured") or not self.cold_fill_current:
             return False
-        variant = SegmentVariant(
-            segment_id=self.cold_fill_current,
-            variant_type="cold",
-            state_path=event["state_path"],
-            is_default=True,
-        )
-        self.db.add_variant(variant)
+        if self.cold_fill_cold_waypoint_id:
+            from .models import WaypointSaveState
+            self.db.add_save_state(WaypointSaveState(
+                waypoint_id=self.cold_fill_cold_waypoint_id,
+                variant_type="cold",
+                state_path=event["state_path"],
+                is_default=True,
+            ))
         self.cold_fill_queue.pop(0)
         if not self.cold_fill_queue:
             self.cold_fill_current = None
+            self.cold_fill_cold_waypoint_id = None
             return True
         await self._load_next_cold_fill()
         return False
@@ -238,16 +264,19 @@ class CaptureController:
         self.ref_capture.handle_entrance(event)
 
     def handle_checkpoint(self, event: dict, game_id: str) -> None:
-        self.ref_capture.handle_checkpoint(event, game_id, self.db)
+        self.ref_capture.handle_checkpoint(event, game_id, self.db,
+                                           self.condition_registry)
 
     def handle_death(self) -> None:
         self.ref_capture.died = True
 
     def handle_spawn(self, event: dict, game_id: str) -> None:
-        self.ref_capture.handle_spawn(event, game_id, self.db)
+        self.ref_capture.handle_spawn(event, game_id, self.db,
+                                      self.condition_registry)
 
     def handle_exit(self, event: dict, game_id: str) -> None:
-        self.ref_capture.handle_exit(event, game_id, self.db)
+        self.ref_capture.handle_exit(event, game_id, self.db,
+                                     self.condition_registry)
 
     def handle_rec_saved(self, event: dict) -> None:
         self.ref_capture.rec_path = event.get("path")
