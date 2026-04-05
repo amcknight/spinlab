@@ -131,3 +131,28 @@ def test_segments_endpoint_returns_non_primary_segments(db, client):
     primaries = [s["is_primary"] for s in segments]
     assert True in primaries
     assert False in primaries
+
+
+def test_patch_segment_toggles_primary(db, client):
+    """PATCH /api/segments/:id sets is_primary and returns updated value."""
+    seg = _seed_segment_with_conditions(db)
+    assert seg.is_primary is True
+
+    resp = client.patch(f"/api/segments/{seg.id}", json={"is_primary": False})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["id"] == seg.id
+    assert data["is_primary"] is False
+
+    # Verify persistence via GET /api/segments
+    resp2 = client.get("/api/segments")
+    assert resp2.status_code == 200
+    row = resp2.json()["segments"][0]
+    assert row["is_primary"] is False
+
+
+def test_patch_segment_unknown_id_returns_404(db, client):
+    """PATCH /api/segments/:id returns 404 when segment does not exist."""
+    resp = client.patch("/api/segments/nonexistent-id", json={"is_primary": False})
+    assert resp.status_code == 404

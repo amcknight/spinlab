@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from spinlab.dashboard import _check_result
 from spinlab.db import Database
@@ -12,6 +13,12 @@ from spinlab.session_manager import SessionManager
 from ._deps import get_db, get_session
 
 router = APIRouter(prefix="/api")
+
+
+class SegmentPatch(BaseModel):
+    is_primary: bool | None = None
+    description: str | None = None
+    active: bool | None = None
 
 
 @router.get("/segments")
@@ -29,11 +36,15 @@ def api_segments(session: SessionManager = Depends(get_session), db: Database = 
 
 
 @router.patch("/segments/{segment_id}")
-def update_segment_endpoint(segment_id: str, body: dict, db: Database = Depends(get_db)):
+def patch_segment(segment_id: str, body: SegmentPatch, db: Database = Depends(get_db)):
     if not db.segment_exists(segment_id):
-        raise HTTPException(status_code=404, detail="Segment not found")
-    db.update_segment(segment_id, **body)
-    return {"status": "ok"}
+        raise HTTPException(status_code=404, detail="segment not found")
+    if body.is_primary is not None:
+        db.set_segment_is_primary(segment_id, body.is_primary)
+    other_fields = body.model_dump(exclude_none=True, exclude={"is_primary"})
+    if other_fields:
+        db.update_segment(segment_id, **other_fields)
+    return {"ok": True, "id": segment_id, "is_primary": body.is_primary}
 
 
 @router.delete("/segments/{segment_id}")

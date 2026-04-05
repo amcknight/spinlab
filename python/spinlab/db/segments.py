@@ -147,6 +147,14 @@ class SegmentsMixin:
         )
         self.conn.commit()
 
+    def set_segment_is_primary(self, segment_id: str, is_primary: bool) -> None:
+        now = datetime.now(UTC).isoformat()
+        self.conn.execute(
+            "UPDATE segments SET is_primary = ?, updated_at = ? WHERE id = ?",
+            (int(is_primary), now, segment_id),
+        )
+        self.conn.commit()
+
     def segment_exists(self, segment_id: str) -> bool:
         row = self.conn.execute(
             "SELECT 1 FROM segments WHERE id = ?", (segment_id,)
