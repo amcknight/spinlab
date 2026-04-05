@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api")
 
 @router.get("/segments")
 def api_segments(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
-    rows = db.get_all_segments_with_model(session._require_game())
+    rows = db.get_all_segments_with_model(session._require_game(), primary_only=False)
     out = []
     for r in rows:
         start_wp = db.get_waypoint(r["start_waypoint_id"]) if r.get("start_waypoint_id") else None

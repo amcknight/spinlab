@@ -128,3 +128,29 @@ def test_all_segments_with_model_returns_save_state_path():
     assert rows[0]["id"] == seg.id
     assert rows[0]["state_path"] == "/tmp/s.mss"
     assert rows[0]["is_primary"] == 1
+
+
+def test_get_all_segments_filters_non_primary_when_flagged():
+    db = Database(":memory:")
+    db.upsert_game("g", "Game", "any%")
+    wp1 = Waypoint.make("g", 1, "entrance", 0, {"powerup": "small"})
+    wp2 = Waypoint.make("g", 1, "entrance", 0, {"powerup": "big"})
+    wp_end = Waypoint.make("g", 1, "goal", 0, {})
+    for w in (wp1, wp2, wp_end):
+        db.upsert_waypoint(w)
+    for wp_start, primary in ((wp1, True), (wp2, False)):
+        seg = Segment(
+            id=Segment.make_id("g", 1, "entrance", 0, "goal", 0, wp_start.id, wp_end.id),
+            game_id="g", level_number=1,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0,
+            start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
+            is_primary=primary,
+        )
+        db.upsert_segment(seg)
+
+    rows_primary = db.get_all_segments_with_model("g", primary_only=True)
+    assert len(rows_primary) == 1
+    assert rows_primary[0]["is_primary"] == 1
+    rows_all = db.get_all_segments_with_model("g", primary_only=False)
+    assert len(rows_all) == 2

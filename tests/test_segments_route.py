@@ -102,3 +102,32 @@ def test_segments_endpoint_null_waypoints_produce_empty_conditions(db, tmp_path)
     row = resp.json()["segments"][0]
     assert row["start_conditions"] == {}
     assert row["end_conditions"] == {}
+
+
+def test_segments_endpoint_returns_non_primary_segments(db, client):
+    """Dashboard /api/segments shows all segments including non-primary ones."""
+    db.upsert_game(GAME_ID, "Game", "any%")
+    wp1 = Waypoint.make(GAME_ID, 1, "entrance", 0, {"powerup": "small"})
+    wp2 = Waypoint.make(GAME_ID, 1, "entrance", 0, {"powerup": "big"})
+    wp_end = Waypoint.make(GAME_ID, 1, "goal", 0, {})
+    for w in (wp1, wp2, wp_end):
+        db.upsert_waypoint(w)
+    for wp_start, primary, ordinal in ((wp1, True, 1), (wp2, False, 2)):
+        seg = Segment(
+            id=Segment.make_id(GAME_ID, 1, "entrance", 0, "goal", 0,
+                               wp_start.id, wp_end.id),
+            game_id=GAME_ID, level_number=1,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0,
+            start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
+            is_primary=primary, ordinal=ordinal,
+        )
+        db.upsert_segment(seg)
+
+    resp = client.get("/api/segments")
+    assert resp.status_code == 200
+    segments = resp.json()["segments"]
+    assert len(segments) == 2
+    primaries = [s["is_primary"] for s in segments]
+    assert True in primaries
+    assert False in primaries

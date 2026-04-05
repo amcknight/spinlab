@@ -85,19 +85,28 @@ class SegmentsMixin:
         )
         self.conn.commit()
 
-    def get_all_segments_with_model(self, game_id: str) -> list[SegmentRow]:
-        """Get all active segments with their start-waypoint save state path."""
+    def get_all_segments_with_model(self, game_id: str, *,
+                                    primary_only: bool = True) -> list[SegmentRow]:
+        """Get all active segments with their start-waypoint save state path.
+
+        Args:
+            game_id: game to query
+            primary_only: if True (default), only return is_primary=True segments
+                          (used by practice loop); if False, return all
+                          (used by dashboard segments view).
+        """
+        primary_clause = "AND s.is_primary = 1" if primary_only else ""
         cur = self.conn.execute(
-            """SELECT s.id, s.game_id, s.level_number, s.start_type, s.start_ordinal,
-                      s.end_type, s.end_ordinal, s.description, s.strat_version,
-                      s.active, s.ordinal, s.is_primary,
-                      s.start_waypoint_id, s.end_waypoint_id,
-                      (SELECT wss.state_path FROM waypoint_save_states wss
-                       WHERE wss.waypoint_id = s.start_waypoint_id
-                       ORDER BY wss.is_default DESC LIMIT 1) AS state_path
-               FROM segments s
-               WHERE s.game_id = ? AND s.active = 1
-               ORDER BY s.ordinal, s.level_number""",
+            f"""SELECT s.id, s.game_id, s.level_number, s.start_type, s.start_ordinal,
+                       s.end_type, s.end_ordinal, s.description, s.strat_version,
+                       s.active, s.ordinal, s.is_primary,
+                       s.start_waypoint_id, s.end_waypoint_id,
+                       (SELECT wss.state_path FROM waypoint_save_states wss
+                        WHERE wss.waypoint_id = s.start_waypoint_id
+                        ORDER BY wss.is_default DESC LIMIT 1) AS state_path
+                FROM segments s
+                WHERE s.game_id = ? AND s.active = 1 {primary_clause}
+                ORDER BY s.ordinal, s.level_number""",
             (game_id,),
         )
         actual_cols = [desc[0] for desc in cur.description]
