@@ -51,22 +51,10 @@ class ReferenceCapture:
         }
         self.died = False
 
-    def _ensure_capture_run(self, db, game_id) -> None:
-        """Create the capture run record if it doesn't already exist."""
-        if self.capture_run_id is None:
-            return
-        existing = db.conn.execute(
-            "SELECT id FROM capture_runs WHERE id = ?", (self.capture_run_id,)
-        ).fetchone()
-        if existing is None:
-            db.create_capture_run(self.capture_run_id, game_id,
-                                  self.capture_run_id, draft=True)
-
     def _close_segment(self, db, game_id, start, end_type, end_ordinal,
                        level, end_raw_conditions, registry) -> None:
         """Create waypoints + segment for the segment ending here."""
         from .models import Segment, Waypoint, WaypointSaveState
-        self._ensure_capture_run(db, game_id)
 
         start_conds = registry.decode(start["raw_conditions"], level=level)
         end_conds = registry.decode(end_raw_conditions, level=level)

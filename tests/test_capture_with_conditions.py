@@ -13,6 +13,7 @@ def _registry():
 def _bootstrap_db():
     db = Database(":memory:")
     db.upsert_game("g1", "Game", "any%")
+    db.create_capture_run("run1", "g1", "run 1")
     return db
 
 
