@@ -77,7 +77,7 @@ def _tcp_port() -> int:
 _mesen = _mesen_path()
 _rom = _test_rom_path()
 
-pytestmark = pytest.mark.integration
+pytestmark = pytest.mark.emulator
 
 skip_no_mesen = pytest.mark.skipif(
     not _mesen or not Path(_mesen).exists(),

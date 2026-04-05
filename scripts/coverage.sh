@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./scripts/coverage.sh           # unit tests only (fast)
-#   ./scripts/coverage.sh --all     # unit + integration (needs Mesen2)
+#   ./scripts/coverage.sh --all     # unit + emulator (needs Mesen2)
 #   ./scripts/coverage.sh --html    # unit tests, then open HTML report
 #
 # Reports land in coverage/:

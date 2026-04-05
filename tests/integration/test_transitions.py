@@ -1,14 +1,14 @@
-"""Integration tests: transition detection via memory pokes in headless Mesen2.
+"""Emulator tests: transition detection via memory pokes in headless Mesen2.
 
 Each test function runs one scenario and makes all assertions in one place.
-Run with: pytest -m integration
+Run with: pytest -m emulator
 Skip automatically if Mesen2 or ROM not found.
 """
 from __future__ import annotations
 
 import pytest
 
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
+pytestmark = [pytest.mark.emulator, pytest.mark.asyncio(loop_scope="session")]
 
 
 async def test_entrance_goal(run_scenario):

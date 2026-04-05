@@ -1,6 +1,6 @@
 # Estimator Model Improvements — Design Spec
 
-Produced from 2026-04-01 design review. Supersedes relevant sections of `multi-model-spec.md`.
+Produced from 2026-04-01 design review.
 
 ## Principles
 

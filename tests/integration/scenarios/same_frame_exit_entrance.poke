@@ -1,7 +1,7 @@
 # same_frame_exit_entrance — entrance, exit, exit (2nd entrance suppressed)
 settle: 60
 
-0: level_start=0 exit_mode=0 fanfare=0 player_anim=0 io_port=0 midway=0
+0: level_start=0 exit_mode=0 fanfare=0 player_anim=0 io=0 midway=0
 1: game_mode=20 level_num=105 room_num=1
 2: level_start=1
 15: exit_mode=1 fanfare=1 level_start=0

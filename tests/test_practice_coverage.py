@@ -40,6 +40,7 @@ def _make_tcp():
     return tcp
 
 
+@pytest.mark.slow
 class TestRunLoopLifecycle:
     @pytest.mark.asyncio
     async def test_run_loop_creates_and_ends_session(self, db):
@@ -110,6 +111,7 @@ class TestOnAttemptCallback:
         assert received[0].completed is True
 
 
+@pytest.mark.slow
 class TestDisconnectDuringWait:
     @pytest.mark.asyncio
     async def test_run_one_exits_on_disconnect(self, db):

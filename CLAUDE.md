@@ -9,14 +9,24 @@ Efficient practice system for SNES romhack speedrunning. Captures save states at
 - YAML for config (Andrew's preference).
 - The kaizosplits C# code in `reference/` is read-only reference — never import or compile it.
 
+## Modeling & Numerics
+
+- **No magic numbers.** Every numeric constant gets a named file-level variable with a comment explaining *why* that value.
+- **No fudge factors.** If a model needs a tuning knob, it's a real parameter with a name, a unit, and a rationale — not a bare `0.7` buried in an expression.
+- **Derive from principles first.** Prefer values that come from math, measurement, or domain knowledge. If a constant is empirical, document what it was tuned against and how to re-derive it.
+- **Labels and thresholds must be earned.** Don't attach qualitative labels ("high confidence", "fast drift") to arbitrary cutoffs. If a threshold matters, justify it; if it doesn't, remove it.
+- **Defaults in config, not in code.** Tunable parameters belong in YAML config or dataclass defaults with docstrings, not scattered through logic.
+
 ## Testing
 
 Red-Green TDD. Keep only tests that document behavior or catch regressions.
 
-- **Python tests:** `pytest tests/` (~30s). In-memory SQLite, mocked TCP, FastAPI TestClient.
+- **Fast tests:** `pytest -m "not (emulator or slow)"` (~23s). Run after any code change.
+- **Slow tests:** `pytest -m slow` (~4s). Run when touching practice loop or TCP wait logic.
+- **Emulator tests:** `pytest -m emulator` (~6s). Run when touching Lua scripts or transition detection.
+- **Everything:** `pytest` (~30s). Run before committing.
 - **Frontend tests:** `cd frontend && npm test` (~2s). Vitest + happy-dom. Pure logic and API contract tests.
-- **Integration tests:** `pytest -m integration` — Mesen2 headless mode. See `tests/integration/README.md`.
-- **Coverage:** `./scripts/coverage.sh` (unit), `--all` (unit+integ), `--html` (opens report).
+- **Coverage:** `./scripts/coverage.sh` (unit), `--all` (unit+emulator), `--html` (opens report).
 
 ### Gotchas
 

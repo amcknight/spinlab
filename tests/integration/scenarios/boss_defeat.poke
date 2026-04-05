@@ -1,7 +1,7 @@
 # boss_defeat — entrance, exit(boss)
 settle: 60
 
-0: level_start=0 exit_mode=0 fanfare=0 player_anim=0 io_port=0 midway=0 boss_defeat=0
+0: level_start=0 exit_mode=0 fanfare=0 player_anim=0 io=0 midway=0 boss_defeat=0
 1: game_mode=20 level_num=105 room_num=1
 2: level_start=1
 15: boss_defeat=1 fanfare=1 exit_mode=1

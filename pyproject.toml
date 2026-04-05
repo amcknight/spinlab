@@ -21,7 +21,10 @@ where = ["python"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
-markers = ["integration: requires Mesen2 headless (--testRunner)"]
+markers = [
+    "emulator: requires Mesen2 headless (--testRunner)",
+    "slow: tests with real waits or timeouts (>500ms)",
+]
 
 [tool.coverage.run]
 source = ["spinlab"]

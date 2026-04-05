@@ -42,6 +42,16 @@ class KalmanState(EstimatorState):
     n_completed: int = 0
     n_attempts: int = 0
 
+    # Clean tail filter state (parallel Kalman on clean_tail_ms)
+    c_mu: float = 0.0
+    c_d: float = DEFAULT_D
+    c_P_mm: float = DEFAULT_R
+    c_P_md: float = 0.0
+    c_P_dm: float = 0.0
+    c_P_dd: float = DEFAULT_P_D0
+    c_R: float = DEFAULT_R
+    c_n_completed: int = 0
+
     def to_dict(self) -> dict:
         return {
             "mu": self.mu, "d": self.d,
@@ -53,6 +63,11 @@ class KalmanState(EstimatorState):
             "gold": self.gold,
             "n_completed": self.n_completed,
             "n_attempts": self.n_attempts,
+            "c_mu": self.c_mu, "c_d": self.c_d,
+            "c_P_mm": self.c_P_mm, "c_P_md": self.c_P_md,
+            "c_P_dm": self.c_P_dm, "c_P_dd": self.c_P_dd,
+            "c_R": self.c_R,
+            "c_n_completed": self.c_n_completed,
         }
 
     @classmethod
@@ -67,6 +82,11 @@ class KalmanState(EstimatorState):
             gold=d.get("gold", float("inf")),
             n_completed=d.get("n_completed", 0),
             n_attempts=d.get("n_attempts", 0),
+            c_mu=d.get("c_mu", 0.0), c_d=d.get("c_d", DEFAULT_D),
+            c_P_mm=d.get("c_P_mm", DEFAULT_R), c_P_md=d.get("c_P_md", 0.0),
+            c_P_dm=d.get("c_P_dm", 0.0), c_P_dd=d.get("c_P_dd", DEFAULT_P_D0),
+            c_R=d.get("c_R", DEFAULT_R),
+            c_n_completed=d.get("c_n_completed", 0),
         )
 
 
@@ -148,12 +168,58 @@ class KalmanEstimator(Estimator):
         Q_mm = priors.get("Q_mm", p["Q_mm"])
         Q_md = priors.get("Q_md", DEFAULT_Q_MD)
         Q_dd = priors.get("Q_dd", p["Q_dd"])
+
+        # Initialize clean tail filter if clean_tail_ms is available
+        ct = first_attempt.clean_tail_ms
+        if ct is not None:
+            c_time = ct / 1000.0
+            c_mu, c_n = c_time, 1
+        else:
+            c_mu, c_n = 0.0, 0
+
         return KalmanState(
             mu=first_time, d=d,
             P_mm=R, P_md=0.0, P_dm=0.0, P_dd=p["P_D0"],
             R=R, Q_mm=Q_mm, Q_md=Q_md, Q_dm=Q_md, Q_dd=Q_dd,
             gold=first_time, n_completed=1, n_attempts=1,
+            c_mu=c_mu, c_d=d,
+            c_P_mm=R, c_P_md=0.0, c_P_dm=0.0, c_P_dd=p["P_D0"],
+            c_R=R, c_n_completed=c_n,
         )
+
+    def _predict_clean(self, state: KalmanState) -> KalmanState:
+        c_mu_pred = state.c_mu + state.c_d
+        c_P_mm_pred = state.c_P_mm + state.c_P_md + state.c_P_dm + state.c_P_dd + state.Q_mm
+        c_P_md_pred = state.c_P_md + state.c_P_dd + state.Q_md
+        c_P_dm_pred = state.c_P_dm + state.c_P_dd + state.Q_dm
+        c_P_dd_pred = state.c_P_dd + state.Q_dd
+        return replace(state,
+            c_mu=c_mu_pred,
+            c_P_mm=c_P_mm_pred, c_P_md=c_P_md_pred,
+            c_P_dm=c_P_dm_pred, c_P_dd=c_P_dd_pred,
+        )
+
+    def _update_clean(self, predicted: KalmanState, observed: float) -> KalmanState:
+        z = observed - predicted.c_mu
+        S = predicted.c_P_mm + predicted.c_R
+        K_mu = predicted.c_P_mm / S
+        K_d = predicted.c_P_dm / S
+        return replace(predicted,
+            c_mu=predicted.c_mu + K_mu * z,
+            c_d=predicted.c_d + K_d * z,
+            c_P_mm=(1 - K_mu) * predicted.c_P_mm,
+            c_P_md=(1 - K_mu) * predicted.c_P_md,
+            c_P_dm=-K_d * predicted.c_P_mm + predicted.c_P_dm,
+            c_P_dd=-K_d * predicted.c_P_md + predicted.c_P_dd,
+        )
+
+    def _reestimate_c_R(self, state: KalmanState, predicted: KalmanState,
+                        observed: float, r_floor: float, r_blend: float) -> KalmanState:
+        innovation_sq = (observed - predicted.c_mu) ** 2
+        R_est = innovation_sq - predicted.c_P_mm
+        R_new = max(R_est, r_floor)
+        R_blended = (1 - r_blend) * state.c_R + r_blend * R_new
+        return replace(state, c_R=max(R_blended, r_floor))
 
     def process_attempt(
         self, state: KalmanState, new_attempt: AttemptRecord,
@@ -181,19 +247,55 @@ class KalmanEstimator(Estimator):
         if n_completed >= 2:
             result = self._reestimate_R(result, predicted, observed_time,
                                          r_floor=p["R_floor"], r_blend=p["R_blend"])
+
+        # Clean tail filter update
+        ct = new_attempt.clean_tail_ms
+        if ct is not None:
+            c_obs = ct / 1000.0
+            if state.c_n_completed == 0:
+                # First clean observation — initialize
+                result = replace(result,
+                    c_mu=c_obs, c_d=state.c_d,
+                    c_P_mm=state.c_R, c_P_md=0.0, c_P_dm=0.0, c_P_dd=state.c_P_dd,
+                    c_R=state.c_R, c_n_completed=1,
+                )
+            else:
+                c_predicted = self._predict_clean(result)
+                c_updated = self._update_clean(c_predicted, c_obs)
+                c_n = state.c_n_completed + 1
+                result = replace(result,
+                    c_mu=c_updated.c_mu, c_d=c_updated.c_d,
+                    c_P_mm=c_updated.c_P_mm, c_P_md=c_updated.c_P_md,
+                    c_P_dm=c_updated.c_P_dm, c_P_dd=c_updated.c_P_dd,
+                    c_n_completed=c_n,
+                )
+                if c_n >= 2:
+                    result = self._reestimate_c_R(result, c_predicted, c_obs,
+                                                   r_floor=p["R_floor"], r_blend=p["R_blend"])
+
         return result
 
     def model_output(self, state: KalmanState, all_attempts: list[AttemptRecord]) -> ModelOutput:
         none_estimate = Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None)
         if state.n_completed == 0:
             return ModelOutput(total=none_estimate, clean=none_estimate)
+
+        if state.c_n_completed > 0:
+            clean = Estimate(
+                expected_ms=(state.c_mu + state.c_d) * 1000,
+                ms_per_attempt=-state.c_d * 1000,
+                floor_ms=None,
+            )
+        else:
+            clean = none_estimate
+
         return ModelOutput(
             total=Estimate(
                 expected_ms=(state.mu + state.d) * 1000,
                 ms_per_attempt=-state.d * 1000,
                 floor_ms=None,
             ),
-            clean=Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None),
+            clean=clean,
         )
 
     def drift_info(self, state: KalmanState) -> dict:

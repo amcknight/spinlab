@@ -33,8 +33,8 @@ One Mesen2 launch per pytest session. Scenarios run sequentially over a persiste
 ## Running
 
 ```bash
-# All integration tests (one Mesen2 launch, ~9 scenarios)
-pytest -m integration -v
+# All emulator tests (one Mesen2 launch, ~9 scenarios)
+pytest -m emulator -v
 
 # One specific test
 pytest tests/integration/test_transitions.py::test_entrance_goal -v
@@ -53,7 +53,7 @@ Each scenario is a text file with a single-line header and memory writes keyed b
 # scenario_name — expected_event_1, expected_event_2
 settle: 60
 
-0: level_start=0 exit_mode=0 fanfare=0 player_anim=0 io_port=0 midway=0
+0: level_start=0 exit_mode=0 fanfare=0 player_anim=0 io=0 midway=0
 1: game_mode=20 level_num=105 room_num=1
 2: level_start=1
 15: exit_mode=1 fanfare=1
@@ -78,7 +78,7 @@ This means scenarios describe **state machines**, not point-in-time pokes:
 | `level_start` | `0x1935` | 0->1 triggers level entrance |
 | `player_anim` | `0x0071` | 9 = death animation |
 | `exit_mode` | `0x0DD5` | 0->non-zero triggers level exit |
-| `io_port` | `0x1DFB` | 3=orb, 4=goal, 7=key, 8=fadeout |
+| `io` | `0x1DFB` | 3=orb, 4=goal, 7=key, 8=fadeout |
 | `fanfare` | `0x0906` | 1 = goal reached |
 | `boss_defeat` | `0x13C6` | 0->non-zero = boss defeated |
 | `midway` | `0x13CE` | 0->1 = checkpoint tape touched |

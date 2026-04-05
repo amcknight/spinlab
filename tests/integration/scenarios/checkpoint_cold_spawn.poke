@@ -1,7 +1,7 @@
 # checkpoint_cold_spawn — entrance, checkpoint(cp=1), death, spawn(cold)
 settle: 60
 
-0: level_start=0 exit_mode=0 fanfare=0 player_anim=0 io_port=0 midway=0
+0: level_start=0 exit_mode=0 fanfare=0 player_anim=0 io=0 midway=0
 1: game_mode=20 level_num=105 room_num=1
 2: level_start=1
 10: midway=1
