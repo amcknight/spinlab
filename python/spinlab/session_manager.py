@@ -169,11 +169,24 @@ class SessionManager:
             checksum = f"file_{name.lower().replace(' ', '_')}"
             logger.warning("ROM not found in rom_dir: %s — using filename as ID", filename)
         await self.switch_game(checksum, name)
+        await self._install_condition_registry(checksum)
         await self.tcp.send(json.dumps({
             "event": "game_context",
             "game_id": checksum,
             "game_name": name,
         }))
+
+    async def _install_condition_registry(self, game_id: str) -> None:
+        """Load per-game condition definitions and push them to Lua over TCP."""
+        from .condition_registry import load_registry_for_game
+        registry = load_registry_for_game(game_id)
+        self.capture.set_condition_registry(registry)
+        if self.tcp.is_connected and registry.definitions:
+            defs_payload = [
+                {"name": d.name, "address": d.address, "size": d.size}
+                for d in registry.definitions
+            ]
+            await self.tcp.send(f"set_conditions:{json.dumps(defs_payload)}")
 
     async def _handle_game_context(self, event: dict) -> None:
         gid = event.get("game_id")

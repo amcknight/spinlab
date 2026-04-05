@@ -94,3 +94,16 @@ class ConditionRegistry:
             else:
                 raise ValueError(f"unknown condition type: {d.type}")
         return result
+
+
+def load_registry_for_game(
+    game_id: str,
+    games_root: Path | None = None,
+) -> ConditionRegistry:
+    """Load per-game conditions.yaml; return empty registry if file missing."""
+    if games_root is None:
+        games_root = Path(__file__).parent / "games"
+    yaml_path = games_root / game_id / "conditions.yaml"
+    if not yaml_path.exists():
+        return ConditionRegistry(definitions=[])
+    return ConditionRegistry.from_yaml(yaml_path)
