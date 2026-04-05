@@ -1,6 +1,8 @@
 """SpinLab data models."""
 
 import dataclasses
+import hashlib
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, StrEnum
@@ -113,6 +115,32 @@ class Segment:
     def make_id(game_id: str, level: int, start_type: str, start_ord: int,
                 end_type: str, end_ord: int) -> str:
         return f"{game_id}:{level}:{start_type}.{start_ord}:{end_type}.{end_ord}"
+
+
+@dataclass
+class Waypoint:
+    id: str
+    game_id: str
+    level_number: int
+    endpoint_type: EndpointType
+    ordinal: int
+    conditions_json: str     # canonical JSON (sorted keys)
+
+    @staticmethod
+    def make(game_id: str, level_number: int, endpoint_type: str,
+             ordinal: int, conditions: dict) -> "Waypoint":
+        canonical = json.dumps(conditions, sort_keys=True, separators=(", ", ": "))
+        h = hashlib.sha256(
+            f"{game_id}:{level_number}:{endpoint_type}.{ordinal}:{canonical}".encode()
+        ).hexdigest()[:16]
+        return Waypoint(
+            id=h,
+            game_id=game_id,
+            level_number=level_number,
+            endpoint_type=endpoint_type,
+            ordinal=ordinal,
+            conditions_json=canonical,
+        )
 
 
 @dataclass
