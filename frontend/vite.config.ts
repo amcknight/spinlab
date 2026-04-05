@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   root: ".",
+  base: "/static/",
   build: {
     outDir: "../python/spinlab/static",
     emptyOutDir: true,

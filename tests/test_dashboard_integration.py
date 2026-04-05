@@ -389,12 +389,22 @@ class TestStaticAssets:
         assert 'data-tab="manage"' in html
 
     def test_css_loads(self, active_client):
-        resp = active_client.get("/static/style.css")
+        """Vite outputs CSS with hashed filenames in assets/."""
+        import re
+        html = active_client.get("/").text
+        match = re.search(r'href="(/static/assets/[^"]+\.css)"', html)
+        assert match, "No CSS asset link found in built HTML"
+        resp = active_client.get(match.group(1))
         assert resp.status_code == 200
         assert "--accent" in resp.text
 
     def test_js_loads(self, active_client):
-        resp = active_client.get("/static/app.js")
+        """Vite outputs JS with hashed filenames in assets/."""
+        import re
+        html = active_client.get("/").text
+        match = re.search(r'src="(/static/assets/[^"]+\.js)"', html)
+        assert match, "No JS asset link found in built HTML"
+        resp = active_client.get(match.group(1))
         assert resp.status_code == 200
 
 
