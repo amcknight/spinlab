@@ -77,6 +77,7 @@ def create_app(
     tcp = TcpManager(config.network.host, config.network.port)
     session = SessionManager(
         db, tcp, config.rom_dir, config.category, data_dir=config.data_dir,
+        invalidate_combo=list(config.practice.invalidate_combo),
     )
     tcp.on_disconnect = session.on_disconnect
 

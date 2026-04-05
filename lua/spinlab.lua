@@ -64,6 +64,10 @@ local key_was_pressed = {}
 -- Each entry: { name=string, address=int, size=int }
 local condition_defs = {}
 
+-- Invalidation combo (SNES button names). Overridden via set_invalidate_combo TCP command.
+local invalidate_combo = { "L", "Select" }
+local invalidate_prev_down = false
+
 -- Passive recorder state
 local prev = {}              -- previous frame memory values
 local level_start_frame = 0  -- frame when current level entrance was logged
@@ -1084,6 +1088,18 @@ local prefixed_commands = {
     client:send("ok:conditions_set\n")
     log("set_conditions: loaded " .. #condition_defs .. " conditions")
   end,
+  ["set_invalidate_combo"] = function(arg)
+    -- arg is a JSON array of SNES button name strings: ["L","Select"]
+    local ok, result = pcall(parse_string_array, arg)
+    if not ok then
+      log("set_invalidate_combo: invalid payload — " .. tostring(result))
+      client:send("err:set_invalidate_combo_invalid\n")
+      return
+    end
+    invalidate_combo = result
+    client:send("ok:invalidate_combo_set\n")
+    log("set_invalidate_combo: " .. arg)
+  end,
   ["practice_load"] = function(arg)
     local json_str = arg
     practice.segment         = parse_practice_segment(json_str)
@@ -1171,6 +1187,49 @@ local function check_keyboard()
   -- T = save state, Y = load state (fires once per keypress)
   if key_just_pressed("T") then table.insert(pending_saves, TEST_STATE_FILE) end
   if key_just_pressed("Y") then table.insert(pending_loads, TEST_STATE_FILE) end
+end
+
+-- Returns true if all buttons in invalidate_combo are held on controller 0.
+local function combo_pressed()
+  local input = emu.getInput(0)
+  for _, btn in ipairs(invalidate_combo) do
+    if not input[btn] then return false end
+  end
+  return true
+end
+
+-- Fire attempt_invalidated event on the rising edge of the invalidation combo,
+-- but only while practice mode is active. Resets edge state when leaving practice.
+local function check_invalidate_combo()
+  if not practice.active then
+    invalidate_prev_down = false
+    return
+  end
+  local down = combo_pressed()
+  if down and not invalidate_prev_down then
+    if client then
+      client:send(to_json({ event = "attempt_invalidated" }) .. "\n")
+    end
+    log("attempt_invalidated: combo pressed")
+  end
+  invalidate_prev_down = down
+end
+
+-- Parse a JSON array of plain strings: ["L","Select"] → {"L","Select"}
+-- Fails loud (error) on malformed input so misconfiguration is obvious.
+local function parse_string_array(json_str)
+  local body = json_str:match("^%s*%[(.*)%]%s*$")
+  if not body then
+    error("parse_string_array: expected JSON array, got: " .. tostring(json_str))
+  end
+  local result = {}
+  for s in body:gmatch('"([^"]*)"') do
+    result[#result + 1] = s
+  end
+  if #result == 0 then
+    error("parse_string_array: no strings found in: " .. tostring(json_str))
+  end
+  return result
 end
 
 local function on_cpu_exec(address)
@@ -1271,6 +1330,7 @@ local function on_start_frame()
   prev = curr
 
   pcall(check_keyboard)
+  pcall(check_invalidate_combo)
   handle_tcp()
 
   draw_practice_overlay()

@@ -55,6 +55,7 @@ class EventType(StrEnum):
     REPLAY_PROGRESS = "replay_progress"
     REPLAY_FINISHED = "replay_finished"
     REPLAY_ERROR = "replay_error"
+    ATTEMPT_INVALIDATED = "attempt_invalidated"
 
 
 class Status(StrEnum):

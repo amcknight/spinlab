@@ -87,11 +87,12 @@ class TestInstallConditionRegistry:
         # Registry should be set on capture controller.
         assert len(sm.capture.condition_registry.definitions) == 1
 
-        # TCP send should have been called with set_conditions payload.
+        # TCP send should have been called — find the set_conditions call among all sends.
         assert mock_tcp.send.called
-        sent_msg = mock_tcp.send.call_args[0][0]
-        assert sent_msg.startswith("set_conditions:")
-        payload = json.loads(sent_msg[len("set_conditions:"):])
+        sent_msgs = [c[0][0] for c in mock_tcp.send.call_args_list]
+        cond_msgs = [m for m in sent_msgs if m.startswith("set_conditions:")]
+        assert len(cond_msgs) == 1
+        payload = json.loads(cond_msgs[0][len("set_conditions:"):])
         assert len(payload) == 1
         assert payload[0]["name"] == "powerup"
         assert payload[0]["address"] == 0x19
@@ -100,7 +101,7 @@ class TestInstallConditionRegistry:
     async def test_install_condition_registry_no_send_when_empty(
         self, mock_db, mock_tcp, tmp_path, monkeypatch
     ):
-        """_install_condition_registry does not send set_conditions when no definitions."""
+        """_install_condition_registry skips set_conditions (but still sends combo) when no definitions."""
         sm = make_sm(mock_db, mock_tcp)
         mock_tcp.is_connected = True
 
@@ -113,8 +114,10 @@ class TestInstallConditionRegistry:
 
         await sm._install_condition_registry("unknown_game")
 
-        # Empty registry — no TCP send.
-        mock_tcp.send.assert_not_called()
+        # Empty registry — set_conditions is NOT sent, but set_invalidate_combo IS sent.
+        sent_msgs = [c[0][0] for c in mock_tcp.send.call_args_list]
+        assert not any(m.startswith("set_conditions:") for m in sent_msgs)
+        assert any(m.startswith("set_invalidate_combo:") for m in sent_msgs)
 
     async def test_install_condition_registry_no_send_when_disconnected(
         self, mock_db, mock_tcp, tmp_path, monkeypatch
