@@ -8,6 +8,7 @@ from pathlib import Path
 from spinlab.db import Database
 from spinlab.models import Segment, SegmentVariant
 from spinlab.practice import PracticeSession
+from spinlab.scheduler import Scheduler
 
 SEG_ID = "g:1:entrance.0:goal.0"
 
@@ -138,15 +139,13 @@ class TestReceiveResult:
         assert ps.segments_completed == 1
 
 
-def test_snapshot_expected_times_at_start(db, tmp_path):
+def test_snapshot_expected_times_at_start(db):
     """start() should populate initial_expected_total_ms and _clean_ms
     with the sum of expected_ms across practicable segments."""
     # Seed an attempt so the estimator produces an expected_ms.
-    from spinlab.scheduler import Scheduler
     sched = Scheduler(db, "g")
     sched.process_attempt(SEG_ID, time_ms=5000, completed=True, deaths=0)
 
-    from unittest.mock import AsyncMock
     tcp = AsyncMock()
     tcp.is_connected = True
     ps = PracticeSession(tcp=tcp, db=db, game_id="g")
