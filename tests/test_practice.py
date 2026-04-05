@@ -189,3 +189,15 @@ def test_snapshot_skips_segments_without_state_path(db, tmp_path):
     # The sum should reflect only SEG_ID's expected_ms (~5000).
     assert ps.initial_expected_total_ms is not None
     assert ps.initial_expected_total_ms < 6000
+
+
+def test_snapshot_all_missing_returns_none(db):
+    """When no segment has estimates at session start, both snapshots are None."""
+    tcp = AsyncMock()
+    tcp.is_connected = True
+    # No process_attempt call -> no model state -> no expected_ms
+    ps = PracticeSession(tcp=tcp, db=db, game_id="g")
+    ps.start()
+
+    assert ps.initial_expected_total_ms is None
+    assert ps.initial_expected_clean_ms is None
