@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { segmentName, formatTime, elapsedStr } from "./format";
+import { segmentName, formatTime, elapsedStr, formatSavings } from "./format";
 import type { SegmentLike } from "./types";
 
 describe("segmentName", () => {
@@ -91,5 +91,27 @@ describe("elapsedStr", () => {
     const fiveSecondsAgo = new Date(Date.now() - 5_000).toISOString();
     const result = elapsedStr(fiveSecondsAgo);
     expect(result).toMatch(/^0:0[4-6]$/);
+  });
+});
+
+describe("formatSavings", () => {
+  it("returns null for null", () => {
+    expect(formatSavings(null)).toBeNull();
+  });
+
+  it("returns null for undefined", () => {
+    expect(formatSavings(undefined)).toBeNull();
+  });
+
+  it("formats positive savings with + sign", () => {
+    expect(formatSavings(3200)).toBe("+3.2s");
+  });
+
+  it("formats negative savings with - sign", () => {
+    expect(formatSavings(-1100)).toBe("-1.1s");
+  });
+
+  it("formats zero as +0.0s", () => {
+    expect(formatSavings(0)).toBe("+0.0s");
   });
 });

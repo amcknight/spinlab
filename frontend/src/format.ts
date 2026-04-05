@@ -22,3 +22,10 @@ export function elapsedStr(startedAt: string | null | undefined): string {
   const s = diff % 60;
   return m + ":" + String(s).padStart(2, "0");
 }
+
+export function formatSavings(ms: number | null | undefined): string | null {
+  if (ms == null) return null;
+  const sign = ms >= 0 ? "+" : "-";
+  const s = Math.abs(ms) / 1000;
+  return sign + s.toFixed(1) + "s";
+}
