@@ -86,6 +86,8 @@ export interface SessionInfo {
   started_at: string;
   segments_attempted: number;
   segments_completed: number;
+  saved_total_ms: number | null;
+  saved_clean_ms: number | null;
 }
 
 /** Segment as it appears in current_segment (practice state). */

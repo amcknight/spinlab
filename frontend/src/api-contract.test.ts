@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type {
   AppState,
   ModelData,
+  SessionInfo,
   TuningData,
   Reference,
   ReferenceSegment,
@@ -71,6 +72,8 @@ const PRACTICE_STATE: AppState = {
     started_at: "2026-04-04T10:00:00Z",
     segments_attempted: 14,
     segments_completed: 3,
+    saved_total_ms: null,
+    saved_clean_ms: null,
   },
   sections_captured: 0,
   allocator_weights: { greedy: 60, random: 20, round_robin: 20 },
@@ -132,5 +135,33 @@ describe("API contract fixtures", () => {
     const output = seg.model_outputs[seg.selected_model]!;
     expect(output.total.expected_ms).toBe(8500);
     expect(output.clean.expected_ms).toBe(7100);
+  });
+});
+
+describe("SessionInfo savings fields", () => {
+  it("accepts numeric savings values", () => {
+    const s: SessionInfo = {
+      id: "sess",
+      started_at: "2026-04-05T00:00:00Z",
+      segments_attempted: 3,
+      segments_completed: 2,
+      saved_total_ms: 1500,
+      saved_clean_ms: 800,
+    };
+    expect(s.saved_total_ms).toBe(1500);
+    expect(s.saved_clean_ms).toBe(800);
+  });
+
+  it("accepts null savings values", () => {
+    const s: SessionInfo = {
+      id: "sess",
+      started_at: "2026-04-05T00:00:00Z",
+      segments_attempted: 0,
+      segments_completed: 0,
+      saved_total_ms: null,
+      saved_clean_ms: null,
+    };
+    expect(s.saved_total_ms).toBeNull();
+    expect(s.saved_clean_ms).toBeNull();
   });
 });
