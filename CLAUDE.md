@@ -13,7 +13,8 @@ Efficient practice system for SNES romhack speedrunning. Captures save states at
 
 Red-Green TDD. Keep only tests that document behavior or catch regressions.
 
-- **Unit tests:** `pytest tests/` (~30s). In-memory SQLite, mocked TCP, FastAPI TestClient.
+- **Python tests:** `pytest tests/` (~30s). In-memory SQLite, mocked TCP, FastAPI TestClient.
+- **Frontend tests:** `cd frontend && npm test` (~2s). Vitest + happy-dom. Pure logic and API contract tests.
 - **Integration tests:** `pytest -m integration` — Mesen2 headless mode. See `tests/integration/README.md`.
 - **Coverage:** `./scripts/coverage.sh` (unit), `--all` (unit+integ), `--html` (opens report).
 

@@ -16,7 +16,7 @@
 
 4. **Database** (`python/spinlab/db/`): SQLite via mixin-composed repositories. All consumers import `from spinlab.db import Database`.
 
-5. **Frontend** (`python/spinlab/static/`): Vanilla JS ES modules. SSE (`/api/events`) as primary update mechanism with polling fallback.
+5. **Frontend** (`frontend/src/`): TypeScript modules built with Vite. Output goes to `python/spinlab/static/` (git-ignored). SSE (`/api/events`) as primary update mechanism with polling fallback. API response types in `types.ts` must stay in sync with Python response models. See `CLAUDE.md` for dev/build/test commands.
 
 ## IPC: TCP Socket
 
