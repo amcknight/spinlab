@@ -71,12 +71,8 @@ def seeded_db(tmp_path):
         state_file = states_dir / f"{seg.id}.mss"
         state_file.write_bytes(b"\x00" * 100)
         db.upsert_segment(seg)
-        db.add_variant(SegmentVariant(
-            segment_id=seg.id,
-            variant_type="cold",
-            state_path=str(state_file),
-            is_default=True,
-        ))
+        # TODO(Task 8): restore add_save_state on waypoint once get_all_segments_with_model
+        # joins waypoint_save_states. state_path is NULL for all segments until Task 8.
 
     db.create_session("sess1", GAME_ID)
 

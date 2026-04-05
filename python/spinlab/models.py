@@ -149,7 +149,17 @@ class Waypoint:
 
 
 @dataclass
+class WaypointSaveState:
+    waypoint_id: str
+    variant_type: str        # 'cold', 'hot'
+    state_path: str
+    is_default: bool = False
+
+
+@dataclass
 class SegmentVariant:
+    """Backward-compat stub. Task 10 will remove this once capture_controller
+    and cold-fill are rewritten to attach save states to waypoints."""
     segment_id: str
     variant_type: str        # 'cold', 'hot'
     state_path: str

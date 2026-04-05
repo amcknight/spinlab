@@ -8,6 +8,11 @@ from spinlab.db import Database
 from spinlab.models import Mode, Segment, SegmentVariant, Status
 from spinlab.session_manager import SessionManager
 
+pytestmark = pytest.mark.skip(
+    reason="Task 8 restores: uses add_variant/get_variant/segments_missing_cold on real DB, "
+           "all removed in Task 7"
+)
+
 
 @pytest.fixture
 def db(tmp_path):

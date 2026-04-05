@@ -62,3 +62,31 @@ def test_upsert_waypoint_idempotent():
     db.upsert_waypoint(w)
     rows = db.conn.execute("SELECT COUNT(*) FROM waypoints").fetchone()
     assert rows[0] == 1
+
+
+from spinlab.models import WaypointSaveState
+
+
+def test_save_state_attaches_to_waypoint():
+    db = Database(":memory:")
+    db.upsert_game("g1", "Game", "any%")
+    w = Waypoint.make("g1", 1, "checkpoint", 1, {})
+    db.upsert_waypoint(w)
+    db.add_save_state(WaypointSaveState(
+        waypoint_id=w.id, variant_type="hot",
+        state_path="/tmp/hot.mss", is_default=True))
+    got = db.get_save_state(w.id, "hot")
+    assert got is not None
+    assert got.state_path == "/tmp/hot.mss"
+
+def test_get_default_save_state_falls_back_to_any():
+    db = Database(":memory:")
+    db.upsert_game("g1", "Game", "any%")
+    w = Waypoint.make("g1", 1, "checkpoint", 1, {})
+    db.upsert_waypoint(w)
+    db.add_save_state(WaypointSaveState(
+        waypoint_id=w.id, variant_type="cold",
+        state_path="/tmp/cold.mss", is_default=False))
+    got = db.get_default_save_state(w.id)
+    assert got is not None
+    assert got.variant_type == "cold"

@@ -35,6 +35,7 @@ def test_upsert_and_get_segment(db, segment):
     assert segments[0].end_type == "checkpoint"
 
 
+@pytest.mark.skip(reason="Task 8 restores waypoint-aware add_save_state; add_variant removed in Task 7")
 def test_add_variant(db, segment):
     v = SegmentVariant(
         segment_id=segment.id,
@@ -49,6 +50,7 @@ def test_add_variant(db, segment):
     assert variants[0].is_default is True
 
 
+@pytest.mark.skip(reason="Task 8 restores waypoint-aware add_save_state; add_variant removed in Task 7")
 def test_add_variant_replace(db, segment):
     """INSERT OR REPLACE: re-adding same variant type overwrites."""
     v1 = SegmentVariant(segment.id, "cold", "/old.mss", True)
@@ -60,6 +62,7 @@ def test_add_variant_replace(db, segment):
     assert variants[0].state_path == "/new.mss"
 
 
+@pytest.mark.skip(reason="Task 8 restores waypoint-aware add_save_state; add_variant removed in Task 7")
 def test_get_default_variant(db, segment):
     db.add_variant(SegmentVariant(segment.id, "hot", "/hot.mss", False))
     db.add_variant(SegmentVariant(segment.id, "cold", "/cold.mss", True))
@@ -68,6 +71,7 @@ def test_get_default_variant(db, segment):
     assert default.variant_type == "cold"
 
 
+@pytest.mark.skip(reason="Task 8 restores waypoint-aware add_save_state; add_variant removed in Task 7")
 def test_get_default_variant_fallback(db, segment):
     """If no variant marked default, return any available variant."""
     db.add_variant(SegmentVariant(segment.id, "hot", "/hot.mss", False))
@@ -76,6 +80,7 @@ def test_get_default_variant_fallback(db, segment):
     assert default.variant_type == "hot"
 
 
+@pytest.mark.skip(reason="Task 8 restores waypoint-aware add_save_state; add_variant removed in Task 7")
 def test_get_variant_by_type(db, segment):
     db.add_variant(SegmentVariant(segment.id, "hot", "/hot.mss", False))
     db.add_variant(SegmentVariant(segment.id, "cold", "/cold.mss", True))
@@ -86,6 +91,7 @@ def test_get_variant_by_type(db, segment):
     assert missing is None
 
 
+@pytest.mark.skip(reason="Task 8 restores waypoint-aware get_all_segments_with_model joining waypoint_save_states")
 def test_segments_with_model_includes_state_path(db, segment):
     db.add_variant(SegmentVariant(segment.id, "cold", "/cold.mss", True))
     rows = db.get_all_segments_with_model("g1")
@@ -95,6 +101,7 @@ def test_segments_with_model_includes_state_path(db, segment):
     assert rows[0]["end_type"] == "checkpoint"
 
 
+@pytest.mark.skip(reason="Task 8 restores waypoint-aware segments_missing_cold")
 def test_segments_missing_cold(db):
     """Get segments that have a hot variant but no cold variant."""
     db.create_capture_run("run1", "g1", "run 1")

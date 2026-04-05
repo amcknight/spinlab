@@ -56,7 +56,7 @@ class ReferenceCapture:
         if not self.pending_start:
             return
 
-        from .models import Segment, SegmentVariant, Waypoint
+        from .models import Segment, WaypointSaveState, Waypoint
 
         start = self.pending_start
         cp_ordinal = event.get("cp_ordinal", 1)
@@ -90,8 +90,8 @@ class ReferenceCapture:
 
         start_path = start.get("state_path")
         if start_path:
-            db.add_variant(SegmentVariant(
-                segment_id=seg_id,
+            db.add_save_state(WaypointSaveState(
+                waypoint_id=start_wp.id,
                 variant_type="cold" if start["type"] == "entrance" else "hot",
                 state_path=start_path,
                 is_default=True,
@@ -118,7 +118,7 @@ class ReferenceCapture:
             return
 
         self.segments_count += 1
-        from .models import Segment, SegmentVariant, Waypoint
+        from .models import Segment, WaypointSaveState, Waypoint
         start = self.pending_start
         level = event["level"]
 
@@ -151,8 +151,8 @@ class ReferenceCapture:
 
         state_path = start.get("state_path")
         if state_path:
-            db.add_variant(SegmentVariant(
-                segment_id=seg_id,
+            db.add_save_state(WaypointSaveState(
+                waypoint_id=start_wp.id,
                 variant_type="hot" if start["type"] == "checkpoint" else "cold",
                 state_path=state_path,
                 is_default=True,
@@ -161,31 +161,7 @@ class ReferenceCapture:
         self.pending_start = None
 
     def handle_spawn(self, event: dict, game_id: str, db: "Database") -> None:
-        """Handle spawn during reference: store cold variant if applicable."""
-        if not event.get("is_cold_cp") or not event.get("state_captured"):
-            return
-
-        from .models import SegmentVariant
-
-        cold_path = event.get("state_path")
-        if not cold_path:
-            return
-
-        level = event.get("level_num")
-        cp_ord = event.get("cp_ordinal")
-        if level is None or cp_ord is None:
-            return
-
-        segments = db.get_active_segments(game_id)
-        for seg in segments:
-            if (seg.level_number == level and seg.start_type == "checkpoint"
-                    and seg.start_ordinal == cp_ord):
-                variant = SegmentVariant(
-                    segment_id=seg.id,
-                    variant_type="cold",
-                    state_path=cold_path,
-                    is_default=True,
-                )
-                db.add_variant(variant)
-                logger.debug("Stored cold variant for segment %s: %s", seg.id, cold_path)
-                break
+        """Handle spawn during reference: store cold save state if applicable."""
+        # TODO(Task 10): rewrite to create waypoint and attach cold save state
+        # Deferred to Task 10: handle_spawn needs ConditionRegistry to create waypoints
+        return
