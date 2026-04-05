@@ -44,12 +44,16 @@ class AttemptsMixin:
         self.conn.execute(
             """INSERT INTO attempts
                (segment_id, session_id, completed, time_ms,
-                strat_version, source, deaths, clean_tail_ms, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                strat_version, source, deaths, clean_tail_ms,
+                observed_start_conditions, observed_end_conditions, invalidated,
+                created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (attempt.segment_id, attempt.session_id, int(attempt.completed),
              attempt.time_ms,
              attempt.strat_version, attempt.source,
              attempt.deaths, attempt.clean_tail_ms,
+             attempt.observed_start_conditions, attempt.observed_end_conditions,
+             int(attempt.invalidated),
              attempt.created_at.isoformat()),
         )
         self.conn.commit()
