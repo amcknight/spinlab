@@ -6,11 +6,34 @@ from unittest.mock import AsyncMock, MagicMock
 from pathlib import Path
 
 from spinlab.db import Database
-from spinlab.models import Segment, SegmentVariant
+from spinlab.models import Segment, Waypoint, WaypointSaveState
 from spinlab.practice import PracticeSession
 from spinlab.scheduler import Scheduler
 
-SEG_ID = "g:1:entrance.0:goal.0"
+
+def _make_seg_with_state(db, game_id, level, start_type, end_type,
+                         state_path, ordinal=1):
+    """Create waypoints + segment + hot save state; return segment."""
+    wp_start = Waypoint.make(game_id, level, start_type, 0, {})
+    wp_end = Waypoint.make(game_id, level, end_type, 0, {})
+    db.upsert_waypoint(wp_start)
+    db.upsert_waypoint(wp_end)
+    seg = Segment(
+        id=Segment.make_id(game_id, level, start_type, 0, end_type, 0,
+                           wp_start.id, wp_end.id),
+        game_id=game_id, level_number=level,
+        start_type=start_type, start_ordinal=0,
+        end_type=end_type, end_ordinal=0,
+        description="L1" if start_type == "entrance" else "",
+        ordinal=ordinal,
+        start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
+    )
+    db.upsert_segment(seg)
+    db.add_save_state(WaypointSaveState(
+        waypoint_id=wp_start.id, variant_type="hot",
+        state_path=str(state_path), is_default=True,
+    ))
+    return seg
 
 
 @pytest.fixture
@@ -19,27 +42,16 @@ def db(tmp_path):
     d.upsert_game("g", "Game", "any%")
     state_file = tmp_path / "test.mss"
     state_file.write_bytes(b"fake state")
-    seg = Segment(
-        id=SEG_ID,
-        game_id="g",
-        level_number=1,
-        start_type="entrance",
-        start_ordinal=0,
-        end_type="goal",
-        end_ordinal=0,
-        description="L1",
-        ordinal=1,
-    )
-    d.upsert_segment(seg)
-    # TODO(Task 8): restore add_save_state on waypoint once get_all_segments_with_model
-    # joins waypoint_save_states. For now, state_path is NULL for all segments.
+    seg = _make_seg_with_state(d, "g", 1, "entrance", "goal", state_file)
+    d._test_seg_id = seg.id
+    d._test_state_file = state_file
     return d
 
 
-@pytest.mark.skip(reason="Task 8 restores state_path via waypoint_save_states join")
 @pytest.mark.asyncio
 async def test_practice_session_picks_and_sends(db):
     """Practice session should pick a segment and send practice_load."""
+    seg_id = db._test_seg_id
     mock_tcp = AsyncMock()
     mock_tcp.is_connected = True
     mock_tcp.send = AsyncMock()
@@ -47,7 +59,7 @@ async def test_practice_session_picks_and_sends(db):
     # Simulate receiving an attempt_result after send
     result_event = {
         "event": "attempt_result",
-        "segment_id": SEG_ID,
+        "segment_id": seg_id,
         "completed": True,
         "time_ms": 4500,
     }
@@ -69,7 +81,7 @@ async def test_practice_session_picks_and_sends(db):
     assert sent.startswith("practice_load:")
 
     # Verify attempt was logged
-    attempts = db.get_segment_attempts(SEG_ID)
+    attempts = db.get_segment_attempts(seg_id)
     assert len(attempts) == 1
     assert attempts[0]["completed"] == 1
 
@@ -135,13 +147,13 @@ class TestReceiveResult:
         assert ps.segments_completed == 1
 
 
-@pytest.mark.skip(reason="Task 8 restores state_path via waypoint_save_states join")
 def test_snapshot_expected_times_at_start(db):
     """start() should populate initial_expected_total_ms and _clean_ms
     with the sum of expected_ms across practicable segments."""
+    seg_id = db._test_seg_id
     # Seed an attempt so the estimator produces an expected_ms.
     sched = Scheduler(db, "g")
-    sched.process_attempt(SEG_ID, time_ms=5000, completed=True, deaths=0)
+    sched.process_attempt(seg_id, time_ms=5000, completed=True, deaths=0)
 
     tcp = AsyncMock()
     tcp.is_connected = True
@@ -155,41 +167,42 @@ def test_snapshot_expected_times_at_start(db):
     assert ps.initial_expected_clean_ms > 0
 
 
-@pytest.mark.skip(reason="Task 8 restores state_path via waypoint_save_states join")
 def test_snapshot_skips_segments_without_state_path(db, tmp_path):
     """Segments whose state_path does not exist on disk are excluded."""
-    from spinlab.models import Segment
-    # Add a second segment with no variant -> state_path = None
+    seg_id = db._test_seg_id
+    # Add a second segment with no waypoint save state -> state_path = None
+    wp_start2 = Waypoint.make("g", 2, "entrance", 0, {"n": "2"})
+    wp_end2 = Waypoint.make("g", 2, "goal", 0, {"n": "2"})
+    db.upsert_waypoint(wp_start2)
+    db.upsert_waypoint(wp_end2)
+    seg2_id = Segment.make_id("g", 2, "entrance", 0, "goal", 0,
+                              wp_start2.id, wp_end2.id)
     seg2 = Segment(
-        id="g:2:entrance.0:goal.0",
-        game_id="g",
-        level_number=2,
-        start_type="entrance",
-        start_ordinal=0,
-        end_type="goal",
-        end_ordinal=0,
-        description="L2",
-        ordinal=2,
+        id=seg2_id, game_id="g", level_number=2,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
+        description="L2", ordinal=2,
+        start_waypoint_id=wp_start2.id, end_waypoint_id=wp_end2.id,
     )
     db.upsert_segment(seg2)
+    # No save state for wp_start2 => state_path will be NULL
 
     # Seed attempts on BOTH segments so they each have estimates.
     sched = Scheduler(db, "g")
-    sched.process_attempt(SEG_ID, time_ms=5000, completed=True, deaths=0)
-    sched.process_attempt("g:2:entrance.0:goal.0", time_ms=8000, completed=True, deaths=0)
+    sched.process_attempt(seg_id, time_ms=5000, completed=True, deaths=0)
+    sched.process_attempt(seg2_id, time_ms=8000, completed=True, deaths=0)
 
     tcp = AsyncMock()
     tcp.is_connected = True
     ps = PracticeSession(tcp=tcp, db=db, game_id="g")
     ps.start()
 
-    # Only SEG_ID had a real state_path; seg2 contributes nothing.
-    # The sum should reflect only SEG_ID's expected_ms (~5000).
+    # Only seg_id had a real state_path; seg2 contributes nothing.
+    # The sum should reflect only seg_id's expected_ms (~5000).
     assert ps.initial_expected_total_ms is not None
     assert ps.initial_expected_total_ms < 6000
 
 
-@pytest.mark.skip(reason="Task 8 restores state_path via waypoint_save_states join")
 def test_snapshot_all_missing_returns_none(db):
     """When no segment has estimates at session start, both snapshots are None."""
     tcp = AsyncMock()
@@ -202,11 +215,11 @@ def test_snapshot_all_missing_returns_none(db):
     assert ps.initial_expected_clean_ms is None
 
 
-@pytest.mark.skip(reason="Task 8 restores state_path via waypoint_save_states join")
 def test_current_expected_times_reflects_model_updates(db):
     """After process_attempt runs, current_expected_times() returns the new sum."""
+    seg_id = db._test_seg_id
     sched = Scheduler(db, "g")
-    sched.process_attempt(SEG_ID, time_ms=5000, completed=True, deaths=0)
+    sched.process_attempt(seg_id, time_ms=5000, completed=True, deaths=0)
 
     tcp = AsyncMock()
     tcp.is_connected = True
@@ -215,7 +228,7 @@ def test_current_expected_times_reflects_model_updates(db):
     initial_total = ps.initial_expected_total_ms
 
     # Simulate a faster attempt pulling the estimate down.
-    ps.scheduler.process_attempt(SEG_ID, time_ms=3000, completed=True, deaths=0)
+    ps.scheduler.process_attempt(seg_id, time_ms=3000, completed=True, deaths=0)
 
     cur_total, cur_clean = ps.current_expected_times()
     assert cur_total is not None

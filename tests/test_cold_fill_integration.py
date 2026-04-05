@@ -9,8 +9,8 @@ from spinlab.models import Mode, Segment, SegmentVariant, Status
 from spinlab.session_manager import SessionManager
 
 pytestmark = pytest.mark.skip(
-    reason="Task 8 restores: uses add_variant/get_variant/segments_missing_cold on real DB, "
-           "all removed in Task 7"
+    reason="Task 10: capture_controller.py still calls add_variant/get_variant (old segment-level "
+           "API); needs rewrite to attach save states to waypoints before this test can run"
 )
 
 

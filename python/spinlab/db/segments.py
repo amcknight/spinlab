@@ -18,7 +18,21 @@ class SegmentRow(TypedDict):
     strat_version: int
     active: int
     ordinal: int | None
+    is_primary: int
+    start_waypoint_id: str | None
+    end_waypoint_id: str | None
     state_path: str | None
+
+
+class MissingColdRow(TypedDict):
+    segment_id: str
+    hot_state_path: str
+    level_number: int
+    start_type: str
+    start_ordinal: int
+    end_type: str
+    end_ordinal: int
+    description: str
 
 
 class SegmentsMixin:
@@ -30,17 +44,20 @@ class SegmentsMixin:
         now = datetime.now(UTC).isoformat()
         self.conn.execute(
             """INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal,
-               end_type, end_ordinal, description, strat_version, active, ordinal,
+               end_type, end_ordinal, start_waypoint_id, end_waypoint_id, is_primary,
+               description, strat_version, active, ordinal,
                reference_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  description=excluded.description,
                  ordinal=excluded.ordinal,
                  reference_id=excluded.reference_id,
                  active=excluded.active,
+                 is_primary=excluded.is_primary,
                  updated_at=excluded.updated_at""",
             (seg.id, seg.game_id, seg.level_number, seg.start_type,
              seg.start_ordinal, seg.end_type, seg.end_ordinal,
+             seg.start_waypoint_id, seg.end_waypoint_id, int(seg.is_primary),
              seg.description, seg.strat_version, int(seg.active),
              seg.ordinal, seg.reference_id, now, now),
         )
@@ -69,13 +86,15 @@ class SegmentsMixin:
         self.conn.commit()
 
     def get_all_segments_with_model(self, game_id: str) -> list[SegmentRow]:
-        """Get all active segments. state_path is always NULL until Task 8 rewrites
-        this to join waypoint_save_states via start_waypoint_id."""
+        """Get all active segments with their start-waypoint save state path."""
         cur = self.conn.execute(
             """SELECT s.id, s.game_id, s.level_number, s.start_type, s.start_ordinal,
                       s.end_type, s.end_ordinal, s.description, s.strat_version,
-                      s.active, s.ordinal,
-                      NULL AS state_path
+                      s.active, s.ordinal, s.is_primary,
+                      s.start_waypoint_id, s.end_waypoint_id,
+                      (SELECT wss.state_path FROM waypoint_save_states wss
+                       WHERE wss.waypoint_id = s.start_waypoint_id
+                       ORDER BY wss.is_default DESC LIMIT 1) AS state_path
                FROM segments s
                WHERE s.game_id = ? AND s.active = 1
                ORDER BY s.ordinal, s.level_number""",
@@ -83,6 +102,25 @@ class SegmentsMixin:
         )
         actual_cols = [desc[0] for desc in cur.description]
         return [dict(zip(actual_cols, row)) for row in cur.fetchall()]
+
+    def segments_missing_cold(self, game_id: str) -> list[MissingColdRow]:
+        """Return segments whose start waypoint has hot but not cold save state."""
+        rows = self.conn.execute(
+            """SELECT s.id AS segment_id, hot.state_path AS hot_state_path,
+                      s.level_number, s.start_type, s.start_ordinal,
+                      s.end_type, s.end_ordinal, s.description
+               FROM segments s
+               JOIN waypoint_save_states hot
+                 ON hot.waypoint_id = s.start_waypoint_id AND hot.variant_type = 'hot'
+               LEFT JOIN waypoint_save_states cold
+                 ON cold.waypoint_id = s.start_waypoint_id AND cold.variant_type = 'cold'
+               WHERE s.game_id = ? AND s.active = 1 AND cold.waypoint_id IS NULL
+               ORDER BY s.ordinal, s.level_number, s.start_ordinal""",
+            (game_id,),
+        ).fetchall()
+        cols = ["segment_id", "hot_state_path", "level_number",
+                "start_type", "start_ordinal", "end_type", "end_ordinal", "description"]
+        return [dict(zip(cols, r)) for r in rows]
 
     def update_segment(self, segment_id: str, **kwargs) -> None:
         """Partial update: pass description=, active= as kwargs."""

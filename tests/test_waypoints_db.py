@@ -90,3 +90,41 @@ def test_get_default_save_state_falls_back_to_any():
     got = db.get_default_save_state(w.id)
     assert got is not None
     assert got.variant_type == "cold"
+
+
+from spinlab.models import Segment, WaypointSaveState as _WSS  # noqa: F811
+
+
+def _make_seg_with_waypoints(db, game_id, level, start_type, start_ord,
+                             end_type, end_ord, start_conds, end_conds,
+                             hot_path):
+    wp_start = Waypoint.make(game_id, level, start_type, start_ord, start_conds)
+    wp_end = Waypoint.make(game_id, level, end_type, end_ord, end_conds)
+    db.upsert_waypoint(wp_start)
+    db.upsert_waypoint(wp_end)
+    seg = Segment(
+        id=Segment.make_id(game_id, level, start_type, start_ord,
+                           end_type, end_ord, wp_start.id, wp_end.id),
+        game_id=game_id, level_number=level,
+        start_type=start_type, start_ordinal=start_ord,
+        end_type=end_type, end_ordinal=end_ord,
+        start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
+        is_primary=True,
+    )
+    db.upsert_segment(seg)
+    db.add_save_state(WaypointSaveState(
+        waypoint_id=wp_start.id, variant_type="hot",
+        state_path=hot_path, is_default=True))
+    return seg
+
+
+def test_all_segments_with_model_returns_save_state_path():
+    db = Database(":memory:")
+    db.upsert_game("g", "Game", "any%")
+    seg = _make_seg_with_waypoints(
+        db, "g", 1, "entrance", 0, "goal", 0, {}, {}, "/tmp/s.mss")
+    rows = db.get_all_segments_with_model("g")
+    assert len(rows) == 1
+    assert rows[0]["id"] == seg.id
+    assert rows[0]["state_path"] == "/tmp/s.mss"
+    assert rows[0]["is_primary"] == 1

@@ -1,7 +1,7 @@
-"""Tests for segment_variants DB operations."""
+"""Tests for waypoint_save_states DB operations (formerly segment_variants)."""
 import pytest
 from spinlab.db import Database
-from spinlab.models import Segment, SegmentVariant
+from spinlab.models import Segment, Waypoint, WaypointSaveState
 
 
 @pytest.fixture
@@ -11,89 +11,99 @@ def db():
     return d
 
 
+def _make_seg(db, game_id, level, start_type, start_ord, end_type, end_ord,
+              start_conds=None, end_conds=None):
+    """Create waypoints + segment, return (seg, wp_start, wp_end)."""
+    start_conds = start_conds or {}
+    end_conds = end_conds or {}
+    wp_start = Waypoint.make(game_id, level, start_type, start_ord, start_conds)
+    wp_end = Waypoint.make(game_id, level, end_type, end_ord, end_conds)
+    db.upsert_waypoint(wp_start)
+    db.upsert_waypoint(wp_end)
+    seg = Segment(
+        id=Segment.make_id(game_id, level, start_type, start_ord,
+                           end_type, end_ord, wp_start.id, wp_end.id),
+        game_id=game_id, level_number=level,
+        start_type=start_type, start_ordinal=start_ord,
+        end_type=end_type, end_ordinal=end_ord,
+        start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
+        is_primary=True,
+    )
+    db.upsert_segment(seg)
+    return seg, wp_start, wp_end
+
+
 @pytest.fixture
 def segment(db):
-    s = Segment(
-        id="g1:105:entrance.0:checkpoint.1",
-        game_id="g1",
-        level_number=105,
-        start_type="entrance",
-        start_ordinal=0,
-        end_type="checkpoint",
-        end_ordinal=1,
-        description="entrance → cp.1",
-    )
-    db.upsert_segment(s)
-    return s
+    seg, wp_start, wp_end = _make_seg(db, "g1", 105, "entrance", 0, "checkpoint", 1)
+    return seg, wp_start, wp_end
 
 
 def test_upsert_and_get_segment(db, segment):
+    seg, _, _ = segment
     segments = db.get_active_segments("g1")
     assert len(segments) == 1
-    assert segments[0].id == segment.id
+    assert segments[0].id == seg.id
     assert segments[0].start_type == "entrance"
     assert segments[0].end_type == "checkpoint"
 
 
-@pytest.mark.skip(reason="Task 8 restores waypoint-aware add_save_state; add_variant removed in Task 7")
-def test_add_variant(db, segment):
-    v = SegmentVariant(
-        segment_id=segment.id,
+def test_add_save_state(db, segment):
+    seg, wp_start, _ = segment
+    db.add_save_state(WaypointSaveState(
+        waypoint_id=wp_start.id,
         variant_type="cold",
         state_path="/states/105_entrance.mss",
         is_default=True,
-    )
-    db.add_variant(v)
-    variants = db.get_variants(segment.id)
-    assert len(variants) == 1
-    assert variants[0].variant_type == "cold"
-    assert variants[0].is_default is True
+    ))
+    got = db.get_save_state(wp_start.id, "cold")
+    assert got is not None
+    assert got.variant_type == "cold"
+    assert got.is_default is True
 
 
-@pytest.mark.skip(reason="Task 8 restores waypoint-aware add_save_state; add_variant removed in Task 7")
-def test_add_variant_replace(db, segment):
-    """INSERT OR REPLACE: re-adding same variant type overwrites."""
-    v1 = SegmentVariant(segment.id, "cold", "/old.mss", True)
-    db.add_variant(v1)
-    v2 = SegmentVariant(segment.id, "cold", "/new.mss", True)
-    db.add_variant(v2)
-    variants = db.get_variants(segment.id)
-    assert len(variants) == 1
-    assert variants[0].state_path == "/new.mss"
+def test_add_save_state_replace(db, segment):
+    """ON CONFLICT: re-adding same (waypoint_id, variant_type) overwrites."""
+    seg, wp_start, _ = segment
+    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/old.mss", True))
+    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/new.mss", True))
+    got = db.get_save_state(wp_start.id, "cold")
+    assert got is not None
+    assert got.state_path == "/new.mss"
 
 
-@pytest.mark.skip(reason="Task 8 restores waypoint-aware add_save_state; add_variant removed in Task 7")
-def test_get_default_variant(db, segment):
-    db.add_variant(SegmentVariant(segment.id, "hot", "/hot.mss", False))
-    db.add_variant(SegmentVariant(segment.id, "cold", "/cold.mss", True))
-    default = db.get_default_variant(segment.id)
+def test_get_default_save_state(db, segment):
+    seg, wp_start, _ = segment
+    db.add_save_state(WaypointSaveState(wp_start.id, "hot", "/hot.mss", False))
+    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/cold.mss", True))
+    default = db.get_default_save_state(wp_start.id)
     assert default is not None
     assert default.variant_type == "cold"
 
 
-@pytest.mark.skip(reason="Task 8 restores waypoint-aware add_save_state; add_variant removed in Task 7")
-def test_get_default_variant_fallback(db, segment):
-    """If no variant marked default, return any available variant."""
-    db.add_variant(SegmentVariant(segment.id, "hot", "/hot.mss", False))
-    default = db.get_default_variant(segment.id)
+def test_get_default_save_state_fallback(db, segment):
+    """If no save state marked default, return any available."""
+    seg, wp_start, _ = segment
+    db.add_save_state(WaypointSaveState(wp_start.id, "hot", "/hot.mss", False))
+    default = db.get_default_save_state(wp_start.id)
     assert default is not None
     assert default.variant_type == "hot"
 
 
-@pytest.mark.skip(reason="Task 8 restores waypoint-aware add_save_state; add_variant removed in Task 7")
-def test_get_variant_by_type(db, segment):
-    db.add_variant(SegmentVariant(segment.id, "hot", "/hot.mss", False))
-    db.add_variant(SegmentVariant(segment.id, "cold", "/cold.mss", True))
-    hot = db.get_variant(segment.id, "hot")
+def test_get_save_state_by_type(db, segment):
+    seg, wp_start, _ = segment
+    db.add_save_state(WaypointSaveState(wp_start.id, "hot", "/hot.mss", False))
+    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/cold.mss", True))
+    hot = db.get_save_state(wp_start.id, "hot")
     assert hot is not None
     assert hot.state_path == "/hot.mss"
-    missing = db.get_variant(segment.id, "nonexistent")
+    missing = db.get_save_state(wp_start.id, "nonexistent")
     assert missing is None
 
 
-@pytest.mark.skip(reason="Task 8 restores waypoint-aware get_all_segments_with_model joining waypoint_save_states")
 def test_segments_with_model_includes_state_path(db, segment):
-    db.add_variant(SegmentVariant(segment.id, "cold", "/cold.mss", True))
+    seg, wp_start, _ = segment
+    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/cold.mss", True))
     rows = db.get_all_segments_with_model("g1")
     assert len(rows) == 1
     assert rows[0]["state_path"] == "/cold.mss"
@@ -101,28 +111,19 @@ def test_segments_with_model_includes_state_path(db, segment):
     assert rows[0]["end_type"] == "checkpoint"
 
 
-@pytest.mark.skip(reason="Task 8 restores waypoint-aware segments_missing_cold")
 def test_segments_missing_cold(db):
-    """Get segments that have a hot variant but no cold variant."""
+    """Get segments whose start waypoint has hot but not cold save state."""
     db.create_capture_run("run1", "g1", "run 1")
-    # Create two segments
-    s1 = Segment(
-        id="g1:105:entrance.0:checkpoint.1", game_id="g1",
-        level_number=105, start_type="entrance", start_ordinal=0,
-        end_type="checkpoint", end_ordinal=1, reference_id="run1",
-    )
-    s2 = Segment(
-        id="g1:105:checkpoint.1:goal.0", game_id="g1",
-        level_number=105, start_type="checkpoint", start_ordinal=1,
-        end_type="goal", end_ordinal=0, reference_id="run1",
-    )
-    db.upsert_segment(s1)
-    db.upsert_segment(s2)
+    # Two segments, different waypoints
+    s1, wp_s1, _ = _make_seg(db, "g1", 105, "entrance", 0, "checkpoint", 1,
+                              start_conds={"s": "1"})
+    s2, wp_s2, _ = _make_seg(db, "g1", 105, "checkpoint", 1, "goal", 0,
+                              start_conds={"s": "2"})
 
-    # s1 has both hot and cold; s2 has only hot
-    db.add_variant(SegmentVariant(s1.id, "hot", "/hot1.mss", False))
-    db.add_variant(SegmentVariant(s1.id, "cold", "/cold1.mss", True))
-    db.add_variant(SegmentVariant(s2.id, "hot", "/hot2.mss", False))
+    # s1 start waypoint has both hot and cold; s2 start waypoint has only hot
+    db.add_save_state(WaypointSaveState(wp_s1.id, "hot", "/hot1.mss", False))
+    db.add_save_state(WaypointSaveState(wp_s1.id, "cold", "/cold1.mss", True))
+    db.add_save_state(WaypointSaveState(wp_s2.id, "hot", "/hot2.mss", False))
 
     missing = db.segments_missing_cold("g1")
     assert len(missing) == 1

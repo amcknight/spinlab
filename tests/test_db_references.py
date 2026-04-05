@@ -130,39 +130,44 @@ class TestDraftColumn:
 
 
 class TestHardDelete:
-    @pytest.mark.skip(reason="Task 8 restores: test references segment_variants table and add_variant, both removed in Task 7")
     def test_hard_delete_removes_everything(self, tmp_db):
-        """Hard delete cascades: variants, model_state, attempts, segments, run."""
-        from spinlab.models import Segment, SegmentVariant
+        """Hard delete cascades: model_state, attempts, segments, run."""
+        from spinlab.models import Segment, Waypoint, WaypointSaveState
         tmp_db.upsert_game("g1", "Game", "any%")
         tmp_db.create_capture_run("r1", "g1", "Draft", draft=True)
+        wp_start = Waypoint.make("g1", 0x105, "entrance", 0, {})
+        wp_end = Waypoint.make("g1", 0x105, "goal", 0, {})
+        tmp_db.upsert_waypoint(wp_start)
+        tmp_db.upsert_waypoint(wp_end)
+        seg_id = Segment.make_id("g1", 0x105, "entrance", 0, "goal", 0,
+                                 wp_start.id, wp_end.id)
         seg = Segment(
-            id="seg1", game_id="g1", level_number=0x105,
+            id=seg_id, game_id="g1", level_number=0x105,
             start_type="entrance", start_ordinal=0,
             end_type="goal", end_ordinal=0,
             ordinal=1, reference_id="r1",
+            start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
         )
         tmp_db.upsert_segment(seg)
-        tmp_db.add_variant(SegmentVariant(
-            segment_id="seg1", variant_type="cold",
+        tmp_db.add_save_state(WaypointSaveState(
+            waypoint_id=wp_start.id, variant_type="cold",
             state_path="/tmp/s.mss", is_default=True,
         ))
         # Add a model_state row
         tmp_db.conn.execute(
             "INSERT INTO model_state (segment_id, estimator, state_json, updated_at) "
-            "VALUES ('seg1', 'kalman', '{}', '2026-01-01')"
+            f"VALUES ('{seg_id}', 'kalman', '{{}}', '2026-01-01')"
         )
         # Add an attempt row
         tmp_db.conn.execute(
             "INSERT INTO attempts (segment_id, session_id, completed, time_ms, strat_version, created_at) "
-            "VALUES ('seg1', 'sess1', 1, 5000, 1, '2026-01-01')"
+            f"VALUES ('{seg_id}', 'sess1', 1, 5000, 1, '2026-01-01')"
         )
         tmp_db.conn.commit()
 
         tmp_db.hard_delete_capture_run("r1")
 
         assert tmp_db.conn.execute("SELECT COUNT(*) FROM capture_runs WHERE id='r1'").fetchone()[0] == 0
-        assert tmp_db.conn.execute("SELECT COUNT(*) FROM segments WHERE id='seg1'").fetchone()[0] == 0
-        assert tmp_db.conn.execute("SELECT COUNT(*) FROM segment_variants WHERE segment_id='seg1'").fetchone()[0] == 0
-        assert tmp_db.conn.execute("SELECT COUNT(*) FROM model_state WHERE segment_id='seg1'").fetchone()[0] == 0
-        assert tmp_db.conn.execute("SELECT COUNT(*) FROM attempts WHERE segment_id='seg1'").fetchone()[0] == 0
+        assert tmp_db.conn.execute(f"SELECT COUNT(*) FROM segments WHERE id='{seg_id}'").fetchone()[0] == 0
+        assert tmp_db.conn.execute(f"SELECT COUNT(*) FROM model_state WHERE segment_id='{seg_id}'").fetchone()[0] == 0
+        assert tmp_db.conn.execute(f"SELECT COUNT(*) FROM attempts WHERE segment_id='{seg_id}'").fetchone()[0] == 0
