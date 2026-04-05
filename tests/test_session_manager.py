@@ -321,6 +321,50 @@ class TestColdFill:
         assert state["cold_fill"]["total"] == 2
 
 
+@pytest.fixture
+def session_manager_with_practice(mock_db, mock_tcp):
+    """A SessionManager in PRACTICE mode with a stubbed PracticeSession."""
+    sm = make_sm(mock_db, mock_tcp)
+    sm.game_id = "g"
+    sm.game_name = "Game"
+    sm.mode = Mode.PRACTICE
+    ps = MagicMock()
+    ps.session_id = "sess"
+    ps.started_at = "2026-04-05T00:00:00Z"
+    ps.segments_attempted = 0
+    ps.segments_completed = 0
+    ps.current_segment_id = None
+    ps.initial_expected_total_ms = None
+    ps.initial_expected_clean_ms = None
+    ps.current_expected_times = lambda: (None, None)
+    sm.practice_session = ps
+    return sm
+
+
+def test_practice_state_emits_saved_ms(session_manager_with_practice):
+    """get_state() emits saved_total_ms and saved_clean_ms on session."""
+    sm = session_manager_with_practice
+    sm.practice_session.initial_expected_total_ms = 10000.0
+    sm.practice_session.initial_expected_clean_ms = 8000.0
+    sm.practice_session.current_expected_times = lambda: (7500.0, 6500.0)
+
+    state = sm.get_state()
+    assert state["session"]["saved_total_ms"] == 2500.0
+    assert state["session"]["saved_clean_ms"] == 1500.0
+
+
+def test_practice_state_saved_ms_null_when_no_snapshot(session_manager_with_practice):
+    """If initial snapshot is None, savings fields are None."""
+    sm = session_manager_with_practice
+    sm.practice_session.initial_expected_total_ms = None
+    sm.practice_session.initial_expected_clean_ms = None
+    sm.practice_session.current_expected_times = lambda: (None, None)
+
+    state = sm.get_state()
+    assert state["session"]["saved_total_ms"] is None
+    assert state["session"]["saved_clean_ms"] is None
+
+
 class TestColdFillMode:
     def test_cold_fill_mode_exists(self):
         assert Mode.COLD_FILL.value == "cold_fill"

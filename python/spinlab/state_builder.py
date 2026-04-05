@@ -77,6 +77,19 @@ class StateBuilder:
             "segments_attempted": ps.segments_attempted,
             "segments_completed": ps.segments_completed,
         }
+        cur_total, cur_clean = ps.current_expected_times()
+        saved_total = (
+            ps.initial_expected_total_ms - cur_total
+            if ps.initial_expected_total_ms is not None and cur_total is not None
+            else None
+        )
+        saved_clean = (
+            ps.initial_expected_clean_ms - cur_clean
+            if ps.initial_expected_clean_ms is not None and cur_clean is not None
+            else None
+        )
+        base["session"]["saved_total_ms"] = saved_total
+        base["session"]["saved_clean_ms"] = saved_clean
         if ps.current_segment_id:
             segments = self.db.get_all_segments_with_model(session.game_id)
             seg_map = {s["id"]: s for s in segments}
