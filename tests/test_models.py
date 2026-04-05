@@ -1,6 +1,6 @@
 """Tests for spinlab.models."""
 
-from spinlab.models import Waypoint
+from spinlab.models import Segment, Waypoint
 
 
 def test_waypoint_id_is_deterministic():
@@ -26,3 +26,26 @@ def test_waypoint_conditions_are_canonical_json():
 def test_empty_conditions():
     w = Waypoint.make("g", 1, "entrance", 0, {})
     assert w.conditions_json == "{}"
+
+
+def test_segment_id_includes_waypoint_ids():
+    wp_a = Waypoint.make("g", 5, "entrance", 0, {"powerup": "small"})
+    wp_b = Waypoint.make("g", 5, "goal", 0, {"powerup": "small"})
+    wp_c = Waypoint.make("g", 5, "entrance", 0, {"powerup": "big"})
+    id_small = Segment.make_id("g", 5, "entrance", 0, "goal", 0, wp_a.id, wp_b.id)
+    id_big   = Segment.make_id("g", 5, "entrance", 0, "goal", 0, wp_c.id, wp_b.id)
+    assert id_small != id_big
+    # Same waypoints → same segment id
+    assert id_small == Segment.make_id("g", 5, "entrance", 0, "goal", 0, wp_a.id, wp_b.id)
+
+def test_segment_is_primary_default_true():
+    wp_a = Waypoint.make("g", 1, "entrance", 0, {})
+    wp_b = Waypoint.make("g", 1, "goal", 0, {})
+    seg = Segment(
+        id=Segment.make_id("g", 1, "entrance", 0, "goal", 0, wp_a.id, wp_b.id),
+        game_id="g", level_number=1,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
+        start_waypoint_id=wp_a.id, end_waypoint_id=wp_b.id,
+    )
+    assert seg.is_primary is True

@@ -19,7 +19,8 @@ def tmp_db(tmp_path):
 def _make_segment(db, game_id, level, start_type="entrance", start_ord=0,
                   end_type="goal", end_ord=0, desc="", ordinal=1, ref_id=None):
     seg = Segment(
-        id=Segment.make_id(game_id, level, start_type, start_ord, end_type, end_ord),
+        id=Segment.make_id(game_id, level, start_type, start_ord, end_type, end_ord,
+                           "stub_start", "stub_end"),
         game_id=game_id, level_number=level,
         start_type=start_type, start_ordinal=start_ord,
         end_type=end_type, end_ordinal=end_ord,
@@ -71,14 +72,14 @@ class TestCaptureRunCRUD:
 class TestSegmentEdit:
     def test_update_segment_description(self, db):
         _make_segment(db, "g", 1)
-        seg_id = Segment.make_id("g", 1, "entrance", 0, "goal", 0)
+        seg_id = Segment.make_id("g", 1, "entrance", 0, "goal", 0, "stub_start", "stub_end")
         db.update_segment(seg_id, description="Yoshi's Island 1")
         rows = db.get_all_segments_with_model("g")
         assert rows[0]["description"] == "Yoshi's Island 1"
 
     def test_soft_delete_segment(self, db):
         _make_segment(db, "g", 1)
-        seg_id = Segment.make_id("g", 1, "entrance", 0, "goal", 0)
+        seg_id = Segment.make_id("g", 1, "entrance", 0, "goal", 0, "stub_start", "stub_end")
         db.soft_delete_segment(seg_id)
         rows = db.get_all_segments_with_model("g")
         assert len(rows) == 0  # deactivated

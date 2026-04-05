@@ -110,11 +110,16 @@ class Segment:
     active: bool = True
     ordinal: Optional[int] = None
     reference_id: Optional[str] = None
+    start_waypoint_id: Optional[str] = None
+    end_waypoint_id: Optional[str] = None
+    is_primary: bool = True
 
     @staticmethod
     def make_id(game_id: str, level: int, start_type: str, start_ord: int,
-                end_type: str, end_ord: int) -> str:
-        return f"{game_id}:{level}:{start_type}.{start_ord}:{end_type}.{end_ord}"
+                end_type: str, end_ord: int,
+                start_waypoint_id: str, end_waypoint_id: str) -> str:
+        return (f"{game_id}:{level}:{start_type}.{start_ord}:{end_type}.{end_ord}"
+                f":{start_waypoint_id[:8]}:{end_waypoint_id[:8]}")
 
 
 @dataclass

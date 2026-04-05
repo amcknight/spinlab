@@ -56,16 +56,21 @@ class ReferenceCapture:
         if not self.pending_start:
             return
 
-        from .models import Segment, SegmentVariant
+        from .models import Segment, SegmentVariant, Waypoint
 
         start = self.pending_start
         cp_ordinal = event.get("cp_ordinal", 1)
         level = event.get("level_num", start["level_num"])
 
+        # Construct throwaway waypoints with empty conditions to build the segment id.
+        # Task 10 will rewrite this to persist real waypoints with actual conditions.
+        start_wp = Waypoint.make(game_id, level, start["type"], start["ordinal"], {})
+        end_wp = Waypoint.make(game_id, level, "checkpoint", cp_ordinal, {})
         seg_id = Segment.make_id(
             game_id, level,
             start["type"], start["ordinal"],
             "checkpoint", cp_ordinal,
+            start_wp.id, end_wp.id,
         )
         self.segments_count += 1
         seg = Segment(
@@ -78,6 +83,8 @@ class ReferenceCapture:
             end_ordinal=cp_ordinal,
             ordinal=self.segments_count,
             reference_id=self.capture_run_id,
+            start_waypoint_id=start_wp.id,
+            end_waypoint_id=end_wp.id,
         )
         db.upsert_segment(seg)
 
@@ -111,15 +118,20 @@ class ReferenceCapture:
             return
 
         self.segments_count += 1
-        from .models import Segment, SegmentVariant
+        from .models import Segment, SegmentVariant, Waypoint
         start = self.pending_start
         level = event["level"]
 
         end_ordinal = 0
+        # Construct throwaway waypoints with empty conditions to build the segment id.
+        # Task 10 will rewrite this to persist real waypoints with actual conditions.
+        start_wp = Waypoint.make(game_id, level, start["type"], start["ordinal"], {})
+        end_wp = Waypoint.make(game_id, level, "goal", end_ordinal, {})
         seg_id = Segment.make_id(
             game_id, level,
             start["type"], start["ordinal"],
             "goal", end_ordinal,
+            start_wp.id, end_wp.id,
         )
         seg = Segment(
             id=seg_id,
@@ -132,6 +144,8 @@ class ReferenceCapture:
             description="",
             ordinal=self.segments_count,
             reference_id=self.capture_run_id,
+            start_waypoint_id=start_wp.id,
+            end_waypoint_id=end_wp.id,
         )
         db.upsert_segment(seg)
 

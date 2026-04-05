@@ -19,7 +19,8 @@ def tmp_db(tmp_path):
 def _make_segment(db, game_id, level, start_type="entrance", start_ord=0,
                   end_type="goal", end_ord=0, desc="", ordinal=1, ref_id=None):
     seg = Segment(
-        id=Segment.make_id(game_id, level, start_type, start_ord, end_type, end_ord),
+        id=Segment.make_id(game_id, level, start_type, start_ord, end_type, end_ord,
+                           "stub_start", "stub_end"),
         game_id=game_id, level_number=level,
         start_type=start_type, start_ordinal=start_ord,
         end_type=end_type, end_ordinal=end_ord,

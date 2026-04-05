@@ -209,7 +209,8 @@ class TestFillGap:
         sm.ref_capture.capture_run_id = "run1"
 
         seg = Segment(
-            id=Segment.make_id("game1", 105, "checkpoint", 1, "goal", 0),
+            id=Segment.make_id("game1", 105, "checkpoint", 1, "goal", 0,
+                               "stub_start", "stub_end"),
             game_id="game1", level_number=105,
             start_type="checkpoint", start_ordinal=1,
             end_type="goal", end_ordinal=0,
