@@ -117,6 +117,19 @@ export interface RecentAttempt {
   start_ordinal: number;
   end_type: string;
   end_ordinal: number;
+  invalidated: boolean;
+}
+
+/** PATCH /api/attempts/:id request body. */
+export interface AttemptPatch {
+  invalidated: boolean;
+}
+
+/** PATCH /api/attempts/:id response body. */
+export interface AttemptPatchResponse {
+  ok: boolean;
+  id: number;
+  invalidated: boolean;
 }
 
 /** GET /api/state and SSE event payload. */

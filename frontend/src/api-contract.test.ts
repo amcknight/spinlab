@@ -65,6 +65,7 @@ const PRACTICE_STATE: AppState = {
       start_ordinal: 0,
       end_type: "checkpoint",
       end_ordinal: 1,
+      invalidated: false,
     },
   ],
   session: {

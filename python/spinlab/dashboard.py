@@ -117,12 +117,14 @@ def create_app(
     from .routes.model import router as model_router
     from .routes.segments import router as segments_router
     from .routes.system import router as system_router
+    from .routes.attempts import router as attempts_router
 
     app.include_router(practice_router)
     app.include_router(reference_router)
     app.include_router(model_router)
     app.include_router(segments_router)
     app.include_router(system_router)
+    app.include_router(attempts_router)
 
     # -- Root endpoint --
 
