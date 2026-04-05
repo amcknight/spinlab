@@ -4,10 +4,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Callable
 
+from .allocators import SegmentWithModel
 from .models import Attempt, SegmentCommand
 from .scheduler import Scheduler
 
@@ -46,11 +48,50 @@ class PracticeSession:
         self.segments_attempted = 0
         self.segments_completed = 0
 
+        self.initial_expected_total_ms: float | None = None
+        self.initial_expected_clean_ms: float | None = None
+
         self._result_event = asyncio.Event()
         self._result_data: dict | None = None
 
+    def _snapshot_expected_times(
+        self, estimator_name: str
+    ) -> tuple[float | None, float | None]:
+        """Sum expected_ms across practicable segments using the named estimator.
+
+        A segment contributes iff it has a state_path that exists on disk AND
+        the estimator produced a non-None expected_ms. Missing clean estimates
+        contribute 0 to clean; missing total estimates contribute 0 to total.
+        Returns (None, None) if every segment lacked both estimates.
+        """
+        segments = SegmentWithModel.load_all(self.db, self.game_id, estimator_name)
+        total_sum = 0.0
+        clean_sum = 0.0
+        any_total = False
+        any_clean = False
+        for seg in segments:
+            if not seg.state_path or not os.path.exists(seg.state_path):
+                continue
+            output = seg.model_outputs.get(estimator_name)
+            if output is None:
+                continue
+            if output.total.expected_ms is not None:
+                total_sum += output.total.expected_ms
+                any_total = True
+            if output.clean.expected_ms is not None:
+                clean_sum += output.clean.expected_ms
+                any_clean = True
+        return (
+            total_sum if any_total else None,
+            clean_sum if any_clean else None,
+        )
+
     def start(self) -> None:
         self.db.create_session(self.session_id, self.game_id)
+        (
+            self.initial_expected_total_ms,
+            self.initial_expected_clean_ms,
+        ) = self._snapshot_expected_times(self.scheduler.estimator.name)
         self.is_running = True
 
     def stop(self) -> None:
