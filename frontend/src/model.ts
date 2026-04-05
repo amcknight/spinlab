@@ -1,7 +1,7 @@
-import { segmentName, formatTime, elapsedStr } from "./format";
+import { segmentName, formatTime, elapsedStr, formatSavings } from "./format";
 import { fetchJSON, postJSON } from "./api";
 import { selectedEstimate, currentEstimate, formatTrend, canStartPractice } from "./model-logic";
-import type { AppState, ModelData, TuningData } from "./types";
+import type { AppState, ModelData, TuningData, SessionInfo } from "./types";
 
 const ALLOCATOR_COLORS: Record<string, string> = {
   greedy: "#4caf50",
@@ -166,6 +166,41 @@ function updateModel(data: ModelData): void {
   }
 }
 
+export function updateSavingsPanel(session: SessionInfo | null): void {
+  const panel = document.getElementById("savings-panel") as HTMLElement | null;
+  if (!panel) return;
+
+  const totalStr = session ? formatSavings(session.saved_total_ms) : null;
+  const cleanStr = session ? formatSavings(session.saved_clean_ms) : null;
+
+  if (totalStr === null && cleanStr === null) {
+    panel.style.display = "none";
+    return;
+  }
+  panel.style.display = "";
+
+  const totalEl = document.getElementById("savings-total")!;
+  const cleanEl = document.getElementById("savings-clean")!;
+
+  if (totalStr !== null) {
+    totalEl.textContent = totalStr + " total";
+    totalEl.className =
+      "savings-value " + ((session!.saved_total_ms ?? 0) >= 0 ? "positive" : "negative");
+  } else {
+    totalEl.textContent = "";
+    totalEl.className = "savings-value";
+  }
+
+  if (cleanStr !== null) {
+    cleanEl.textContent = cleanStr + " clean";
+    cleanEl.className =
+      "savings-value " + ((session!.saved_clean_ms ?? 0) >= 0 ? "positive" : "negative");
+  } else {
+    cleanEl.textContent = "";
+    cleanEl.className = "savings-value";
+  }
+}
+
 export function updatePracticeCard(data: AppState): void {
   const card = document.getElementById("practice-card") as HTMLElement;
   if (data.mode !== "practice" || !data.current_segment) {
@@ -173,6 +208,7 @@ export function updatePracticeCard(data: AppState): void {
     return;
   }
   card.style.display = "";
+  updateSavingsPanel(data.session);
 
   const cs = data.current_segment;
   document.getElementById("current-goal")!.textContent = segmentName(cs);
