@@ -1,6 +1,8 @@
 """Segment CRUD and fill-gap routes."""
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from spinlab.dashboard import _check_result
@@ -14,8 +16,16 @@ router = APIRouter(prefix="/api")
 
 @router.get("/segments")
 def api_segments(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
-    segments = db.get_all_segments_with_model(session._require_game())
-    return {"segments": segments}
+    rows = db.get_all_segments_with_model(session._require_game())
+    out = []
+    for r in rows:
+        start_wp = db.get_waypoint(r["start_waypoint_id"]) if r.get("start_waypoint_id") else None
+        end_wp = db.get_waypoint(r["end_waypoint_id"]) if r.get("end_waypoint_id") else None
+        r["start_conditions"] = json.loads(start_wp.conditions_json) if start_wp else {}
+        r["end_conditions"] = json.loads(end_wp.conditions_json) if end_wp else {}
+        r["is_primary"] = bool(r.get("is_primary", 1))
+        out.append(r)
+    return {"segments": out}
 
 
 @router.patch("/segments/{segment_id}")
