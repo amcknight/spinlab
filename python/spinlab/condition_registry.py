@@ -9,12 +9,11 @@ import yaml
 
 
 # Scope types ----------------------------------------------------------
-@dataclass
+@dataclass(frozen=True)
 class Scope:
     """Scope of a condition: entire game, or specific levels only."""
     is_game_scope: bool
-    # Mutable list so tests can assert equality with list literals.
-    levels: list[int] = field(default_factory=list)
+    levels: tuple[int, ...] = ()
 
     @classmethod
     def game(cls) -> "Scope":
@@ -22,7 +21,7 @@ class Scope:
 
     @classmethod
     def levels_of(cls, levels: Iterable[int]) -> "Scope":
-        return cls(is_game_scope=False, levels=list(levels))
+        return cls(is_game_scope=False, levels=tuple(levels))
 
     # Alias used by tests for readability.
     @classmethod
@@ -61,7 +60,7 @@ class ConditionRegistry:
                 raise ValueError(f"unknown scope: {scope_raw!r}")
             defs.append(ConditionDef(
                 name=c["name"],
-                address=int(c["address"], 0) if isinstance(c["address"], str) else int(c["address"]),
+                address=int(c["address"]),
                 size=int(c["size"]),
                 type=c["type"],
                 values=({int(k): str(v) for k, v in c["values"].items()}
@@ -81,8 +80,15 @@ class ConditionRegistry:
                 continue
             v = raw[d.name]
             if d.type == "enum":
-                assert d.values is not None
-                result[d.name] = d.values.get(v, f"unknown_{v}")
+                if d.values is None:
+                    raise ValueError(
+                        f"enum condition '{d.name}' requires a 'values' map but got None"
+                    )
+                if v not in d.values:
+                    raise ValueError(
+                        f"unknown value {v} for enum condition '{d.name}'; known: {sorted(d.values.keys())}"
+                    )
+                result[d.name] = d.values[v]
             elif d.type == "bool":
                 result[d.name] = bool(v)
             else:
