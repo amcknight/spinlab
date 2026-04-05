@@ -40,8 +40,8 @@ RECENT_ATTEMPTS_DB_LIMIT = 8
 class AttemptsMixin:
     """Attempt logging and statistics."""
 
-    def log_attempt(self, attempt: Attempt) -> None:
-        self.conn.execute(
+    def log_attempt(self, attempt: Attempt) -> int:
+        cur = self.conn.execute(
             """INSERT INTO attempts
                (segment_id, session_id, completed, time_ms,
                 strat_version, source, deaths, clean_tail_ms,
@@ -57,6 +57,7 @@ class AttemptsMixin:
              attempt.created_at.isoformat()),
         )
         self.conn.commit()
+        return cur.lastrowid
 
     def get_segment_stats(self, segment_id: str, strat_version: Optional[int] = None) -> dict:
         """Get aggregate stats for a segment."""
@@ -128,3 +129,18 @@ class AttemptsMixin:
             d = dict(zip(cols, row))
             result[d["segment_id"]].append(d)
         return result
+
+    def set_attempt_invalidated(self, attempt_id: int, invalidated: bool) -> None:
+        self.conn.execute(
+            "UPDATE attempts SET invalidated = ? WHERE id = ?",
+            (int(invalidated), attempt_id),
+        )
+        self.conn.commit()
+
+    def get_last_practice_attempt(self, session_id: str) -> int | None:
+        row = self.conn.execute(
+            "SELECT id FROM attempts WHERE session_id = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        return row[0] if row else None
