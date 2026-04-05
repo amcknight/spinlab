@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpinLab</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#127922;</text></svg>">
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="header-left">
+      <span class="logo">SpinLab</span>
+      <button id="game-selector" class="game-selector-btn">
+        <span id="game-name">No game</span>
+        <span class="caret">&#9662;</span>
+      </button>
+      <div id="game-popover" class="popover" style="display:none">
+        <input id="rom-filter" type="text" placeholder="Filter ROMs..." autocomplete="off">
+        <ul id="rom-list"></ul>
+      </div>
+    </div>
+    <div id="mode-chip" class="mode-chip idle">
+      <span class="mode-dot"></span>
+      <span id="mode-label">Idle</span>
+      <button id="mode-stop" class="mode-stop" style="display:none" title="Stop">&times;</button>
+    </div>
+  </header>
+
+  <nav id="tabs">
+    <button class="tab active" data-tab="model">Model</button>
+    <button class="tab" data-tab="manage">Manage</button>
+  </nav>
+
+  <main>
+    <!-- Model Tab -->
+    <section id="tab-model" class="tab-content active">
+      <!-- Practice card (hidden when not practicing) -->
+      <div id="practice-card" style="display:none">
+        <div class="card">
+          <div class="segment-header">
+            <span id="current-goal" class="goal-label"></span>
+            <span id="current-attempts" class="dim"></span>
+          </div>
+          <div id="insight" class="insight-card"></div>
+        </div>
+        <h3>Recent</h3>
+        <ul id="recent"></ul>
+        <div class="practice-footer">
+          <span id="session-stats" class="dim"></span>
+        </div>
+        <div class="allocator-weights" id="allocator-weights">
+          <div class="weight-slider" id="weight-slider"></div>
+          <div class="weight-legend" id="weight-legend"></div>
+        </div>
+      </div>
+
+      <!-- Practice controls -->
+      <div id="practice-controls" class="practice-controls">
+        <button id="btn-practice-start" class="btn-primary">Start Practice</button>
+        <button id="btn-practice-stop" class="btn-danger" style="display:none">Stop Practice</button>
+      </div>
+
+      <!-- Model table (always visible) -->
+      <div class="model-header">
+        <h2>Model State</h2>
+        <select id="estimator-select">
+        </select>
+      </div>
+      <div id="tuning-panel" class="tuning-panel collapsed">
+        <button id="tuning-toggle" class="tuning-toggle">
+          <span class="tuning-caret">&#9656;</span> Tuning
+        </button>
+        <div id="tuning-body" class="tuning-body" style="display:none">
+          <div id="tuning-params"></div>
+          <div class="tuning-actions">
+            <button id="btn-tuning-apply" class="btn-primary btn-sm">Apply</button>
+            <button id="btn-tuning-reset" class="btn-sm">Reset Defaults</button>
+          </div>
+        </div>
+      </div>
+      <table id="model-table">
+        <thead>
+          <tr>
+            <th title="Level section being practiced">Segment</th>
+            <th title="Expected completion time">Expected</th>
+            <th title="How your time changes per run (positive = improving)">Trend</th>
+            <th title="Theoretical best with infinite practice">Floor</th>
+            <th title="Completed practice attempts">Runs</th>
+            <th title="Your fastest completion">Best</th>
+          </tr>
+        </thead>
+        <tbody id="model-body"></tbody>
+      </table>
+    </section>
+
+    <!-- Manage Tab -->
+    <section id="tab-manage" class="tab-content">
+      <!-- References section -->
+      <div class="manage-section">
+        <h3>References</h3>
+        <div class="ref-row">
+          <select id="ref-select"></select>
+          <button id="btn-ref-rename" class="btn-sm" title="Rename">&#9998;</button>
+          <button id="btn-ref-delete" class="btn-sm btn-danger-sm" title="Delete">&#10005;</button>
+        </div>
+        <div class="ref-actions">
+          <button id="btn-ref-start" class="btn-primary">Start Reference Run</button>
+          <button id="btn-replay" class="btn-primary" disabled>Replay</button>
+        </div>
+      </div>
+
+      <!-- Draft save/discard prompt (hidden by default) -->
+      <div id="draft-prompt" class="manage-section draft-prompt" style="display:none">
+        <p id="draft-summary"></p>
+        <input id="draft-name" type="text" placeholder="Name this run..." autocomplete="off">
+        <div class="draft-actions">
+          <button id="btn-draft-save" class="btn-primary">Save</button>
+          <button id="btn-draft-discard" class="btn-danger">Discard</button>
+        </div>
+      </div>
+
+      <!-- Segments table -->
+      <div class="manage-section">
+        <h3>Segments</h3>
+        <div id="cold-fill-banner" style="display:none"></div>
+        <table id="segment-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Level</th>
+              <th>Segment</th>
+              <th>State</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="segment-body"></tbody>
+        </table>
+      </div>
+
+      <!-- Data section -->
+      <div class="manage-section">
+        <h3>Data</h3>
+        <p class="dim">Clear all session history, attempts, and model state. Keeps segments and game config.</p>
+        <button id="btn-reset" class="btn-danger">Clear All Data</button>
+        <p id="reset-status" class="dim"></p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/src/app.ts"></script>
+</div>
+</body>
+</html>
