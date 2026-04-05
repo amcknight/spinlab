@@ -237,6 +237,36 @@ class TestModelEndpoint:
         s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
         assert s1["gold_ms"] is not None
 
+    def test_model_response_matches_frontend_types(self, active_client):
+        """Verify /api/model response structure matches frontend TypeScript types.
+
+        The frontend expects: segments[].model_outputs[name].total.expected_ms
+        NOT: segments[].model_outputs[name].expected_time_ms (old flat structure)
+        """
+        resp = active_client.get("/api/model")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Top-level keys match ModelData interface
+        assert set(data.keys()) == {"estimator", "estimators", "allocator_weights", "segments"}
+
+        if data["segments"]:
+            seg = data["segments"][0]
+            # Keys match ModelSegment interface
+            expected_keys = {
+                "segment_id", "description", "level_number",
+                "start_type", "start_ordinal", "end_type", "end_ordinal",
+                "selected_model", "model_outputs",
+                "n_completed", "n_attempts", "gold_ms", "clean_gold_ms",
+            }
+            assert set(seg.keys()) == expected_keys
+
+            # model_outputs has nested total/clean structure
+            if seg["model_outputs"]:
+                output = next(iter(seg["model_outputs"].values()))
+                assert set(output.keys()) == {"total", "clean"}
+                assert set(output["total"].keys()) == {"expected_ms", "ms_per_attempt", "floor_ms"}
+
 
 # -- Allocator / estimator switching -----------------------------------------
 
