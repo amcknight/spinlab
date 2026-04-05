@@ -29,6 +29,18 @@ Red-Green TDD. Keep only tests that document behavior or catch regressions.
 - `lua/poke_engine.lua` ADDR_MAP
 - `tests/integration/addresses.py` ADDR_MAP
 
+## Frontend (TypeScript + Vite)
+
+Source lives in `frontend/src/`. Built output goes to `python/spinlab/static/` (git-ignored).
+
+- **Dev server:** `cd frontend && npm run dev` (port 5173, proxies /api to FastAPI on 8000)
+- **Build:** `cd frontend && npm run build`
+- **Tests:** `cd frontend && npm test`
+- **Type check:** `cd frontend && npm run typecheck`
+
+Run `npm run build` after frontend changes before testing with FastAPI directly.
+Types in `frontend/src/types.ts` must stay in sync with Python response models.
+
 ## Worktrees
 
 Worktrees live in `.worktrees/{name}/` with branch `worktree/{name}`.
