@@ -201,3 +201,22 @@ def test_snapshot_all_missing_returns_none(db):
 
     assert ps.initial_expected_total_ms is None
     assert ps.initial_expected_clean_ms is None
+
+
+def test_current_expected_times_reflects_model_updates(db):
+    """After process_attempt runs, current_expected_times() returns the new sum."""
+    sched = Scheduler(db, "g")
+    sched.process_attempt(SEG_ID, time_ms=5000, completed=True, deaths=0)
+
+    tcp = AsyncMock()
+    tcp.is_connected = True
+    ps = PracticeSession(tcp=tcp, db=db, game_id="g")
+    ps.start()
+    initial_total = ps.initial_expected_total_ms
+
+    # Simulate a faster attempt pulling the estimate down.
+    ps.scheduler.process_attempt(SEG_ID, time_ms=3000, completed=True, deaths=0)
+
+    cur_total, cur_clean = ps.current_expected_times()
+    assert cur_total is not None
+    assert cur_total < initial_total

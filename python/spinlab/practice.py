@@ -86,6 +86,11 @@ class PracticeSession:
             clean_sum if any_clean else None,
         )
 
+    def current_expected_times(self) -> tuple[float | None, float | None]:
+        """Current sum of expected_ms across practicable segments, using the
+        scheduler's currently selected estimator."""
+        return self._snapshot_expected_times(self.scheduler.estimator.name)
+
     def start(self) -> None:
         self.db.create_session(self.session_id, self.game_id)
         (
