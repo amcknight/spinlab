@@ -49,3 +49,21 @@ class TestAppConfig:
         config_file.write_text(yaml.dump({"network": {}}))
         with pytest.raises(KeyError):
             AppConfig.from_yaml(config_file)
+
+
+def test_invalidate_combo_default(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("data: { dir: ./data }\n")
+    conf = AppConfig.from_yaml(cfg)
+    assert conf.practice.invalidate_combo == ["L", "Select"]
+
+
+def test_invalidate_combo_custom(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "data: { dir: ./data }\n"
+        "practice:\n"
+        "  invalidate_combo: [R, Start]\n"
+    )
+    conf = AppConfig.from_yaml(cfg)
+    assert conf.practice.invalidate_combo == ["R", "Start"]
