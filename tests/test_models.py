@@ -49,3 +49,18 @@ def test_segment_is_primary_default_true():
         start_waypoint_id=wp_a.id, end_waypoint_id=wp_b.id,
     )
     assert seg.is_primary is True
+
+
+from spinlab.models import Attempt, AttemptSource
+
+
+def test_attempt_has_observed_conditions_and_invalidated():
+    a = Attempt(
+        segment_id="s1", session_id="sess1", completed=True,
+        time_ms=1000, source=AttemptSource.PRACTICE, deaths=0,
+        observed_start_conditions='{"powerup": "big"}',
+        observed_end_conditions='{"powerup": "small"}',
+    )
+    assert a.observed_start_conditions == '{"powerup": "big"}'
+    assert a.observed_end_conditions == '{"powerup": "small"}'
+    assert a.invalidated is False

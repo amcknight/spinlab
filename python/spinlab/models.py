@@ -167,6 +167,9 @@ class Attempt:
     deaths: int = 0
     clean_tail_ms: int | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    observed_start_conditions: str | None = None
+    observed_end_conditions: str | None = None
+    invalidated: bool = False
 
 
 @dataclass
