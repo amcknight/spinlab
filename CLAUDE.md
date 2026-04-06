@@ -21,9 +21,10 @@ Efficient practice system for SNES romhack speedrunning. Captures save states at
 
 Red-Green TDD. Keep only tests that document behavior or catch regressions.
 
-- **Fast tests:** `pytest -m "not (emulator or slow)"` (~23s). Run after any code change.
+- **Fast tests:** `pytest -m "not (emulator or slow or frontend)"` (~23s). Run after any code change.
 - **Slow tests:** `pytest -m slow` (~4s). Run when touching practice loop or TCP wait logic.
 - **Emulator tests:** `pytest -m emulator` (~6s). Run when touching Lua scripts or transition detection.
+- **Static asset tests:** `pytest -m frontend`. Requires `cd frontend && npm run build` first.
 - **Everything:** `pytest` (~30s). Run before committing.
 - **Frontend tests:** `cd frontend && npm test` (~2s). Vitest + happy-dom. Pure logic and API contract tests.
 - **Coverage:** `./scripts/coverage.sh` (unit), `--all` (unit+emulator), `--html` (opens report).

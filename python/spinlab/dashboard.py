@@ -128,8 +128,12 @@ def create_app(
 
     # -- Root endpoint --
 
+    index_path = static_dir / "index.html"
+
     @app.get("/")
     def root():
-        return FileResponse(str(static_dir / "index.html"))
+        if not index_path.exists():
+            raise HTTPException(status_code=503, detail="Frontend not built. Run: cd frontend && npm run build")
+        return FileResponse(str(index_path))
 
     return app

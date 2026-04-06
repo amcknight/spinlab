@@ -377,11 +377,7 @@ def test_fresh_db_reference_start_creates_game(tmp_path):
 
 # -- Static assets -----------------------------------------------------------
 
-_static_dir = Path(__file__).resolve().parent.parent / "python" / "spinlab" / "static"
-_has_built_frontend = (_static_dir / "index.html").exists()
-
-
-@pytest.mark.skipif(not _has_built_frontend, reason="frontend not built (run: cd frontend && npm run build)")
+@pytest.mark.frontend
 class TestStaticAssets:
     def test_index_html(self, active_client):
         html = active_client.get("/").text

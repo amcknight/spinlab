@@ -24,6 +24,7 @@ asyncio_default_fixture_loop_scope = "session"
 markers = [
     "emulator: requires Mesen2 headless (--testRunner)",
     "slow: tests with real waits or timeouts (>500ms)",
+    "frontend: requires built frontend (cd frontend && npm run build)",
 ]
 
 [tool.coverage.run]
