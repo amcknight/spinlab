@@ -36,7 +36,8 @@ class CaptureController:
         self.ref_capture = ReferenceCapture()
         self.draft = DraftManager()
         self.fill_gap_segment_id: str | None = None
-        # Empty registry by default; Task 11 will set the real one at startup.
+        self._fill_gap_waypoint_id: str | None = None
+        # Empty registry by default; set at startup via set_condition_registry.
         self.condition_registry: ConditionRegistry = ConditionRegistry()
 
     def set_condition_registry(self, registry: ConditionRegistry) -> None:
@@ -168,7 +169,7 @@ class CaptureController:
         """Returns True if cold save state was captured and mode should return to IDLE."""
         if not event.get("state_captured") or not self.fill_gap_segment_id:
             return False
-        waypoint_id = getattr(self, "_fill_gap_waypoint_id", None)
+        waypoint_id = self._fill_gap_waypoint_id
         if waypoint_id:
             from .models import WaypointSaveState
             self.db.add_save_state(WaypointSaveState(

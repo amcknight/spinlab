@@ -6,6 +6,7 @@ import asyncio
 import dataclasses
 import logging
 from pathlib import Path
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from .models import ActionResult, Mode, Status
@@ -68,7 +69,7 @@ class SessionManager:
         self._state_builder = StateBuilder(db)
 
         # Event dispatch table — keyed by event dataclass type
-        self._event_handlers: dict[type, callable] = {
+        self._event_handlers: dict[type, Callable] = {
             RomInfoEvent: self._handle_rom_info,
             GameContextEvent: self._handle_game_context,
             LevelEntranceEvent: self._handle_level_entrance,
