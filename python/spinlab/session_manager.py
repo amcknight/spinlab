@@ -303,46 +303,41 @@ class SessionManager:
 
     # --- Mode actions (delegate to controllers, apply mode transitions) ---
 
-    async def start_reference(self, run_name: str | None = None) -> ActionResult:
-        result = await self.capture.start_reference(
-            self.mode,
-            self._require_game(), self.data_dir, run_name,
-        )
+    async def _apply_result(self, result: ActionResult) -> ActionResult:
+        """Apply mode transition from result and notify SSE."""
         if result.new_mode is not None:
             self.mode = result.new_mode
         await self._notify_sse()
         return result
+
+    async def start_reference(self, run_name: str | None = None) -> ActionResult:
+        return await self._apply_result(
+            await self.capture.start_reference(
+                self.mode, self._require_game(), self.data_dir, run_name,
+            )
+        )
 
     async def stop_reference(self) -> ActionResult:
-        result = await self.capture.stop_reference(self.mode)
-        if result.new_mode is not None:
-            self.mode = result.new_mode
-        await self._notify_sse()
-        return result
+        return await self._apply_result(
+            await self.capture.stop_reference(self.mode)
+        )
 
     async def start_replay(self, spinrec_path: str, speed: int = 0) -> ActionResult:
-        result = await self.capture.start_replay(
-            self.mode,
-            self._require_game(), spinrec_path, speed,
+        return await self._apply_result(
+            await self.capture.start_replay(
+                self.mode, self._require_game(), spinrec_path, speed,
+            )
         )
-        if result.new_mode is not None:
-            self.mode = result.new_mode
-        await self._notify_sse()
-        return result
 
     async def stop_replay(self) -> ActionResult:
-        result = await self.capture.stop_replay(self.mode)
-        if result.new_mode is not None:
-            self.mode = result.new_mode
-        await self._notify_sse()
-        return result
+        return await self._apply_result(
+            await self.capture.stop_replay(self.mode)
+        )
 
     async def start_fill_gap(self, segment_id: str) -> ActionResult:
-        result = await self.capture.start_fill_gap(segment_id)
-        if result.new_mode is not None:
-            self.mode = result.new_mode
-        await self._notify_sse()
-        return result
+        return await self._apply_result(
+            await self.capture.start_fill_gap(segment_id)
+        )
 
     async def save_draft(self, name: str) -> ActionResult:
         result = await self.capture.save_draft(name)
