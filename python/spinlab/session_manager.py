@@ -12,6 +12,7 @@ from .models import ActionResult, EventType, Mode, Status
 from .capture_controller import CaptureController
 from .sse import SSEBroadcaster
 from .state_builder import StateBuilder
+from .system_state import SystemState
 
 if TYPE_CHECKING:
     from .db import Database
@@ -45,10 +46,8 @@ class SessionManager:
         self.data_dir = data_dir or Path("data")
         self.invalidate_combo: list[str] = invalidate_combo if invalidate_combo is not None else ["L", "Select"]
 
-        # Core state
-        self.mode: Mode = Mode.IDLE
-        self.game_id: str | None = None
-        self.game_name: str | None = None
+        # Core state — SystemState is the single source of truth
+        self.state = SystemState()
         self.scheduler = None  # Scheduler | None, lazy-init
         self.practice_session = None  # PracticeSession | None
         self.practice_task: asyncio.Task | None = None
@@ -75,6 +74,30 @@ class SessionManager:
             EventType.REPLAY_ERROR: self._handle_replay_error,
             EventType.ATTEMPT_INVALIDATED: self._handle_attempt_invalidated,
         }
+
+    @property
+    def mode(self) -> Mode:
+        return self.state.mode
+
+    @mode.setter
+    def mode(self, value: Mode) -> None:
+        self.state.mode = value
+
+    @property
+    def game_id(self) -> str | None:
+        return self.state.game_id
+
+    @game_id.setter
+    def game_id(self, value: str | None) -> None:
+        self.state.game_id = value
+
+    @property
+    def game_name(self) -> str | None:
+        return self.state.game_name
+
+    @game_name.setter
+    def game_name(self, value: str | None) -> None:
+        self.state.game_name = value
 
     # --- Backward-compatible properties for tests and dashboard ---
 
