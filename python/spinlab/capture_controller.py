@@ -35,11 +35,6 @@ class CaptureController:
         self.fill_gap_segment_id: str | None = None
         # Empty registry by default; Task 11 will set the real one at startup.
         self.condition_registry: ConditionRegistry = ConditionRegistry()
-        # Cold-fill state
-        self.cold_fill_queue: list[dict] = []
-        self.cold_fill_current: str | None = None
-        self.cold_fill_cold_waypoint_id: str | None = None  # waypoint to attach cold state to
-        self.cold_fill_total: int = 0
 
     def set_condition_registry(self, registry: ConditionRegistry) -> None:
         """Replace the condition registry (called at startup with game config)."""
@@ -186,77 +181,6 @@ class CaptureController:
         self.fill_gap_segment_id = None
         self._fill_gap_waypoint_id = None
         return True
-
-    # --- Cold-fill ---
-
-    async def start_cold_fill(self, game_id: str) -> ActionResult:
-        if not self.tcp.is_connected:
-            return ActionResult(status=Status.NOT_CONNECTED)
-        gaps = self.db.segments_missing_cold(game_id)
-        if not gaps:
-            return ActionResult(status=Status.NO_GAPS)
-        self.cold_fill_queue = gaps
-        self.cold_fill_total = len(gaps)
-        self.cold_fill_current = None
-        return await self._load_next_cold_fill()
-
-    async def _load_next_cold_fill(self) -> ActionResult:
-        seg = self.cold_fill_queue[0]
-        self.cold_fill_current = seg["segment_id"]
-        # Look up the start waypoint so handle_cold_fill_spawn knows where to attach cold state.
-        row = self.db.conn.execute(
-            "SELECT start_waypoint_id FROM segments WHERE id = ?",
-            (seg["segment_id"],),
-        ).fetchone()
-        self.cold_fill_cold_waypoint_id = row[0] if row else None
-        await self.tcp.send(json.dumps({
-            "event": "cold_fill_load",
-            "state_path": seg["hot_state_path"],
-            "segment_id": seg["segment_id"],
-        }))
-        return ActionResult(status=Status.STARTED, new_mode=Mode.COLD_FILL)
-
-    async def handle_cold_fill_spawn(self, event: dict) -> bool:
-        """Store cold save state on start waypoint, advance queue. Returns True when all done."""
-        if not event.get("state_captured") or not self.cold_fill_current:
-            return False
-        if self.cold_fill_cold_waypoint_id:
-            from .models import WaypointSaveState
-            self.db.add_save_state(WaypointSaveState(
-                waypoint_id=self.cold_fill_cold_waypoint_id,
-                variant_type="cold",
-                state_path=event["state_path"],
-                is_default=True,
-            ))
-        self.cold_fill_queue.pop(0)
-        if not self.cold_fill_queue:
-            self.cold_fill_current = None
-            self.cold_fill_cold_waypoint_id = None
-            return True
-        await self._load_next_cold_fill()
-        return False
-
-    def clear_cold_fill(self) -> None:
-        """Reset cold-fill state (e.g., on disconnect)."""
-        self.cold_fill_queue = []
-        self.cold_fill_current = None
-        self.cold_fill_total = 0
-
-    def get_cold_fill_state(self) -> dict | None:
-        if not self.cold_fill_current:
-            return None
-        current_num = self.cold_fill_total - len(self.cold_fill_queue) + 1
-        seg = self.cold_fill_queue[0] if self.cold_fill_queue else None
-        label = ""
-        if seg:
-            start = "start" if seg["start_type"] == "entrance" else f"cp{seg['start_ordinal']}"
-            end = "goal" if seg["end_type"] == "goal" else f"cp{seg['end_ordinal']}"
-            label = seg.get("description") or f"L{seg['level_number']} {start} > {end}"
-        return {
-            "current": current_num,
-            "total": self.cold_fill_total,
-            "segment_label": label,
-        }
 
     # --- Capture event routing ---
 

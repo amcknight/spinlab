@@ -61,7 +61,7 @@ class StateBuilder:
             base["draft"] = draft_state
 
         if session.mode == Mode.COLD_FILL:
-            cf_state = session.capture.get_cold_fill_state()
+            cf_state = session.cold_fill.get_state()
             if cf_state:
                 base["cold_fill"] = cf_state
 

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from .models import ActionResult, EventType, Mode, Status
 from .capture_controller import CaptureController
+from .cold_fill_controller import ColdFillController
 from .sse import SSEBroadcaster
 from .state_builder import StateBuilder
 from .system_state import SystemState
@@ -54,6 +55,7 @@ class SessionManager:
 
         # Delegated components
         self.capture = CaptureController(db, tcp)
+        self.cold_fill = ColdFillController(db, tcp)
         self.sse = SSEBroadcaster()
         self._state_builder = StateBuilder(db)
 
@@ -242,7 +244,7 @@ class SessionManager:
 
     async def _handle_spawn(self, event: dict) -> None:
         if self.mode == Mode.COLD_FILL:
-            done = await self.capture.handle_cold_fill_spawn(event)
+            done = await self.cold_fill.handle_spawn(event)
             if done:
                 self.mode = Mode.IDLE
             await self._notify_sse()
@@ -345,9 +347,7 @@ class SessionManager:
     async def save_draft(self, name: str) -> ActionResult:
         result = await self.capture.save_draft(name)
         if result.status == Status.OK and self.game_id and self.tcp.is_connected:
-            cf_result = await self.capture.start_cold_fill(
-                self.game_id,
-            )
+            cf_result = await self.cold_fill.start(self.game_id)
             if cf_result.new_mode == Mode.COLD_FILL:
                 self.mode = Mode.COLD_FILL
         await self._notify_sse()
@@ -406,7 +406,7 @@ class SessionManager:
     def on_disconnect(self) -> None:
         if self.practice_session and self.practice_session.is_running:
             self.practice_session.is_running = False
-        self.capture.clear_cold_fill()
+        self.cold_fill.clear()
         self.capture.handle_disconnect()
         self._clear_ref_and_idle()
 

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
-from spinlab.capture_controller import CaptureController
+from spinlab.cold_fill_controller import ColdFillController
 from spinlab.models import Mode, Status, WaypointSaveState
 
 
@@ -43,8 +43,8 @@ def db():
 
 class TestStartColdFill:
     async def test_start_cold_fill_sends_first_segment(self, tcp, db):
-        cc = CaptureController(db, tcp)
-        result = await cc.start_cold_fill("g1")
+        cc = ColdFillController(db, tcp)
+        result = await cc.start("g1")
 
         assert result.status == Status.STARTED
         assert result.new_mode == Mode.COLD_FILL
@@ -57,24 +57,24 @@ class TestStartColdFill:
 
     async def test_start_cold_fill_no_gaps(self, tcp, db):
         db.segments_missing_cold.return_value = []
-        cc = CaptureController(db, tcp)
-        result = await cc.start_cold_fill("g1")
+        cc = ColdFillController(db, tcp)
+        result = await cc.start("g1")
         assert result.status == Status.NO_GAPS
 
     async def test_start_cold_fill_not_connected(self, tcp, db):
         tcp.is_connected = False
-        cc = CaptureController(db, tcp)
-        result = await cc.start_cold_fill("g1")
+        cc = ColdFillController(db, tcp)
+        result = await cc.start("g1")
         assert result.status == Status.NOT_CONNECTED
 
 
 class TestHandleColdFillSpawn:
     async def test_stores_cold_save_state_and_advances(self, tcp, db):
-        cc = CaptureController(db, tcp)
-        await cc.start_cold_fill("g1")
+        cc = ColdFillController(db, tcp)
+        await cc.start("g1")
 
         # Simulate spawn event for first segment
-        done = await cc.handle_cold_fill_spawn(
+        done = await cc.handle_spawn(
             {"state_captured": True, "state_path": "/cold1.mss"},
         )
         assert done is False  # still have one more
@@ -92,66 +92,66 @@ class TestHandleColdFillSpawn:
         assert sent["segment_id"] == "g1:105:cp.2:goal.0"
 
     async def test_returns_true_when_queue_empty(self, tcp, db):
-        cc = CaptureController(db, tcp)
-        await cc.start_cold_fill("g1")
+        cc = ColdFillController(db, tcp)
+        await cc.start("g1")
 
         # Process both segments
-        await cc.handle_cold_fill_spawn(
+        await cc.handle_spawn(
             {"state_captured": True, "state_path": "/cold1.mss"},
         )
-        done = await cc.handle_cold_fill_spawn(
+        done = await cc.handle_spawn(
             {"state_captured": True, "state_path": "/cold2.mss"},
         )
         assert done is True
 
     async def test_ignores_spawn_without_state(self, tcp, db):
-        cc = CaptureController(db, tcp)
-        await cc.start_cold_fill("g1")
+        cc = ColdFillController(db, tcp)
+        await cc.start("g1")
 
-        done = await cc.handle_cold_fill_spawn(
+        done = await cc.handle_spawn(
             {"state_captured": False},
         )
         assert done is False
         # Queue unchanged — still on first segment
-        assert cc.cold_fill_current == "g1:105:cp.1:cp.2"
+        assert cc.current == "g1:105:cp.1:cp.2"
 
 
 class TestGetColdFillState:
     async def test_returns_none_before_start(self, tcp, db):
-        cc = CaptureController(db, tcp)
-        assert cc.get_cold_fill_state() is None
+        cc = ColdFillController(db, tcp)
+        assert cc.get_state() is None
 
     async def test_returns_progress_mid_fill(self, tcp, db):
-        cc = CaptureController(db, tcp)
-        await cc.start_cold_fill("g1")
+        cc = ColdFillController(db, tcp)
+        await cc.start("g1")
 
-        state = cc.get_cold_fill_state()
+        state = cc.get_state()
         assert state["current"] == 1
         assert state["total"] == 2
         assert state["segment_label"] == "L105 cp1 > cp2"
 
     async def test_progress_advances(self, tcp, db):
-        cc = CaptureController(db, tcp)
-        await cc.start_cold_fill("g1")
+        cc = ColdFillController(db, tcp)
+        await cc.start("g1")
 
-        await cc.handle_cold_fill_spawn(
+        await cc.handle_spawn(
             {"state_captured": True, "state_path": "/cold1.mss"},
         )
-        state = cc.get_cold_fill_state()
+        state = cc.get_state()
         assert state["current"] == 2
         assert state["total"] == 2
         assert state["segment_label"] == "L105 cp2 > goal"
 
     async def test_returns_none_after_complete(self, tcp, db):
-        cc = CaptureController(db, tcp)
-        await cc.start_cold_fill("g1")
-        await cc.handle_cold_fill_spawn(
+        cc = ColdFillController(db, tcp)
+        await cc.start("g1")
+        await cc.handle_spawn(
             {"state_captured": True, "state_path": "/cold1.mss"},
         )
-        await cc.handle_cold_fill_spawn(
+        await cc.handle_spawn(
             {"state_captured": True, "state_path": "/cold2.mss"},
         )
-        assert cc.get_cold_fill_state() is None
+        assert cc.get_state() is None
 
     async def test_uses_description_when_present(self, tcp, db):
         db.segments_missing_cold.return_value = [
@@ -159,7 +159,7 @@ class TestGetColdFillState:
              "level_number": 105, "start_type": "checkpoint", "start_ordinal": 1,
              "end_type": "goal", "end_ordinal": 0, "description": "My Custom Name"},
         ]
-        cc = CaptureController(db, tcp)
-        await cc.start_cold_fill("g1")
-        state = cc.get_cold_fill_state()
+        cc = ColdFillController(db, tcp)
+        await cc.start("g1")
+        state = cc.get_state()
         assert state["segment_label"] == "My Custom Name"

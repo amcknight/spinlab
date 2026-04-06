@@ -280,13 +280,13 @@ class TestColdFill:
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         sm.mode = Mode.COLD_FILL
-        sm.capture.cold_fill_current = "seg1"
-        sm.capture.cold_fill_queue = [
+        sm.cold_fill.current = "seg1"
+        sm.cold_fill.queue = [
             {"segment_id": "seg1", "hot_state_path": "/hot1.mss",
              "level_number": 105, "start_type": "checkpoint", "start_ordinal": 1,
              "end_type": "goal", "end_ordinal": 0, "description": ""},
         ]
-        sm.capture.cold_fill_total = 1
+        sm.cold_fill.total = 1
 
         await sm.route_event({
             "event": "spawn",
@@ -299,26 +299,26 @@ class TestColdFill:
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         sm.mode = Mode.COLD_FILL
-        sm.capture.cold_fill_current = "seg1"
-        sm.capture.cold_fill_queue = [{"segment_id": "seg1"}]
-        sm.capture.cold_fill_total = 1
+        sm.cold_fill.current = "seg1"
+        sm.cold_fill.queue = [{"segment_id": "seg1"}]
+        sm.cold_fill.total = 1
 
         sm.on_disconnect()
         assert sm.mode == Mode.IDLE
-        assert sm.capture.cold_fill_current is None
-        assert sm.capture.cold_fill_queue == []
+        assert sm.cold_fill.current is None
+        assert sm.cold_fill.queue == []
 
     async def test_cold_fill_state_in_get_state(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         sm.mode = Mode.COLD_FILL
-        sm.capture.cold_fill_current = "seg1"
-        sm.capture.cold_fill_queue = [
+        sm.cold_fill.current = "seg1"
+        sm.cold_fill.queue = [
             {"segment_id": "seg1", "hot_state_path": "/hot1.mss",
              "level_number": 105, "start_type": "checkpoint", "start_ordinal": 1,
              "end_type": "goal", "end_ordinal": 0, "description": ""},
         ]
-        sm.capture.cold_fill_total = 2
+        sm.cold_fill.total = 2
 
         state = sm.get_state()
         assert state["mode"] == "cold_fill"
