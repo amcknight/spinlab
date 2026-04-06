@@ -293,6 +293,28 @@ local function json_get_bool(json_str, key)
   else return nil end
 end
 
+-- Extract a JSON array field as a raw substring.
+-- Balances brackets to find the full array, even if nested.
+-- Returns nil if the key is not found.
+local function json_get_arr(json_str, key)
+  local start = json_str:find('"' .. key .. '"%s*:%s*%[')
+  if not start then return nil end
+  local arr_start = json_str:find('%[', start)
+  if not arr_start then return nil end
+  local depth = 0
+  for i = arr_start, #json_str do
+    local c = json_str:sub(i, i)
+    if c == '[' then depth = depth + 1
+    elseif c == ']' then
+      depth = depth - 1
+      if depth == 0 then
+        return json_str:sub(arr_start, i)
+      end
+    end
+  end
+  return nil
+end
+
 -- Parse practice_load JSON payload into a table.
 local function parse_practice_segment(json_str)
   local end_on_goal = json_get_bool(json_str, "end_on_goal")
@@ -1030,9 +1052,62 @@ local function handle_json_message(line)
       client:send("ok:cold_fill\n")
       log("Cold-fill: loaded " .. seg_id .. " -- die to capture cold start")
     end
+  elseif decoded_event == "set_conditions" then
+    local defs_str = json_get_arr(line, "definitions")
+    if not defs_str then
+      client:send("err:set_conditions_invalid\n")
+      return
+    end
+    local defs, err = parse_conditions_json(defs_str)
+    if not defs then
+      log("set_conditions: invalid payload — " .. tostring(err))
+      client:send("err:set_conditions_invalid\n")
+      return
+    end
+    condition_defs = defs
+    client:send("ok:conditions_set\n")
+    log("set_conditions: loaded " .. #condition_defs .. " conditions")
+  elseif decoded_event == "set_invalidate_combo" then
+    local combo_str = json_get_arr(line, "combo")
+    if not combo_str then
+      client:send("err:set_invalidate_combo_invalid\n")
+      return
+    end
+    local ok, result = pcall(parse_string_array, combo_str)
+    if not ok then
+      log("set_invalidate_combo: invalid payload — " .. tostring(result))
+      client:send("err:set_invalidate_combo_invalid\n")
+      return
+    end
+    invalidate_combo = result
+    client:send("ok:invalidate_combo_set\n")
+    log("set_invalidate_combo: " .. table.concat(result, ","))
+  elseif decoded_event == "practice_load" then
+    practice.segment = parse_practice_segment(line)
+    practice.auto_advance_ms = practice.segment.auto_advance_delay_ms or 2000
+    practice.active = true
+    practice.state = PSTATE_LOADING
+    local sp = practice.segment.state_path
+    if not sp or sp == "" then
+      log("ERROR: No valid state_path for segment " .. (practice.segment.id or "?"))
+      client:send("err:no_state_path\n")
+      practice_reset()
+    else
+      table.insert(pending_loads, sp)
+      practice.start_ms = ts_ms()
+      client:send("ok:queued\n")
+      log("Practice load queued: " .. (practice.segment.id or "?"))
+    end
+  elseif decoded_event == "practice_stop" then
+    practice_reset()
+    pending_loads = {}
+    client:send("ok\n")
+    log("Practice mode stopped")
   end
 end
 
+-- DEPRECATED: these prefixed handlers are kept for backward compatibility.
+-- Remove once all Python code uses JSON-only commands via send_command().
 local text_commands = {
   save = function()
     table.insert(pending_saves, TEST_STATE_FILE)
@@ -1042,6 +1117,8 @@ local text_commands = {
     table.insert(pending_loads, TEST_STATE_FILE)
     client:send("ok:queued\n")
   end,
+  -- DEPRECATED: these prefixed handlers are kept for backward compatibility.
+  -- Remove once all Python code uses JSON-only commands via send_command().
   practice_stop = function()
     practice_reset()
     pending_loads     = {}
