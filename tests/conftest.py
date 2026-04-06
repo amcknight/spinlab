@@ -25,6 +25,7 @@ def mock_tcp():
     tcp = MagicMock()
     tcp.is_connected = True
     tcp.send = AsyncMock()
+    tcp.send_command = AsyncMock()
     tcp.recv_event = AsyncMock(return_value=None)
     return tcp
 

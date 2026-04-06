@@ -1,6 +1,7 @@
 """Integration test: full cold-fill cycle with real DB."""
-import json
 from unittest.mock import AsyncMock, MagicMock
+
+from spinlab.protocol import ColdFillLoadCmd
 
 import pytest
 
@@ -21,6 +22,7 @@ def tcp():
     tcp = MagicMock()
     tcp.is_connected = True
     tcp.send = AsyncMock()
+    tcp.send_command = AsyncMock()
     return tcp
 
 
@@ -100,10 +102,11 @@ class TestColdFillIntegration:
         assert sm.mode == Mode.COLD_FILL
 
         # Verify first cold-gap segment loaded (cp1 has hot but not cold)
-        sent = json.loads(tcp.send.call_args[0][0])
-        assert sent["event"] == "cold_fill_load"
-        assert sent["state_path"] == "/hot1.mss"
-        assert sent["segment_id"] == segs[1].id
+        cmd = tcp.send_command.call_args[0][0]
+        assert isinstance(cmd, ColdFillLoadCmd)
+        assert cmd.event == "cold_fill_load"
+        assert cmd.state_path == "/hot1.mss"
+        assert cmd.segment_id == segs[1].id
 
         # Simulate spawn for first segment
         await sm.route_event({

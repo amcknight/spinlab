@@ -5,7 +5,6 @@ capture-related TCP events, and manages the transition into draft state.
 """
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import datetime
@@ -13,6 +12,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .models import ActionResult, Mode, Status
+from .protocol import (
+    ReferenceStartCmd, ReferenceStopCmd, ReplayCmd, ReplayStopCmd,
+    FillGapLoadCmd,
+)
 from .reference_capture import ReferenceCapture
 from .draft_manager import DraftManager
 from .condition_registry import ConditionRegistry
@@ -90,14 +93,14 @@ class CaptureController:
         self.db.create_capture_run(run_id, game_id, run_name, draft=True)
         self.ref_capture.capture_run_id = run_id
         rec_path = str(self._game_rec_dir(data_dir, game_id) / f"{run_id}.spinrec")
-        await self.tcp.send(json.dumps({"event": "reference_start", "path": rec_path}))
+        await self.tcp.send_command(ReferenceStartCmd(path=rec_path))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REFERENCE)
 
     async def stop_reference(self, mode: Mode) -> ActionResult:
         if mode != Mode.REFERENCE:
             return ActionResult(status=Status.NOT_IN_REFERENCE)
         if self.tcp.is_connected:
-            await self.tcp.send(json.dumps({"event": "reference_stop"}))
+            await self.tcp.send_command(ReferenceStopCmd())
         self._enter_draft_from_capture()
         self.ref_capture.clear()
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
@@ -124,14 +127,14 @@ class CaptureController:
         run_name = f"Replay {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
         self.db.create_capture_run(run_id, game_id, run_name, draft=True)
         self.ref_capture.capture_run_id = run_id
-        await self.tcp.send(json.dumps({"event": "replay", "path": spinrec_path, "speed": speed}))
+        await self.tcp.send_command(ReplayCmd(path=spinrec_path, speed=speed))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REPLAY)
 
     async def stop_replay(self, mode: Mode) -> ActionResult:
         if mode != Mode.REPLAY:
             return ActionResult(status=Status.NOT_REPLAYING)
         if self.tcp.is_connected:
-            await self.tcp.send(json.dumps({"event": "replay_stop"}))
+            await self.tcp.send_command(ReplayStopCmd())
         if self.ref_capture.segments_count > 0:
             self._enter_draft_from_capture()
             self.ref_capture.clear()
@@ -158,11 +161,7 @@ class CaptureController:
             return ActionResult(status=Status.NO_HOT_VARIANT)
         self.fill_gap_segment_id = segment_id
         self._fill_gap_waypoint_id = start_waypoint_id
-        await self.tcp.send(json.dumps({
-            "event": "fill_gap_load",
-            "state_path": hot.state_path,
-            "message": "Die to capture cold start",
-        }))
+        await self.tcp.send_command(FillGapLoadCmd(state_path=hot.state_path, message="Die to capture cold start"))
         return ActionResult(status=Status.STARTED, new_mode=Mode.FILL_GAP)
 
     def handle_fill_gap_spawn(self, event: dict) -> bool:

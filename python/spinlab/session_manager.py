@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .models import ActionResult, EventType, Mode, Status
+from .protocol import GameContextCmd, SetConditionsCmd, SetInvalidateComboCmd
 from .capture_controller import CaptureController
 from .cold_fill_controller import ColdFillController
 from .sse import SSEBroadcaster
@@ -198,11 +198,7 @@ class SessionManager:
             logger.warning("ROM not found in rom_dir: %s — using filename as ID", filename)
         await self.switch_game(checksum, name)
         await self._install_condition_registry(checksum)
-        await self.tcp.send(json.dumps({
-            "event": "game_context",
-            "game_id": checksum,
-            "game_name": name,
-        }))
+        await self.tcp.send_command(GameContextCmd(game_id=checksum, game_name=name))
 
     async def _install_condition_registry(self, game_id: str) -> None:
         """Load per-game condition definitions and push them to Lua over TCP."""
@@ -215,8 +211,8 @@ class SessionManager:
                     {"name": d.name, "address": d.address, "size": d.size}
                     for d in registry.definitions
                 ]
-                await self.tcp.send(f"set_conditions:{json.dumps(defs_payload)}")
-            await self.tcp.send(f"set_invalidate_combo:{json.dumps(self.invalidate_combo)}")
+                await self.tcp.send_command(SetConditionsCmd(definitions=defs_payload))
+            await self.tcp.send_command(SetInvalidateComboCmd(combo=self.invalidate_combo))
 
     async def _handle_game_context(self, event: dict) -> None:
         gid = event.get("game_id")

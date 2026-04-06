@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import uuid
@@ -11,6 +10,7 @@ from typing import TYPE_CHECKING, Callable
 
 from .allocators import SegmentWithModel
 from .models import Attempt, SegmentCommand
+from .protocol import PracticeLoadCmd, PracticeStopCmd
 from .scheduler import Scheduler
 
 if TYPE_CHECKING:
@@ -140,7 +140,14 @@ class PracticeSession:
 
         self.current_segment_id = cmd.id
 
-        await self.tcp.send("practice_load:" + json.dumps(cmd.to_dict()))
+        await self.tcp.send_command(PracticeLoadCmd(
+            id=cmd.id,
+            state_path=cmd.state_path,
+            description=cmd.description,
+            end_type=cmd.end_type,
+            expected_time_ms=cmd.expected_time_ms,
+            auto_advance_delay_ms=cmd.auto_advance_delay_ms,
+        ))
 
         # Wait for attempt_result via receive_result() (set by SessionManager)
         self._result_event.clear()
@@ -200,7 +207,7 @@ class PracticeSession:
                     break
         finally:
             try:
-                await self.tcp.send("practice_stop")
+                await self.tcp.send_command(PracticeStopCmd())
             except (ConnectionError, OSError):
                 pass
             self.stop()

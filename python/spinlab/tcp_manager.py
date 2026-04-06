@@ -11,6 +11,8 @@ import json
 import logging
 from typing import Callable
 
+from .protocol import serialize_command
+
 logger = logging.getLogger(__name__)
 
 _KNOWN_NON_JSON = {"pong", "ok:queued"}
@@ -77,6 +79,10 @@ class TcpManager:
             raise ConnectionError("Not connected")
         self._writer.write((msg + "\n").encode("utf-8"))
         await self._writer.drain()
+
+    async def send_command(self, cmd) -> None:
+        """Send a typed protocol command (serialized to JSON)."""
+        await self.send(serialize_command(cmd))
 
     async def recv_event(self, timeout: float | None = None) -> dict | None:
         """Wait for the next JSON event from the queue. Returns None on timeout."""

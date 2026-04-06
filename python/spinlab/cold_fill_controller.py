@@ -2,11 +2,11 @@
 """ColdFillController — captures cold save states for segments missing them."""
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING
 
 from .models import ActionResult, Mode, Status, WaypointSaveState
+from .protocol import ColdFillLoadCmd
 
 if TYPE_CHECKING:
     from .db import Database
@@ -47,11 +47,10 @@ class ColdFillController:
             (seg["segment_id"],),
         ).fetchone()
         self.cold_waypoint_id = row[0] if row else None
-        await self.tcp.send(json.dumps({
-            "event": "cold_fill_load",
-            "state_path": seg["hot_state_path"],
-            "segment_id": seg["segment_id"],
-        }))
+        await self.tcp.send_command(ColdFillLoadCmd(
+            state_path=seg["hot_state_path"],
+            segment_id=seg["segment_id"],
+        ))
         return ActionResult(status=Status.STARTED, new_mode=Mode.COLD_FILL)
 
     async def handle_spawn(self, event: dict) -> bool:

@@ -1,6 +1,5 @@
 """Tests for the async practice loop."""
 import asyncio
-import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from pathlib import Path
@@ -8,6 +7,7 @@ from pathlib import Path
 from spinlab.db import Database
 from spinlab.models import Segment, Waypoint, WaypointSaveState
 from spinlab.practice import PracticeSession
+from spinlab.protocol import PracticeLoadCmd
 from spinlab.scheduler import Scheduler
 
 
@@ -55,6 +55,7 @@ async def test_practice_session_picks_and_sends(db):
     mock_tcp = AsyncMock()
     mock_tcp.is_connected = True
     mock_tcp.send = AsyncMock()
+    mock_tcp.send_command = AsyncMock()
 
     # Simulate receiving an attempt_result after send
     result_event = {
@@ -76,9 +77,9 @@ async def test_practice_session_picks_and_sends(db):
     await session.run_one()
 
     # Verify practice_load was sent
-    mock_tcp.send.assert_called_once()
-    sent = mock_tcp.send.call_args[0][0]
-    assert sent.startswith("practice_load:")
+    mock_tcp.send_command.assert_called_once()
+    cmd = mock_tcp.send_command.call_args[0][0]
+    assert isinstance(cmd, PracticeLoadCmd)
 
     # Verify attempt was logged
     attempts = db.get_segment_attempts(seg_id)
@@ -101,6 +102,7 @@ class TestReceiveResult:
         tcp = MagicMock()
         tcp.is_connected = True
         tcp.send = AsyncMock()
+        tcp.send_command = AsyncMock()
         db = MagicMock()
         db.create_session = MagicMock()
         db.end_session = MagicMock()

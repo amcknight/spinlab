@@ -1,10 +1,9 @@
 # tests/test_replay.py
 """Tests for SessionManager replay orchestration."""
-import json
-
 import pytest
 
 from spinlab.models import Mode, Status
+from spinlab.protocol import ReplayCmd
 from spinlab.session_manager import SessionManager
 
 
@@ -18,10 +17,11 @@ class TestStartReplay:
         assert result.status == Status.STARTED
         assert sm.mode == Mode.REPLAY
 
-        msg = json.loads(mock_tcp.send.call_args[0][0])
-        assert msg["event"] == "replay"
-        assert msg["path"] == "/data/test.spinrec"
-        assert msg["speed"] == 0
+        cmd = mock_tcp.send_command.call_args[0][0]
+        assert isinstance(cmd, ReplayCmd)
+        assert cmd.event == "replay"
+        assert cmd.path == "/data/test.spinrec"
+        assert cmd.speed == 0
 
     async def test_rejects_during_practice(self, mock_db, mock_tcp, tmp_path):
         sm = SessionManager(db=mock_db, tcp=mock_tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)

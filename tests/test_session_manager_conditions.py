@@ -2,10 +2,10 @@
 """Tests for condition registry loading and TCP push wired into SessionManager."""
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, call
-import json
 
 import pytest
 
+from spinlab.protocol import SetConditionsCmd, SetInvalidateComboCmd
 from spinlab.session_manager import SessionManager
 
 
@@ -87,12 +87,12 @@ class TestInstallConditionRegistry:
         # Registry should be set on capture controller.
         assert len(sm.capture.condition_registry.definitions) == 1
 
-        # TCP send should have been called — find the set_conditions call among all sends.
-        assert mock_tcp.send.called
-        sent_msgs = [c[0][0] for c in mock_tcp.send.call_args_list]
-        cond_msgs = [m for m in sent_msgs if m.startswith("set_conditions:")]
-        assert len(cond_msgs) == 1
-        payload = json.loads(cond_msgs[0][len("set_conditions:"):])
+        # TCP send_command should have been called — find the set_conditions call.
+        assert mock_tcp.send_command.called
+        sent_cmds = [c[0][0] for c in mock_tcp.send_command.call_args_list]
+        cond_cmds = [c for c in sent_cmds if isinstance(c, SetConditionsCmd)]
+        assert len(cond_cmds) == 1
+        payload = cond_cmds[0].definitions
         assert len(payload) == 1
         assert payload[0]["name"] == "powerup"
         assert payload[0]["address"] == 0x19
@@ -115,9 +115,9 @@ class TestInstallConditionRegistry:
         await sm._install_condition_registry("unknown_game")
 
         # Empty registry — set_conditions is NOT sent, but set_invalidate_combo IS sent.
-        sent_msgs = [c[0][0] for c in mock_tcp.send.call_args_list]
-        assert not any(m.startswith("set_conditions:") for m in sent_msgs)
-        assert any(m.startswith("set_invalidate_combo:") for m in sent_msgs)
+        sent_cmds = [c[0][0] for c in mock_tcp.send_command.call_args_list]
+        assert not any(isinstance(c, SetConditionsCmd) for c in sent_cmds)
+        assert any(isinstance(c, SetInvalidateComboCmd) for c in sent_cmds)
 
     async def test_install_condition_registry_no_send_when_disconnected(
         self, mock_db, mock_tcp, tmp_path, monkeypatch
@@ -151,7 +151,7 @@ class TestInstallConditionRegistry:
 
         # Registry still set, but no TCP send.
         assert len(sm.capture.condition_registry.definitions) == 1
-        mock_tcp.send.assert_not_called()
+        mock_tcp.send_command.assert_not_called()
 
     async def test_rom_info_triggers_install(self, mock_db, mock_tcp, tmp_path, monkeypatch):
         """rom_info event calls _install_condition_registry for the resolved game_id."""

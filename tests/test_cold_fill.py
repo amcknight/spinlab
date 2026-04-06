@@ -1,6 +1,7 @@
 """Tests for CaptureController cold-fill flow."""
-import json
 from unittest.mock import AsyncMock, MagicMock, call
+
+from spinlab.protocol import ColdFillLoadCmd
 
 import pytest
 
@@ -22,6 +23,7 @@ def tcp():
     tcp = MagicMock()
     tcp.is_connected = True
     tcp.send = AsyncMock()
+    tcp.send_command = AsyncMock()
     return tcp
 
 
@@ -50,10 +52,11 @@ class TestStartColdFill:
         assert result.new_mode == Mode.COLD_FILL
 
         # Verify Lua command sent for first segment
-        sent = json.loads(tcp.send.call_args[0][0])
-        assert sent["event"] == "cold_fill_load"
-        assert sent["state_path"] == "/hot1.mss"
-        assert sent["segment_id"] == "g1:105:cp.1:cp.2"
+        cmd = tcp.send_command.call_args[0][0]
+        assert isinstance(cmd, ColdFillLoadCmd)
+        assert cmd.event == "cold_fill_load"
+        assert cmd.state_path == "/hot1.mss"
+        assert cmd.segment_id == "g1:105:cp.1:cp.2"
 
     async def test_start_cold_fill_no_gaps(self, tcp, db):
         db.segments_missing_cold.return_value = []
@@ -87,9 +90,10 @@ class TestHandleColdFillSpawn:
         assert ss.is_default is True
 
         # Verify second segment loaded
-        sent = json.loads(tcp.send.call_args[0][0])
-        assert sent["event"] == "cold_fill_load"
-        assert sent["segment_id"] == "g1:105:cp.2:goal.0"
+        cmd = tcp.send_command.call_args[0][0]
+        assert isinstance(cmd, ColdFillLoadCmd)
+        assert cmd.event == "cold_fill_load"
+        assert cmd.segment_id == "g1:105:cp.2:goal.0"
 
     async def test_returns_true_when_queue_empty(self, tcp, db):
         cc = ColdFillController(db, tcp)

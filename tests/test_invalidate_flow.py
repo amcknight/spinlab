@@ -1,10 +1,10 @@
 # tests/test_invalidate_flow.py
 """Tests for the attempt invalidation flow: Lua combo → Python event handler."""
-import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from spinlab.protocol import SetInvalidateComboCmd
 from spinlab.session_manager import SessionManager
 
 
@@ -72,11 +72,10 @@ class TestSetInvalidateCombo:
 
         await sm._install_condition_registry("anygame")
 
-        sent_calls = [c[0][0] for c in mock_tcp.send.call_args_list]
-        combo_calls = [c for c in sent_calls if c.startswith("set_invalidate_combo:")]
-        assert len(combo_calls) == 1
-        payload = json.loads(combo_calls[0][len("set_invalidate_combo:"):])
-        assert payload == ["L", "Select"]
+        sent_cmds = [c[0][0] for c in mock_tcp.send_command.call_args_list]
+        combo_cmds = [c for c in sent_cmds if isinstance(c, SetInvalidateComboCmd)]
+        assert len(combo_cmds) == 1
+        assert combo_cmds[0].combo == ["L", "Select"]
 
     async def test_combo_not_pushed_when_disconnected(self, mock_db, mock_tcp, monkeypatch):
         """_install_condition_registry skips TCP push when not connected."""
@@ -92,7 +91,7 @@ class TestSetInvalidateCombo:
 
         await sm._install_condition_registry("anygame")
 
-        mock_tcp.send.assert_not_called()
+        mock_tcp.send_command.assert_not_called()
 
     async def test_custom_combo_reflected_in_push(self, mock_db, mock_tcp, monkeypatch):
         """A non-default invalidate_combo is sent verbatim to Lua."""
@@ -108,8 +107,7 @@ class TestSetInvalidateCombo:
 
         await sm._install_condition_registry("anygame")
 
-        sent_calls = [c[0][0] for c in mock_tcp.send.call_args_list]
-        combo_calls = [c for c in sent_calls if c.startswith("set_invalidate_combo:")]
-        assert len(combo_calls) == 1
-        payload = json.loads(combo_calls[0][len("set_invalidate_combo:"):])
-        assert payload == ["R", "Start"]
+        sent_cmds = [c[0][0] for c in mock_tcp.send_command.call_args_list]
+        combo_cmds = [c for c in sent_cmds if isinstance(c, SetInvalidateComboCmd)]
+        assert len(combo_cmds) == 1
+        assert combo_cmds[0].combo == ["R", "Start"]
