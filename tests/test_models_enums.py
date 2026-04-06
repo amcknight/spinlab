@@ -43,6 +43,7 @@ class TestEventType:
             "replay_progress",
             "replay_finished",
             "replay_error",
+            "attempt_invalidated",
         }
         actual = {e.value for e in EventType}
         assert expected == actual

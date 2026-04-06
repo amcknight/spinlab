@@ -7,9 +7,13 @@ import {
   initModelTab,
 } from "./model";
 import { fetchManage, initManageTab, updateManageState } from "./manage";
+import { fetchSegments, renderSegmentsView } from "./segments-view";
 import type { AppState } from "./types";
 
+let _currentGameId: string | null = null;
+
 function updateFromState(data: AppState): void {
+  _currentGameId = data.game_id;
   updateHeader(data);
   updatePracticeCard(data);
   updatePracticeControls(data);
@@ -39,8 +43,20 @@ document.querySelectorAll(".tab").forEach((btn) => {
       ?.classList.add("active");
     if ((btn as HTMLElement).dataset.tab === "model") fetchModel();
     if ((btn as HTMLElement).dataset.tab === "manage") fetchManage();
+    if ((btn as HTMLElement).dataset.tab === "segments") fetchAndRenderSegments();
   });
 });
+
+async function fetchAndRenderSegments(): Promise<void> {
+  if (!_currentGameId) return;
+  const container = document.getElementById("segments-view-container") as HTMLElement;
+  try {
+    const segs = await fetchSegments(_currentGameId);
+    renderSegmentsView(container, segs);
+  } catch (err) {
+    container.textContent = String(err);
+  }
+}
 
 // Init
 initHeader();

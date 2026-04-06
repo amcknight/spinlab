@@ -15,6 +15,15 @@ CREATE TABLE IF NOT EXISTS games (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS waypoints (
+  id TEXT PRIMARY KEY,
+  game_id TEXT NOT NULL REFERENCES games(id),
+  level_number INTEGER NOT NULL,
+  endpoint_type TEXT NOT NULL,
+  ordinal INTEGER NOT NULL DEFAULT 0,
+  conditions_json TEXT NOT NULL DEFAULT '{}'
+);
+
 CREATE TABLE IF NOT EXISTS segments (
   id TEXT PRIMARY KEY,
   game_id TEXT NOT NULL REFERENCES games(id),
@@ -23,6 +32,9 @@ CREATE TABLE IF NOT EXISTS segments (
   start_ordinal INTEGER NOT NULL DEFAULT 0,
   end_type TEXT NOT NULL,
   end_ordinal INTEGER NOT NULL DEFAULT 0,
+  start_waypoint_id TEXT REFERENCES waypoints(id),
+  end_waypoint_id TEXT REFERENCES waypoints(id),
+  is_primary INTEGER DEFAULT 1,
   description TEXT DEFAULT '',
   strat_version INTEGER DEFAULT 1,
   active INTEGER DEFAULT 1,
@@ -32,12 +44,12 @@ CREATE TABLE IF NOT EXISTS segments (
   updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS segment_variants (
-  segment_id TEXT NOT NULL REFERENCES segments(id),
+CREATE TABLE IF NOT EXISTS waypoint_save_states (
+  waypoint_id TEXT NOT NULL REFERENCES waypoints(id),
   variant_type TEXT NOT NULL,
   state_path TEXT NOT NULL,
   is_default INTEGER DEFAULT 0,
-  PRIMARY KEY (segment_id, variant_type)
+  PRIMARY KEY (waypoint_id, variant_type)
 );
 
 CREATE TABLE IF NOT EXISTS attempts (
@@ -50,6 +62,9 @@ CREATE TABLE IF NOT EXISTS attempts (
   source TEXT DEFAULT 'practice',
   deaths INTEGER DEFAULT 0,
   clean_tail_ms INTEGER,
+  observed_start_conditions TEXT,
+  observed_end_conditions TEXT,
+  invalidated INTEGER DEFAULT 0,
   created_at TEXT NOT NULL
 );
 
@@ -116,8 +131,8 @@ class DatabaseCore:
 
     def _init_schema(self) -> None:
         # Drop stale tables whose schema has changed (no data worth migrating yet)
-        stale_tables = ["splits"]  # legacy name
-        for table in ["model_state", "attempts"]:
+        stale_tables = ["splits", "segment_variants"]  # legacy tables dropped unconditionally
+        for table in ["model_state", "attempts", "segments", "waypoints", "waypoint_save_states"]:
             cols = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})").fetchall()}
             if cols and cols != self._expected_columns(table):
                 stale_tables.append(table)
@@ -126,6 +141,7 @@ class DatabaseCore:
             self.conn.executescript(drops + ";")
         self.conn.executescript(SCHEMA)
         self.conn.commit()
+        # Retain existing ALTER TABLE migration attempts below (capture_runs.draft etc.)
         for migration in [
             "ALTER TABLE capture_runs ADD COLUMN draft INTEGER DEFAULT 0",
         ]:
@@ -134,23 +150,22 @@ class DatabaseCore:
                 self.conn.commit()
             except sqlite3.OperationalError:
                 pass
-        # Backfill orphaned segments (created before reference_id column existed)
-        self.conn.execute("""
-            UPDATE segments SET reference_id = (
-                SELECT cr.id FROM capture_runs cr
-                WHERE cr.game_id = segments.game_id
-                ORDER BY cr.created_at ASC LIMIT 1
-            ) WHERE reference_id IS NULL
-        """)
-        self.conn.commit()
 
     @staticmethod
     def _expected_columns(table: str) -> set[str]:
         return {
             "model_state": {"segment_id", "estimator", "state_json", "output_json", "updated_at"},
             "attempts": {"id", "segment_id", "session_id", "completed", "time_ms",
-                         "strat_version", "source",
-                         "deaths", "clean_tail_ms", "created_at"},
+                         "strat_version", "source", "deaths", "clean_tail_ms",
+                         "observed_start_conditions", "observed_end_conditions",
+                         "invalidated", "created_at"},
+            "segments": {"id", "game_id", "level_number", "start_type", "start_ordinal",
+                         "end_type", "end_ordinal", "start_waypoint_id", "end_waypoint_id",
+                         "is_primary", "description", "strat_version", "active", "ordinal",
+                         "reference_id", "created_at", "updated_at"},
+            "waypoints": {"id", "game_id", "level_number", "endpoint_type",
+                          "ordinal", "conditions_json"},
+            "waypoint_save_states": {"waypoint_id", "variant_type", "state_path", "is_default"},
         }.get(table, set())
 
     def close(self) -> None:
@@ -222,4 +237,7 @@ class DatabaseCore:
             active=bool(row["active"]),
             ordinal=row["ordinal"] if "ordinal" in keys else None,
             reference_id=row["reference_id"] if "reference_id" in keys else None,
+            start_waypoint_id=row["start_waypoint_id"] if "start_waypoint_id" in keys else None,
+            end_waypoint_id=row["end_waypoint_id"] if "end_waypoint_id" in keys else None,
+            is_primary=bool(row["is_primary"]) if "is_primary" in keys else True,
         )

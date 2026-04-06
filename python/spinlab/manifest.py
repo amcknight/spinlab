@@ -9,7 +9,7 @@ from typing import Optional
 import yaml
 
 from .db import Database
-from .models import Segment, SegmentVariant
+from .models import Segment
 
 
 def find_latest_manifest(data_dir: Path) -> Optional[Path]:
@@ -59,11 +59,6 @@ def seed_db_from_manifest(db: Database, manifest: dict, game_name: str) -> None:
             reference_id=run_id,
         )
         db.upsert_segment(seg)
-        if entry.get("state_path"):
-            variant = SegmentVariant(
-                segment_id=seg.id,
-                variant_type="cold",
-                state_path=entry["state_path"],
-                is_default=True,
-            )
-            db.add_variant(variant)
+        # TODO(Task 10): attach save state to start waypoint once manifest
+        # creates proper Waypoint objects with conditions.
+        # Manifest import skips save state attachment for now.

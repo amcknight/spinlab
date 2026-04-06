@@ -36,12 +36,14 @@ class SessionManager:
         rom_dir: Path | None,
         default_category: str = "any%",
         data_dir: Path | None = None,
+        invalidate_combo: list[str] | None = None,
     ) -> None:
         self.db = db
         self.tcp = tcp
         self.rom_dir = rom_dir
         self.default_category = default_category
         self.data_dir = data_dir or Path("data")
+        self.invalidate_combo: list[str] = invalidate_combo if invalidate_combo is not None else ["L", "Select"]
 
         # Core state
         self.mode: Mode = Mode.IDLE
@@ -71,6 +73,7 @@ class SessionManager:
             EventType.REPLAY_PROGRESS: self._handle_replay_progress,
             EventType.REPLAY_FINISHED: self._handle_replay_finished,
             EventType.REPLAY_ERROR: self._handle_replay_error,
+            EventType.ATTEMPT_INVALIDATED: self._handle_attempt_invalidated,
         }
 
     # --- Backward-compatible properties for tests and dashboard ---
@@ -169,11 +172,26 @@ class SessionManager:
             checksum = f"file_{name.lower().replace(' ', '_')}"
             logger.warning("ROM not found in rom_dir: %s — using filename as ID", filename)
         await self.switch_game(checksum, name)
+        await self._install_condition_registry(checksum)
         await self.tcp.send(json.dumps({
             "event": "game_context",
             "game_id": checksum,
             "game_name": name,
         }))
+
+    async def _install_condition_registry(self, game_id: str) -> None:
+        """Load per-game condition definitions and push them to Lua over TCP."""
+        from .condition_registry import load_registry_for_game
+        registry = load_registry_for_game(game_id)
+        self.capture.set_condition_registry(registry)
+        if self.tcp.is_connected:
+            if registry.definitions:
+                defs_payload = [
+                    {"name": d.name, "address": d.address, "size": d.size}
+                    for d in registry.definitions
+                ]
+                await self.tcp.send(f"set_conditions:{json.dumps(defs_payload)}")
+            await self.tcp.send(f"set_invalidate_combo:{json.dumps(self.invalidate_combo)}")
 
     async def _handle_game_context(self, event: dict) -> None:
         gid = event.get("game_id")
@@ -246,6 +264,17 @@ class SessionManager:
         self.capture.handle_replay_error()
         self._clear_ref_and_idle()
         await self._notify_sse()
+
+    async def _handle_attempt_invalidated(self, event: dict) -> None:
+        """Mark the most recent practice attempt for the current session as invalidated."""
+        if self.practice_session is None:
+            return
+        sid = self.practice_session.session_id
+        aid = self.db.get_last_practice_attempt(session_id=sid)
+        if aid is None:
+            return
+        self.db.set_attempt_invalidated(aid, True)
+        logger.info("Marked attempt %d as invalidated", aid)
 
     # --- Mode actions (delegate to controllers, apply mode transitions) ---
 

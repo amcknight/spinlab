@@ -117,6 +117,19 @@ export interface RecentAttempt {
   start_ordinal: number;
   end_type: string;
   end_ordinal: number;
+  invalidated: boolean;
+}
+
+/** PATCH /api/attempts/:id request body. */
+export interface AttemptPatch {
+  invalidated: boolean;
+}
+
+/** PATCH /api/attempts/:id response body. */
+export interface AttemptPatchResponse {
+  ok: boolean;
+  id: number;
+  invalidated: boolean;
 }
 
 /** GET /api/state and SSE event payload. */
@@ -134,6 +147,26 @@ export interface AppState {
   capture_run_id: string | null;
   draft: DraftState | null;
   cold_fill: ColdFillState | null;
+}
+
+/** Segment as returned by GET /api/segments. */
+export interface ApiSegment {
+  id: string;
+  game_id: string;
+  level_number: number;
+  start_type: string;
+  start_ordinal: number;
+  end_type: string;
+  end_ordinal: number;
+  description: string;
+  active: number;
+  ordinal: number | null;
+  state_path: string | null;
+  is_primary: boolean;
+  start_waypoint_id: string | null;
+  end_waypoint_id: string | null;
+  start_conditions: Record<string, string | boolean>;
+  end_conditions: Record<string, string | boolean>;
 }
 
 /** Segment as returned by /api/references/{id}/segments. */

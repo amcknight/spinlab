@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from spinlab.models import ActionResult, Mode, Segment, SegmentVariant, Status
+from spinlab.models import ActionResult, Mode, Segment, WaypointSaveState, Status
 from spinlab.session_manager import SessionManager
 
 
@@ -204,25 +204,29 @@ class TestReferenceCapture:
 
 class TestFillGap:
     async def test_fill_gap_loads_hot_and_captures_cold(self, mock_db, mock_tcp):
+        from unittest.mock import MagicMock
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         sm.ref_capture.capture_run_id = "run1"
 
-        seg = Segment(
-            id=Segment.make_id("game1", 105, "checkpoint", 1, "goal", 0),
-            game_id="game1", level_number=105,
-            start_type="checkpoint", start_ordinal=1,
-            end_type="goal", end_ordinal=0,
-            reference_id="run1",
+        start_wp_id = "wp_start_abc"
+        # Mock conn.execute to return a row with start_waypoint_id
+        conn_row = MagicMock()
+        conn_row.__getitem__ = MagicMock(return_value=start_wp_id)
+        mock_db.conn = MagicMock()
+        mock_db.conn.execute.return_value.fetchone.return_value = conn_row
+
+        # Mock get_save_state to return a hot state for our waypoint
+        hot_ss = WaypointSaveState(waypoint_id=start_wp_id, variant_type="hot",
+                                   state_path="/hot.mss", is_default=False)
+        mock_db.get_save_state = MagicMock(
+            side_effect=lambda wid, vt: hot_ss if (wid == start_wp_id and vt == "hot") else None
         )
-        mock_db.upsert_segment(seg)
+        mock_db.add_save_state = MagicMock()
 
-        hot_variant = SegmentVariant(seg.id, "hot", "/hot.mss", False)
-        mock_db.add_variant(hot_variant)
-        mock_db.get_variant = MagicMock(side_effect=lambda sid, vt: hot_variant if vt == "hot" else None)
-        mock_db.get_variants = MagicMock(return_value=[hot_variant])
-
-        result = await sm.start_fill_gap(seg.id)
+        seg_id = Segment.make_id("game1", 105, "checkpoint", 1, "goal", 0,
+                                 "stub_start", "stub_end")
+        result = await sm.start_fill_gap(seg_id)
         assert result.status == Status.STARTED
 
         await sm.route_event({
@@ -232,7 +236,8 @@ class TestFillGap:
             "state_path": "/cold.mss",
         })
 
-        cold_calls = [c for c in mock_db.add_variant.call_args_list if c[0][0].variant_type == "cold"]
+        cold_calls = [c for c in mock_db.add_save_state.call_args_list
+                      if c[0][0].variant_type == "cold"]
         assert len(cold_calls) == 1
         assert cold_calls[0][0][0].state_path == "/cold.mss"
         assert sm.fill_gap_segment_id is None

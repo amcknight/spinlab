@@ -7,10 +7,33 @@ from unittest.mock import AsyncMock, MagicMock
 from pathlib import Path
 
 from spinlab.db import Database
-from spinlab.models import Segment, SegmentVariant
+from spinlab.models import Segment, Waypoint, WaypointSaveState
 from spinlab.practice import PracticeSession
 
-SEG_ID = "g:1:entrance.0:goal.0"
+
+def _make_seg_with_state(db, game_id, level, start_type, end_type,
+                         state_path, ordinal=1):
+    """Create waypoints + segment + hot save state; return segment."""
+    wp_start = Waypoint.make(game_id, level, start_type, 0, {})
+    wp_end = Waypoint.make(game_id, level, end_type, 0, {})
+    db.upsert_waypoint(wp_start)
+    db.upsert_waypoint(wp_end)
+    seg = Segment(
+        id=Segment.make_id(game_id, level, start_type, 0, end_type, 0,
+                           wp_start.id, wp_end.id),
+        game_id=game_id, level_number=level,
+        start_type=start_type, start_ordinal=0,
+        end_type=end_type, end_ordinal=0,
+        description="",
+        ordinal=ordinal,
+        start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
+    )
+    db.upsert_segment(seg)
+    db.add_save_state(WaypointSaveState(
+        waypoint_id=wp_start.id, variant_type="hot",
+        state_path=str(state_path), is_default=True,
+    ))
+    return seg
 
 
 @pytest.fixture
@@ -19,17 +42,8 @@ def db(tmp_path):
     d.upsert_game("g", "Game", "any%")
     state_file = tmp_path / "test.mss"
     state_file.write_bytes(b"fake state")
-    seg = Segment(
-        id=SEG_ID, game_id="g", level_number=1,
-        start_type="entrance", start_ordinal=0,
-        end_type="goal", end_ordinal=0,
-        description="", ordinal=1,
-    )
-    d.upsert_segment(seg)
-    d.add_variant(SegmentVariant(
-        segment_id=SEG_ID, variant_type="cold",
-        state_path=str(state_file), is_default=True,
-    ))
+    seg = _make_seg_with_state(d, "g", 1, "entrance", "goal", state_file)
+    d._test_seg_id = seg.id
     return d
 
 
@@ -44,6 +58,7 @@ def _make_tcp():
 class TestRunLoopLifecycle:
     @pytest.mark.asyncio
     async def test_run_loop_creates_and_ends_session(self, db):
+        seg_id = db._test_seg_id
         tcp = _make_tcp()
         ps = PracticeSession(tcp=tcp, db=db, game_id="g")
 
@@ -52,7 +67,7 @@ class TestRunLoopLifecycle:
             await asyncio.sleep(0.05)
             ps.receive_result({
                 "event": "attempt_result",
-                "segment_id": SEG_ID,
+                "segment_id": seg_id,
                 "completed": True, "time_ms": 5000,
             })
             await asyncio.sleep(0.05)
@@ -87,6 +102,7 @@ class TestRunLoopLifecycle:
 class TestOnAttemptCallback:
     @pytest.mark.asyncio
     async def test_callback_fires_on_result(self, db):
+        seg_id = db._test_seg_id
         tcp = _make_tcp()
         received = []
         ps = PracticeSession(
@@ -99,7 +115,7 @@ class TestOnAttemptCallback:
             await asyncio.sleep(0.05)
             ps.receive_result({
                 "event": "attempt_result",
-                "segment_id": SEG_ID,
+                "segment_id": seg_id,
                 "completed": True, "time_ms": 4500,
             })
 
@@ -107,7 +123,7 @@ class TestOnAttemptCallback:
         await ps.run_one()
 
         assert len(received) == 1
-        assert received[0].segment_id == SEG_ID
+        assert received[0].segment_id == seg_id
         assert received[0].completed is True
 
 
@@ -133,6 +149,7 @@ class TestDisconnectDuringWait:
 class TestOverlayLabelGeneration:
     @pytest.mark.asyncio
     async def test_auto_label_entrance_to_goal(self, db):
+        seg_id = db._test_seg_id
         tcp = _make_tcp()
         ps = PracticeSession(tcp=tcp, db=db, game_id="g")
         ps.is_running = True
@@ -141,7 +158,7 @@ class TestOverlayLabelGeneration:
             await asyncio.sleep(0.05)
             ps.receive_result({
                 "event": "attempt_result",
-                "segment_id": SEG_ID,
+                "segment_id": seg_id,
                 "completed": True, "time_ms": 5000,
             })
 
@@ -155,8 +172,9 @@ class TestOverlayLabelGeneration:
 
     @pytest.mark.asyncio
     async def test_custom_description_used_when_present(self, db):
+        seg_id = db._test_seg_id
         # Update segment to have a description
-        db.update_segment(SEG_ID, description="My custom segment")
+        db.update_segment(seg_id, description="My custom segment")
         tcp = _make_tcp()
         ps = PracticeSession(tcp=tcp, db=db, game_id="g")
         ps.is_running = True
@@ -165,7 +183,7 @@ class TestOverlayLabelGeneration:
             await asyncio.sleep(0.05)
             ps.receive_result({
                 "event": "attempt_result",
-                "segment_id": SEG_ID,
+                "segment_id": seg_id,
                 "completed": True, "time_ms": 5000,
             })
 

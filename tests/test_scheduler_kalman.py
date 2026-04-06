@@ -3,35 +3,55 @@ import json
 import pytest
 from spinlab.db import Database
 from spinlab.estimators import list_estimators
-from spinlab.models import ModelOutput
+from spinlab.models import ModelOutput, Segment, Waypoint, WaypointSaveState
 from spinlab.scheduler import Scheduler
+
+
+def _make_seg_with_state(db, game_id, level, start_type, end_type,
+                         state_path, start_conds=None, end_conds=None):
+    """Create waypoints + segment + hot save state; return segment."""
+    start_conds = start_conds or {}
+    end_conds = end_conds or {"e": end_type, "l": level}
+    wp_start = Waypoint.make(game_id, level, start_type, 0, start_conds)
+    wp_end = Waypoint.make(game_id, level, end_type, 0, end_conds)
+    db.upsert_waypoint(wp_start)
+    db.upsert_waypoint(wp_end)
+    seg = Segment(
+        id=Segment.make_id(game_id, level, start_type, 0, end_type, 0,
+                           wp_start.id, wp_end.id),
+        game_id=game_id, level_number=level,
+        start_type=start_type, start_ordinal=0,
+        end_type=end_type, end_ordinal=0,
+        description=f"Segment {level}", strat_version=1,
+        start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
+    )
+    db.upsert_segment(seg)
+    db.add_save_state(WaypointSaveState(
+        waypoint_id=wp_start.id, variant_type="hot",
+        state_path=str(state_path), is_default=True,
+    ))
+    return seg
 
 
 @pytest.fixture
 def db_with_segments(tmp_path):
     db = Database(str(tmp_path / "test.db"))
     db.upsert_game("g1", "Game", "any%")
-    from spinlab.models import Segment, SegmentVariant
     states_dir = tmp_path / "states"
     states_dir.mkdir()
+    segs = []
     for i, (start_type, end_type) in enumerate(
         [("entrance", "checkpoint"), ("checkpoint", "checkpoint"), ("checkpoint", "goal")],
         start=1,
     ):
         state_file = states_dir / f"{i}.mss"
         state_file.write_bytes(b"\x00" * 100)
-        seg = Segment(
-            id=f"g1:{i}:{start_type}.0:{end_type}.0",
-            game_id="g1", level_number=i,
-            start_type=start_type, start_ordinal=0,
-            end_type=end_type, end_ordinal=0,
-            description=f"Segment {i}", strat_version=1,
+        seg = _make_seg_with_state(
+            db, "g1", i, start_type, end_type, state_file,
+            start_conds={"i": i},
         )
-        db.upsert_segment(seg)
-        db.add_variant(SegmentVariant(
-            segment_id=seg.id, variant_type="cold",
-            state_path=str(state_file), is_default=True,
-        ))
+        segs.append(seg)
+    db._test_segs = segs
     return db
 
 
@@ -52,7 +72,7 @@ class TestSchedulerPickNext:
 class TestSchedulerProcessAttempt:
     def test_process_attempt_creates_all_model_states(self, db_with_segments):
         sched = Scheduler(db_with_segments, "g1")
-        segment_id = "g1:1:entrance.0:checkpoint.0"
+        segment_id = db_with_segments._test_segs[0].id
         sched.process_attempt(segment_id, time_ms=12000, completed=True)
         rows = db_with_segments.load_all_model_states_for_segment(segment_id)
         estimator_names = {r["estimator"] for r in rows}
@@ -71,7 +91,7 @@ class TestSchedulerProcessAttempt:
 
     def test_process_attempt_incomplete(self, db_with_segments):
         sched = Scheduler(db_with_segments, "g1")
-        segment_id = "g1:1:entrance.0:checkpoint.0"
+        segment_id = db_with_segments._test_segs[0].id
         sched.process_attempt(segment_id, time_ms=12000, completed=True)
         sched.process_attempt(segment_id, time_ms=5000, completed=False)
         row = db_with_segments.load_model_state(segment_id, "kalman")
@@ -81,7 +101,7 @@ class TestSchedulerProcessAttempt:
 
     def test_process_attempt_with_deaths(self, db_with_segments):
         sched = Scheduler(db_with_segments, "g1")
-        segment_id = "g1:1:entrance.0:checkpoint.0"
+        segment_id = db_with_segments._test_segs[0].id
         sched.process_attempt(
             segment_id, time_ms=12000, completed=True,
             deaths=3, clean_tail_ms=4000,
@@ -131,7 +151,7 @@ class TestSchedulerWeights:
 class TestSchedulerRebuild:
     def test_rebuild_all_states(self, db_with_segments):
         sched = Scheduler(db_with_segments, "g1")
-        segment_id = "g1:1:entrance.0:checkpoint.0"
+        segment_id = db_with_segments._test_segs[0].id
         sched.process_attempt(segment_id, time_ms=12000, completed=True)
         sched.process_attempt(segment_id, time_ms=11000, completed=True)
         sched.rebuild_all_states()
@@ -148,22 +168,34 @@ class TestOldConfigCleanup:
 
 class TestStateFileFilter:
     def test_pick_next_skips_missing_state_files(self, tmp_path):
-        from spinlab.models import Segment, SegmentVariant
         db = Database(":memory:")
         db.upsert_game("g1", "Test", "any%")
         valid_state = tmp_path / "valid.mss"
         valid_state.write_bytes(b"\x00" * 100)
-        seg1 = Segment(id="s1", game_id="g1", level_number=1, start_type="entrance",
-                        start_ordinal=0, end_type="checkpoint", end_ordinal=0)
-        seg2 = Segment(id="s2", game_id="g1", level_number=2, start_type="entrance",
-                        start_ordinal=0, end_type="checkpoint", end_ordinal=0)
-        db.upsert_segment(seg1)
+        # seg1 has a valid state file via waypoint
+        seg1 = _make_seg_with_state(
+            db, "g1", 1, "entrance", "checkpoint", valid_state,
+            start_conds={"n": "1"},
+        )
+        # seg2's waypoint has a nonexistent path
+        wp_start2 = Waypoint.make("g1", 2, "entrance", 0, {"n": "2"})
+        wp_end2 = Waypoint.make("g1", 2, "checkpoint", 0, {"n": "2"})
+        db.upsert_waypoint(wp_start2)
+        db.upsert_waypoint(wp_end2)
+        seg2 = Segment(
+            id=Segment.make_id("g1", 2, "entrance", 0, "checkpoint", 0,
+                               wp_start2.id, wp_end2.id),
+            game_id="g1", level_number=2,
+            start_type="entrance", start_ordinal=0,
+            end_type="checkpoint", end_ordinal=0,
+            start_waypoint_id=wp_start2.id, end_waypoint_id=wp_end2.id,
+        )
         db.upsert_segment(seg2)
-        db.add_variant(SegmentVariant(segment_id="s1", variant_type="cold",
-                                       state_path=str(valid_state), is_default=True))
-        db.add_variant(SegmentVariant(segment_id="s2", variant_type="cold",
-                                       state_path="/nonexistent/path.mss", is_default=True))
+        db.add_save_state(WaypointSaveState(
+            waypoint_id=wp_start2.id, variant_type="hot",
+            state_path="/nonexistent/path.mss", is_default=True,
+        ))
         sched = Scheduler(db, "g1")
         picked = sched.pick_next()
         assert picked is not None
-        assert picked.segment_id == "s1"
+        assert picked.segment_id == seg1.id

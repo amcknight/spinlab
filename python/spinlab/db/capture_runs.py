@@ -97,10 +97,7 @@ class CaptureRunsMixin:
         ]
         if seg_ids:
             placeholders = ",".join("?" * len(seg_ids))
-            self.conn.execute(
-                f"DELETE FROM segment_variants WHERE segment_id IN ({placeholders})",
-                seg_ids,
-            )
+            # segment_variants table removed in Task 7 — cascade handled by FK or not applicable
             self.conn.execute(
                 f"DELETE FROM model_state WHERE segment_id IN ({placeholders})",
                 seg_ids,
@@ -116,13 +113,13 @@ class CaptureRunsMixin:
         self.conn.commit()
 
     def get_segments_by_reference(self, reference_id: str) -> list[ReferenceSegmentRow]:
+        # state_path is always NULL until Task 8 rewrites this to join
+        # waypoint_save_states via start_waypoint_id.
         cur = self.conn.execute(
             """SELECT id, game_id, level_number, start_type, start_ordinal,
                       end_type, end_ordinal, description, active, ordinal,
                       reference_id,
-                      (SELECT sv.state_path FROM segment_variants sv
-                       WHERE sv.segment_id = segments.id
-                       ORDER BY sv.is_default DESC LIMIT 1) AS state_path
+                      NULL AS state_path
                FROM segments WHERE reference_id = ? AND active = 1
                ORDER BY ordinal""",
             (reference_id,),

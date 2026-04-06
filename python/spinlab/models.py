@@ -1,6 +1,8 @@
 """SpinLab data models."""
 
 import dataclasses
+import hashlib
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, StrEnum
@@ -53,6 +55,7 @@ class EventType(StrEnum):
     REPLAY_PROGRESS = "replay_progress"
     REPLAY_FINISHED = "replay_finished"
     REPLAY_ERROR = "replay_error"
+    ATTEMPT_INVALIDATED = "attempt_invalidated"
 
 
 class Status(StrEnum):
@@ -108,16 +111,47 @@ class Segment:
     active: bool = True
     ordinal: Optional[int] = None
     reference_id: Optional[str] = None
+    start_waypoint_id: Optional[str] = None
+    end_waypoint_id: Optional[str] = None
+    is_primary: bool = True
 
     @staticmethod
     def make_id(game_id: str, level: int, start_type: str, start_ord: int,
-                end_type: str, end_ord: int) -> str:
-        return f"{game_id}:{level}:{start_type}.{start_ord}:{end_type}.{end_ord}"
+                end_type: str, end_ord: int,
+                start_waypoint_id: str, end_waypoint_id: str) -> str:
+        return (f"{game_id}:{level}:{start_type}.{start_ord}:{end_type}.{end_ord}"
+                f":{start_waypoint_id[:8]}:{end_waypoint_id[:8]}")
 
 
 @dataclass
-class SegmentVariant:
-    segment_id: str
+class Waypoint:
+    id: str
+    game_id: str
+    level_number: int
+    endpoint_type: EndpointType
+    ordinal: int
+    conditions_json: str     # canonical JSON (sorted keys)
+
+    @staticmethod
+    def make(game_id: str, level_number: int, endpoint_type: str,
+             ordinal: int, conditions: dict) -> "Waypoint":
+        canonical = json.dumps(conditions, sort_keys=True, separators=(", ", ": "))
+        h = hashlib.sha256(
+            f"{game_id}:{level_number}:{endpoint_type}.{ordinal}:{canonical}".encode()
+        ).hexdigest()[:16]
+        return Waypoint(
+            id=h,
+            game_id=game_id,
+            level_number=level_number,
+            endpoint_type=endpoint_type,
+            ordinal=ordinal,
+            conditions_json=canonical,
+        )
+
+
+@dataclass
+class WaypointSaveState:
+    waypoint_id: str
     variant_type: str        # 'cold', 'hot'
     state_path: str
     is_default: bool = False
@@ -134,6 +168,9 @@ class Attempt:
     deaths: int = 0
     clean_tail_ms: int | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    observed_start_conditions: str | None = None
+    observed_end_conditions: str | None = None
+    invalidated: bool = False
 
 
 @dataclass

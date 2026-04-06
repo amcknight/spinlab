@@ -60,6 +60,14 @@ local pending_reset = false
 -- Keyboard debounce
 local key_was_pressed = {}
 
+-- Condition definitions, populated via TCP set_conditions command.
+-- Each entry: { name=string, address=int, size=int }
+local condition_defs = {}
+
+-- Invalidation combo (SNES button names). Overridden via set_invalidate_combo TCP command.
+local invalidate_combo = { "L", "Select" }
+local invalidate_prev_down = false
+
 -- Passive recorder state
 local prev = {}              -- previous frame memory values
 local level_start_frame = 0  -- frame when current level entrance was logged
@@ -371,7 +379,8 @@ end
 -- JSONL LOGGER
 -----------------------------------------------------------------------
 
--- Minimal JSON serializer for flat string/number/bool tables
+-- JSON serializer for string/number/bool/table values.
+-- Nested tables are serialized as JSON objects.
 local function to_json(t)
   local parts = {}
   for k, v in pairs(t) do
@@ -380,6 +389,8 @@ local function to_json(t)
       val = '"' .. v:gsub('\\', '\\\\'):gsub('"', '\\"') .. '"'
     elseif type(v) == "boolean" then
       val = tostring(v)
+    elseif type(v) == "table" then
+      val = to_json(v)
     else
       val = tostring(v)
     end
@@ -458,6 +469,49 @@ local function read_mem()
 end
 
 -----------------------------------------------------------------------
+-- CONDITIONS
+-----------------------------------------------------------------------
+
+-- Parse a JSON array of condition objects: [{"name":"...","address":N,"size":N}, ...]
+-- Returns a Lua array of tables, or nil + error message on failure.
+local function parse_conditions_json(json_str)
+  local defs = {}
+  -- Strip outer array brackets
+  local body = json_str:match("^%s*%[(.*)%]%s*$")
+  if not body then
+    return nil, "expected JSON array"
+  end
+  -- Iterate over object entries: {...}
+  for obj in body:gmatch("{[^}]+}") do
+    local name    = json_get_str(obj, "name")
+    local address = json_get_num(obj, "address")
+    local size    = json_get_num(obj, "size")
+    if not name or not address or not size then
+      return nil, "each condition must have name, address, and size: " .. obj
+    end
+    defs[#defs + 1] = { name = name, address = address, size = size }
+  end
+  return defs
+end
+
+-- Read raw condition values from memory at the current frame.
+-- Returns an empty table if no conditions are configured.
+local function read_conditions()
+  local out = {}
+  for _, d in ipairs(condition_defs) do
+    if d.size == 1 then
+      out[d.name] = emu.read(d.address, SNES, false)
+    elseif d.size == 2 then
+      out[d.name] = emu.readWord(d.address, SNES, false)
+    else
+      -- Fail loud: unexpected condition size
+      error("unsupported condition size: " .. tostring(d.size) .. " for " .. tostring(d.name))
+    end
+  end
+  return out
+end
+
+-----------------------------------------------------------------------
 -- TRANSITION DETECTION
 -----------------------------------------------------------------------
 local function goal_type(curr)
@@ -479,6 +533,7 @@ local function on_level_entrance(curr, state_path)
     ts_ms      = ts_ms(),
     session    = "passive",
     state_path = state_path or "",
+    conditions = read_conditions(),
   }
   if JSONL_LOGGING then log_jsonl(event_data) end
   send_event(event_data)
@@ -492,6 +547,7 @@ local function on_death(curr)
       event      = "death",
       level_num  = curr.level_num,
       timestamp_ms = ts_ms(),
+      conditions = read_conditions(),
     }
     send_event(event_data)
   end
@@ -511,6 +567,7 @@ local function on_level_exit(curr)
     frame      = frame_counter,
     ts_ms      = ts_ms(),
     session    = "passive",
+    conditions = read_conditions(),
   }
   if JSONL_LOGGING then log_jsonl(event_data) end
   send_event(event_data)
@@ -574,6 +631,7 @@ local function detect_checkpoint(curr)
         cp_ordinal  = transition_state.cp_ordinal,
         timestamp_ms = ts_ms(),
         state_path  = state_path,
+        conditions  = read_conditions(),
       }
       send_event(event_data)
       log("Checkpoint: level " .. curr.level_num .. " cp" .. transition_state.cp_ordinal .. " (" .. cp_type .. ")")
@@ -618,6 +676,7 @@ local function detect_entrance(curr)
         timestamp_ms   = ts_ms(),
         state_captured = state_captured,
         state_path     = state_path or "",
+        conditions     = read_conditions(),
       }
       send_event(event_data)
       transition_state.died_flag = false
@@ -707,6 +766,7 @@ local function handle_cold_fill()
         state_captured = true,
         state_path = path,
         segment_id = cold_fill.segment_id,
+        conditions = read_conditions(),
       })
       log("Cold-fill: spawn captured for " .. cold_fill.segment_id)
       cold_fill.active = false
@@ -1016,6 +1076,30 @@ local prefixed_commands = {
     table.insert(pending_saves, arg)
     client:send("ok:queued\n")
   end,
+  ["set_conditions"] = function(arg)
+    -- arg is JSON array: [{"name":"...","address":N,"size":N}, ...]
+    local defs, err = parse_conditions_json(arg)
+    if not defs then
+      log("set_conditions: invalid payload — " .. tostring(err))
+      client:send("err:set_conditions_invalid\n")
+      return
+    end
+    condition_defs = defs
+    client:send("ok:conditions_set\n")
+    log("set_conditions: loaded " .. #condition_defs .. " conditions")
+  end,
+  ["set_invalidate_combo"] = function(arg)
+    -- arg is a JSON array of SNES button name strings: ["L","Select"]
+    local ok, result = pcall(parse_string_array, arg)
+    if not ok then
+      log("set_invalidate_combo: invalid payload — " .. tostring(result))
+      client:send("err:set_invalidate_combo_invalid\n")
+      return
+    end
+    invalidate_combo = result
+    client:send("ok:invalidate_combo_set\n")
+    log("set_invalidate_combo: " .. arg)
+  end,
   ["practice_load"] = function(arg)
     local json_str = arg
     practice.segment         = parse_practice_segment(json_str)
@@ -1103,6 +1187,49 @@ local function check_keyboard()
   -- T = save state, Y = load state (fires once per keypress)
   if key_just_pressed("T") then table.insert(pending_saves, TEST_STATE_FILE) end
   if key_just_pressed("Y") then table.insert(pending_loads, TEST_STATE_FILE) end
+end
+
+-- Returns true if all buttons in invalidate_combo are held on controller 0.
+local function combo_pressed()
+  local input = emu.getInput(0)
+  for _, btn in ipairs(invalidate_combo) do
+    if not input[btn] then return false end
+  end
+  return true
+end
+
+-- Fire attempt_invalidated event on the rising edge of the invalidation combo,
+-- but only while practice mode is active. Resets edge state when leaving practice.
+local function check_invalidate_combo()
+  if not practice.active then
+    invalidate_prev_down = false
+    return
+  end
+  local down = combo_pressed()
+  if down and not invalidate_prev_down then
+    if client then
+      client:send(to_json({ event = "attempt_invalidated" }) .. "\n")
+    end
+    log("attempt_invalidated: combo pressed")
+  end
+  invalidate_prev_down = down
+end
+
+-- Parse a JSON array of plain strings: ["L","Select"] → {"L","Select"}
+-- Fails loud (error) on malformed input so misconfiguration is obvious.
+local function parse_string_array(json_str)
+  local body = json_str:match("^%s*%[(.*)%]%s*$")
+  if not body then
+    error("parse_string_array: expected JSON array, got: " .. tostring(json_str))
+  end
+  local result = {}
+  for s in body:gmatch('"([^"]*)"') do
+    result[#result + 1] = s
+  end
+  if #result == 0 then
+    error("parse_string_array: no strings found in: " .. tostring(json_str))
+  end
+  return result
 end
 
 local function on_cpu_exec(address)
@@ -1203,6 +1330,7 @@ local function on_start_frame()
   prev = curr
 
   pcall(check_keyboard)
+  pcall(check_invalidate_combo)
   handle_tcp()
 
   draw_practice_overlay()

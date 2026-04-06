@@ -228,11 +228,28 @@ export function updatePracticeCard(data: AppState): void {
   recent.innerHTML = "";
   (data.recent || []).forEach((r) => {
     const li = document.createElement("li");
+    if (r.invalidated) {
+      li.classList.add("invalidated");
+    }
     const time = formatTime(r.time_ms);
     const cls = r.completed ? "ahead" : "behind";
+    const btnLabel = r.invalidated ? "Restore" : "Mark invalid";
+    const btn = document.createElement("button");
+    btn.className = "invalidate-btn";
+    btn.textContent = btnLabel;
+    btn.addEventListener("click", () => {
+      fetch(`/api/attempts/${r.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invalidated: !r.invalidated }),
+      }).catch(() => {
+        // Silently ignore network errors; next SSE update will reflect truth.
+      });
+    });
     li.innerHTML =
       '<span class="' + cls + '">' + time + "</span>" +
       ' <span class="dim">' + segmentName(r) + "</span>";
+    li.appendChild(btn);
     recent.appendChild(li);
   });
 

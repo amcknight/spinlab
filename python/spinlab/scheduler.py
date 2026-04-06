@@ -32,6 +32,7 @@ def _attempts_from_rows(rows: list[dict]) -> list[AttemptRecord]:
             created_at=r["created_at"],
         )
         for r in rows
+        if not r.get("invalidated", False)
     ]
 
 

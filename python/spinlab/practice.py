@@ -160,6 +160,14 @@ class PracticeSession:
         return True
 
     def _process_result(self, result: dict, cmd: SegmentCommand) -> None:
+        # TODO(Task 12 followup): populate observed_start_conditions and
+        # observed_end_conditions here. The start conditions should come from
+        # the Waypoint.conditions_json of the segment's start_waypoint_id
+        # (decoded via ConditionRegistry at save-state-load time). The end
+        # conditions are not yet emitted by the Lua attempt_result event — Lua
+        # would need to include a `conditions` field in the attempt_result
+        # payload, or the SessionManager would need to track the last
+        # transition-event conditions and pass them here.
         attempt = Attempt(
             segment_id=result["segment_id"],
             session_id=self.session_id,

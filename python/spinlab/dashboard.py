@@ -77,6 +77,7 @@ def create_app(
     tcp = TcpManager(config.network.host, config.network.port)
     session = SessionManager(
         db, tcp, config.rom_dir, config.category, data_dir=config.data_dir,
+        invalidate_combo=list(config.practice.invalidate_combo),
     )
     tcp.on_disconnect = session.on_disconnect
 
@@ -116,12 +117,14 @@ def create_app(
     from .routes.model import router as model_router
     from .routes.segments import router as segments_router
     from .routes.system import router as system_router
+    from .routes.attempts import router as attempts_router
 
     app.include_router(practice_router)
     app.include_router(reference_router)
     app.include_router(model_router)
     app.include_router(segments_router)
     app.include_router(system_router)
+    app.include_router(attempts_router)
 
     # -- Root endpoint --
 

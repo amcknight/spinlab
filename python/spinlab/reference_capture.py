@@ -1,4 +1,3 @@
-# python/spinlab/reference_capture.py
 """ReferenceCapture — owns reference/replay segment capture state and logic."""
 from __future__ import annotations
 
@@ -7,6 +6,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .db import Database
+    from .condition_registry import ConditionRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +36,10 @@ class ReferenceCapture:
     def handle_entrance(self, event: dict) -> None:
         """Buffer a level entrance as pending start."""
         # Only set new pending start if we don't already have a checkpoint
-        # pending.  SMW's level_start ($1935) can fire spuriously during
-        # goal sequences; overwriting a checkpoint pending_start with an
-        # entrance would create wrong segment types.
+        # pending. SMW's level_start can fire spuriously during goal sequences.
         if self.pending_start and self.pending_start["type"] != "entrance":
-            logger.info("Ignoring level_entrance — pending start exists: %s", self.pending_start)
+            logger.info("Ignoring level_entrance — pending start exists: %s",
+                        self.pending_start)
             return
         self.pending_start = {
             "type": "entrance",
@@ -48,88 +47,38 @@ class ReferenceCapture:
             "state_path": event.get("state_path"),
             "timestamp_ms": 0,
             "level_num": event["level"],
+            "raw_conditions": event.get("conditions", {}),
         }
         self.died = False
 
-    def handle_checkpoint(self, event: dict, game_id: str, db: "Database") -> None:
-        """Handle checkpoint during reference: close current segment, start new one."""
-        if not self.pending_start:
-            return
+    def _close_segment(self, db, game_id, start, end_type, end_ordinal,
+                       level, end_raw_conditions, registry) -> None:
+        """Create waypoints + segment for the segment ending here."""
+        from .models import Segment, Waypoint, WaypointSaveState
 
-        from .models import Segment, SegmentVariant
+        start_conds = registry.decode(start["raw_conditions"], level=level)
+        end_conds = registry.decode(end_raw_conditions, level=level)
 
-        start = self.pending_start
-        cp_ordinal = event.get("cp_ordinal", 1)
-        level = event.get("level_num", start["level_num"])
+        wp_start = Waypoint.make(game_id, level, start["type"],
+                                 start["ordinal"], start_conds)
+        wp_end = Waypoint.make(game_id, level, end_type, end_ordinal, end_conds)
+        db.upsert_waypoint(wp_start)
+        db.upsert_waypoint(wp_end)
 
         seg_id = Segment.make_id(
-            game_id, level,
-            start["type"], start["ordinal"],
-            "checkpoint", cp_ordinal,
+            game_id, level, start["type"], start["ordinal"],
+            end_type, end_ordinal, wp_start.id, wp_end.id,
         )
+        is_primary = self._compute_is_primary(
+            db, game_id, level, start["type"], start["ordinal"],
+            end_type, end_ordinal, seg_id)
         self.segments_count += 1
         seg = Segment(
-            id=seg_id,
-            game_id=game_id,
-            level_number=level,
-            start_type=start["type"],
-            start_ordinal=start["ordinal"],
-            end_type="checkpoint",
-            end_ordinal=cp_ordinal,
-            ordinal=self.segments_count,
-            reference_id=self.capture_run_id,
-        )
-        db.upsert_segment(seg)
-
-        start_path = start.get("state_path")
-        if start_path:
-            db.add_variant(SegmentVariant(
-                segment_id=seg_id,
-                variant_type="cold" if start["type"] == "entrance" else "hot",
-                state_path=start_path,
-                is_default=True,
-            ))
-
-        # New pending start is this checkpoint.
-        self.pending_start = {
-            "type": "checkpoint",
-            "ordinal": cp_ordinal,
-            "state_path": event.get("state_path"),
-            "timestamp_ms": event.get("timestamp_ms", 0),
-            "level_num": level,
-        }
-
-    def handle_exit(self, event: dict, game_id: str, db: "Database") -> None:
-        """Pair level_exit with pending start to create final segment."""
-        goal = event.get("goal", "abort")
-
-        if goal == "abort":
-            self.pending_start = None
-            return
-
-        if not self.pending_start:
-            return
-
-        self.segments_count += 1
-        from .models import Segment, SegmentVariant
-        start = self.pending_start
-        level = event["level"]
-
-        end_ordinal = 0
-        seg_id = Segment.make_id(
-            game_id, level,
-            start["type"], start["ordinal"],
-            "goal", end_ordinal,
-        )
-        seg = Segment(
-            id=seg_id,
-            game_id=game_id,
-            level_number=level,
-            start_type=start["type"],
-            start_ordinal=start["ordinal"],
-            end_type="goal",
-            end_ordinal=end_ordinal,
-            description="",
+            id=seg_id, game_id=game_id, level_number=level,
+            start_type=start["type"], start_ordinal=start["ordinal"],
+            end_type=end_type, end_ordinal=end_ordinal,
+            start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
+            is_primary=is_primary,
             ordinal=self.segments_count,
             reference_id=self.capture_run_id,
         )
@@ -137,41 +86,81 @@ class ReferenceCapture:
 
         state_path = start.get("state_path")
         if state_path:
-            db.add_variant(SegmentVariant(
-                segment_id=seg_id,
-                variant_type="hot" if start["type"] == "checkpoint" else "cold",
+            variant = "cold" if start["type"] == "entrance" else "hot"
+            db.add_save_state(WaypointSaveState(
+                waypoint_id=wp_start.id,
+                variant_type=variant,
                 state_path=state_path,
                 is_default=True,
             ))
 
+    @staticmethod
+    def _compute_is_primary(db, game_id, level, start_type, start_ord,
+                            end_type, end_ord, new_seg_id) -> bool:
+        """Return True iff no other active segment exists for this geography."""
+        row = db.conn.execute(
+            """SELECT id FROM segments
+               WHERE game_id = ? AND level_number = ?
+               AND start_type = ? AND start_ordinal = ?
+               AND end_type = ? AND end_ordinal = ?
+               AND active = 1 AND id != ?""",
+            (game_id, level, start_type, start_ord,
+             end_type, end_ord, new_seg_id),
+        ).fetchone()
+        return row is None
+
+    def handle_checkpoint(self, event: dict, game_id: str,
+                          db: "Database",
+                          registry: "ConditionRegistry") -> None:
+        """Close current segment at checkpoint, start new one."""
+        if not self.pending_start:
+            return
+        cp_ordinal = event.get("cp_ordinal", 1)
+        level = event.get("level_num", self.pending_start["level_num"])
+        self._close_segment(
+            db, game_id, self.pending_start, "checkpoint", cp_ordinal,
+            level, event.get("conditions", {}), registry)
+        self.pending_start = {
+            "type": "checkpoint",
+            "ordinal": cp_ordinal,
+            "state_path": event.get("state_path"),
+            "timestamp_ms": event.get("timestamp_ms", 0),
+            "level_num": level,
+            "raw_conditions": event.get("conditions", {}),
+        }
+
+    def handle_exit(self, event: dict, game_id: str,
+                    db: "Database",
+                    registry: "ConditionRegistry") -> None:
+        """Pair level_exit with pending start to create final segment."""
+        goal = event.get("goal", "abort")
+        if goal == "abort":
+            self.pending_start = None
+            return
+        if not self.pending_start:
+            return
+        level = event["level"]
+        self._close_segment(
+            db, game_id, self.pending_start, "goal", 0,
+            level, event.get("conditions", {}), registry)
         self.pending_start = None
 
-    def handle_spawn(self, event: dict, game_id: str, db: "Database") -> None:
-        """Handle spawn during reference: store cold variant if applicable."""
+    def handle_spawn(self, event: dict, game_id: str,
+                     db: "Database",
+                     registry: "ConditionRegistry") -> None:
+        """Store cold save state on checkpoint waypoint after a respawn."""
         if not event.get("is_cold_cp") or not event.get("state_captured"):
             return
-
-        from .models import SegmentVariant
-
         cold_path = event.get("state_path")
-        if not cold_path:
-            return
-
         level = event.get("level_num")
         cp_ord = event.get("cp_ordinal")
-        if level is None or cp_ord is None:
+        if cold_path is None or level is None or cp_ord is None:
             return
-
-        segments = db.get_active_segments(game_id)
-        for seg in segments:
-            if (seg.level_number == level and seg.start_type == "checkpoint"
-                    and seg.start_ordinal == cp_ord):
-                variant = SegmentVariant(
-                    segment_id=seg.id,
-                    variant_type="cold",
-                    state_path=cold_path,
-                    is_default=True,
-                )
-                db.add_variant(variant)
-                logger.debug("Stored cold variant for segment %s: %s", seg.id, cold_path)
-                break
+        from .models import Waypoint, WaypointSaveState
+        conds = registry.decode(event.get("conditions", {}), level=level)
+        wp = Waypoint.make(game_id, level, "checkpoint", cp_ord, conds)
+        db.upsert_waypoint(wp)
+        db.add_save_state(WaypointSaveState(
+            waypoint_id=wp.id, variant_type="cold",
+            state_path=cold_path, is_default=True))
+        logger.debug("Stored cold save state for waypoint %s: %s", wp.id, cold_path)

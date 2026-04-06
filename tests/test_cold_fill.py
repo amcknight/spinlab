@@ -5,7 +5,16 @@ from unittest.mock import AsyncMock, MagicMock, call
 import pytest
 
 from spinlab.capture_controller import CaptureController
-from spinlab.models import Mode, SegmentVariant, Status
+from spinlab.models import Mode, Status, WaypointSaveState
+
+
+def _make_conn_mock(waypoint_id: str = "wp_start_1"):
+    """Return a mock db.conn that returns a start_waypoint_id for any segment lookup."""
+    conn = MagicMock()
+    row = MagicMock()
+    row.__getitem__ = MagicMock(side_effect=lambda k: waypoint_id if k == 0 else None)
+    conn.execute.return_value.fetchone.return_value = row
+    return conn
 
 
 @pytest.fixture
@@ -27,8 +36,8 @@ def db():
          "level_number": 105, "start_type": "checkpoint", "start_ordinal": 2,
          "end_type": "goal", "end_ordinal": 0, "description": ""},
     ])
-    db.get_variant = MagicMock(return_value=None)
-    db.add_variant = MagicMock()
+    db.add_save_state = MagicMock()
+    db.conn = _make_conn_mock("wp_start_1")
     return db
 
 
@@ -60,7 +69,7 @@ class TestStartColdFill:
 
 
 class TestHandleColdFillSpawn:
-    async def test_stores_cold_variant_and_advances(self, tcp, db):
+    async def test_stores_cold_save_state_and_advances(self, tcp, db):
         cc = CaptureController(db, tcp)
         await cc.start_cold_fill("g1")
 
@@ -70,12 +79,12 @@ class TestHandleColdFillSpawn:
         )
         assert done is False  # still have one more
 
-        # Verify cold variant stored with is_default=True
-        v = db.add_variant.call_args[0][0]
-        assert v.segment_id == "g1:105:cp.1:cp.2"
-        assert v.variant_type == "cold"
-        assert v.state_path == "/cold1.mss"
-        assert v.is_default is True
+        # Verify cold save state stored via waypoint API
+        ss = db.add_save_state.call_args[0][0]
+        assert isinstance(ss, WaypointSaveState)
+        assert ss.variant_type == "cold"
+        assert ss.state_path == "/cold1.mss"
+        assert ss.is_default is True
 
         # Verify second segment loaded
         sent = json.loads(tcp.send.call_args[0][0])
