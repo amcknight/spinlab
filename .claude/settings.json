@@ -4,7 +4,6 @@
       "Read",
       "Grep",
       "Glob",
-
       "Bash(grep *)",
       "Bash(sed *)",
       "Bash(sort *)",
@@ -15,12 +14,11 @@
       "Bash(tail *)",
       "Bash(netstat *)",
       "Bash(cat *)",
-
       "Bash(python -c *)",
       "Bash(python -m pytest *)",
       "Bash(pytest *)",
+      "Bash(PYTHONPATH=. pytest *)",
       "Bash(pip install *)",
-
       "Bash(git add *)",
       "Bash(git rm *)",
       "Bash(git commit *)",
@@ -31,10 +29,8 @@
       "Bash(git diff *)",
       "Bash(git status *)",
       "Bash(git branch *)",
-
       "Bash(gh api *)",
       "Bash(curl -s http://localhost:*)",
-
       "WebSearch",
       "WebFetch(domain:www.mesen.ca)",
       "WebFetch(domain:github.com)"
