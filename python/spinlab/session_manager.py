@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .models import ActionResult, EventType, Mode, Status
-from .protocol import GameContextCmd, SetConditionsCmd, SetInvalidateComboCmd
+from .models import ActionResult, Mode, Status
+from .protocol import (
+    parse_event,
+    RomInfoEvent, GameContextEvent, LevelEntranceEvent, CheckpointEvent,
+    DeathEvent, SpawnEvent, LevelExitEvent, AttemptResultEvent,
+    RecSavedEvent, ReplayStartedEvent, ReplayProgressEvent,
+    ReplayFinishedEvent, ReplayErrorEvent, AttemptInvalidatedEvent,
+    GameContextCmd, SetConditionsCmd, SetInvalidateComboCmd,
+)
 from .capture_controller import CaptureController
 from .cold_fill_controller import ColdFillController
 from .sse import SSEBroadcaster
@@ -59,22 +67,22 @@ class SessionManager:
         self.sse = SSEBroadcaster()
         self._state_builder = StateBuilder(db)
 
-        # Event dispatch table
-        self._event_handlers: dict[EventType, callable] = {
-            EventType.ROM_INFO: self._handle_rom_info,
-            EventType.GAME_CONTEXT: self._handle_game_context,
-            EventType.LEVEL_ENTRANCE: self._handle_level_entrance,
-            EventType.CHECKPOINT: self._handle_checkpoint,
-            EventType.DEATH: self._handle_death,
-            EventType.SPAWN: self._handle_spawn,
-            EventType.LEVEL_EXIT: self._handle_level_exit,
-            EventType.ATTEMPT_RESULT: self._handle_attempt_result,
-            EventType.REC_SAVED: self._handle_rec_saved,
-            EventType.REPLAY_STARTED: self._handle_replay_started,
-            EventType.REPLAY_PROGRESS: self._handle_replay_progress,
-            EventType.REPLAY_FINISHED: self._handle_replay_finished,
-            EventType.REPLAY_ERROR: self._handle_replay_error,
-            EventType.ATTEMPT_INVALIDATED: self._handle_attempt_invalidated,
+        # Event dispatch table — keyed by event dataclass type
+        self._event_handlers: dict[type, callable] = {
+            RomInfoEvent: self._handle_rom_info,
+            GameContextEvent: self._handle_game_context,
+            LevelEntranceEvent: self._handle_level_entrance,
+            CheckpointEvent: self._handle_checkpoint,
+            DeathEvent: self._handle_death,
+            SpawnEvent: self._handle_spawn,
+            LevelExitEvent: self._handle_level_exit,
+            AttemptResultEvent: self._handle_attempt_result,
+            RecSavedEvent: self._handle_rec_saved,
+            ReplayStartedEvent: self._handle_replay_started,
+            ReplayProgressEvent: self._handle_replay_progress,
+            ReplayFinishedEvent: self._handle_replay_finished,
+            ReplayErrorEvent: self._handle_replay_error,
+            AttemptInvalidatedEvent: self._handle_attempt_invalidated,
         }
 
     @property
@@ -172,18 +180,17 @@ class SessionManager:
     # --- Event routing ---
 
     async def route_event(self, event: dict) -> None:
-        evt_type_str = event.get("event")
         try:
-            evt_type = EventType(evt_type_str)
+            typed_event = parse_event(event)
         except ValueError:
-            logger.warning("Unknown event type from Lua: %r", evt_type_str)
+            logger.warning("Unknown/malformed event from Lua: %r", event)
             return
-        handler = self._event_handlers.get(evt_type)
+        handler = self._event_handlers.get(type(typed_event))
         if handler:
-            await handler(event)
+            await handler(typed_event)
 
-    async def _handle_rom_info(self, event: dict) -> None:
-        filename = event.get("filename", "")
+    async def _handle_rom_info(self, event: RomInfoEvent) -> None:
+        filename = event.filename
         if not self.rom_dir or not filename:
             return
         rom_path = self.rom_dir / filename
@@ -214,79 +221,80 @@ class SessionManager:
                 await self.tcp.send_command(SetConditionsCmd(definitions=defs_payload))
             await self.tcp.send_command(SetInvalidateComboCmd(combo=self.invalidate_combo))
 
-    async def _handle_game_context(self, event: dict) -> None:
-        gid = event.get("game_id")
-        gname = event.get("game_name", gid or "unknown")
+    async def _handle_game_context(self, event: GameContextEvent) -> None:
+        gid = event.game_id
+        gname = event.game_name or gid or "unknown"
         if gid:
             await self.switch_game(gid, gname)
 
-    async def _handle_level_entrance(self, event: dict) -> None:
+    async def _handle_level_entrance(self, event: LevelEntranceEvent) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
-        self.capture.handle_entrance(event)
+        self.capture.handle_entrance(dataclasses.asdict(event))
         await self._notify_sse()
 
-    async def _handle_checkpoint(self, event: dict) -> None:
+    async def _handle_checkpoint(self, event: CheckpointEvent) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
-        self.capture.handle_checkpoint(event, self._require_game())
+        self.capture.handle_checkpoint(dataclasses.asdict(event), self._require_game())
         await self._notify_sse()
 
-    async def _handle_death(self, event: dict) -> None:
+    async def _handle_death(self, event: DeathEvent) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY, Mode.COLD_FILL):
             return
         if self.mode in (Mode.REFERENCE, Mode.REPLAY):
             self.capture.handle_death()
 
-    async def _handle_spawn(self, event: dict) -> None:
+    async def _handle_spawn(self, event: SpawnEvent) -> None:
+        event_dict = dataclasses.asdict(event)
         if self.mode == Mode.COLD_FILL:
-            done = await self.cold_fill.handle_spawn(event)
+            done = await self.cold_fill.handle_spawn(event_dict)
             if done:
                 self.mode = Mode.IDLE
             await self._notify_sse()
             return
         if self.mode == Mode.FILL_GAP:
-            if self.capture.handle_fill_gap_spawn(event):
+            if self.capture.handle_fill_gap_spawn(event_dict):
                 self.mode = Mode.IDLE
                 await self._notify_sse()
             return
         if self.mode in (Mode.REFERENCE, Mode.REPLAY):
-            self.capture.handle_spawn(event, self._require_game())
+            self.capture.handle_spawn(event_dict, self._require_game())
 
-    async def _handle_level_exit(self, event: dict) -> None:
+    async def _handle_level_exit(self, event: LevelExitEvent) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
         logger.info("level_exit: ref_pending_start=%s", self.capture.ref_capture.pending_start)
-        self.capture.handle_exit(event, self._require_game())
+        self.capture.handle_exit(dataclasses.asdict(event), self._require_game())
         await self._notify_sse()
 
-    async def _handle_attempt_result(self, event: dict) -> None:
+    async def _handle_attempt_result(self, event: AttemptResultEvent) -> None:
         if self.mode != Mode.PRACTICE:
             return
         if self.practice_session:
-            self.practice_session.receive_result(event)
+            self.practice_session.receive_result(dataclasses.asdict(event))
         await self._notify_sse()
 
-    async def _handle_rec_saved(self, event: dict) -> None:
-        self.capture.handle_rec_saved(event)
+    async def _handle_rec_saved(self, event: RecSavedEvent) -> None:
+        self.capture.handle_rec_saved(dataclasses.asdict(event))
 
-    async def _handle_replay_started(self, event: dict) -> None:
+    async def _handle_replay_started(self, event: ReplayStartedEvent) -> None:
         await self._notify_sse()
 
-    async def _handle_replay_progress(self, event: dict) -> None:
+    async def _handle_replay_progress(self, event: ReplayProgressEvent) -> None:
         await self._notify_sse()
 
-    async def _handle_replay_finished(self, event: dict) -> None:
+    async def _handle_replay_finished(self, event: ReplayFinishedEvent) -> None:
         self.capture.handle_replay_finished()
         self._clear_ref_and_idle()
         await self._notify_sse()
 
-    async def _handle_replay_error(self, event: dict) -> None:
+    async def _handle_replay_error(self, event: ReplayErrorEvent) -> None:
         self.capture.handle_replay_error()
         self._clear_ref_and_idle()
         await self._notify_sse()
 
-    async def _handle_attempt_invalidated(self, event: dict) -> None:
+    async def _handle_attempt_invalidated(self, event: AttemptInvalidatedEvent) -> None:
         """Mark the most recent practice attempt for the current session as invalidated."""
         if self.practice_session is None:
             return
