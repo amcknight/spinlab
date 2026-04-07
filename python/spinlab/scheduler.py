@@ -44,7 +44,11 @@ class Scheduler:
         self.db = db
         self.game_id = game_id
         saved_est = db.load_allocator_config("estimator")
-        self.estimator: Estimator = get_estimator(saved_est or estimator_name)
+        est_name = saved_est or estimator_name
+        if est_name not in list_estimators():
+            logger.warning("Saved estimator %r not found, falling back to %r", est_name, estimator_name)
+            est_name = estimator_name
+        self.estimator: Estimator = get_estimator(est_name)
         self.allocator: MixAllocator = self._build_mix_from_db()
         self._weights_json: str = self.db.load_allocator_config("allocator_weights") or ""
         # Clean up legacy single-allocator config key
