@@ -37,6 +37,27 @@ def test_setup_file_logging_handler_is_rotating(tmp_path):
     assert rotating_handlers[0].backupCount == 3
 
 
+def test_log_format_is_compact(tmp_path):
+    """Log lines use MM-DD HH:MM:SS format without year, millis, or spinlab. prefix."""
+    _setup_file_logging(tmp_path)
+    log_path = tmp_path / "spinlab.log"
+    logger = logging.getLogger("spinlab.test_compact")
+    logger.info("hello compact")
+
+    for handler in logging.root.handlers:
+        handler.flush()
+
+    content = log_path.read_text(encoding="utf-8")
+    line = [l for l in content.splitlines() if "hello compact" in l][-1]
+    # No year prefix (e.g. "2026-")
+    assert not line[:5].endswith("-"), f"Expected no year in: {line}"
+    # No milliseconds (no comma followed by digits before INFO)
+    assert "," not in line.split("INFO")[0]
+    # Logger name should be "test_compact", not "spinlab.test_compact"
+    assert "test_compact" in line
+    assert "spinlab.test_compact" not in line
+
+
 def teardown_function():
     """Clean up any handlers we added to root logger."""
     from logging.handlers import RotatingFileHandler

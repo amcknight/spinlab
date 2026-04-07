@@ -19,6 +19,14 @@ def _write_ports_file(project_dir: Path, tcp_port: int, dashboard_port: int) -> 
     )
 
 
+class _StripPrefixFilter(logging.Filter):
+    """Strip 'spinlab.' prefix from logger names for compact output."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.shortname = record.name.removeprefix("spinlab.")  # type: ignore[attr-defined]
+        return True
+
+
 def _setup_file_logging(data_dir: Path) -> None:
     """Configure rotating file log in data_dir/spinlab.log."""
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -27,11 +35,16 @@ def _setup_file_logging(data_dir: Path) -> None:
         str(log_path), maxBytes=1_000_000, backupCount=3, encoding="utf-8",
     )
     handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s — %(message)s"
+        "%(asctime)s %(levelname)s %(shortname)s — %(message)s",
+        datefmt="%m-%d %H:%M:%S",
     ))
+    handler.addFilter(_StripPrefixFilter())
     handler.setLevel(logging.INFO)
     logging.root.addHandler(handler)
     logging.root.setLevel(min(logging.root.level or logging.INFO, logging.INFO))
+    logging.getLogger("spinlab.cli").info(
+        "==== Dashboard starting %s", "=" * 40
+    )
 
 
 def main(args: list[str] | None = None) -> None:
