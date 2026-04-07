@@ -65,6 +65,12 @@ def main(args: list[str] | None = None) -> None:
     p_lua.add_argument("commands", nargs="+", help="Commands to send (e.g. practice_stop reset)")
     p_lua.add_argument("--config", default="config.yaml", help="Path to config.yaml")
 
+    # db
+    p_db = sub.add_parser("db", help="Database management commands")
+    db_sub = p_db.add_subparsers(dest="db_command", required=True)
+    p_db_reset = db_sub.add_parser("reset", help="Delete and recreate the database")
+    p_db_reset.add_argument("--config", default="config.yaml", help="Path to config.yaml")
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "stats":
@@ -117,6 +123,22 @@ def main(args: list[str] | None = None) -> None:
                     s.sendall((cmd + "\n").encode())
         except OSError:
             pass
+
+    elif parsed.command == "db":
+        if parsed.db_command == "reset":
+            from spinlab.config import AppConfig
+            from spinlab.db import Database
+
+            config = AppConfig.from_yaml(Path(parsed.config))
+            db_path = config.data_dir / "spinlab.db"
+            if db_path.exists():
+                db_path.unlink()
+            for suffix in (".db-wal", ".db-shm"):
+                wal = config.data_dir / f"spinlab{suffix}"
+                if wal.exists():
+                    wal.unlink()
+            Database(str(db_path))
+            print(f"Database reset: {db_path}")
 
 
 if __name__ == "__main__":
