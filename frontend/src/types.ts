@@ -195,6 +195,35 @@ export interface Reference {
   has_spinrec: boolean;
 }
 
+/** One completed attempt as returned by GET /api/segments/{id}/history. */
+export interface SegmentAttempt {
+  attempt_number: number;
+  time_ms: number | null;
+  clean_tail_ms: number | null;
+  deaths: number;
+  created_at: string;
+}
+
+/** Estimator curve series (arrays parallel to attempts). */
+export interface EstimatorSeries {
+  expected_ms: (number | null)[];
+  floor_ms: (number | null)[];
+}
+
+/** Curves for one estimator (total + clean). */
+export interface EstimatorCurves {
+  total: EstimatorSeries;
+  clean: EstimatorSeries;
+}
+
+/** GET /api/segments/{id}/history */
+export interface SegmentHistory {
+  segment_id: string;
+  description: string;
+  attempts: SegmentAttempt[];
+  estimator_curves: Record<string, EstimatorCurves>;
+}
+
 /** Any object with segment-naming fields (used by segmentName/shortSegName). */
 export interface SegmentLike {
   description?: string;
