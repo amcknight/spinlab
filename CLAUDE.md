@@ -59,13 +59,17 @@ Types in `frontend/src/types.ts` must stay in sync with Python response models.
 
 Dashboard logs to `{data_dir}/spinlab.log` (rotating, 1 MB max, 3 backups). Configured automatically on `spinlab dashboard` startup. All `logger.info()` / `logger.warning()` / `logger.exception()` calls go to this file.
 
+## Merging Branches
+
+Before merging any branch to main, run the **full** test suite: `python -m pytest`. This includes unit, emulator, and frontend tests. All must pass. Do not merge with `pytest -m "not emulator"` or other partial runs — that's how bugs slip through.
+
 ## Worktrees
 
 Worktrees live in `.worktrees/{name}/` with branch `worktree/{name}`.
 
 - **Main checkout:** Full access to dashboard, TCP, emulator, Playwright.
 - **In a worktree:** Code edits and unit tests OK. Binding ports, Playwright, or emulator — ask first.
-- **Editable installs:** If imports fail in a worktree, re-run `pip install -e .` from worktree root.
+- **Editable installs:** If imports fail in a worktree, re-run `pip install -e .` from worktree root. When merging back to main, re-run `pip install -e .` from main to fix the package path.
 - **Cleanup:** `git worktree remove .worktrees/{name}` → `git branch -d worktree/{name}` → `git worktree prune`
 
 ## Superpowers Visual Companion (Windows)
