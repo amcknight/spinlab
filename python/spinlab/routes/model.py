@@ -76,6 +76,8 @@ def switch_estimator(body: dict, session: SessionManager = Depends(get_session))
 
 @router.get("/estimator-params")
 def get_estimator_params(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
+    if session.game_id is None:
+        return {"estimator": None, "params": []}
     sched = session._get_scheduler()
     est = sched.estimator
     declared = est.declared_params()

@@ -39,12 +39,13 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
     (lastState.mode === "reference" || lastState.mode === "replay");
   const hasDraft = lastState?.draft != null;
 
+  const noRefs = refs.length === 0;
   sel.disabled = busy || hasDraft;
   btnStart.disabled = busy || hasDraft || !lastState?.tcp_connected;
   (document.getElementById("btn-ref-rename") as HTMLButtonElement).disabled =
-    busy || hasDraft;
+    busy || hasDraft || noRefs;
   (document.getElementById("btn-ref-delete") as HTMLButtonElement).disabled =
-    busy || hasDraft;
+    busy || hasDraft || noRefs;
 
   if (hasDraft && lastState?.draft) {
     draftPrompt.style.display = "";
@@ -185,9 +186,10 @@ export function initManageTab(): void {
     fetchManage();
   });
 
-  document.getElementById("btn-ref-start")!.addEventListener("click", () =>
-    postJSON("/api/reference/start"),
-  );
+  document.getElementById("btn-ref-start")!.addEventListener("click", () => {
+    if (!lastState?.tcp_connected) return;
+    postJSON("/api/reference/start");
+  });
 
   document.getElementById("btn-replay")!.addEventListener("click", async () => {
     const sel = document.getElementById("ref-select") as HTMLSelectElement;

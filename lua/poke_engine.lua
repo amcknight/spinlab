@@ -20,6 +20,11 @@ local SNES = emu.memType.snesMemory
 -- ADDRESS MAP (loaded from shared source of truth)
 -----------------------------------------------------------------------
 local _pe_dir = debug.getinfo(1, "S").source:match("@?(.*[\\/])") or ""
+if _pe_dir == "" then
+    local _pe_data = emu.getScriptDataFolder()
+    local f = io.open(_pe_data .. "/lua_dir.txt", "r")
+    if f then _pe_dir = f:read("*l") or ""; f:close() end
+end
 dofile(_pe_dir .. "addresses.lua")
 
 local ADDR_MAP = {

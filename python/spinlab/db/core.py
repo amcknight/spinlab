@@ -138,7 +138,9 @@ class DatabaseCore:
                 stale_tables.append(table)
         if stale_tables:
             drops = "; ".join(f"DROP TABLE IF EXISTS {t}" for t in stale_tables)
-            self.conn.executescript(drops + ";")
+            self.conn.executescript(
+                "PRAGMA foreign_keys=OFF; " + drops + "; PRAGMA foreign_keys=ON;"
+            )
         self.conn.executescript(SCHEMA)
         self.conn.commit()
         # Retain existing ALTER TABLE migration attempts below (capture_runs.draft etc.)

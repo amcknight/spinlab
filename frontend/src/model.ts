@@ -288,10 +288,13 @@ function renderTuningParams(data: TuningData): void {
   const container = document.getElementById("tuning-params");
   if (!container) return;
   container.innerHTML = "";
+  const actions = document.querySelector(".tuning-actions") as HTMLElement | null;
   if (!data.params || data.params.length === 0) {
     container.innerHTML = '<p class="tuning-empty">No tunable parameters</p>';
+    if (actions) actions.style.display = "none";
     return;
   }
+  if (actions) actions.style.display = "";
   data.params.forEach((p) => {
     const row = document.createElement("div");
     row.className = "tuning-row";

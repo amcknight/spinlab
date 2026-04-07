@@ -48,10 +48,17 @@ document.querySelectorAll(".tab").forEach((btn) => {
 });
 
 async function fetchAndRenderSegments(): Promise<void> {
-  if (!_currentGameId) return;
   const container = document.getElementById("segments-view-container") as HTMLElement;
+  if (!_currentGameId) {
+    container.innerHTML = '<p class="dim">No game loaded</p>';
+    return;
+  }
   try {
     const segs = await fetchSegments(_currentGameId);
+    if (!segs.length) {
+      container.innerHTML = '<p class="dim">No segments</p>';
+      return;
+    }
     renderSegmentsView(container, segs);
   } catch (err) {
     container.textContent = String(err);

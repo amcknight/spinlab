@@ -42,7 +42,14 @@ local function get_rom_filename()
 end
 
 -- Memory addresses — loaded from shared source of truth
+-- debug.getinfo source includes the directory when Mesen receives an absolute path;
+-- when Mesen auto-loads a remembered script the source may lack a directory prefix.
 local _spinlab_dir = debug.getinfo(1, "S").source:match("@?(.*[\\/])") or ""
+if _spinlab_dir == "" then
+    -- Fallback: read lua directory from breadcrumb written by dashboard at launch
+    local f = io.open(DATA_DIR .. "/lua_dir.txt", "r")
+    if f then _spinlab_dir = f:read("*l") or ""; f:close() end
+end
 dofile(_spinlab_dir .. "addresses.lua")
 
 -----------------------------------------------------------------------
@@ -950,6 +957,23 @@ local function tcp_heartbeat()
   return true
 end
 
+-- Parse a JSON array of plain strings: ["L","Select"] → {"L","Select"}
+-- Fails loud (error) on malformed input so misconfiguration is obvious.
+local function parse_string_array(json_str)
+  local body = json_str:match("^%s*%[(.*)%]%s*$")
+  if not body then
+    error("parse_string_array: expected JSON array, got: " .. tostring(json_str))
+  end
+  local result = {}
+  for s in body:gmatch('"([^"]*)"') do
+    result[#result + 1] = s
+  end
+  if #result == 0 then
+    error("parse_string_array: no strings found in: " .. tostring(json_str))
+  end
+  return result
+end
+
 local function handle_json_message(line)
   local decoded_event = json_get_str(line, "event")
   if decoded_event == "game_context" then
@@ -1290,23 +1314,6 @@ local function check_invalidate_combo()
     log("attempt_invalidated: combo pressed")
   end
   invalidate_prev_down = down
-end
-
--- Parse a JSON array of plain strings: ["L","Select"] → {"L","Select"}
--- Fails loud (error) on malformed input so misconfiguration is obvious.
-local function parse_string_array(json_str)
-  local body = json_str:match("^%s*%[(.*)%]%s*$")
-  if not body then
-    error("parse_string_array: expected JSON array, got: " .. tostring(json_str))
-  end
-  local result = {}
-  for s in body:gmatch('"([^"]*)"') do
-    result[#result + 1] = s
-  end
-  if #result == 0 then
-    error("parse_string_array: no strings found in: " .. tostring(json_str))
-  end
-  return result
 end
 
 local function on_cpu_exec(address)

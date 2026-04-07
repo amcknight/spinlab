@@ -18,6 +18,7 @@ class NetworkConfig:
 class EmulatorConfig:
     path: Path | None = None
     lua_script: Path | None = None
+    script_data_dir: Path | None = None
 
 
 # SNES controller buttons reserved for the in-emulator invalidation combo.
@@ -52,6 +53,7 @@ class AppConfig:
 
         emu_path = emu.get("path")
         lua_script = emu.get("lua_script")
+        script_data_dir = emu.get("script_data_dir")
 
         practice_raw = raw.get("practice", {})
         practice_cfg = PracticeConfig(
@@ -67,6 +69,7 @@ class AppConfig:
             emulator=EmulatorConfig(
                 path=Path(emu_path) if emu_path else None,
                 lua_script=Path(lua_script) if lua_script else None,
+                script_data_dir=Path(script_data_dir) if script_data_dir else None,
             ),
             data_dir=Path(raw["data"]["dir"]),
             rom_dir=Path(rom_dir_str) if rom_dir_str else None,

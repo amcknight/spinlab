@@ -45,7 +45,9 @@ async def sse_events(session: SessionManager = Depends(get_session)):
 
 @router.get("/sessions")
 def api_sessions(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
-    sessions = db.get_session_history(session._require_game())
+    if session.game_id is None:
+        return {"sessions": []}
+    sessions = db.get_session_history(session.game_id)
     return {"sessions": sessions}
 
 
@@ -106,6 +108,13 @@ def launch_emulator(body: dict | None = None, config: AppConfig = Depends(get_co
         script_path = lua_script if lua_script.is_absolute() else Path.cwd() / lua_script
         if script_path.exists():
             cmd.append(str(script_path))
+            # Write breadcrumb so Lua can find addresses.lua even when Mesen auto-loads
+            script_data_dir = config.emulator.script_data_dir
+            if script_data_dir:
+                lua_dir = str(script_path.resolve().parent) + "/"
+                breadcrumb = Path(script_data_dir) / "lua_dir.txt"
+                breadcrumb.parent.mkdir(parents=True, exist_ok=True)
+                breadcrumb.write_text(lua_dir, encoding="utf-8")
     subprocess.Popen(cmd)
     return {"status": "ok"}
 
