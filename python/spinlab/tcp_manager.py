@@ -110,7 +110,9 @@ class TcpManager:
                     event = json.loads(text)
                     await self.events.put(event)
                 except json.JSONDecodeError:
-                    if text in _KNOWN_NON_JSON:
+                    if text.startswith("ok:") or text.startswith("err:"):
+                        logger.debug("TCP response: %s", text)
+                    elif text in _KNOWN_NON_JSON:
                         logger.debug("TCP non-JSON (expected): %s", text)
                     else:
                         logger.warning("Unexpected non-JSON from Lua: %r", text)

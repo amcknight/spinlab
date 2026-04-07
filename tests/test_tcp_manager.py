@@ -63,3 +63,81 @@ async def test_connect_refused():
     connected = await mgr.connect(timeout=0.5)
     assert not connected
     assert not mgr.is_connected
+
+
+# ---------------------------------------------------------------------------
+# Non-JSON handling tests (TDD for ok:/err: prefix support)
+# ---------------------------------------------------------------------------
+
+
+def _make_manager_with_lines(lines: list[str]) -> TcpManager:
+    """Return a TcpManager whose _reader yields the given text lines then EOF."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    manager = TcpManager()
+    chunks = [(line.encode("utf-8") + b"\n") for line in lines] + [b""]
+    call_iter = iter(chunks)
+
+    async def fake_readline():
+        return next(call_iter)
+
+    reader = MagicMock()
+    reader.readline = fake_readline
+
+    manager._reader = reader
+    manager._writer = MagicMock()
+    manager._writer.is_closing.return_value = False
+    return manager
+
+
+@pytest.mark.asyncio
+async def test_ok_prefix_no_warning(caplog):
+    """ok:-prefixed messages must not produce WARNING-level log entries."""
+    import logging
+
+    manager = _make_manager_with_lines(["ok:queued", "ok:practice_loaded"])
+    with caplog.at_level(logging.DEBUG, logger="spinlab.tcp_manager"):
+        await manager._read_loop()
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings == [], f"Unexpected warnings: {[r.message for r in warnings]}"
+
+
+@pytest.mark.asyncio
+async def test_err_prefix_no_warning(caplog):
+    """err:-prefixed messages must not produce WARNING-level log entries."""
+    import logging
+
+    manager = _make_manager_with_lines(["err:unknown_command"])
+    with caplog.at_level(logging.DEBUG, logger="spinlab.tcp_manager"):
+        await manager._read_loop()
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings == [], f"Unexpected warnings: {[r.message for r in warnings]}"
+
+
+@pytest.mark.asyncio
+async def test_unknown_non_json_warns(caplog):
+    """Truly unknown non-JSON text must produce exactly one WARNING."""
+    import logging
+
+    manager = _make_manager_with_lines(["something_weird"])
+    with caplog.at_level(logging.DEBUG, logger="spinlab.tcp_manager"):
+        await manager._read_loop()
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1, (
+        f"Expected 1 warning, got {len(warnings)}: {[r.message for r in warnings]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_json_events_still_queued():
+    """Valid JSON messages must be placed on the events queue."""
+    payload = {"type": "transition", "segment": 3}
+    manager = _make_manager_with_lines([json.dumps(payload)])
+    await manager._read_loop()
+
+    assert not manager.events.empty(), "Expected JSON event on queue"
+    event = manager.events.get_nowait()
+    assert event == payload
