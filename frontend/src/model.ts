@@ -17,6 +17,15 @@ const ALLOCATOR_ORDER = ["greedy", "random", "round_robin"];
 
 let _currentWeights: Record<string, number> | null = null;
 let _tuningParams: TuningData | null = null;
+let _tuningDebounce: ReturnType<typeof setTimeout> | null = null;
+const TUNING_DEBOUNCE_MS = 200;
+
+function debouncedApply(): void {
+  if (_tuningDebounce) clearTimeout(_tuningDebounce);
+  _tuningDebounce = setTimeout(() => {
+    applyTuningParams();
+  }, TUNING_DEBOUNCE_MS);
+}
 
 function renderWeightSlider(weights: Record<string, number>): void {
   _currentWeights = { ...weights };
@@ -314,9 +323,11 @@ function renderTuningParams(data: TuningData): void {
     const input = row.querySelector(".tuning-value") as HTMLInputElement;
     slider.addEventListener("input", () => {
       input.value = slider.value;
+      debouncedApply();
     });
     input.addEventListener("input", () => {
       slider.value = input.value;
+      debouncedApply();
     });
   });
 }
@@ -372,7 +383,6 @@ export function initModelTab(): void {
       body.style.display = panel.classList.contains("collapsed") ? "none" : "";
     });
   }
-  document.getElementById("btn-tuning-apply")?.addEventListener("click", applyTuningParams);
   document.getElementById("btn-tuning-reset")?.addEventListener("click", resetTuningDefaults);
 
   fetchTuningParams();
