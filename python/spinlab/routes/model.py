@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+
+logger = logging.getLogger(__name__)
 
 from spinlab.dashboard import _check_result
 from spinlab.db import Database
@@ -58,6 +61,7 @@ def set_allocator_weights(body: dict, session: SessionManager = Depends(get_sess
     try:
         sched.set_allocator_weights(body)
     except (ValueError, TypeError) as e:
+        logger.warning("set_allocator_weights: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
     return {"weights": body}
 
@@ -68,6 +72,7 @@ def switch_estimator(body: dict, session: SessionManager = Depends(get_session))
     name = body.get("name")
     valid = list_estimators()
     if name not in valid:
+        logger.warning("switch_estimator: unknown %r (valid: %s)", name, valid)
         raise HTTPException(status_code=400, detail=f"Unknown estimator: {name}. Valid: {valid}")
     sched = session._get_scheduler()
     sched.switch_estimator(name)
@@ -104,6 +109,7 @@ def set_estimator_params(body: dict, session: SessionManager = Depends(get_sessi
     valid_names = {p.name for p in est.declared_params()}
     for name in params:
         if name not in valid_names:
+            logger.warning("set_estimator_params: unknown param %r (valid: %s)", name, valid_names)
             raise HTTPException(status_code=400, detail=f"Unknown param: {name}")
     db.save_allocator_config(f"estimator_params:{est.name}", json.dumps(params))
     sched.rebuild_all_states()

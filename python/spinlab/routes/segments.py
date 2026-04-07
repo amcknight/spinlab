@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 
 from spinlab.dashboard import _check_result
@@ -40,6 +43,7 @@ def api_segments(session: SessionManager = Depends(get_session), db: Database = 
 @router.patch("/segments/{segment_id}")
 def patch_segment(segment_id: str, body: SegmentPatch, db: Database = Depends(get_db)):
     if not db.segment_exists(segment_id):
+        logger.warning("patch_segment: not found %s", segment_id)
         raise HTTPException(status_code=404, detail="segment not found")
     if body.is_primary is not None:
         db.set_segment_is_primary(segment_id, body.is_primary)
@@ -52,6 +56,7 @@ def patch_segment(segment_id: str, body: SegmentPatch, db: Database = Depends(ge
 @router.delete("/segments/{segment_id}")
 def delete_segment(segment_id: str, db: Database = Depends(get_db)):
     if not db.segment_exists(segment_id):
+        logger.warning("delete_segment: not found %s", segment_id)
         raise HTTPException(status_code=404, detail="Segment not found")
     db.soft_delete_segment(segment_id)
     return {"status": "ok"}
