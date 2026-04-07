@@ -72,7 +72,7 @@ async def test_connect_refused():
 
 def _make_manager_with_lines(lines: list[str]) -> TcpManager:
     """Return a TcpManager whose _reader yields the given text lines then EOF."""
-    from unittest.mock import AsyncMock, MagicMock
+    from unittest.mock import MagicMock
 
     manager = TcpManager()
     chunks = [(line.encode("utf-8") + b"\n") for line in lines] + [b""]
@@ -129,6 +129,7 @@ async def test_unknown_non_json_warns(caplog):
     assert len(warnings) == 1, (
         f"Expected 1 warning, got {len(warnings)}: {[r.message for r in warnings]}"
     )
+    assert "something_weird" in warnings[0].message
 
 
 @pytest.mark.asyncio

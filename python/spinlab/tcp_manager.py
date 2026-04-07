@@ -15,7 +15,7 @@ from .protocol import serialize_command
 
 logger = logging.getLogger(__name__)
 
-_KNOWN_NON_JSON = {"pong", "ok:queued"}
+_KNOWN_NON_JSON = {"pong", "heartbeat"}
 
 
 class TcpManager:
