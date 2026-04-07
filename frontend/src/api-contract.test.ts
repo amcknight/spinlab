@@ -6,6 +6,7 @@ import type {
   TuningData,
   Reference,
   ReferenceSegment,
+  SegmentHistory,
 } from "./types";
 
 /**
@@ -164,5 +165,26 @@ describe("SessionInfo savings fields", () => {
     };
     expect(s.saved_total_ms).toBeNull();
     expect(s.saved_clean_ms).toBeNull();
+  });
+});
+
+describe("SegmentHistory contract", () => {
+  it("history response fixture type-checks", () => {
+    const history: SegmentHistory = {
+      segment_id: "s1",
+      description: "Yoshi's Island 1",
+      attempts: [
+        { attempt_number: 1, time_ms: 4500, clean_tail_ms: 4500, deaths: 0, created_at: "2026-04-01T12:00:00Z" },
+        { attempt_number: 2, time_ms: 3800, clean_tail_ms: 3800, deaths: 0, created_at: "2026-04-01T12:05:00Z" },
+      ],
+      estimator_curves: {
+        kalman: {
+          total: { expected_ms: [4500, 4150], floor_ms: [null, null] },
+          clean: { expected_ms: [4500, 4150], floor_ms: [null, null] },
+        },
+      },
+    };
+    expect(history.attempts).toHaveLength(2);
+    expect(history.estimator_curves["kalman"]!.total.expected_ms).toHaveLength(2);
   });
 });
