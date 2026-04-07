@@ -22,6 +22,11 @@ Quick reference for domain terms used across specs, architecture docs, and code.
 - **Cold variant** — save state captured on first respawn from a checkpoint (post-death-animation).
 - **StartPoint** — (deprecated term, replaced by Waypoint) — a waypoint that a save state loads you into.
 
+## Time Series
+
+- **Total time** (`time_ms`) — wall-clock time for a completed attempt, including any deaths and respawns. The "total" series in estimator outputs and the history chart.
+- **Clean tail** (`clean_tail_ms`) — time from the last death (or segment start if deathless) to completion. Isolates execution quality from death count. The "clean" series in estimator outputs and the history chart.
+
 ## Flags
 
 - **is_primary** — per-segment flag. Practice loop serves only primary segments. Auto-True for the first segment in a geography.

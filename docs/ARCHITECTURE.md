@@ -16,7 +16,7 @@
 
 4. **Database** (`python/spinlab/db/`): SQLite via mixin-composed repositories. All consumers import `from spinlab.db import Database`.
 
-5. **Frontend** (`frontend/src/`): TypeScript modules built with Vite. Output goes to `python/spinlab/static/` (git-ignored). SSE (`/api/events`) as primary update mechanism with polling fallback. API response types in `types.ts` must stay in sync with Python response models. See `CLAUDE.md` for dev/build/test commands.
+5. **Frontend** (`frontend/src/`): TypeScript modules built with Vite. Output goes to `python/spinlab/static/` (git-ignored). SSE (`/api/events`) as primary update mechanism with polling fallback. API response types in `types.ts` must stay in sync with Python response models. Chart.js for segment history graphs. See `CLAUDE.md` for dev/build/test commands.
 
 ## IPC: TCP Socket
 
@@ -35,6 +35,11 @@ Mesen2 has LuaSocket compiled in. The Lua script runs a TCP server; Python conne
 - **`.spinrec` binary format.** 32-byte header + one uint16/frame (SNES joypad bitmask). Python reader/writer in `spinrec.py`; Lua inline.
 - **Replay injects inputs, not save states.** Loads frame-0 state once, feeds recorded inputs via `emu.setInput()`. Existing `detect_transitions()` fires naturally.
 - **Estimators are pluggable** via registry decorator. All estimators run on every attempt; the allocator reads the selected one.
+- **Segment history is computed on demand.** `GET /api/segments/{id}/history` replays attempts through all estimators to produce per-attempt curves. No cached state — always reflects current estimator params.
+
+## Logging
+
+Dashboard logs to `{data_dir}/spinlab.log` (rotating, 1 MB max, 3 backups). Configured on `spinlab dashboard` startup. Routes log `logger.warning()` before returning HTTP error responses (400, 404, etc.) for observability. All `logger.info()` / `logger.warning()` / `logger.exception()` calls go to this file.
 
 ## Emulator
 

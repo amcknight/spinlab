@@ -1,0 +1,12 @@
+- Just work on critical path stuff to get real value for a simple run
+- A model that actually models the domain properly. Could simplify a lot if we found The Model.
+- A fast-run mode, which lets you play the game but cuts all delays
+- Room and other consistent subsections that are not CPs
+- Merging and splitting of segments
+- How do Replays even work? Do they?
+- Reference run data should contribute seed practice data
+- pre-start pause that shows the game, paused, maybe greyed, with what buttons to hold, before starting, for tricky hot starts
+- practice mode time should count time that you would have spent retrying, so might need Reference Run to calculate between gameplay times
+- A small library of actual full runs recorded for reseeding and testing new functionality, including some gnarly weird ones
+- Consider how to add full bayesian uncertainty and priors into a new set of Estimators
+- Backfilling and tuning hyperparams for Estimators

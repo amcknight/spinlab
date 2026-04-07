@@ -104,10 +104,14 @@ export async function renderSegmentDetail(
   toggleRow.appendChild(cleanBtn);
   container.appendChild(toggleRow);
 
-  // Canvas
+  // Canvas inside a sized wrapper (Chart.js needs a block-level container with
+  // an explicit height when maintainAspectRatio is false, otherwise it grows forever)
+  const chartWrap = document.createElement("div");
+  chartWrap.className = "chart-wrapper";
   const canvas = document.createElement("canvas");
   canvas.id = "segment-chart";
-  container.appendChild(canvas);
+  chartWrap.appendChild(canvas);
+  container.appendChild(chartWrap);
 
   // Fetch data
   const history = await fetchJSON<SegmentHistory>(
