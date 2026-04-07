@@ -11,12 +11,17 @@ import asyncio
 
 import json
 import os
+import socket
 import subprocess
+import tempfile
+import threading
 from pathlib import Path
 from typing import AsyncGenerator
 
 import pytest
 import pytest_asyncio
+import requests as http_requests
+import uvicorn
 import yaml
 
 from spinlab.tcp_manager import TcpManager
@@ -192,3 +197,97 @@ def run_scenario(tcp_client):
         return events
 
     return _run
+
+
+def _free_port() -> int:
+    """Find a free TCP port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def dashboard_server(mesen_process):
+    """Start a real FastAPI dashboard with DB, connecting to the same Mesen TCP server.
+
+    Yields (base_url, db) tuple. The dashboard's event loop handles rom_info
+    and sends game_context — no manual TCP handshake needed for smoke tests.
+    """
+    from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeConfig
+    from spinlab.dashboard import create_app
+    from spinlab.db import Database
+
+    tmp = tempfile.mkdtemp(prefix="spinlab_smoke_")
+    tmp_path = Path(tmp)
+
+    db = Database(str(tmp_path / "spinlab.db"))
+    port = _free_port()
+    tcp_port = _tcp_port()
+
+    config = AppConfig(
+        network=NetworkConfig(host="127.0.0.1", port=tcp_port, dashboard_port=port),
+        emulator=EmulatorConfig(),
+        data_dir=tmp_path,
+        rom_dir=None,
+        practice=PracticeConfig(),
+    )
+
+    app = create_app(db=db, config=config)
+
+    uvi_config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(uvi_config)
+
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    # Wait for uvicorn to be ready
+    base_url = f"http://127.0.0.1:{port}"
+    for _ in range(40):
+        try:
+            resp = http_requests.get(f"{base_url}/api/state", timeout=1)
+            if resp.status_code == 200:
+                break
+        except http_requests.ConnectionError:
+            pass
+        await asyncio.sleep(0.25)
+    else:
+        pytest.fail("Dashboard server did not start within 10 seconds")
+
+    # Wait for TCP to connect and game to load (event loop handles rom_info)
+    for _ in range(40):
+        resp = http_requests.get(f"{base_url}/api/state", timeout=2)
+        state = resp.json()
+        if state.get("tcp_connected") and state.get("game_id"):
+            break
+        await asyncio.sleep(0.25)
+
+    yield base_url, db
+
+    # Teardown
+    server.should_exit = True
+    thread.join(timeout=5)
+    db.close()
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def dashboard_url(dashboard_server) -> str:
+    """Convenience alias — just the base URL string."""
+    base_url, _ = dashboard_server
+    return base_url
+
+
+@pytest.fixture
+def api(dashboard_url):
+    """Function-scoped requests.Session pre-configured with base URL."""
+    class _ApiSession:
+        def __init__(self, base_url: str):
+            self._base = base_url
+            self._session = http_requests.Session()
+
+        def get(self, path: str, **kwargs):
+            return self._session.get(self._base + path, **kwargs)
+
+        def post(self, path: str, **kwargs):
+            return self._session.post(self._base + path, **kwargs)
+
+    return _ApiSession(dashboard_url)
