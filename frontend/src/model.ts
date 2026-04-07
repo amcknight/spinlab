@@ -2,6 +2,7 @@ import { segmentName, formatTime, elapsedStr, formatSavings } from "./format";
 import { fetchJSON, postJSON } from "./api";
 import { selectedEstimate, currentEstimate, formatTrend, canStartPractice } from "./model-logic";
 import type { AppState, ModelData, TuningData, SessionInfo } from "./types";
+import { renderSegmentDetail, destroySegmentDetail } from "./segment-detail";
 
 const ALLOCATOR_COLORS: Record<string, string> = {
   greedy: "#4caf50",
@@ -18,6 +19,7 @@ const ALLOCATOR_ORDER = ["greedy", "random", "round_robin"];
 let _currentWeights: Record<string, number> | null = null;
 let _tuningParams: TuningData | null = null;
 let _tuningDebounce: ReturnType<typeof setTimeout> | null = null;
+let _currentSegmentId: string | null = null;
 const TUNING_DEBOUNCE_MS = 200;
 
 function debouncedApply(): void {
@@ -151,13 +153,25 @@ function updateModel(data: ModelData): void {
     const tr = document.createElement("tr");
     const est = selectedEstimate(s);
 
-    tr.innerHTML =
-      "<td>" + segmentName(s) + "</td>" +
+    const nameTd = document.createElement("td");
+    const nameLink = document.createElement("a");
+    nameLink.href = "#";
+    nameLink.textContent = segmentName(s);
+    nameLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      showSegmentDetail(s.segment_id);
+    });
+    nameTd.appendChild(nameLink);
+
+    const restHtml =
       "<td>" + formatTime(est?.expected_ms ?? null) + "</td>" +
       "<td>" + (formatTrend(est) ?? "\u2014") + "</td>" +
       "<td>" + formatTime(est?.floor_ms ?? null) + "</td>" +
       "<td>" + s.n_completed + "</td>" +
       "<td>" + formatTime(s.gold_ms) + "</td>";
+
+    tr.innerHTML = restHtml;
+    tr.prepend(nameTd);
     body.appendChild(tr);
   });
 
@@ -173,6 +187,42 @@ function updateModel(data: ModelData): void {
     });
     estSelect.value = current;
   }
+}
+
+function showSegmentDetail(segmentId: string): void {
+  _currentSegmentId = segmentId;
+  // Hide model content
+  (document.getElementById("model-table") as HTMLElement).style.display = "none";
+  (document.querySelector(".model-header") as HTMLElement).style.display = "none";
+  (document.getElementById("tuning-panel") as HTMLElement).style.display = "none";
+  (document.getElementById("practice-controls") as HTMLElement).style.display = "none";
+  const practiceCard = document.getElementById("practice-card") as HTMLElement;
+  practiceCard.dataset.wasVisible = practiceCard.style.display;
+  practiceCard.style.display = "none";
+
+  // Show detail
+  const detail = document.getElementById("segment-detail") as HTMLElement;
+  detail.style.display = "";
+  renderSegmentDetail(detail, segmentId, hideSegmentDetail);
+}
+
+function hideSegmentDetail(): void {
+  _currentSegmentId = null;
+  destroySegmentDetail();
+
+  // Restore model content
+  (document.getElementById("model-table") as HTMLElement).style.display = "";
+  (document.querySelector(".model-header") as HTMLElement).style.display = "";
+  (document.getElementById("tuning-panel") as HTMLElement).style.display = "";
+  (document.getElementById("practice-controls") as HTMLElement).style.display = "";
+  const practiceCard = document.getElementById("practice-card") as HTMLElement;
+  practiceCard.style.display = practiceCard.dataset.wasVisible || "none";
+
+  // Hide detail
+  (document.getElementById("segment-detail") as HTMLElement).style.display = "none";
+
+  // Refresh model data
+  fetchModel();
 }
 
 export function updateSavingsPanel(session: SessionInfo | null): void {
