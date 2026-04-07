@@ -236,9 +236,9 @@ class TestRegressingTrend:
         if out.total.ms_per_attempt is not None:
             # exp_decay can only model decay (not growth), so it returns 0.0
             # when times are increasing. Allow <= 0 to accommodate this.
-            assert out.total.ms_per_attempt <= 0, (
+            assert out.total.ms_per_attempt <= 1e-6, (
                 f"{estimator.name}: ms_per_attempt = {out.total.ms_per_attempt} "
-                f"for strictly regressing data"
+                f"for strictly regressing data (should be ~0 or negative)"
             )
 
 
@@ -271,7 +271,8 @@ class TestCrossEstimatorAgreement:
             out = _feed_attempts(est, attempts)
             mpa = out.total.ms_per_attempt
             if mpa is not None:
-                signs[name] = 1 if mpa > 0 else (-1 if mpa < 0 else 0)
+                # Use epsilon tolerance for near-zero values (exp_decay floating-point)
+                signs[name] = 1 if mpa > 1e-6 else (-1 if mpa < -1e-6 else 0)
         return signs
 
     def test_all_agree_improving(self):

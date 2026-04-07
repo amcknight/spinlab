@@ -1,12 +1,17 @@
 """Pytest fixtures for Mesen2 headless integration tests.
 
+Two independent Mesen processes run in the same session:
+  - Poke tests use mesen_process (poke_engine.lua) + tcp_client
+  - Smoke tests use smoke_mesen_process (spinlab.lua) + dashboard_server
+
 Fixtures:
-    mesen_process    — session-scoped: one Mesen2 launch per pytest session
-    tcp_client       — session-scoped: persistent TCP connection across all tests
-    run_scenario     — function-scoped: sends scenario, collects events until scenario_done
-    dashboard_server — session-scoped: real FastAPI dashboard with DB for smoke tests
-    dashboard_url    — session-scoped: convenience alias for the dashboard base URL
-    api              — function-scoped: requests session pre-configured with dashboard URL
+    mesen_process      — session-scoped: Mesen2 with poke_engine.lua for poke tests
+    tcp_client         — session-scoped: TCP connection for poke tests
+    run_scenario       — function-scoped: sends poke scenario, collects events
+    smoke_mesen_process — session-scoped: Mesen2 with spinlab.lua on a free port
+    dashboard_server   — session-scoped: real FastAPI dashboard connected to smoke Mesen
+    dashboard_url      — session-scoped: convenience alias for the dashboard base URL
+    api                — function-scoped: requests session pre-configured with dashboard URL
 """
 from __future__ import annotations
 
@@ -210,8 +215,54 @@ def _free_port() -> int:
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
-async def dashboard_server(mesen_process):
-    """Start a real FastAPI dashboard with DB, connecting to the same Mesen TCP server.
+async def smoke_mesen_process():
+    """Launch a separate Mesen2 with spinlab.lua on a free TCP port for smoke tests.
+
+    Unlike mesen_process (which runs poke_engine.lua for poke tests), this runs
+    the real spinlab.lua script so the dashboard's event loop can connect naturally.
+    Returns (process, tcp_port) tuple.
+    """
+    if not _mesen or not _rom:
+        pytest.skip("Mesen2 or test ROM not configured")
+
+    tcp_port = _free_port()
+    spinlab_lua = LUA_DIR / "spinlab.lua"
+
+    # spinlab.lua hardcodes TCP_PORT as a local. Create a temp copy with the port
+    # patched so the smoke test Mesen doesn't collide with the poke test Mesen.
+    tmp_lua_dir = Path(tempfile.mkdtemp(prefix="spinlab_lua_"))
+    patched_lua = tmp_lua_dir / "spinlab.lua"
+    original = spinlab_lua.read_text(encoding="utf-8")
+    patched_lua.write_text(
+        original.replace("local TCP_PORT   = 15482", f"local TCP_PORT   = {tcp_port}"),
+        encoding="utf-8",
+    )
+
+    # Copy addresses.lua to the temp dir so dofile resolves it
+    import shutil as _shutil
+    addresses_src = LUA_DIR / "addresses.lua"
+    if addresses_src.exists():
+        _shutil.copy2(str(addresses_src), str(tmp_lua_dir / "addresses.lua"))
+
+    cmd = [_mesen, "--testrunner", _rom, str(patched_lua)]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    yield proc, tcp_port
+
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+    _shutil.rmtree(str(tmp_lua_dir), ignore_errors=True)
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def dashboard_server(smoke_mesen_process):
+    """Start a real FastAPI dashboard with DB, connecting to its own Mesen process.
 
     Yields (base_url, db) tuple. The dashboard's event loop handles rom_info
     and sends game_context — no manual TCP handshake needed for smoke tests.
@@ -220,31 +271,35 @@ async def dashboard_server(mesen_process):
     from spinlab.dashboard import create_app
     from spinlab.db import Database
 
+    _, tcp_port = smoke_mesen_process
+
     tmp = tempfile.mkdtemp(prefix="spinlab_smoke_")
     tmp_path = Path(tmp)
 
     db = Database(str(tmp_path / "spinlab.db"))
-    port = _free_port()
-    tcp_port = _tcp_port()
+    dashboard_port = _free_port()
+
+    # rom_dir is needed so _handle_rom_info can compute game_id from ROM checksum
+    rom_dir = Path(_rom).parent if _rom else None
 
     config = AppConfig(
-        network=NetworkConfig(host="127.0.0.1", port=tcp_port, dashboard_port=port),
+        network=NetworkConfig(host="127.0.0.1", port=tcp_port, dashboard_port=dashboard_port),
         emulator=EmulatorConfig(),
         data_dir=tmp_path,
-        rom_dir=None,
+        rom_dir=rom_dir,
         practice=PracticeConfig(),
     )
 
     app = create_app(db=db, config=config)
 
-    uvi_config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    uvi_config = uvicorn.Config(app, host="127.0.0.1", port=dashboard_port, log_level="warning")
     server = uvicorn.Server(uvi_config)
 
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
 
     # Wait for uvicorn to be ready
-    base_url = f"http://127.0.0.1:{port}"
+    base_url = f"http://127.0.0.1:{dashboard_port}"
     for _ in range(40):
         try:
             resp = http_requests.get(f"{base_url}/api/state", timeout=1)
