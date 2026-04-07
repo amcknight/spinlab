@@ -22,7 +22,7 @@ class TestNoGameEndpoints:
     def test_segments_returns_200(self, api):
         resp = api.get("/api/segments")
         assert resp.status_code == 200
-        assert resp.json()["segments"] == [] or isinstance(resp.json()["segments"], list)
+        assert isinstance(resp.json()["segments"], list)
 
     def test_references_returns_200(self, api):
         resp = api.get("/api/references")

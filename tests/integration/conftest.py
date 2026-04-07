@@ -1,9 +1,12 @@
 """Pytest fixtures for Mesen2 headless integration tests.
 
 Fixtures:
-    mesen_process  — session-scoped: one Mesen2 launch per pytest session
-    tcp_client     — session-scoped: persistent TCP connection across all tests
-    run_scenario   — function-scoped: sends scenario, collects events until scenario_done
+    mesen_process    — session-scoped: one Mesen2 launch per pytest session
+    tcp_client       — session-scoped: persistent TCP connection across all tests
+    run_scenario     — function-scoped: sends scenario, collects events until scenario_done
+    dashboard_server — session-scoped: real FastAPI dashboard with DB for smoke tests
+    dashboard_url    — session-scoped: convenience alias for the dashboard base URL
+    api              — function-scoped: requests session pre-configured with dashboard URL
 """
 from __future__ import annotations
 
@@ -260,6 +263,8 @@ async def dashboard_server(mesen_process):
         if state.get("tcp_connected") and state.get("game_id"):
             break
         await asyncio.sleep(0.25)
+    else:
+        pytest.fail("Dashboard did not connect to Mesen within 10 seconds")
 
     yield base_url, db
 
@@ -267,6 +272,8 @@ async def dashboard_server(mesen_process):
     server.should_exit = True
     thread.join(timeout=5)
     db.close()
+    import shutil
+    shutil.rmtree(tmp, ignore_errors=True)
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
