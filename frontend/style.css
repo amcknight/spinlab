@@ -566,3 +566,55 @@ h3 {
   color: var(--text-dim);
   font-weight: 400;
 }
+
+/* Segment detail drill-down */
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.btn-back {
+  background: none;
+  border: 1px solid #555;
+  color: #ccc;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+.btn-back:hover { border-color: #aaa; color: #fff; }
+.detail-title {
+  font-weight: bold;
+  font-size: 1.1rem;
+}
+.detail-toggle {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+.toggle-btn {
+  background: #333;
+  border: 1px solid #555;
+  color: #ccc;
+  cursor: pointer;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+}
+.toggle-btn.active {
+  background: var(--accent);
+  color: #111;
+  border-color: var(--accent);
+}
+.toggle-btn:hover:not(.active) { border-color: #aaa; }
+#segment-chart {
+  width: 100%;
+  min-height: 300px;
+}
+/* Make segment names in model table look clickable */
+#model-body a {
+  color: var(--accent);
+  text-decoration: none;
+}
+#model-body a:hover {
+  text-decoration: underline;
+}
