@@ -161,6 +161,14 @@ class SegmentsMixin:
         ).fetchone()
         return row is not None
 
+    def get_segment_by_id(self, segment_id: str) -> Segment | None:
+        row = self.conn.execute(
+            "SELECT * FROM segments WHERE id = ?", (segment_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_segment(row)
+
     def soft_delete_segment(self, segment_id: str) -> None:
         self.update_segment(segment_id, active=0)
 

@@ -145,3 +145,41 @@ def test_reset_game_data_scoped(tmp_db):
     # g2 data intact
     assert len(tmp_db.get_recent_attempts("g2")) == 1
     assert len(tmp_db.get_session_history("g2")) == 1
+
+
+GAME_ID = "test_game"
+
+
+@pytest.fixture
+def seeded_db(tmp_path):
+    """DB with game and segments for testing segment queries."""
+    d = Database(tmp_path / "test.db")
+    d.upsert_game(GAME_ID, "Test Game", "any%")
+    # Create segments with hardcoded IDs for testing
+    seg1 = Segment(
+        id="s1", game_id=GAME_ID, level_number=1,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
+        description="Segment 1", ordinal=1,
+    )
+    seg2 = Segment(
+        id="s2", game_id=GAME_ID, level_number=2,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
+        description="Segment 2", ordinal=2,
+    )
+    d.upsert_segment(seg1)
+    d.upsert_segment(seg2)
+    return d
+
+
+def test_get_segment_by_id(seeded_db):
+    seg = seeded_db.get_segment_by_id("s1")
+    assert seg is not None
+    assert seg.id == "s1"
+    assert seg.game_id == GAME_ID
+
+
+def test_get_segment_by_id_missing(seeded_db):
+    seg = seeded_db.get_segment_by_id("nonexistent")
+    assert seg is None
