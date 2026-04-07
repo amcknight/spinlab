@@ -420,3 +420,51 @@ class TestSegmentsAndSessions:
         data = active_client.get("/api/sessions").json()
         assert len(data["sessions"]) == 1
         assert data["sessions"][0]["id"] == "sess1"
+
+
+# -- Segment history ---------------------------------------------------------
+
+def test_segment_history_returns_attempts_and_curves(client):
+    resp = client.get("/api/segments/s1/history")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["segment_id"] == "s1"
+    assert data["description"] == "Yoshi's Island 1"
+    # s1 has 3 completed attempts in ATTEMPTS fixture (4500, 3800, 3200)
+    assert len(data["attempts"]) == 3
+    assert data["attempts"][0]["attempt_number"] == 1
+    assert data["attempts"][0]["time_ms"] == 4500
+    assert data["attempts"][2]["time_ms"] == 3200
+    # Every registered estimator should have curves
+    curves = data["estimator_curves"]
+    assert "kalman" in curves
+    for est_name, est_curves in curves.items():
+        assert "total" in est_curves
+        assert "clean" in est_curves
+        assert len(est_curves["total"]["expected_ms"]) == 3
+
+
+def test_segment_history_excludes_incomplete(seeded_db, client):
+    """s3 has one incomplete (12000, False) and one complete (11500, True)."""
+    resp = client.get("/api/segments/s3/history")
+    assert resp.status_code == 200
+    data = resp.json()
+    # Only the completed attempt should appear
+    assert len(data["attempts"]) == 1
+    assert data["attempts"][0]["time_ms"] == 11500
+
+
+def test_segment_history_unknown_segment(client):
+    resp = client.get("/api/segments/nonexistent/history")
+    assert resp.status_code == 404
+
+
+def test_segment_history_no_completed_attempts(seeded_db, client):
+    """s5 has no attempts at all."""
+    resp = client.get("/api/segments/s5/history")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["attempts"] == []
+    for est_curves in data["estimator_curves"].values():
+        assert est_curves["total"]["expected_ms"] == []
+        assert est_curves["clean"]["expected_ms"] == []

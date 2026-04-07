@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 from spinlab.dashboard import _check_result
 from spinlab.db import Database
 from spinlab.estimators import get_estimator, list_estimators
+from spinlab.scheduler import _attempts_from_rows
 from spinlab.session_manager import SessionManager
 
 from ._deps import get_db, get_session
@@ -114,3 +115,72 @@ def set_estimator_params(body: dict, session: SessionManager = Depends(get_sessi
     db.save_allocator_config(f"estimator_params:{est.name}", json.dumps(params))
     sched.rebuild_all_states()
     return {"status": "ok"}
+
+
+@router.get("/segments/{segment_id}/history")
+def segment_history(segment_id: str, db: Database = Depends(get_db)):
+    seg = db.get_segment_by_id(segment_id)
+    if seg is None:
+        logger.warning("segment_history: unknown segment %r", segment_id)
+        raise HTTPException(status_code=404, detail=f"Segment not found: {segment_id}")
+
+    raw_rows = db.get_segment_attempts(segment_id)
+    # _attempts_from_rows filters invalidated; we also need completed only
+    all_records = _attempts_from_rows(raw_rows)
+    completed = [a for a in all_records if a.completed and a.time_ms is not None]
+
+    # Build attempt data points
+    attempts = []
+    for i, a in enumerate(completed):
+        attempts.append({
+            "attempt_number": i + 1,
+            "time_ms": a.time_ms,
+            "clean_tail_ms": a.clean_tail_ms,
+            "deaths": a.deaths,
+            "created_at": a.created_at,
+        })
+
+    # Load estimator params and replay through each estimator
+    estimator_names = list_estimators()
+    estimator_curves: dict[str, dict] = {}
+
+    for est_name in estimator_names:
+        est = get_estimator(est_name)
+        saved_raw = db.load_allocator_config(f"estimator_params:{est_name}")
+        params = json.loads(saved_raw) if saved_raw else None
+        priors = est.get_priors(db, seg.game_id)
+
+        total_expected: list[float | None] = []
+        total_floor: list[float | None] = []
+        clean_expected: list[float | None] = []
+        clean_floor: list[float | None] = []
+
+        if completed:
+            state = est.init_state(completed[0], priors, params=params)
+            out = est.model_output(state, completed[:1])
+            total_expected.append(out.total.expected_ms)
+            total_floor.append(out.total.floor_ms)
+            clean_expected.append(out.clean.expected_ms)
+            clean_floor.append(out.clean.floor_ms)
+
+            for j in range(1, len(completed)):
+                state = est.process_attempt(
+                    state, completed[j], completed[:j + 1], params=params,
+                )
+                out = est.model_output(state, completed[:j + 1])
+                total_expected.append(out.total.expected_ms)
+                total_floor.append(out.total.floor_ms)
+                clean_expected.append(out.clean.expected_ms)
+                clean_floor.append(out.clean.floor_ms)
+
+        estimator_curves[est_name] = {
+            "total": {"expected_ms": total_expected, "floor_ms": total_floor},
+            "clean": {"expected_ms": clean_expected, "floor_ms": clean_floor},
+        }
+
+    return {
+        "segment_id": segment_id,
+        "description": seg.description,
+        "attempts": attempts,
+        "estimator_curves": estimator_curves,
+    }
