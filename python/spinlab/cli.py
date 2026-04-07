@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 SOCKET_CONNECT_TIMEOUT_S = 2
@@ -15,6 +17,21 @@ def _write_ports_file(project_dir: Path, tcp_port: int, dashboard_port: int) -> 
         f"tcp_port={tcp_port}\ndashboard_port={dashboard_port}\n",
         encoding="utf-8",
     )
+
+
+def _setup_file_logging(data_dir: Path) -> None:
+    """Configure rotating file log in data_dir/spinlab.log."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    log_path = data_dir / "spinlab.log"
+    handler = RotatingFileHandler(
+        str(log_path), maxBytes=1_000_000, backupCount=3, encoding="utf-8",
+    )
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s — %(message)s"
+    ))
+    handler.setLevel(logging.INFO)
+    logging.root.addHandler(handler)
+    logging.root.setLevel(min(logging.root.level or logging.INFO, logging.INFO))
 
 
 def main(args: list[str] | None = None) -> None:
@@ -61,6 +78,7 @@ def main(args: list[str] | None = None) -> None:
         from spinlab.db import Database
 
         config = AppConfig.from_yaml(Path(parsed.config))
+        _setup_file_logging(config.data_dir)
         dashboard_port = parsed.port or config.network.dashboard_port
         db = Database(config.data_dir / "spinlab.db")
 
