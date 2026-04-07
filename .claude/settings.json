@@ -50,7 +50,11 @@
       "Bash(git worktree:*)",
       "Bash(git -C /c/Users/thedo/git/spinlab/.worktrees/smoke-tests diff 848fe53..76981cb)",
       "Bash(git -C /c/Users/thedo/git/spinlab/.worktrees/smoke-tests stash)",
-      "Bash(git -C /c/Users/thedo/git/spinlab/.worktrees/smoke-tests stash pop)"
+      "Bash(git -C /c/Users/thedo/git/spinlab/.worktrees/smoke-tests stash pop)",
+      "Bash(tasklist)",
+      "Bash(curl -s http://127.0.0.1:8000/api/state)",
+      "Bash(xargs ls:*)",
+      "Bash(git -C frontend status)"
     ],
     "additionalDirectories": []
   },

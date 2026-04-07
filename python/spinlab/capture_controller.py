@@ -71,6 +71,7 @@ class CaptureController:
     def _enter_draft_from_capture(self) -> None:
         """Transition captured segments into draft state."""
         run_id, count = self.ref_capture.enter_draft()
+        logger.info("capture: entering draft — run=%s segments=%d", run_id, count)
         self.draft.enter_draft(run_id, count)
 
     # --- Reference mode ---
@@ -94,6 +95,7 @@ class CaptureController:
         self.db.create_capture_run(run_id, game_id, run_name, draft=True)
         self.ref_capture.capture_run_id = run_id
         rec_path = str(self._game_rec_dir(data_dir, game_id) / f"{run_id}.spinrec")
+        logger.info("reference: started run=%s name=%r", run_id, run_name)
         await self.tcp.send_command(ReferenceStartCmd(path=rec_path))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REFERENCE)
 
@@ -102,6 +104,7 @@ class CaptureController:
             return ActionResult(status=Status.NOT_IN_REFERENCE)
         if self.tcp.is_connected:
             await self.tcp.send_command(ReferenceStopCmd())
+        logger.info("reference: stopped — %d segments captured", self.ref_capture.segments_count)
         self._enter_draft_from_capture()
         self.ref_capture.clear()
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
@@ -185,9 +188,12 @@ class CaptureController:
     # --- Capture event routing ---
 
     def handle_entrance(self, event: dict) -> None:
+        logger.info("capture: entrance level=%s", event.get("level"))
         self.ref_capture.handle_entrance(event)
 
     def handle_checkpoint(self, event: dict, game_id: str) -> None:
+        logger.info("capture: checkpoint level=%s cp=%s",
+                     event.get("level_num"), event.get("cp_ordinal"))
         self.ref_capture.handle_checkpoint(event, game_id, self.db,
                                            self.condition_registry)
 
@@ -195,10 +201,14 @@ class CaptureController:
         self.ref_capture.died = True
 
     def handle_spawn(self, event: dict, game_id: str) -> None:
+        logger.info("capture: spawn level=%s state_captured=%s",
+                     event.get("level_num"), event.get("state_captured"))
         self.ref_capture.handle_spawn(event, game_id, self.db,
                                       self.condition_registry)
 
     def handle_exit(self, event: dict, game_id: str) -> None:
+        logger.info("capture: exit level=%s segments_so_far=%d",
+                     event.get("level"), self.ref_capture.segments_count)
         self.ref_capture.handle_exit(event, game_id, self.db,
                                      self.condition_registry)
 

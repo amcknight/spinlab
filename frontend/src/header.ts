@@ -43,6 +43,13 @@ export function updateHeader(data: AppState): void {
     chip.classList.add("replaying");
     label.textContent = "Replaying…";
     stopBtn.style.display = "";
+  } else if (data.mode === "cold_fill" && data.cold_fill) {
+    chip.classList.add("recording");
+    label.textContent =
+      "Cold starts — " + data.cold_fill.current + "/" + data.cold_fill.total;
+  } else if (data.mode === "fill_gap") {
+    chip.classList.add("recording");
+    label.textContent = "Filling gap…";
   } else {
     chip.classList.add("idle");
     label.textContent = "Idle";

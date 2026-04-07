@@ -36,7 +36,8 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
 
   const busy =
     lastState != null &&
-    (lastState.mode === "reference" || lastState.mode === "replay");
+    (lastState.mode === "reference" || lastState.mode === "replay" ||
+     lastState.mode === "cold_fill" || lastState.mode === "fill_gap");
   const hasDraft = lastState?.draft != null;
 
   const noRefs = refs.length === 0;

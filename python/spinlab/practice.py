@@ -98,12 +98,16 @@ class PracticeSession:
             self.initial_expected_clean_ms,
         ) = self._snapshot_expected_times(self.scheduler.estimator.name)
         self.is_running = True
+        logger.info("practice: started session=%s estimator=%s",
+                     self.session_id[:8], self.scheduler.estimator.name)
 
     def stop(self) -> None:
         self.is_running = False
         self.db.end_session(
             self.session_id, self.segments_attempted, self.segments_completed
         )
+        logger.info("practice: stopped session=%s attempted=%d completed=%d",
+                     self.session_id[:8], self.segments_attempted, self.segments_completed)
 
     def receive_result(self, event: dict) -> None:
         """Called by SessionManager.route_event when attempt_result arrives."""
@@ -114,6 +118,7 @@ class PracticeSession:
         """Run one pick-send-receive cycle. Returns False if no segments available."""
         picked = self.scheduler.pick_next()
         if picked is None:
+            logger.info("practice: no segments available — ending loop")
             return False
 
         # Compute expected time
@@ -139,6 +144,8 @@ class PracticeSession:
         )
 
         self.current_segment_id = cmd.id
+        logger.info("practice: loading segment=%s label=%r state=%s",
+                     cmd.id, label, cmd.state_path)
 
         await self.tcp.send_command(PracticeLoadCmd(
             id=cmd.id,
@@ -195,6 +202,9 @@ class PracticeSession:
         self.segments_attempted += 1
         if result["completed"]:
             self.segments_completed += 1
+        logger.info("practice: attempt segment=%s completed=%s time=%s deaths=%d",
+                     result["segment_id"], result["completed"],
+                     result.get("time_ms"), result.get("deaths", 0))
         if self.on_attempt:
             self.on_attempt(attempt)
 

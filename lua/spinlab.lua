@@ -685,7 +685,14 @@ local function detect_entrance(curr)
   -- sublevel pipe/door transitions, only for fresh level entry or death respawn.
   -- Suppress if exit_mode also transitioned this frame (spurious transition
   -- during goal sequence — not a real level entry).
-  if curr.level_start == 1 and prev.level_start == 0 and not exit_this_frame then
+  -- Fast retry: SMW can skip the 0→1 edge on level_start. If we know the
+  -- player died (died_flag) and the death anim just ended (anim was 9, now
+  -- isn't), treat that as a respawn even if level_start stayed at 1.
+  local edge_spawn = curr.level_start == 1 and prev.level_start == 0
+  local fast_retry = transition_state.died_flag
+      and curr.level_start == 1
+      and curr.player_anim ~= 9 and prev.player_anim == 9
+  if (edge_spawn or fast_retry) and not exit_this_frame then
     if transition_state.died_flag then
       -- Spawn: respawn after death
       local state_captured = false
@@ -782,8 +789,11 @@ local function handle_cold_fill()
     end
 
   elseif cold_fill.state == CFSTATE_WAITING_SPAWN then
-    -- Detect spawn: level_start transitions 0 to 1
-    if level_start == 1 and cold_fill.prev_level_start == 0 then
+    -- Detect spawn: level_start 0→1 (normal respawn) OR player leaves death
+    -- anim while level_start is already 1 (fast retry skips the 0→1 edge).
+    local edge_spawn = level_start == 1 and cold_fill.prev_level_start == 0
+    local fast_retry = level_start == 1 and anim ~= 9 and cold_fill.prev_anim == 9
+    if edge_spawn or fast_retry then
       -- Capture cold save state
       local game_dir = STATE_DIR .. "/" .. (game_id or "unknown")
       ensure_dir(game_dir)

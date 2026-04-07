@@ -24,7 +24,8 @@ function updateFromState(data: AppState): void {
   if (
     activeTab?.dataset.tab === "manage" ||
     data.mode === "reference" ||
-    data.mode === "replay"
+    data.mode === "replay" ||
+    data.mode === "cold_fill"
   ) {
     fetchManage();
   }

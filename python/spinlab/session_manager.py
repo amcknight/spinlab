@@ -92,6 +92,9 @@ class SessionManager:
 
     @mode.setter
     def mode(self, value: Mode) -> None:
+        old = self.state.mode
+        if old != value:
+            logger.info("mode: %s → %s", old.value, value.value)
         self.state.mode = value
 
     @property
@@ -154,6 +157,7 @@ class SessionManager:
     async def switch_game(self, game_id: str, game_name: str) -> None:
         if self.game_id == game_id:
             return
+        logger.info("game: loading %s (%s)", game_name, game_id)
         if self.practice_session and self.practice_session.is_running:
             self.practice_session.is_running = False
         self._clear_ref_and_idle()
@@ -188,6 +192,7 @@ class SessionManager:
             return
         handler = self._event_handlers.get(type(typed_event))
         if handler:
+            logger.info("event: %s (mode=%s)", type(typed_event).__name__, self.mode.value)
             await handler(typed_event)
 
     async def _handle_rom_info(self, event: RomInfoEvent) -> None:
@@ -243,6 +248,8 @@ class SessionManager:
     async def _handle_death(self, event: DeathEvent) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY, Mode.COLD_FILL):
             return
+        if self.mode == Mode.COLD_FILL:
+            logger.info("death during cold_fill — waiting for respawn")
         if self.mode in (Mode.REFERENCE, Mode.REPLAY):
             self.capture.handle_death()
 
@@ -265,7 +272,6 @@ class SessionManager:
     async def _handle_level_exit(self, event: LevelExitEvent) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
-        logger.info("level_exit: ref_pending_start=%s", self.capture.ref_capture.pending_start)
         self.capture.handle_exit(dataclasses.asdict(event), self._require_game())
         await self._notify_sse()
 

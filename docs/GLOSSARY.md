@@ -28,6 +28,11 @@ Quick reference for domain terms used across specs, architecture docs, and code.
 - **active** — per-segment flag. Inactive segments are excluded everywhere, including capture matching.
 - **invalidated** — per-attempt flag. Invalidated attempts are preserved but excluded from estimators. Set by in-emulator hotkey or dashboard delete.
 
+## AHK Shortcuts (see `scripts/spinlab.ahk`)
+
+- **CAW** (Ctrl+Alt+W) — Start the dashboard (`spinlab dashboard`). If already running, re-uses existing process.
+- **CAX** (Ctrl+Alt+X) — Stop the dashboard (graceful HTTP shutdown, kill Mesen, fallback taskkill).
+
 ## Modes (see `docs/ARCHITECTURE.md`)
 
 - **Passive / Reference / Replay / Practice** — Lua script modes.
