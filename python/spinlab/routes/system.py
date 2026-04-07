@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -58,6 +61,7 @@ async def reset_data(session: SessionManager = Depends(get_session), db: Databas
         session._clear_ref_and_idle()
     gid = session.game_id
     if gid:
+        logger.warning("reset: clearing all data for game=%s", gid)
         db.reset_game_data(gid)
     session.scheduler = None
     session.mode = Mode.IDLE
