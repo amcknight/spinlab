@@ -41,3 +41,11 @@ Mesen2 has LuaSocket compiled in. The Lua script runs a TCP server; Python conne
 **Primary: Mesen2** — LuaSocket built in, async save state API, `emu.isKeyPressed()`, headless test runner mode.
 
 **Potential fallback: SNES9X-rr** — would require file-based IPC instead of TCP.
+
+## Test Layers
+
+1. **Unit tests** (`tests/`): Fast, mocked dependencies. ~23s. Run after any code change.
+2. **Poke tests** (`tests/integration/test_*.py`): Headless Mesen + Lua + poke scenarios over real TCP. Test level transitions, segment detection, save state capture.
+3. **Smoke tests** (`tests/integration/test_smoke.py`): Headless Mesen + real dashboard (FastAPI + Uvicorn + DB) in a background thread. Test that the assembled system works: endpoints return 200, game loads after TCP connect, reference start is accepted.
+
+All integration tests use `@pytest.mark.emulator` and skip when Mesen is not available.

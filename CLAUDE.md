@@ -24,8 +24,10 @@ Red-Green TDD. Keep only tests that document behavior or catch regressions.
 - **Fast tests:** `pytest -m "not (emulator or slow or frontend)"` (~23s). Run after any code change.
 - **Slow tests:** `pytest -m slow` (~4s). Run when touching practice loop or TCP wait logic.
 - **Emulator tests:** `pytest -m emulator` (~6s). Run when touching Lua scripts or transition detection.
+- **Smoke tests:** Included in `pytest -m emulator`. Full-stack: Mesen headless + dashboard + DB. See `tests/integration/test_smoke.py`.
 - **Static asset tests:** `pytest -m frontend`. Requires `cd frontend && npm run build` first.
 - **Everything:** `pytest` (~30s). Run before committing.
+- **DB reset:** `spinlab db reset [--config config.yaml]` — deletes and recreates the database. Useful after schema changes during development.
 - **Frontend tests:** `cd frontend && npm test` (~2s). Vitest + happy-dom. Pure logic and API contract tests.
 - **Coverage:** `./scripts/coverage.sh` (unit), `--all` (unit+emulator), `--html` (opens report).
 
@@ -52,6 +54,10 @@ Source lives in `frontend/src/`. Built output goes to `python/spinlab/static/` (
 
 Run `npm run build` after frontend changes before testing with FastAPI directly.
 Types in `frontend/src/types.ts` must stay in sync with Python response models.
+
+## Logging
+
+Dashboard logs to `{data_dir}/spinlab.log` (rotating, 1 MB max, 3 backups). Configured automatically on `spinlab dashboard` startup. All `logger.info()` / `logger.warning()` / `logger.exception()` calls go to this file.
 
 ## Worktrees
 
