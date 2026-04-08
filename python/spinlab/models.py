@@ -80,6 +80,7 @@ class Status(StrEnum):
 class AttemptSource(StrEnum):
     PRACTICE = "practice"
     REPLAY = "replay"
+    REFERENCE = "reference"
 
 
 @dataclass

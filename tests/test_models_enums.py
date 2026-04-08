@@ -104,10 +104,12 @@ class TestAttemptSource:
     def test_values(self):
         assert AttemptSource.PRACTICE == "practice"
         assert AttemptSource.REPLAY == "replay"
+        assert AttemptSource.REFERENCE == "reference"
 
     def test_from_string(self):
         assert AttemptSource("practice") is AttemptSource.PRACTICE
         assert AttemptSource("replay") is AttemptSource.REPLAY
+        assert AttemptSource("reference") is AttemptSource.REFERENCE
 
     def test_invalid_raises(self):
         with pytest.raises(ValueError):

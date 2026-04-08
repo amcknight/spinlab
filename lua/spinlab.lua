@@ -136,6 +136,8 @@ local practice = {
     completed = false,
     result_start_ms = 0,
     auto_advance_ms = AUTO_ADVANCE_DEFAULT_MS,
+    deaths = 0,           -- number of deaths in the current attempt
+    last_death_ms = 0,    -- timestamp of most recent death reload
 }
 
 local function practice_reset()
@@ -147,6 +149,8 @@ local function practice_reset()
     practice.completed = false
     practice.result_start_ms = 0
     practice.auto_advance_ms = AUTO_ADVANCE_DEFAULT_MS
+    practice.deaths = 0           -- number of deaths in this attempt
+    practice.last_death_ms = 0    -- timestamp of most recent death reload
     reset_transition_state()
 end
 
@@ -335,6 +339,7 @@ local function parse_practice_segment(json_str)
     reference_time_ms      = json_get_num(json_str, "reference_time_ms"),
     auto_advance_delay_ms  = json_get_num(json_str, "auto_advance_delay_ms") or AUTO_ADVANCE_DEFAULT_MS,
     expected_time_ms       = json_get_num(json_str, "expected_time_ms"),
+    death_penalty_ms       = json_get_num(json_str, "death_penalty_ms") or 3200,
     end_on_goal            = end_on_goal,
     end_type               = end_type,
   }
@@ -831,46 +836,65 @@ local function handle_practice(curr)
   elseif practice.state == PSTATE_PLAYING then
     -- Death check (higher priority than exit/finish)
     if is_death_frame(curr) then
+      practice.deaths = practice.deaths + 1
+      practice.last_death_ms = ts_ms()
       table.insert(pending_loads, practice.segment.state_path)
-      log("Practice: death — reloading state")
+      log("Practice: death #" .. practice.deaths .. " — reloading state")
 
     elseif practice.segment.end_type == "checkpoint" and check_checkpoint_hit(curr) then
-      practice.elapsed_ms = ts_ms() - practice.start_ms
+      local penalty = practice.segment.death_penalty_ms * practice.deaths
+      practice.elapsed_ms = ts_ms() - practice.start_ms + penalty
       practice.completed  = true
       practice.state      = PSTATE_RESULT
       practice.result_start_ms = ts_ms()
-      log("Practice: CHECKPOINT — " .. practice.elapsed_ms .. "ms")
+      log("Practice: CHECKPOINT — " .. practice.elapsed_ms .. "ms (deaths=" .. practice.deaths .. ", penalty=" .. penalty .. "ms)")
 
     elseif practice.segment.end_on_goal and detect_finish(curr) then
       -- Early finish: goal/orb/key/boss detected, skip fanfare wait
       local finish_goal = detect_finish(curr)
-      practice.elapsed_ms = ts_ms() - practice.start_ms
+      local penalty = practice.segment.death_penalty_ms * practice.deaths
+      practice.elapsed_ms = ts_ms() - practice.start_ms + penalty
       practice.completed  = true
       practice.state      = PSTATE_RESULT
       practice.result_start_ms = ts_ms()
-      log("Practice: FINISH (" .. finish_goal .. ") — " .. practice.elapsed_ms .. "ms")
+      log("Practice: FINISH (" .. finish_goal .. ") — " .. practice.elapsed_ms .. "ms (deaths=" .. practice.deaths .. ", penalty=" .. penalty .. "ms)")
 
     elseif is_exit_frame(curr) then
       -- Late exit: full exit_mode transition (fallback when end_on_goal is off)
       local goal = goal_type(curr)
-      practice.elapsed_ms = ts_ms() - practice.start_ms
+      local penalty = practice.segment.death_penalty_ms * practice.deaths
+      practice.elapsed_ms = ts_ms() - practice.start_ms + penalty
       practice.completed  = (goal ~= "abort")
       practice.state      = PSTATE_RESULT
       practice.result_start_ms = ts_ms()
-      log("Practice: RESULT (" .. goal .. ") — " .. practice.elapsed_ms .. "ms")
+      log("Practice: RESULT (" .. goal .. ") — " .. practice.elapsed_ms .. "ms (deaths=" .. practice.deaths .. ", penalty=" .. penalty .. "ms)")
     end
 
   elseif practice.state == PSTATE_RESULT then
     -- Auto-advance after delay
     local elapsed_in_result = ts_ms() - practice.result_start_ms
     if elapsed_in_result >= practice.auto_advance_ms then
+      -- Compute clean_tail_ms: time from last death reload to completion,
+      -- or full elapsed (minus penalty) if no deaths occurred.
+      local raw_elapsed = practice.elapsed_ms - (practice.segment.death_penalty_ms * practice.deaths)
+      local clean_tail = nil
+      if practice.completed then
+        if practice.deaths == 0 then
+          clean_tail = math.floor(raw_elapsed)
+        elseif practice.last_death_ms > 0 then
+          clean_tail = math.floor(practice.result_start_ms - practice.last_death_ms)
+        end
+      end
+
       -- Send result to orchestrator
       local result = to_json({
-        event      = "attempt_result",
-        segment_id = practice.segment.id,
-        completed  = practice.completed,
-        time_ms    = math.floor(practice.elapsed_ms),
-        goal       = practice.segment.goal,
+        event         = "attempt_result",
+        segment_id    = practice.segment.id,
+        completed     = practice.completed,
+        time_ms       = math.floor(practice.elapsed_ms),
+        deaths        = practice.deaths,
+        clean_tail_ms = clean_tail,
+        goal          = practice.segment.goal,
       })
       if client then
         client:send(result .. "\n")
