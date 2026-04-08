@@ -88,3 +88,25 @@ def test_decode_raises_on_enum_without_values():
     ])
     with pytest.raises(ValueError, match="requires a 'values' map"):
         reg.decode({"broken": 0}, level=5)
+
+
+def test_death_penalty_ms_from_yaml(tmp_path: Path):
+    yaml_path = tmp_path / "conditions.yaml"
+    yaml_path.write_text(
+        "death_penalty_ms: 4000\n"
+        "conditions: []\n"
+    )
+    reg = ConditionRegistry.from_yaml(yaml_path)
+    assert reg.death_penalty_ms == 4000
+
+
+def test_death_penalty_ms_default(tmp_path: Path):
+    yaml_path = tmp_path / "conditions.yaml"
+    yaml_path.write_text("conditions: []\n")
+    reg = ConditionRegistry.from_yaml(yaml_path)
+    assert reg.death_penalty_ms == 3200
+
+
+def test_death_penalty_ms_empty_registry():
+    reg = ConditionRegistry()
+    assert reg.death_penalty_ms == 3200
