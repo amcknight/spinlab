@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { selectedEstimate, currentEstimate, formatTrend, canStartPractice } from "./model-logic";
+import { describe, it, expect, test } from "vitest";
+import { selectedEstimate, currentEstimate, formatTrend, canStartPractice, canStartSpeedRun } from "./model-logic";
 import type { ModelSegment, CurrentSegment, Estimate, AppState } from "./types";
 
 const ESTIMATE: Estimate = {
@@ -154,4 +154,42 @@ describe("selectedEstimate edge cases", () => {
     expect(est).not.toBeNull();
     expect(est!.expected_ms).toBeNull();
   });
+});
+
+test("canStartSpeedRun returns true when idle and connected", () => {
+  const state = {
+    mode: "idle" as const,
+    tcp_connected: true,
+    game_id: "g",
+    game_name: "Game",
+    current_segment: null,
+    recent: [],
+    session: null,
+    sections_captured: 0,
+    allocator_weights: null,
+    estimator: null,
+    capture_run_id: null,
+    draft: null,
+    cold_fill: null,
+  };
+  expect(canStartSpeedRun(state)).toBe(true);
+});
+
+test("canStartSpeedRun returns false during practice", () => {
+  const state = {
+    mode: "practice" as const,
+    tcp_connected: true,
+    game_id: "g",
+    game_name: "Game",
+    current_segment: null,
+    recent: [],
+    session: null,
+    sections_captured: 0,
+    allocator_weights: null,
+    estimator: null,
+    capture_run_id: null,
+    draft: null,
+    cold_fill: null,
+  };
+  expect(canStartSpeedRun(state)).toBe(false);
 });

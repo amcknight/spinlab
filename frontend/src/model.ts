@@ -1,6 +1,6 @@
 import { segmentName, formatTime, elapsedStr, formatSavings } from "./format";
 import { fetchJSON, postJSON } from "./api";
-import { selectedEstimate, currentEstimate, formatTrend, canStartPractice } from "./model-logic";
+import { selectedEstimate, currentEstimate, formatTrend, canStartPractice, canStartSpeedRun } from "./model-logic";
 import type { AppState, ModelData, TuningData, SessionInfo } from "./types";
 import { renderSegmentDetail, destroySegmentDetail } from "./segment-detail";
 
@@ -262,7 +262,7 @@ export function updateSavingsPanel(session: SessionInfo | null): void {
 
 export function updatePracticeCard(data: AppState): void {
   const card = document.getElementById("practice-card") as HTMLElement;
-  if (data.mode !== "practice" || !data.current_segment) {
+  if ((data.mode !== "practice" && data.mode !== "speed_run") || !data.current_segment) {
     card.style.display = "none";
     return;
   }
@@ -322,7 +322,11 @@ export function updatePracticeCard(data: AppState): void {
       elapsedStr(data.session.started_at);
   }
 
-  if (data.allocator_weights) {
+  const weightsEl = document.getElementById("allocator-weights") as HTMLElement;
+  if (weightsEl) {
+    weightsEl.style.display = data.mode === "speed_run" ? "none" : "";
+  }
+  if (data.allocator_weights && data.mode !== "speed_run") {
     renderWeightSlider(data.allocator_weights);
   }
 }
@@ -330,10 +334,18 @@ export function updatePracticeCard(data: AppState): void {
 export function updatePracticeControls(data: AppState): void {
   const startBtn = document.getElementById("btn-practice-start") as HTMLButtonElement;
   const stopBtn = document.getElementById("btn-practice-stop") as HTMLElement;
+  const srStartBtn = document.getElementById("btn-speedrun-start") as HTMLButtonElement;
+  const srStopBtn = document.getElementById("btn-speedrun-stop") as HTMLElement;
   const isPracticing = data.mode === "practice";
-  startBtn.style.display = isPracticing ? "none" : "";
+  const isSpeedRun = data.mode === "speed_run";
+
+  startBtn.style.display = isPracticing || isSpeedRun ? "none" : "";
   startBtn.disabled = !canStartPractice(data);
   stopBtn.style.display = isPracticing ? "" : "none";
+
+  srStartBtn.style.display = isPracticing || isSpeedRun ? "none" : "";
+  srStartBtn.disabled = !canStartSpeedRun(data);
+  srStopBtn.style.display = isSpeedRun ? "" : "none";
 }
 
 async function fetchTuningParams(): Promise<void> {
@@ -422,6 +434,12 @@ export function initModelTab(): void {
   );
   document.getElementById("btn-practice-stop")!.addEventListener("click", () =>
     postJSON("/api/practice/stop"),
+  );
+  document.getElementById("btn-speedrun-start")!.addEventListener("click", () =>
+    postJSON("/api/speedrun/start"),
+  );
+  document.getElementById("btn-speedrun-stop")!.addEventListener("click", () =>
+    postJSON("/api/speedrun/stop"),
   );
 
   const toggle = document.getElementById("tuning-toggle");
