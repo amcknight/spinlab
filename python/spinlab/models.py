@@ -16,15 +16,17 @@ class Mode(Enum):
     REPLAY = "replay"
     FILL_GAP = "fill_gap"
     COLD_FILL = "cold_fill"
+    SPEED_RUN = "speed_run"
 
 
 _LEGAL_TRANSITIONS: dict[Mode, set[Mode]] = {
-    Mode.IDLE: {Mode.REFERENCE, Mode.PRACTICE, Mode.FILL_GAP, Mode.COLD_FILL},
+    Mode.IDLE: {Mode.REFERENCE, Mode.PRACTICE, Mode.FILL_GAP, Mode.COLD_FILL, Mode.SPEED_RUN},
     Mode.REFERENCE: {Mode.IDLE, Mode.REPLAY},
     Mode.PRACTICE: {Mode.IDLE},
     Mode.REPLAY: {Mode.IDLE},
     Mode.FILL_GAP: {Mode.IDLE},
     Mode.COLD_FILL: {Mode.IDLE},
+    Mode.SPEED_RUN: {Mode.IDLE},
 }
 
 
@@ -75,11 +77,13 @@ class Status(StrEnum):
     NO_HOT_VARIANT = "no_hot_variant"
     NO_GAPS = "no_gaps"
     SHUTTING_DOWN = "shutting_down"
+    MISSING_SAVE_STATES = "missing_save_states"
 
 
 class AttemptSource(StrEnum):
     PRACTICE = "practice"
     REPLAY = "replay"
+    SPEED_RUN = "speed_run"
 
 
 @dataclass

@@ -87,6 +87,7 @@ class TestStatus:
             "no_hot_variant",
             "no_gaps",
             "shutting_down",
+            "missing_save_states",
         }
         actual = {s.value for s in Status}
         assert expected == actual
@@ -104,10 +105,12 @@ class TestAttemptSource:
     def test_values(self):
         assert AttemptSource.PRACTICE == "practice"
         assert AttemptSource.REPLAY == "replay"
+        assert AttemptSource.SPEED_RUN == "speed_run"
 
     def test_from_string(self):
         assert AttemptSource("practice") is AttemptSource.PRACTICE
         assert AttemptSource("replay") is AttemptSource.REPLAY
+        assert AttemptSource("speed_run") is AttemptSource.SPEED_RUN
 
     def test_invalid_raises(self):
         with pytest.raises(ValueError):
