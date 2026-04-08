@@ -1,8 +1,8 @@
 import { defineConfig } from "vite";
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   root: ".",
-  base: "/static/",
+  base: command === "serve" ? "/" : "/static/",
   build: {
     outDir: "../python/spinlab/static",
     emptyOutDir: true,
@@ -19,4 +19,4 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
   },
-});
+}));
