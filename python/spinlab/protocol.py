@@ -164,6 +164,7 @@ class PracticeLoadCmd:
     end_type: str = ""
     expected_time_ms: int | None = None
     auto_advance_delay_ms: int = 1000
+    death_penalty_ms: int = 3200
 
 @dataclass
 class PracticeStopCmd:

@@ -217,6 +217,37 @@ def test_snapshot_all_missing_returns_none(db):
     assert ps.initial_expected_clean_ms is None
 
 
+@pytest.mark.asyncio
+async def test_practice_session_passes_death_penalty_ms(db):
+    """PracticeSession should forward death_penalty_ms to PracticeLoadCmd."""
+    seg_id = db._test_seg_id
+    mock_tcp = AsyncMock()
+    mock_tcp.is_connected = True
+    mock_tcp.send_command = AsyncMock()
+
+    result_event = {
+        "event": "attempt_result",
+        "segment_id": seg_id,
+        "completed": True,
+        "time_ms": 4500,
+    }
+
+    session = PracticeSession(tcp=mock_tcp, db=db, game_id="g", death_penalty_ms=2500)
+    session.is_running = True
+
+    async def deliver():
+        await asyncio.sleep(0.05)
+        session.receive_result(result_event)
+
+    asyncio.create_task(deliver())
+    await session.run_one()
+
+    mock_tcp.send_command.assert_called_once()
+    cmd = mock_tcp.send_command.call_args[0][0]
+    assert isinstance(cmd, PracticeLoadCmd)
+    assert cmd.death_penalty_ms == 2500
+
+
 def test_current_expected_times_reflects_model_updates(db):
     """After process_attempt runs, current_expected_times() returns the new sum."""
     seg_id = db._test_seg_id

@@ -379,6 +379,7 @@ class SessionManager:
         from .practice import PracticeSession
         ps = PracticeSession(
             tcp=self.tcp, db=self.db, game_id=self._require_game(),
+            death_penalty_ms=self.capture.condition_registry.death_penalty_ms,
             on_attempt=lambda _: asyncio.ensure_future(self._notify_sse()),
         )
         self.practice_session = ps
