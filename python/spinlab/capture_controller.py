@@ -197,12 +197,15 @@ class CaptureController:
         self.ref_capture.handle_checkpoint(event, game_id, self.db,
                                            self.condition_registry)
 
-    def handle_death(self) -> None:
+    def handle_death(self, event: dict | None = None) -> None:
         self.ref_capture.died = True
+        ts = event.get("timestamp_ms") if event else None
+        self.ref_capture.handle_death(timestamp_ms=ts)
 
     def handle_spawn(self, event: dict, game_id: str) -> None:
         logger.info("capture: spawn level=%s state_captured=%s",
                      event.get("level_num"), event.get("state_captured"))
+        self.ref_capture.handle_spawn_timing(timestamp_ms=event.get("timestamp_ms"))
         self.ref_capture.handle_spawn(event, game_id, self.db,
                                       self.condition_registry)
 
@@ -242,8 +245,12 @@ class CaptureController:
 
     # --- Draft lifecycle ---
 
-    async def save_draft(self, name: str) -> ActionResult:
-        return self.draft.save(self.db, name)
+    async def save_draft(self, name: str, scheduler=None) -> ActionResult:
+        return self.draft.save(
+            self.db, name,
+            segment_times=self.ref_capture.segment_times or None,
+            scheduler=scheduler,
+        )
 
     async def discard_draft(self) -> ActionResult:
         return self.draft.discard(self.db)

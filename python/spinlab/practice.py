@@ -31,12 +31,14 @@ class PracticeSession:
         db: Database,
         game_id: str,
         auto_advance_delay_ms: int = 1000,
+        death_penalty_ms: int = 3200,
         on_attempt: Callable | None = None,
     ) -> None:
         self.tcp = tcp
         self.db = db
         self.game_id = game_id
         self.auto_advance_delay_ms = auto_advance_delay_ms
+        self.death_penalty_ms = death_penalty_ms
         self.on_attempt = on_attempt
 
         self.scheduler = Scheduler(db, game_id)
@@ -141,6 +143,7 @@ class PracticeSession:
             end_type=picked.end_type,
             expected_time_ms=expected_time_ms,
             auto_advance_delay_ms=self.auto_advance_delay_ms,
+            death_penalty_ms=self.death_penalty_ms,
         )
 
         self.current_segment_id = cmd.id
@@ -154,6 +157,7 @@ class PracticeSession:
             end_type=cmd.end_type,
             expected_time_ms=cmd.expected_time_ms,
             auto_advance_delay_ms=cmd.auto_advance_delay_ms,
+            death_penalty_ms=cmd.death_penalty_ms,
         ))
 
         # Wait for attempt_result via receive_result() (set by SessionManager)

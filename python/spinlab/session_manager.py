@@ -251,7 +251,7 @@ class SessionManager:
         if self.mode == Mode.COLD_FILL:
             logger.info("death during cold_fill — waiting for respawn")
         if self.mode in (Mode.REFERENCE, Mode.REPLAY):
-            self.capture.handle_death()
+            self.capture.handle_death(dataclasses.asdict(event))
 
     async def _handle_spawn(self, event: SpawnEvent) -> None:
         event_dict = dataclasses.asdict(event)
@@ -351,7 +351,8 @@ class SessionManager:
         )
 
     async def save_draft(self, name: str) -> ActionResult:
-        result = await self.capture.save_draft(name)
+        scheduler = self._get_scheduler() if self.game_id else None
+        result = await self.capture.save_draft(name, scheduler=scheduler)
         if result.status == Status.OK and self.game_id and self.tcp.is_connected:
             cf_result = await self.cold_fill.start(self.game_id)
             if cf_result.new_mode == Mode.COLD_FILL:
@@ -379,6 +380,7 @@ class SessionManager:
         from .practice import PracticeSession
         ps = PracticeSession(
             tcp=self.tcp, db=self.db, game_id=self._require_game(),
+            death_penalty_ms=self.capture.condition_registry.death_penalty_ms,
             on_attempt=lambda _: asyncio.ensure_future(self._notify_sse()),
         )
         self.practice_session = ps

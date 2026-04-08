@@ -8,6 +8,10 @@ from typing import Any, Iterable
 import yaml
 
 
+# Default death penalty: time added per death to account for death animation
+# + respawn in a standard SMW retry (~3.2 s measured from SMW NTSC timing).
+DEFAULT_DEATH_PENALTY_MS: int = 3200
+
 # Scope types ----------------------------------------------------------
 @dataclass(frozen=True)
 class Scope:
@@ -45,6 +49,7 @@ class ConditionDef:
 @dataclass
 class ConditionRegistry:
     definitions: list[ConditionDef] = field(default_factory=list)
+    death_penalty_ms: int = DEFAULT_DEATH_PENALTY_MS
 
     @classmethod
     def from_yaml(cls, path: Path) -> "ConditionRegistry":
@@ -67,7 +72,10 @@ class ConditionRegistry:
                         if c.get("values") else None),
                 scope=scope,
             ))
-        return cls(definitions=defs)
+        return cls(
+            definitions=defs,
+            death_penalty_ms=raw.get("death_penalty_ms", DEFAULT_DEATH_PENALTY_MS),
+        )
 
     def in_scope(self, level: int) -> list[ConditionDef]:
         return [d for d in self.definitions if d.scope.covers(level)]

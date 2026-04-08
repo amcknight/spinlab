@@ -80,6 +80,7 @@ class Status(StrEnum):
 class AttemptSource(StrEnum):
     PRACTICE = "practice"
     REPLAY = "replay"
+    REFERENCE = "reference"
 
 
 @dataclass
@@ -182,6 +183,7 @@ class SegmentCommand:
     end_type: str              # 'checkpoint' or 'goal'
     expected_time_ms: int | None = None
     auto_advance_delay_ms: int = 1000
+    death_penalty_ms: int = 3200
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
