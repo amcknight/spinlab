@@ -92,3 +92,16 @@ def test_abort_exit_no_timing(db, registry):
     cap.handle_exit({"level": 1, "goal": "abort", "timestamp_ms": 5000}, "g1", db, registry)
 
     assert cap.segment_times == []
+
+
+def test_death_via_handle_death_increments_counter(db, registry):
+    """handle_death increments _deaths_in_segment."""
+    cap = ReferenceCapture()
+    cap.capture_run_id = "run1"
+    cap.handle_entrance({
+        "level": 1, "state_path": "/s.mss",
+        "conditions": {}, "timestamp_ms": 1000,
+    })
+    cap.handle_death(timestamp_ms=2000)
+    cap.handle_death(timestamp_ms=3000)
+    assert cap._deaths_in_segment == 2

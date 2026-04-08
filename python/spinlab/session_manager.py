@@ -251,7 +251,7 @@ class SessionManager:
         if self.mode == Mode.COLD_FILL:
             logger.info("death during cold_fill — waiting for respawn")
         if self.mode in (Mode.REFERENCE, Mode.REPLAY):
-            self.capture.handle_death()
+            self.capture.handle_death(dataclasses.asdict(event))
 
     async def _handle_spawn(self, event: SpawnEvent) -> None:
         event_dict = dataclasses.asdict(event)
