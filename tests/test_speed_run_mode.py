@@ -328,3 +328,48 @@ async def test_speed_run_stops_after_last_level(sr_db):
 
     result3 = await sr.run_one()
     assert result3 is False
+
+
+from spinlab.session_manager import SessionManager
+from spinlab.models import Mode, ActionResult, Status
+
+
+@pytest.fixture
+def session_mgr(sr_db, tmp_path):
+    tcp = AsyncMock()
+    tcp.is_connected = True
+    tcp.send_command = AsyncMock()
+    mgr = SessionManager(
+        db=sr_db, tcp=tcp, rom_dir=tmp_path, data_dir=tmp_path,
+    )
+    mgr.game_id = "g"
+    mgr.game_name = "Game"
+    return mgr
+
+
+@pytest.mark.asyncio
+async def test_session_manager_start_speed_run(session_mgr):
+    result = await session_mgr.start_speed_run()
+    assert result.status == Status.STARTED
+    assert session_mgr.mode == Mode.SPEED_RUN
+    assert session_mgr.speed_run_session is not None
+
+
+@pytest.mark.asyncio
+async def test_session_manager_stop_speed_run(session_mgr):
+    await session_mgr.start_speed_run()
+    result = await session_mgr.stop_speed_run()
+    assert result.status == Status.STOPPED
+    assert session_mgr.mode == Mode.IDLE
+
+
+@pytest.mark.asyncio
+async def test_speed_run_routes_checkpoint_event(session_mgr):
+    await session_mgr.start_speed_run()
+    await session_mgr.route_event({
+        "event": "speed_run_checkpoint",
+        "ordinal": 1,
+        "elapsed_ms": 12000,
+        "split_ms": 12000,
+    })
+    assert session_mgr.mode == Mode.SPEED_RUN

@@ -51,6 +51,9 @@ class StateBuilder:
         if session.mode == Mode.PRACTICE and session.practice_session:
             self._build_practice_state(base, session, sched)
 
+        if session.mode == Mode.SPEED_RUN and session.speed_run_session:
+            self._build_speed_run_state(base, session)
+
         if session.mode in (Mode.REFERENCE, Mode.REPLAY):
             base["capture_run_id"] = session.capture.ref_capture.capture_run_id
         if session.mode == Mode.REPLAY:
@@ -67,6 +70,34 @@ class StateBuilder:
 
         base["recent"] = self.db.get_recent_attempts(session.game_id, limit=RECENT_ATTEMPTS_LIMIT)
         return base
+
+    def _build_speed_run_state(self, base: dict, session: "SessionManager") -> None:
+        """Populate speed-run-specific fields into state dict."""
+        sr = session.speed_run_session
+        base["session"] = {
+            "id": sr.session_id,
+            "started_at": sr.started_at,
+            "segments_attempted": sr.segments_recorded,
+            "segments_completed": sr.levels_completed,
+            "saved_total_ms": None,
+            "saved_clean_ms": None,
+        }
+        if sr.current_level_index < len(sr.levels):
+            level = sr.levels[sr.current_level_index]
+            base["current_segment"] = {
+                "id": level.segments[0]["id"],
+                "game_id": sr.game_id,
+                "level_number": level.level_number,
+                "start_type": "entrance",
+                "start_ordinal": 0,
+                "end_type": "goal",
+                "end_ordinal": 0,
+                "description": level.description,
+                "attempt_count": 0,
+                "model_outputs": {},
+                "selected_model": "",
+                "state_path": level.entrance_state_path,
+            }
 
     def _build_practice_state(self, base: dict, session: "SessionManager", sched) -> None:
         """Populate practice-specific fields into state dict."""
