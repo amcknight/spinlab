@@ -154,6 +154,36 @@ local function practice_reset()
     reset_transition_state()
 end
 
+-- Speed run state
+local speed_run = {
+    active = false,
+    state = PSTATE_IDLE,
+    segment = nil,
+    start_ms = 0,
+    split_ms = 0,
+    elapsed_ms = 0,
+    respawn_path = "",
+    cp_index = 0,
+    result_start_ms = 0,
+    result_split_ms = 0,
+    auto_advance_ms = AUTO_ADVANCE_DEFAULT_MS,
+}
+
+local function speed_run_reset()
+    speed_run.active = false
+    speed_run.state = PSTATE_IDLE
+    speed_run.segment = nil
+    speed_run.start_ms = 0
+    speed_run.split_ms = 0
+    speed_run.elapsed_ms = 0
+    speed_run.respawn_path = ""
+    speed_run.cp_index = 0
+    speed_run.result_start_ms = 0
+    speed_run.result_split_ms = 0
+    speed_run.auto_advance_ms = AUTO_ADVANCE_DEFAULT_MS
+    reset_transition_state()
+end
+
 -- Recording state (passive mode input capture)
 local recording = {
   active = false,
@@ -345,6 +375,31 @@ local function parse_practice_segment(json_str)
   }
 end
 
+-- Parse a JSON array of checkpoint objects from speed_run_load.
+local function parse_checkpoints(json_str)
+  local arr_str = json_get_arr(json_str, "checkpoints")
+  if not arr_str or arr_str == "[]" then return {} end
+
+  local result = {}
+  for obj in arr_str:gmatch('%{[^}]+%}') do
+    local ordinal = json_get_num(obj, "ordinal") or 0
+    local state_path = json_get_str(obj, "state_path") or ""
+    result[#result + 1] = { ordinal = ordinal, state_path = state_path }
+  end
+  return result
+end
+
+local function parse_speed_run_segment(json_str)
+  return {
+    id                     = json_get_str(json_str, "id") or "",
+    state_path             = json_get_str(json_str, "state_path") or "",
+    description            = json_get_str(json_str, "description") or "",
+    checkpoints            = parse_checkpoints(json_str),
+    expected_time_ms       = json_get_num(json_str, "expected_time_ms"),
+    auto_advance_delay_ms  = json_get_num(json_str, "auto_advance_delay_ms") or AUTO_ADVANCE_DEFAULT_MS,
+  }
+end
+
 -- drawString renders one char per row vertically in Mesen2 — work around it
 -- by drawing one character at a time with manual x offsets.
 local CHAR_W = 6  -- measureString("A", 1).width
@@ -409,6 +464,28 @@ local function draw_practice_overlay()
   end
 end
 
+local function draw_speed_run_overlay()
+  if not speed_run.active then return end
+
+  local label = speed_run.segment and speed_run.segment.description or "?"
+  if label == "" then label = "?" end
+  local compare_time = speed_run.segment and speed_run.segment.expected_time_ms
+
+  if speed_run.state == PSTATE_PLAYING or speed_run.state == PSTATE_LOADING then
+    local elapsed = ts_ms() - speed_run.start_ms
+    draw_text(4, 2, "SR: " .. label, 0x00000000, 0xFF44DDFF)
+    draw_timer_row(12, elapsed, compare_time)
+
+  elseif speed_run.state == PSTATE_RESULT then
+    draw_text(4, 2, "SR: " .. label, 0x00000000, 0xFF44DDFF)
+    draw_timer_row(12, speed_run.elapsed_ms, compare_time, "Clear!")
+
+    local remaining = speed_run.auto_advance_ms - (ts_ms() - speed_run.result_start_ms)
+    local secs = string.format("%.1f", math.max(0, remaining / 1000))
+    draw_text(4, 22, "Next in " .. secs .. "s", 0x00000000, 0xFF888888)
+  end
+end
+
 -----------------------------------------------------------------------
 -- JSONL LOGGER
 -----------------------------------------------------------------------
@@ -436,6 +513,7 @@ end
 local function send_event(event)
   if not client then return end
   if practice.active then return end
+  if speed_run.active then return end
   if replay.active then
     event.source = "replay"
   end
@@ -907,6 +985,75 @@ local function handle_practice(curr)
 end
 
 -----------------------------------------------------------------------
+-- SPEED RUN STATE MACHINE
+-----------------------------------------------------------------------
+local function handle_speed_run(curr)
+  if speed_run.state == PSTATE_LOADING then
+    speed_run.state    = PSTATE_PLAYING
+    speed_run.start_ms = ts_ms()
+    speed_run.split_ms = ts_ms()
+
+  elseif speed_run.state == PSTATE_PLAYING then
+    -- Death check (highest priority)
+    if is_death_frame(curr) then
+      local elapsed = ts_ms() - speed_run.start_ms
+      local split = ts_ms() - speed_run.split_ms
+      if client then
+        client:send(to_json({
+          event      = "speed_run_death",
+          elapsed_ms = math.floor(elapsed),
+          split_ms   = math.floor(split),
+        }) .. "\n")
+      end
+      table.insert(pending_loads, speed_run.respawn_path)
+      speed_run.split_ms = ts_ms()
+      log("Speed run: death — reloading " .. speed_run.respawn_path)
+
+    elseif check_checkpoint_hit(curr) then
+      local elapsed = ts_ms() - speed_run.start_ms
+      local split = ts_ms() - speed_run.split_ms
+      local cps = speed_run.segment.checkpoints
+      speed_run.cp_index = speed_run.cp_index + 1
+      if speed_run.cp_index <= #cps then
+        speed_run.respawn_path = cps[speed_run.cp_index].state_path
+        local ordinal = cps[speed_run.cp_index].ordinal
+        if client then
+          client:send(to_json({
+            event      = "speed_run_checkpoint",
+            ordinal    = ordinal,
+            elapsed_ms = math.floor(elapsed),
+            split_ms   = math.floor(split),
+          }) .. "\n")
+        end
+        log("Speed run: checkpoint " .. ordinal .. " — " .. math.floor(elapsed) .. "ms")
+      end
+
+    elseif detect_finish(curr) or is_exit_frame(curr) then
+      speed_run.elapsed_ms = ts_ms() - speed_run.start_ms
+      local split = ts_ms() - speed_run.split_ms
+      speed_run.state = PSTATE_RESULT
+      speed_run.result_start_ms = ts_ms()
+      speed_run.result_split_ms = split
+      log("Speed run: GOAL — " .. math.floor(speed_run.elapsed_ms) .. "ms")
+    end
+
+  elseif speed_run.state == PSTATE_RESULT then
+    local elapsed_in_result = ts_ms() - speed_run.result_start_ms
+    if elapsed_in_result >= speed_run.auto_advance_ms then
+      if client then
+        client:send(to_json({
+          event      = "speed_run_complete",
+          elapsed_ms = math.floor(speed_run.elapsed_ms),
+          split_ms   = math.floor(speed_run.result_split_ms),
+        }) .. "\n")
+      end
+      speed_run_reset()
+      log("Speed run: level complete, sent result")
+    end
+  end
+end
+
+-----------------------------------------------------------------------
 -- DISCONNECT CLEANUP
 -----------------------------------------------------------------------
 local function disconnect_cleanup()
@@ -916,6 +1063,13 @@ local function disconnect_cleanup()
     pending_saves     = {}
     pending_reset     = true
     log("Practice auto-cleared on disconnect — reset queued")
+  end
+  if speed_run.active then
+    speed_run_reset()
+    pending_loads     = {}
+    pending_saves     = {}
+    pending_reset     = true
+    log("Speed run auto-cleared on disconnect — reset queued")
   end
   if recording.active then
     recording.active = false
@@ -1161,6 +1315,30 @@ local function handle_json_message(line)
     pending_loads = {}
     client:send("ok\n")
     log("Practice mode stopped")
+  elseif decoded_event == "speed_run_load" then
+    speed_run.segment = parse_speed_run_segment(line)
+    speed_run.auto_advance_ms = speed_run.segment.auto_advance_delay_ms or 2000
+    speed_run.respawn_path = speed_run.segment.state_path
+    speed_run.cp_index = 0
+    speed_run.active = true
+    speed_run.state = PSTATE_LOADING
+    local sp = speed_run.segment.state_path
+    if not sp or sp == "" then
+      log("ERROR: No valid state_path for speed_run segment " .. (speed_run.segment.id or "?"))
+      client:send("err:no_state_path\n")
+      speed_run_reset()
+    else
+      table.insert(pending_loads, sp)
+      speed_run.start_ms = ts_ms()
+      speed_run.split_ms = ts_ms()
+      client:send("ok:queued\n")
+      log("Speed run load queued: " .. (speed_run.segment.id or "?"))
+    end
+  elseif decoded_event == "speed_run_stop" then
+    speed_run_reset()
+    pending_loads = {}
+    client:send("ok\n")
+    log("Speed run stopped")
   end
 end
 
@@ -1442,6 +1620,8 @@ local function on_start_frame()
     handle_cold_fill()
   elseif practice.active then
     handle_practice(curr)
+  elseif speed_run.active then
+    handle_speed_run(curr)
   else
     detect_transitions(curr)
   end
@@ -1452,6 +1632,7 @@ local function on_start_frame()
   handle_tcp()
 
   draw_practice_overlay()
+  draw_speed_run_overlay()
 end
 
 -- Register callbacks

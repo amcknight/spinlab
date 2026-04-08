@@ -17,6 +17,7 @@ from .protocol import (
     RecSavedEvent, ReplayStartedEvent, ReplayProgressEvent,
     ReplayFinishedEvent, ReplayErrorEvent, AttemptInvalidatedEvent,
     GameContextCmd, SetConditionsCmd, SetInvalidateComboCmd,
+    SpeedRunCheckpointEvent, SpeedRunDeathEvent, SpeedRunCompleteEvent,
 )
 from .capture_controller import CaptureController
 from .cold_fill_controller import ColdFillController
@@ -61,6 +62,8 @@ class SessionManager:
         self.scheduler = None  # Scheduler | None, lazy-init
         self.practice_session = None  # PracticeSession | None
         self.practice_task: asyncio.Task | None = None
+        self.speed_run_session = None  # SpeedRunSession | None
+        self.speed_run_task: asyncio.Task | None = None
 
         # Delegated components
         self.capture = CaptureController(db, tcp)
@@ -84,6 +87,9 @@ class SessionManager:
             ReplayFinishedEvent: self._handle_replay_finished,
             ReplayErrorEvent: self._handle_replay_error,
             AttemptInvalidatedEvent: self._handle_attempt_invalidated,
+            SpeedRunCheckpointEvent: self._handle_speed_run_checkpoint,
+            SpeedRunDeathEvent: self._handle_speed_run_death,
+            SpeedRunCompleteEvent: self._handle_speed_run_complete,
         }
 
     @property
@@ -411,15 +417,85 @@ class SessionManager:
             return ActionResult(status=Status.STOPPED)
         return ActionResult(status=Status.NOT_RUNNING)
 
+    # --- Speed Run mode ---
+
+    async def start_speed_run(self) -> ActionResult:
+        if self.capture.has_draft:
+            return ActionResult(status=Status.DRAFT_PENDING)
+        if self.speed_run_session and self.speed_run_session.is_running:
+            return ActionResult(status=Status.ALREADY_RUNNING)
+        if not self.tcp.is_connected:
+            return ActionResult(status=Status.NOT_CONNECTED)
+        if self.mode == Mode.REFERENCE:
+            self._clear_ref_and_idle()
+
+        from .speed_run import SpeedRunSession
+        try:
+            sr = SpeedRunSession(
+                tcp=self.tcp, db=self.db, game_id=self._require_game(),
+                on_event=lambda _: asyncio.ensure_future(self._notify_sse()),
+            )
+        except ValueError:
+            return ActionResult(status=Status.MISSING_SAVE_STATES)
+
+        self.speed_run_session = sr
+        self.speed_run_task = asyncio.create_task(sr.run_loop())
+        self.speed_run_task.add_done_callback(self._on_speed_run_done)
+        self.mode = Mode.SPEED_RUN
+        await self._notify_sse()
+        return ActionResult(status=Status.STARTED, session_id=sr.session_id)
+
+    def _on_speed_run_done(self, task: asyncio.Task) -> None:
+        if self.mode == Mode.SPEED_RUN:
+            self.mode = Mode.IDLE
+            asyncio.ensure_future(self._notify_sse())
+
+    async def stop_speed_run(self) -> ActionResult:
+        if self.speed_run_session and self.speed_run_session.is_running:
+            self.speed_run_session.is_running = False
+            if self.speed_run_task:
+                try:
+                    await asyncio.wait_for(self.speed_run_task, timeout=PRACTICE_STOP_TIMEOUT_S)
+                except asyncio.TimeoutError:
+                    self.speed_run_task.cancel()
+            self.mode = Mode.IDLE
+            await self._notify_sse()
+            return ActionResult(status=Status.STOPPED)
+        if self.mode == Mode.SPEED_RUN:
+            self.mode = Mode.IDLE
+            return ActionResult(status=Status.STOPPED)
+        return ActionResult(status=Status.NOT_RUNNING)
+
+    async def _handle_speed_run_checkpoint(self, event: SpeedRunCheckpointEvent) -> None:
+        if self.mode != Mode.SPEED_RUN or not self.speed_run_session:
+            return
+        self.speed_run_session.receive_event(dataclasses.asdict(event))
+        await self._notify_sse()
+
+    async def _handle_speed_run_death(self, event: SpeedRunDeathEvent) -> None:
+        if self.mode != Mode.SPEED_RUN or not self.speed_run_session:
+            return
+        self.speed_run_session.receive_event(dataclasses.asdict(event))
+        await self._notify_sse()
+
+    async def _handle_speed_run_complete(self, event: SpeedRunCompleteEvent) -> None:
+        if self.mode != Mode.SPEED_RUN or not self.speed_run_session:
+            return
+        self.speed_run_session.receive_event(dataclasses.asdict(event))
+        await self._notify_sse()
+
     def on_disconnect(self) -> None:
         if self.practice_session and self.practice_session.is_running:
             self.practice_session.is_running = False
+        if self.speed_run_session and self.speed_run_session.is_running:
+            self.speed_run_session.is_running = False
         self.cold_fill.clear()
         self.capture.handle_disconnect()
         self._clear_ref_and_idle()
 
     async def shutdown(self) -> None:
         await self.stop_practice()
+        await self.stop_speed_run()
         if self.mode == Mode.REFERENCE:
             self._clear_ref_and_idle()
         await self.tcp.disconnect()

@@ -103,6 +103,25 @@ class ReplayErrorEvent:
 class AttemptInvalidatedEvent:
     event: str = "attempt_invalidated"
 
+@dataclass
+class SpeedRunCheckpointEvent:
+    event: str = "speed_run_checkpoint"
+    ordinal: int = 0
+    elapsed_ms: int = 0
+    split_ms: int = 0
+
+@dataclass
+class SpeedRunDeathEvent:
+    event: str = "speed_run_death"
+    elapsed_ms: int = 0
+    split_ms: int = 0
+
+@dataclass
+class SpeedRunCompleteEvent:
+    event: str = "speed_run_complete"
+    elapsed_ms: int = 0
+    split_ms: int = 0
+
 
 # ---------------------------------------------------------------------------
 # Python -> Lua commands
@@ -170,6 +189,20 @@ class PracticeLoadCmd:
 class PracticeStopCmd:
     event: str = "practice_stop"
 
+@dataclass
+class SpeedRunLoadCmd:
+    event: str = "speed_run_load"
+    id: str = ""
+    state_path: str = ""
+    description: str = ""
+    checkpoints: list = field(default_factory=list)
+    expected_time_ms: int | None = None
+    auto_advance_delay_ms: int = 1000
+
+@dataclass
+class SpeedRunStopCmd:
+    event: str = "speed_run_stop"
+
 
 # ---------------------------------------------------------------------------
 # Event registry and parser
@@ -190,6 +223,9 @@ _EVENT_REGISTRY: dict[str, type] = {
     "replay_finished": ReplayFinishedEvent,
     "replay_error": ReplayErrorEvent,
     "attempt_invalidated": AttemptInvalidatedEvent,
+    "speed_run_checkpoint": SpeedRunCheckpointEvent,
+    "speed_run_death": SpeedRunDeathEvent,
+    "speed_run_complete": SpeedRunCompleteEvent,
 }
 
 

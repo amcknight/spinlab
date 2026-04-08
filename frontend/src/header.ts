@@ -39,6 +39,11 @@ export function updateHeader(data: AppState): void {
     const seg = data.current_segment;
     label.textContent = "Practicing" + (seg ? " — " + segmentName(seg) : "");
     stopBtn.style.display = "";
+  } else if (data.mode === "speed_run") {
+    chip.classList.add("practicing");
+    const seg = data.current_segment;
+    label.textContent = "Speed Run" + (seg ? " — " + segmentName(seg) : "");
+    stopBtn.style.display = "";
   } else if (data.mode === "replay") {
     chip.classList.add("replaying");
     label.textContent = "Replaying…";
@@ -102,9 +107,10 @@ export function initHeader(): void {
     const chip = document.getElementById("mode-chip")!;
     if (chip.classList.contains("recording"))
       await postJSON("/api/reference/stop");
-    else if (chip.classList.contains("practicing"))
+    else if (chip.classList.contains("practicing")) {
       await postJSON("/api/practice/stop");
-    else if (chip.classList.contains("replaying"))
+      await postJSON("/api/speedrun/stop");
+    } else if (chip.classList.contains("replaying"))
       await postJSON("/api/replay/stop");
   });
 }

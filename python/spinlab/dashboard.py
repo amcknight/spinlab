@@ -106,6 +106,7 @@ def create_app(
     from .routes.segments import router as segments_router
     from .routes.system import router as system_router
     from .routes.attempts import router as attempts_router
+    from .routes.speed_run import router as speed_run_router
 
     app.include_router(practice_router)
     app.include_router(reference_router)
@@ -113,5 +114,6 @@ def create_app(
     app.include_router(segments_router)
     app.include_router(system_router)
     app.include_router(attempts_router)
+    app.include_router(speed_run_router)
 
     return app

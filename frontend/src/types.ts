@@ -6,7 +6,8 @@ export type Mode =
   | "practice"
   | "replay"
   | "fill_gap"
-  | "cold_fill";
+  | "cold_fill"
+  | "speed_run";
 
 export type EndpointType = "entrance" | "checkpoint" | "goal";
 
