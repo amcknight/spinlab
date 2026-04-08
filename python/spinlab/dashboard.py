@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -64,6 +65,7 @@ async def event_loop(session: SessionManager, tcp: TcpManager) -> None:
 def create_app(
     db: Database,
     config: AppConfig | None = None,
+    vite_process: subprocess.Popen | None = None,
 ) -> FastAPI:
 
     if config is None:
@@ -87,6 +89,9 @@ def create_app(
         yield
         task.cancel()
         await session.shutdown()
+        if vite_process is not None:
+            from .vite import terminate_vite
+            terminate_vite(vite_process)
 
     app = FastAPI(title="SpinLab Dashboard", lifespan=lifespan)
     app.state.config = config

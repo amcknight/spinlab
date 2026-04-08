@@ -10,13 +10,18 @@ from pathlib import Path
 SOCKET_CONNECT_TIMEOUT_S = 2
 
 
-def _write_ports_file(project_dir: Path, tcp_port: int, dashboard_port: int) -> None:
+def _write_ports_file(
+    project_dir: Path, tcp_port: int, dashboard_port: int, vite_port: int = 0,
+) -> None:
     """Write .spinlab-ports for external tools (AHK scripts, etc.)."""
     ports_file = project_dir / ".spinlab-ports"
-    ports_file.write_text(
-        f"tcp_port={tcp_port}\ndashboard_port={dashboard_port}\n",
-        encoding="utf-8",
-    )
+    lines = [
+        f"tcp_port={tcp_port}",
+        f"dashboard_port={dashboard_port}",
+    ]
+    if vite_port:
+        lines.append(f"vite_port={vite_port}")
+    ports_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 class _StripPrefixFilter(logging.Filter):
@@ -95,15 +100,27 @@ def main(args: list[str] | None = None) -> None:
         from spinlab.config import AppConfig
         from spinlab.dashboard import create_app
         from spinlab.db import Database
+        from spinlab.vite import spawn_vite, VITE_PORT, ViteStartupError
 
         config = AppConfig.from_yaml(Path(parsed.config))
         _setup_file_logging(config.data_dir)
         dashboard_port = parsed.port or config.network.dashboard_port
         db = Database(config.data_dir / "spinlab.db")
 
-        app = create_app(db=db, config=config)
-        _write_ports_file(Path(parsed.config).parent, config.network.port, dashboard_port)
-        print(f"SpinLab Dashboard: http://localhost:{dashboard_port}")
+        # Resolve frontend dir relative to the package
+        frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
+        try:
+            vite_proc = spawn_vite(frontend_dir)
+        except ViteStartupError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        app = create_app(db=db, config=config, vite_process=vite_proc)
+        _write_ports_file(
+            Path(parsed.config).parent,
+            config.network.port, dashboard_port, vite_port=VITE_PORT,
+        )
+        print(f"SpinLab Dashboard: http://localhost:{VITE_PORT}")
         uvicorn.run(app, host="0.0.0.0", port=dashboard_port, log_level="warning")
 
     elif parsed.command == "replay":
