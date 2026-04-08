@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
 
 from .config import AppConfig, EmulatorConfig, NetworkConfig
 from .db import Database
@@ -99,22 +98,6 @@ def create_app(
     app.state.session = session
     app.state.db = db
 
-    static_dir = Path(__file__).parent / "static"
-    if static_dir.is_dir():
-        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-
-    from fastapi.responses import FileResponse
-    from starlette.middleware.base import BaseHTTPMiddleware
-
-    class NoCacheStaticMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request, call_next):
-            response = await call_next(request)
-            if request.url.path.startswith("/static/"):
-                response.headers["Cache-Control"] = "no-cache, must-revalidate"
-            return response
-
-    app.add_middleware(NoCacheStaticMiddleware)
-
     # -- Routers --
 
     from .routes.practice import router as practice_router
@@ -130,15 +113,5 @@ def create_app(
     app.include_router(segments_router)
     app.include_router(system_router)
     app.include_router(attempts_router)
-
-    # -- Root endpoint --
-
-    index_path = static_dir / "index.html"
-
-    @app.get("/")
-    def root():
-        if not index_path.exists():
-            raise HTTPException(status_code=503, detail="Frontend not built. Run: cd frontend && npm run build")
-        return FileResponse(str(index_path))
 
     return app
