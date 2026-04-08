@@ -8,6 +8,8 @@ from .models import ActionResult, Status
 
 if TYPE_CHECKING:
     from .db import Database
+    from .reference_capture import RefSegmentTime
+    from .scheduler import Scheduler
 
 
 class DraftManager:
@@ -26,12 +28,24 @@ class DraftManager:
         self.run_id = run_id
         self.segments_count = segments_count
 
-    def save(self, db: "Database", name: str) -> ActionResult:
-        """Promote draft capture run to saved reference."""
+    def save(
+        self, db: "Database", name: str,
+        segment_times: "list[RefSegmentTime] | None" = None,
+        scheduler: "Scheduler | None" = None,
+    ) -> ActionResult:
+        """Promote draft capture run to saved reference, seed attempts, rebuild model."""
         if not self.run_id:
             return ActionResult(status=Status.NO_DRAFT)
         db.promote_draft(self.run_id, name)
         db.set_active_capture_run(self.run_id)
+
+        # Seed reference attempts if timing data is available
+        if segment_times:
+            from .reference_seeding import seed_reference_attempts
+            seed_reference_attempts(db, self.run_id, segment_times)
+            if scheduler:
+                scheduler.rebuild_all_states()
+
         self.run_id = None
         self.segments_count = 0
         return ActionResult(status=Status.OK)

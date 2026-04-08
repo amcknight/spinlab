@@ -351,7 +351,8 @@ class SessionManager:
         )
 
     async def save_draft(self, name: str) -> ActionResult:
-        result = await self.capture.save_draft(name)
+        scheduler = self._get_scheduler() if self.game_id else None
+        result = await self.capture.save_draft(name, scheduler=scheduler)
         if result.status == Status.OK and self.game_id and self.tcp.is_connected:
             cf_result = await self.cold_fill.start(self.game_id)
             if cf_result.new_mode == Mode.COLD_FILL:

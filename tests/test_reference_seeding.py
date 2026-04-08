@@ -91,3 +91,48 @@ def test_seed_returns_count(db):
     ]
     count = seed_reference_attempts(db, "run1", times)
     assert count == 3
+
+
+def test_draft_save_seeds_and_rebuilds(db):
+    """Full flow: DraftManager.save() triggers seeding + estimator rebuild."""
+    from unittest.mock import MagicMock
+    from spinlab.draft_manager import DraftManager
+    from spinlab.reference_capture import RefSegmentTime
+
+    db.create_capture_run("run1_draft", "g", "Draft", draft=True)
+    _make_segment(db, "seg1_draft", ref_id="run1_draft")
+
+    times = [RefSegmentTime(segment_id="seg1_draft", time_ms=5000, deaths=0, clean_tail_ms=5000)]
+
+    dm = DraftManager()
+    dm.enter_draft("run1_draft", 1)
+
+    mock_scheduler = MagicMock()
+    result = dm.save(db, "Saved Run", segment_times=times, scheduler=mock_scheduler)
+
+    assert result.status.value == "ok"
+
+    # Verify attempt was inserted
+    attempts = db.get_segment_attempts("seg1_draft")
+    assert len(attempts) == 1
+    assert attempts[0]["time_ms"] == 5000
+
+    # Verify rebuild was called
+    mock_scheduler.rebuild_all_states.assert_called_once()
+
+
+def test_draft_save_without_times_skips_seeding(db):
+    """DraftManager.save() without segment_times doesn't seed or rebuild."""
+    from unittest.mock import MagicMock
+    from spinlab.draft_manager import DraftManager
+
+    db.create_capture_run("run2", "g", "Draft2", draft=True)
+
+    dm = DraftManager()
+    dm.enter_draft("run2", 0)
+
+    mock_scheduler = MagicMock()
+    result = dm.save(db, "No Times", segment_times=None, scheduler=mock_scheduler)
+
+    assert result.status.value == "ok"
+    mock_scheduler.rebuild_all_states.assert_not_called()

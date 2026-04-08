@@ -245,8 +245,12 @@ class CaptureController:
 
     # --- Draft lifecycle ---
 
-    async def save_draft(self, name: str) -> ActionResult:
-        return self.draft.save(self.db, name)
+    async def save_draft(self, name: str, scheduler=None) -> ActionResult:
+        return self.draft.save(
+            self.db, name,
+            segment_times=self.ref_capture.segment_times or None,
+            scheduler=scheduler,
+        )
 
     async def discard_draft(self) -> ActionResult:
         return self.draft.discard(self.db)
