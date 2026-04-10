@@ -30,6 +30,7 @@ markers = [
 [tool.coverage.run]
 source = ["spinlab"]
 data_file = "coverage/.coverage"
+dynamic_context = "test_function"
 
 [tool.coverage.report]
 show_missing = true
