@@ -19,6 +19,7 @@ coverage/
 *_debug.log
 *_diag.log
 .sbx/
+.pr/
 
 # Frontend build tooling
 frontend/node_modules/
