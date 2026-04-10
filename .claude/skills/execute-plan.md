@@ -1,7 +1,6 @@
 ---
 name: execute-plan
 description: Execute an implementation plan end-to-end in a container, finishing with a PR. Reads project-specific instructions from CLAUDE.md.
-user_invocable: true
 ---
 
 # Execute Plan
@@ -13,33 +12,21 @@ All project-specific conventions (test commands, build steps, coding standards) 
 ## Container Guard
 
 Check for container indicators before proceeding:
-- `/.dockerenv` or `/run/.containerenv` exists
-- `CONTAINER`, `SBX_*`, or `SANDBOX` environment variables are set
+- `/.dockerenv`
 
 If not in a container, stop and tell the user:
 > This skill is container-only. Run via: `sbx run claude -- "/execute-plan <name>"`
 
-## Step 1: Find the Plan
+## Step 1: Read the Plan
 
-Glob for plan files in `docs/superpowers/plans/` matching `yyyy-mm-dd-*.md`.
-
-Select the plan whose filename or title best matches: **$ARGUMENTS**
-
-- Ambiguous match: prefer most recent by date prefix.
-- No arguments: use the most recent plan.
-
-Announce the selected file.
-
-## Step 2: Understand the Plan
-
-Read the plan file completely. Extract:
+Read the plan file identified by the caller. Extract:
 - Goal and architecture
 - File structure (creates/modifies)
 - Numbered tasks with acceptance criteria
 
 Create a TodoWrite checklist from the plan's tasks before writing any code.
 
-## Step 3: Branch
+## Step 2: Branch
 
 ```bash
 git checkout -b plan/<plan-name-without-date>
@@ -47,7 +34,7 @@ git checkout -b plan/<plan-name-without-date>
 
 Example: `2026-04-07-vite-dev-server-integration.md` becomes `plan/vite-dev-server-integration`.
 
-## Step 4: Execute Tasks
+## Step 3: Execute Tasks
 
 For each task in order:
 
@@ -60,11 +47,11 @@ For each task in order:
 
 Fix failures before moving to the next task.
 
-## Step 5: Verify
+## Step 4: Verify
 
 Run the project's full verification suite as specified in CLAUDE.md (all test commands, type checks, linting, etc.). All must pass before proceeding.
 
-## Step 6: PR
+## Step 5: PR
 
 ```bash
 git push -u origin HEAD
