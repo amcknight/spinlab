@@ -9,14 +9,6 @@ Implements a pre-written implementation plan inside a container. The plan was au
 
 All project-specific conventions (test commands, build steps, coding standards) come from CLAUDE.md in the repo root. Read and follow it.
 
-## Container Guard
-
-Check for container indicators before proceeding:
-- `/.dockerenv`
-
-If not in a container, stop and tell the user:
-> This skill is container-only. Run via: `sbx run claude -- "/execute-plan <name>"`
-
 ## Step 1: Read the Plan
 
 Read the plan file identified by the caller. Extract:
