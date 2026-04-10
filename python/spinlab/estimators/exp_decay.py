@@ -6,10 +6,11 @@ via scipy.optimize.curve_fit. Two fits: one on total times, one on clean tails.
 """
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.optimize import curve_fit
+from scipy.optimize import OptimizeWarning, curve_fit
 
 from spinlab.estimators import Estimator, EstimatorState, register_estimator
 from spinlab.models import AttemptRecord, Estimate, ModelOutput
@@ -26,11 +27,17 @@ def _fit_exp_decay(ns: np.ndarray, ts: np.ndarray) -> tuple[float, float, float,
     best = float(np.min(ts))
     initial_amplitude = max(float(np.median(ts)) - best, 1.0)
     try:
-        popt, _ = curve_fit(
-            _exp_decay, ns, ts,
-            p0=[initial_amplitude, 0.05, best],
-            bounds=([0, 0, 0], [np.inf, np.inf, best]),
-        )
+        # We discard the covariance matrix, so scipy's OptimizeWarning
+        # ("Covariance of the parameters could not be estimated") is noise —
+        # it fires on small or near-degenerate inputs where the fit itself
+        # is still valid for our purposes.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", OptimizeWarning)
+            popt, _ = curve_fit(
+                _exp_decay, ns, ts,
+                p0=[initial_amplitude, 0.05, best],
+                bounds=([0, 0, 0], [np.inf, np.inf, best]),
+            )
         amplitude, decay_rate, asymptote = popt
         residuals = ts - _exp_decay(ns, amplitude, decay_rate, asymptote)
         sigma = float(np.std(residuals))
