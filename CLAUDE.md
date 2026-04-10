@@ -78,31 +78,21 @@ Launch with `--foreground` and `run_in_background: true` — background mode die
 
 ## Running in a Linux sandbox / container
 
-If you are executing this repo inside a Linux sandbox or container (no pre-provisioned venv), **always** bootstrap the environment first:
+Bootstrap the environment first:
 
 ```bash
 scripts/bootstrap-sandbox.sh
 export PATH=/tmp/spinlab-env/bin:$PATH
 ```
 
-That script handles the full setup (uv → python 3.11 → venv → `pip install -e ".[dev]"`) and is idempotent. Do not try to pip-install things by hand or invent a different venv path — reuse the script so every run looks the same.
+Don't pip-install by hand or use a different venv path — reuse the script.
 
 ### Line endings in sandboxes
 
-The repo enforces LF via `.gitattributes`, but a sandbox's git may still commit CRLF if the Windows working-tree bytes leak through a mount. Before committing from a sandbox, verify with:
+`.gitattributes` normalizes on commit, but sandbox git can still commit CRLF when Windows working-tree bytes leak through a mount. Before committing from a sandbox:
 
 ```bash
 git ls-files --eol <changed files>
 ```
 
-Every touched file should show `i/lf`. If you see `i/crlf` or `i/mixed`, run `git add --renormalize <file>` and recommit — do not push CRLF blobs.
-
-### Pushing from a sandbox
-
-Sandboxes typically have no GitHub credentials, so `git push` and `gh pr create` will fail. Do not try to work around this. Instead:
-
-1. Commit your work on a branch.
-2. Write the intended PR title + body to `.pr/body.md` (gitignored).
-3. Stop and tell the user to run `scripts/finish-pr.sh <branch>` from their host, which will push and open the PR using their local gh auth.
-
-Never embed tokens, never try `gh auth login` inside the sandbox.
+Every file should show `i/lf`. If you see `i/crlf` or `i/mixed`, `git add --renormalize <file>` and recommit.
