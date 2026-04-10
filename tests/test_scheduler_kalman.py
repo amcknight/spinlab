@@ -199,3 +199,41 @@ class TestStateFileFilter:
         picked = sched.pick_next()
         assert picked is not None
         assert picked.segment_id == seg1.id
+
+
+class TestSyncConfigFromDb:
+    """Tests for _sync_config_from_db triggered via pick_next().
+
+    The existing TestSchedulerWeights.test_sync_picks_up_weight_change tests
+    _sync_config_from_db() directly. These tests verify the same mechanism
+    fires automatically through pick_next(), and extend to estimator changes.
+    """
+
+    def test_allocator_weights_change_detected(self, db_with_segments):
+        """Changing weights in the DB between pick_next calls should rebuild
+        the allocator."""
+        sched = Scheduler(db_with_segments, "g1")
+        initial_weights_json = sched._weights_json
+
+        new_weights = {"greedy": 100}
+        db_with_segments.save_allocator_config(
+            "allocator_weights", json.dumps(new_weights)
+        )
+
+        sched.pick_next()
+        assert sched._weights_json != initial_weights_json
+        assert json.loads(sched._weights_json) == new_weights
+
+    def test_estimator_change_detected(self, db_with_segments):
+        """Changing the estimator in the DB should update sched.estimator."""
+        sched = Scheduler(db_with_segments, "g1")
+        initial_name = sched.estimator.name
+
+        other = [n for n in list_estimators() if n != initial_name]
+        if not other:
+            pytest.skip("Only one estimator registered — can't test switch")
+        new_name = other[0]
+
+        db_with_segments.save_allocator_config("estimator", new_name)
+        sched.pick_next()
+        assert sched.estimator.name == new_name
