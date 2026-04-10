@@ -9,7 +9,13 @@ requires-python = ">=3.11"
 dependencies = ["pyyaml>=6,<7", "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "numpy>=2,<3", "scipy>=1.14,<2"]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio", "pytest-cov", "httpx"]
+# "requests" is imported at module-import time by tests/integration/conftest.py.
+# pytest imports every conftest.py during collection — even when the integration
+# tests would be skipped by marker — so requests must be installed for the fast
+# suite to even collect. Without it, a clean `pip install -e ".[dev]"` appears
+# to install successfully but `pytest -m "not (emulator or slow or frontend)"`
+# fails with ModuleNotFoundError at collection time.
+dev = ["pytest", "pytest-asyncio", "pytest-cov", "httpx", "requests"]
 
 [project.scripts]
 spinlab = "spinlab.cli:main"
