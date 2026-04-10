@@ -1,0 +1,46 @@
+# Enforce LF line endings in the repository regardless of platform or
+# per-user core.autocrlf setting. Without this, sandboxes / containers
+# without autocrlf can commit CRLF blobs, which makes every line of every
+# touched file appear as "changed" in diffs.
+#
+# "text=auto eol=lf" means: detect text vs binary, and for text files,
+# normalize to LF in the blob. Working-tree checkouts on Windows will
+# still get CRLF if core.autocrlf=true, which is fine.
+
+* text=auto eol=lf
+
+# Explicit overrides for common text formats (defensive).
+*.py    text eol=lf
+*.pyi   text eol=lf
+*.lua   text eol=lf
+*.toml  text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.json  text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.sh    text eol=lf
+
+# Windows-only files must keep CRLF.
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+*.ahk   text eol=crlf
+
+# Binary assets — never touch line endings.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.nes   binary
+*.sfc   binary
+*.smc   binary
+*.bps   binary
+*.ips   binary
