@@ -199,3 +199,73 @@ class TestStateFileFilter:
         picked = sched.pick_next()
         assert picked is not None
         assert picked.segment_id == seg1.id
+
+
+class TestSyncConfigFromDb:
+    def test_allocator_weights_change_detected(self, db_with_segments):
+        """Changing weights in the DB between pick_next calls should rebuild
+        the allocator."""
+        import json
+        sched = Scheduler(db_with_segments, "g1")
+        initial_weights_json = sched._weights_json
+
+        new_weights = {"greedy": 100}
+        db_with_segments.save_allocator_config(
+            "allocator_weights", json.dumps(new_weights)
+        )
+
+        sched.pick_next()
+        assert sched._weights_json != initial_weights_json
+        assert json.loads(sched._weights_json) == new_weights
+
+    def test_estimator_change_detected(self, db_with_segments):
+        """Changing the estimator in the DB should update sched.estimator."""
+        from spinlab.estimators import list_estimators
+        sched = Scheduler(db_with_segments, "g1")
+        initial_name = sched.estimator.name
+
+        other = [n for n in list_estimators() if n != initial_name]
+        if not other:
+            pytest.skip("Only one estimator registered — can't test switch")
+        new_name = other[0]
+
+        db_with_segments.save_allocator_config("estimator", new_name)
+        sched.pick_next()
+        assert sched.estimator.name == new_name
+
+
+class TestSetAllocatorWeights:
+    def test_sum_must_equal_100(self, db_with_segments):
+        sched = Scheduler(db_with_segments, "g1")
+        with pytest.raises(ValueError, match="sum to 100"):
+            sched.set_allocator_weights({"greedy": 50, "random": 30})
+
+    def test_unknown_allocator_name_rejected(self, db_with_segments):
+        sched = Scheduler(db_with_segments, "g1")
+        with pytest.raises(ValueError, match="Unknown allocator"):
+            sched.set_allocator_weights({"greedy": 50, "not_a_real_allocator": 50})
+
+    def test_valid_weights_persisted(self, db_with_segments):
+        import json
+        sched = Scheduler(db_with_segments, "g1")
+        sched.set_allocator_weights({"greedy": 60, "random": 40})
+        raw = db_with_segments.load_allocator_config("allocator_weights")
+        assert json.loads(raw) == {"greedy": 60, "random": 40}
+
+
+class TestRebuildAllStates:
+    def test_rebuilds_from_attempt_history(self, db_with_segments):
+        """After recording some attempts, rebuild_all_states should
+        produce model states for each segment with attempts."""
+        sched = Scheduler(db_with_segments, "g1")
+
+        segs = db_with_segments.get_all_segments_with_model("g1")
+        assert segs, "fixture should provide segments"
+        seg_id = segs[0]["id"]
+        sched.process_attempt(seg_id, time_ms=5000, completed=True)
+
+        sched.rebuild_all_states()
+
+        row = db_with_segments.load_model_state(seg_id, sched.estimator.name)
+        assert row is not None
+        assert row["state_json"]
