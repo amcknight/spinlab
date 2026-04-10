@@ -1,30 +1,39 @@
-# Enforce LF line endings in the repository regardless of platform or
+# Normalize text files to LF in the blob, regardless of platform or
 # per-user core.autocrlf setting. Without this, sandboxes / containers
 # without autocrlf can commit CRLF blobs, which makes every line of every
 # touched file appear as "changed" in diffs.
 #
-# "text=auto eol=lf" means: detect text vs binary, and for text files,
-# normalize to LF in the blob. Working-tree checkouts on Windows will
-# still get CRLF if core.autocrlf=true, which is fine.
+# We deliberately do NOT set eol=lf on text files. Setting eol=lf forces
+# the working tree to LF as well, which fights Windows core.autocrlf=true
+# and emits a warning on every commit for files that are still CRLF in
+# the working tree. "text" alone is enough: blob is LF-normalized on
+# commit, Windows users with autocrlf=true still get CRLF in their
+# working tree, Linux users get LF.
+#
+# .sh files are the exception — they must stay LF even in a Windows
+# working tree, otherwise they break when run through git-bash / WSL.
 
-* text=auto eol=lf
+* text=auto
 
-# Explicit overrides for common text formats (defensive).
-*.py    text eol=lf
-*.pyi   text eol=lf
-*.lua   text eol=lf
-*.toml  text eol=lf
-*.yaml  text eol=lf
-*.yml   text eol=lf
-*.md    text eol=lf
-*.txt   text eol=lf
-*.json  text eol=lf
-*.ts    text eol=lf
-*.tsx   text eol=lf
-*.js    text eol=lf
-*.jsx   text eol=lf
-*.html  text eol=lf
-*.css   text eol=lf
+# Explicit overrides for common text formats (belt and suspenders:
+# makes sure text detection never misfires).
+*.py    text
+*.pyi   text
+*.lua   text
+*.toml  text
+*.yaml  text
+*.yml   text
+*.md    text
+*.txt   text
+*.json  text
+*.ts    text
+*.tsx   text
+*.js    text
+*.jsx   text
+*.html  text
+*.css   text
+
+# Shell scripts must be LF even on Windows (run via git-bash / WSL).
 *.sh    text eol=lf
 
 # Windows-only files must keep CRLF.
