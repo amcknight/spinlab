@@ -388,3 +388,157 @@ class TestColdFillMode:
         from spinlab.models import transition_mode
         with pytest.raises(ValueError):
             transition_mode(Mode.COLD_FILL, Mode.PRACTICE)
+
+
+import asyncio as _asyncio
+
+from spinlab import session_manager as session_manager_module
+
+
+class TestPracticeLifecycle:
+    """Tests for start_practice, stop_practice, and _on_practice_done."""
+
+    async def test_start_practice_blocked_by_draft(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.game_id = "game1"
+        sm.capture.draft.run_id = "draft-fake"  # has_draft = True
+        result = await sm.start_practice()
+        assert result.status == Status.DRAFT_PENDING
+
+    async def test_start_practice_blocked_by_not_connected(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.game_id = "game1"
+        mock_tcp.is_connected = False
+        result = await sm.start_practice()
+        assert result.status == Status.NOT_CONNECTED
+
+    async def test_start_practice_blocked_when_already_running(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.game_id = "game1"
+        fake_ps = MagicMock()
+        fake_ps.is_running = True
+        sm.practice_session = fake_ps
+        result = await sm.start_practice()
+        assert result.status == Status.ALREADY_RUNNING
+
+    async def test_stop_practice_when_not_running(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        result = await sm.stop_practice()
+        assert result.status == Status.NOT_RUNNING
+
+    async def test_stop_practice_clears_stale_mode(self, mock_db, mock_tcp):
+        """If mode=PRACTICE but no session, stop_practice should still reset."""
+        sm = make_sm(mock_db, mock_tcp)
+        sm.mode = Mode.PRACTICE
+        result = await sm.stop_practice()
+        assert result.status == Status.STOPPED
+        assert sm.mode == Mode.IDLE
+
+    async def test_stop_practice_cancels_hung_task(self, mock_db, mock_tcp, monkeypatch):
+        """When practice task doesn't exit on is_running=False, stop should cancel
+        after the timeout elapses."""
+        monkeypatch.setattr(session_manager_module, "PRACTICE_STOP_TIMEOUT_S", 0.1)
+
+        sm = make_sm(mock_db, mock_tcp)
+        sm.game_id = "game1"
+        sm.mode = Mode.PRACTICE
+
+        fake_ps = MagicMock()
+        fake_ps.is_running = True
+        sm.practice_session = fake_ps
+
+        async def hung_loop():
+            await _asyncio.sleep(10)
+
+        sm.practice_task = _asyncio.create_task(hung_loop())
+
+        result = await sm.stop_practice()
+
+        assert result.status == Status.STOPPED
+        assert sm.mode == Mode.IDLE
+        assert sm.practice_task.cancelled() or sm.practice_task.done()
+
+
+class TestSpeedRunLifecycle:
+    """Tests for start_speed_run, stop_speed_run, and _on_speed_run_done."""
+
+    async def test_start_blocked_by_draft(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.game_id = "game1"
+        sm.capture.draft.run_id = "draft-fake"
+        result = await sm.start_speed_run()
+        assert result.status == Status.DRAFT_PENDING
+
+    async def test_start_blocked_by_not_connected(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.game_id = "game1"
+        mock_tcp.is_connected = False
+        result = await sm.start_speed_run()
+        assert result.status == Status.NOT_CONNECTED
+
+    async def test_start_missing_save_states(self, mock_db, mock_tcp):
+        """SpeedRunSession raises ValueError when no valid save states exist."""
+        sm = make_sm(mock_db, mock_tcp)
+        sm.game_id = "game1"
+        mock_db.get_all_segments_with_model.return_value = [{
+            "id": "seg1",
+            "game_id": "game1",
+            "level_number": 1,
+            "start_type": "entrance",
+            "start_ordinal": 0,
+            "end_type": "goal",
+            "end_ordinal": 0,
+            "description": "L1",
+            "state_path": "/definitely/not/a/real/path.mss",
+        }]
+        result = await sm.start_speed_run()
+        assert result.status == Status.MISSING_SAVE_STATES
+
+    async def test_stop_when_not_running(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        result = await sm.stop_speed_run()
+        assert result.status == Status.NOT_RUNNING
+
+    async def test_stop_clears_stale_mode(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.mode = Mode.SPEED_RUN
+        result = await sm.stop_speed_run()
+        assert result.status == Status.STOPPED
+        assert sm.mode == Mode.IDLE
+
+
+class TestDisconnectAndShutdown:
+    def test_on_disconnect_stops_practice(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        fake_ps = MagicMock()
+        fake_ps.is_running = True
+        sm.practice_session = fake_ps
+        sm.on_disconnect()
+        assert fake_ps.is_running is False
+
+    def test_on_disconnect_stops_speed_run(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        fake_sr = MagicMock()
+        fake_sr.is_running = True
+        sm.speed_run_session = fake_sr
+        sm.on_disconnect()
+        assert fake_sr.is_running is False
+
+    def test_on_disconnect_clears_ref_and_idles(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.mode = Mode.REFERENCE
+        sm.on_disconnect()
+        assert sm.mode == Mode.IDLE
+
+    async def test_shutdown_stops_practice_and_tcp(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.mode = Mode.PRACTICE  # stale — no real session
+        await sm.shutdown()
+        mock_tcp.disconnect.assert_called_once()
+
+    async def test_shutdown_clears_reference(self, mock_db, mock_tcp):
+        sm = make_sm(mock_db, mock_tcp)
+        sm.mode = Mode.REFERENCE
+        await sm.shutdown()
+        assert sm.mode == Mode.IDLE
+        mock_tcp.disconnect.assert_called_once()

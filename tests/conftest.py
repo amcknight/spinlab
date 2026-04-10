@@ -27,6 +27,7 @@ def mock_tcp():
     tcp.send = AsyncMock()
     tcp.send_command = AsyncMock()
     tcp.recv_event = AsyncMock(return_value=None)
+    tcp.disconnect = AsyncMock()
     return tcp
 
 
