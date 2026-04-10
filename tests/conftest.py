@@ -27,6 +27,7 @@ def mock_tcp():
     tcp.send = AsyncMock()
     tcp.send_command = AsyncMock()
     tcp.recv_event = AsyncMock(return_value=None)
+    tcp.disconnect = AsyncMock()
     return tcp
 
 
@@ -62,3 +63,33 @@ def estimator_name(request):
 def estimator(estimator_name):
     """Instantiated estimator from parametrized name."""
     return get_estimator(estimator_name)
+
+
+class FakeTcpManager:
+    """Fake TcpManager that records commands and lets tests control state.
+
+    Use in place of a mock when you want to verify *what* was sent without
+    tying tests to mock call syntax. Tests can read `sent_commands` to see
+    every command that was sent, in order.
+    """
+    def __init__(self, connected: bool = True) -> None:
+        self.is_connected: bool = connected
+        self.sent_commands: list = []
+        self.on_disconnect = None
+
+    async def send_command(self, cmd) -> None:
+        if not self.is_connected:
+            raise ConnectionError("Not connected")
+        self.sent_commands.append(cmd)
+
+    async def send(self, msg: str) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        self.is_connected = False
+
+
+@pytest.fixture
+def fake_tcp():
+    """Fresh FakeTcpManager per test, starts connected."""
+    return FakeTcpManager(connected=True)
