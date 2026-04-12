@@ -142,3 +142,59 @@ async def test_json_events_still_queued():
     assert not manager.events.empty(), "Expected JSON event on queue"
     event = manager.events.get_nowait()
     assert event == payload
+
+
+@pytest.mark.asyncio
+async def test_read_loop_exits_on_empty_line(caplog):
+    """Empty bytes from readline means remote closed the connection — loop
+    should exit cleanly (no exception, logs info)."""
+    import logging
+
+    manager = _make_manager_with_lines([])  # empty → first readline returns b""
+    with caplog.at_level(logging.INFO, logger="spinlab.tcp_manager"):
+        await manager._read_loop()
+
+    messages = [r.message for r in caplog.records]
+    assert any("closed by remote" in m for m in messages), (
+        f"Expected 'closed by remote' log, got: {messages}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_read_loop_cleans_up_on_exit():
+    """After _read_loop exits, _reader and _writer should be None."""
+    manager = _make_manager_with_lines([])
+    await manager._read_loop()
+    assert manager._reader is None
+    assert manager._writer is None
+
+
+@pytest.mark.asyncio
+async def test_on_disconnect_callback_fires():
+    """When the read loop exits, the on_disconnect callback should be called."""
+    manager = _make_manager_with_lines([])
+    called = []
+    manager.on_disconnect = lambda: called.append(True)
+
+    await manager._read_loop()
+    assert called == [True]
+
+
+@pytest.mark.asyncio
+async def test_disconnect_drains_events_queue(tcp_server):
+    """disconnect() should drain any pending events from the queue."""
+    srv, port = tcp_server
+    mgr = TcpManager("127.0.0.1", port)
+    await mgr.connect()
+    conn, _ = srv.accept()
+
+    # Stuff the queue with some pending events
+    await mgr.events.put({"event": "dummy1"})
+    await mgr.events.put({"event": "dummy2"})
+    assert mgr.events.qsize() == 2
+
+    conn.close()
+    await mgr.disconnect()
+
+    assert mgr.events.qsize() == 0
+    assert not mgr.is_connected
