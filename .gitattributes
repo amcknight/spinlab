@@ -53,3 +53,5 @@
 *.smc   binary
 *.bps   binary
 *.ips   binary
+*.mss   binary
+*.spinrec binary
