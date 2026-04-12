@@ -101,6 +101,31 @@ skip_no_rom = pytest.mark.skipif(
     reason=f"Test ROM not found (SPINLAB_TEST_ROM or config.yaml rom.dir): {_rom}",
 )
 
+LOVE_YOURSELF_ROM_NAME = "Love Yourself.smc"
+LOVE_YOURSELF_GAME_ID = "bd94dbb29012c7f5"
+
+
+def _love_yourself_rom_path() -> str | None:
+    """Find the Love Yourself ROM for replay fixture tests."""
+    env_rom = os.environ.get("SPINLAB_REPLAY_ROM")
+    if env_rom:
+        return env_rom
+    config = _load_config()
+    rom_dir = config.get("rom", {}).get("dir")
+    if rom_dir:
+        rom_path = Path(rom_dir) / LOVE_YOURSELF_ROM_NAME
+        if rom_path.exists():
+            return str(rom_path)
+    return None
+
+
+_love_yourself_rom = _love_yourself_rom_path()
+
+skip_no_love_yourself = pytest.mark.skipif(
+    not _love_yourself_rom or not Path(_love_yourself_rom).exists(),
+    reason=f"Love Yourself ROM not found (SPINLAB_REPLAY_ROM or '{LOVE_YOURSELF_ROM_NAME}' in rom.dir)",
+)
+
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def mesen_process():
