@@ -23,11 +23,13 @@ def wait_for_port(port: int, timeout: float = VITE_STARTUP_TIMEOUT_S) -> bool:
     """Poll until *port* accepts a TCP connection, or timeout."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                return True
-        except OSError:
-            time.sleep(VITE_POLL_INTERVAL_S)
+        for host in ("127.0.0.1", "::1"):
+            try:
+                with socket.create_connection((host, port), timeout=0.5):
+                    return True
+            except OSError:
+                pass
+        time.sleep(VITE_POLL_INTERVAL_S)
     return False
 
 

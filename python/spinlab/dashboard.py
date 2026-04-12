@@ -7,7 +7,8 @@ import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from .config import AppConfig, EmulatorConfig, NetworkConfig
 from .db import Database
@@ -93,6 +94,12 @@ def create_app(
             terminate_vite(vite_process)
 
     app = FastAPI(title="SpinLab Dashboard", lifespan=lifespan)
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
     app.state.config = config
     app.state.tcp = tcp
     app.state.session = session

@@ -94,7 +94,7 @@ class CaptureController:
         run_name = run_name or f"Live {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
         self.db.create_capture_run(run_id, game_id, run_name, draft=True)
         self.ref_capture.capture_run_id = run_id
-        rec_path = str(self._game_rec_dir(data_dir, game_id) / f"{run_id}.spinrec")
+        rec_path = str((self._game_rec_dir(data_dir, game_id) / f"{run_id}.spinrec").resolve())
         logger.info("reference: started run=%s name=%r", run_id, run_name)
         await self.tcp.send_command(ReferenceStartCmd(path=rec_path))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REFERENCE)
