@@ -78,6 +78,7 @@ describe("canStartPractice", () => {
     estimator: null,
     capture_run_id: null,
     draft: null,
+    replay: null,
     cold_fill: null,
   };
 
@@ -170,6 +171,7 @@ test("canStartSpeedRun returns true when idle and connected", () => {
     estimator: null,
     capture_run_id: null,
     draft: null,
+    replay: null,
     cold_fill: null,
   };
   expect(canStartSpeedRun(state)).toBe(true);
@@ -189,6 +191,7 @@ test("canStartSpeedRun returns false during practice", () => {
     estimator: null,
     capture_run_id: null,
     draft: null,
+    replay: null,
     cold_fill: null,
   };
   expect(canStartSpeedRun(state)).toBe(false);

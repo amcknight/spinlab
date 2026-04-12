@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from spinlab.dashboard import _check_result
 from spinlab.db import Database
+from spinlab.protocol import SPEED_UNCAPPED
 from spinlab.session_manager import SessionManager
 
 from ._deps import get_db, get_session
@@ -28,11 +29,11 @@ async def reference_stop(session: SessionManager = Depends(get_session)):
 async def replay_start(req: Request, session: SessionManager = Depends(get_session)):
     body = await req.json()
     ref_id = body.get("ref_id")
-    speed = body.get("speed", 0)
+    speed = body.get("speed", SPEED_UNCAPPED)
     if not ref_id:
         raise HTTPException(status_code=400, detail="ref_id required")
     gid = session.game_id or "unknown"
-    spinrec_path = str(session.data_dir / gid / "rec" / f"{ref_id}.spinrec")
+    spinrec_path = str((session.data_dir / gid / "rec" / f"{ref_id}.spinrec").resolve())
     return _check_result(await session.start_replay(spinrec_path, speed=speed))
 
 

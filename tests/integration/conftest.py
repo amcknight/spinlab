@@ -270,7 +270,7 @@ async def smoke_mesen_process():
         _shutil.copy2(str(addresses_src), str(tmp_lua_dir / "addresses.lua"))
 
     cmd = [_mesen, "--testrunner", _rom, str(patched_lua)]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     yield proc, tcp_port
 
@@ -403,7 +403,7 @@ async def replay_mesen_process():
         _shutil.copy2(str(addresses_src), str(tmp_lua_dir / "addresses.lua"))
 
     cmd = [_mesen, "--testrunner", _love_yourself_rom, str(patched_lua)]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     yield proc, tcp_port
 

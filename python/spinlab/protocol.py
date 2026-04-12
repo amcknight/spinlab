@@ -11,6 +11,11 @@ import json
 from dataclasses import dataclass, field
 
 
+# API uses speed=0 to mean "uncapped / as fast as possible".
+# Mesen's emu.setSpeed(0) means "paused" — so the Lua side must
+# never pass SPEED_UNCAPPED directly to setSpeed.
+SPEED_UNCAPPED = 0
+
 # ---------------------------------------------------------------------------
 # Lua -> Python events
 # ---------------------------------------------------------------------------
@@ -146,7 +151,7 @@ class ReferenceStopCmd:
 class ReplayCmd:
     event: str = "replay"
     path: str = ""
-    speed: int = 0
+    speed: int = SPEED_UNCAPPED
 
 @dataclass
 class ReplayStopCmd:

@@ -26,6 +26,9 @@ local JSONL_LOGGING = false  -- set true to enable passive_log.jsonl (debugging)
 local MAX_RECORDING_FRAMES = 360000  -- 100 minutes at 60fps
 local AUTO_ADVANCE_DEFAULT_MS = 2000
 local REPLAY_PROGRESS_INTERVAL_MS = 100
+-- API uses speed=0 to mean "uncapped", but Mesen's setSpeed(0) means "paused".
+-- Use this constant to make the intent clear and avoid accidentally pausing.
+local SPEED_UNCAPPED = 0
 local game_id    = nil  -- set dynamically from dashboard via game_context
 local DATA_DIR   = emu.getScriptDataFolder()
 local STATE_DIR  = DATA_DIR .. "/states"
@@ -201,7 +204,7 @@ local replay = {
   index = 1,          -- current frame position
   total = 0,          -- total frames
   path = nil,         -- .spinrec file path
-  speed = 0,          -- 0 = max, 100 = normal
+  speed = SPEED_UNCAPPED,  -- SPEED_UNCAPPED = max, 100 = normal
   prev_speed = nil,   -- speed to restore after replay
   last_progress_ms = 0,  -- wall-clock time of last progress event
 }
@@ -1205,7 +1208,7 @@ local function handle_json_message(line)
       client:send(to_json({event = "replay_error", message = "cannot replay during practice or recording"}) .. "\n")
     else
       local path = json_get_str(line, "path")
-      local speed = json_get_num(line, "speed") or 0
+      local speed = json_get_num(line, "speed") or SPEED_UNCAPPED
       if not path then
         client:send(to_json({event = "replay_error", message = "replay requires path"}) .. "\n")
       else
@@ -1224,9 +1227,12 @@ local function handle_json_message(line)
           -- Load companion .mss
           local mss_path = path:gsub("%.spinrec$", ".mss")
           table.insert(pending_loads, mss_path)
-          -- Set speed (PoC validation: confirm emu.setSpeed exists)
           replay.prev_speed = json_get_num(line, "prev_speed") or 100
-          if emu.setSpeed then
+          replay.requested_speed = speed
+          -- SPEED_UNCAPPED means "run as fast as possible". In --testRunner
+          -- mode, emulation is already uncapped. Only call setSpeed for an
+          -- explicit speed request (GUI mode).
+          if emu.setSpeed and speed ~= SPEED_UNCAPPED then
             emu.setSpeed(speed)
           end
           replay.active = true
@@ -1573,21 +1579,18 @@ local function on_input_polled()
       recording.output_path = nil
     end
   elseif replay.active and replay.index <= replay.total then
-    emu.setInput(0, decode_input(replay.frames[replay.index]))
+    emu.setInput(decode_input(replay.frames[replay.index]))
     replay.index = replay.index + 1
-    -- Progress reporting (wall-clock throttled)
     local now = os.clock() * 1000
     if now - replay.last_progress_ms >= REPLAY_PROGRESS_INTERVAL_MS then
       replay.last_progress_ms = now
       send_event({event = "replay_progress", frame = replay.index - 1, total = replay.total})
     end
-    -- Check if replay finished
     if replay.index > replay.total then
-      send_event({event = "replay_finished", path = replay.path, frames_played = replay.total})
-      -- Restore speed
-      if replay.prev_speed then
+      if replay.prev_speed and emu.setSpeed then
         emu.setSpeed(replay.prev_speed)
       end
+      send_event({event = "replay_finished", path = replay.path, frames_played = replay.total})
       replay.active = false
       replay.frames = {}
       replay.index = 1

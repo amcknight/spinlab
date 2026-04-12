@@ -76,6 +76,12 @@ export interface DraftState {
   segments_captured: number;
 }
 
+export interface ReplayState {
+  rec_path: string | null;
+  frame: number;
+  total: number;
+}
+
 export interface ColdFillState {
   current: number;
   total: number;
@@ -146,6 +152,7 @@ export interface AppState {
   allocator_weights: Record<string, number> | null;
   estimator: string | null;
   capture_run_id: string | null;
+  replay: ReplayState | null;
   draft: DraftState | null;
   cold_fill: ColdFillState | null;
 }

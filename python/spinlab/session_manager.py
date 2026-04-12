@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from .models import ActionResult, Mode, Status
 from .protocol import (
+    SPEED_UNCAPPED,
     parse_event,
     RomInfoEvent, GameContextEvent, LevelEntranceEvent, CheckpointEvent,
     DeathEvent, SpawnEvent, LevelExitEvent, AttemptResultEvent,
@@ -64,6 +65,10 @@ class SessionManager:
         self.practice_task: asyncio.Task | None = None
         self.speed_run_session = None  # SpeedRunSession | None
         self.speed_run_task: asyncio.Task | None = None
+
+        # Last-seen replay progress (frame/total from Lua replay_progress events)
+        self._replay_frame: int = 0
+        self._replay_total: int = 0
 
         # Delegated components
         self.capture = CaptureController(db, tcp)
@@ -292,17 +297,26 @@ class SessionManager:
         self.capture.handle_rec_saved(dataclasses.asdict(event))
 
     async def _handle_replay_started(self, event: ReplayStartedEvent) -> None:
+        self._replay_frame = 0
+        self._replay_total = event.frame_count
         await self._notify_sse()
 
     async def _handle_replay_progress(self, event: ReplayProgressEvent) -> None:
+        self._replay_frame = event.frame
+        self._replay_total = event.total
         await self._notify_sse()
 
     async def _handle_replay_finished(self, event: ReplayFinishedEvent) -> None:
+        self._replay_frame = 0
+        self._replay_total = 0
         self.capture.handle_replay_finished()
         self._clear_ref_and_idle()
         await self._notify_sse()
 
     async def _handle_replay_error(self, event: ReplayErrorEvent) -> None:
+        logger.warning("replay_error: %s", event.message)
+        self._replay_frame = 0
+        self._replay_total = 0
         self.capture.handle_replay_error()
         self._clear_ref_and_idle()
         await self._notify_sse()
@@ -339,7 +353,7 @@ class SessionManager:
             await self.capture.stop_reference(self.mode)
         )
 
-    async def start_replay(self, spinrec_path: str, speed: int = 0) -> ActionResult:
+    async def start_replay(self, spinrec_path: str, speed: int = SPEED_UNCAPPED) -> ActionResult:
         return await self._apply_result(
             await self.capture.start_replay(
                 self.mode, self._require_game(), spinrec_path, speed,

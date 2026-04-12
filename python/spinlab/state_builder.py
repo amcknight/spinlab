@@ -57,7 +57,11 @@ class StateBuilder:
         if session.mode in (Mode.REFERENCE, Mode.REPLAY):
             base["capture_run_id"] = session.capture.ref_capture.capture_run_id
         if session.mode == Mode.REPLAY:
-            base["replay"] = {"rec_path": session.capture.rec_path}
+            base["replay"] = {
+                "rec_path": session.capture.rec_path,
+                "frame": session._replay_frame,
+                "total": session._replay_total,
+            }
 
         draft_state = session.capture.get_draft_state()
         if draft_state:

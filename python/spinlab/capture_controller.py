@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from .models import ActionResult, Mode, Status
 from .protocol import (
+    SPEED_UNCAPPED,
     ReferenceStartCmd, ReferenceStopCmd, ReplayCmd, ReplayStopCmd,
     FillGapLoadCmd,
 )
@@ -113,7 +114,7 @@ class CaptureController:
 
     async def start_replay(
         self, mode: Mode,
-        game_id: str, spinrec_path: str, speed: int = 0,
+        game_id: str, spinrec_path: str, speed: int = SPEED_UNCAPPED,
     ) -> ActionResult:
         if self.draft.has_draft:
             return ActionResult(status=Status.DRAFT_PENDING)

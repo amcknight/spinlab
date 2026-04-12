@@ -27,6 +27,7 @@ const IDLE_STATE: AppState = {
   estimator: "kalman",
   capture_run_id: null,
   draft: null,
+  replay: null,
   cold_fill: null,
 };
 
@@ -82,6 +83,7 @@ const PRACTICE_STATE: AppState = {
   estimator: "kalman",
   capture_run_id: null,
   draft: null,
+  replay: null,
   cold_fill: null,
 };
 

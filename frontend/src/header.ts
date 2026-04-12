@@ -46,7 +46,12 @@ export function updateHeader(data: AppState): void {
     stopBtn.style.display = "";
   } else if (data.mode === "replay") {
     chip.classList.add("replaying");
-    label.textContent = "Replaying…";
+    const r = data.replay;
+    if (r && r.total > 0) {
+      label.textContent = "Replaying " + r.frame + "/" + r.total;
+    } else {
+      label.textContent = "Replaying…";
+    }
     stopBtn.style.display = "";
   } else if (data.mode === "cold_fill" && data.cold_fill) {
     chip.classList.add("recording");
