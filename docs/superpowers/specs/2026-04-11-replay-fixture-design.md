@@ -60,6 +60,22 @@ These were discovered and fixed during this design session:
 
 3. **`dashboard.py` — global exception handler**: Unhandled exceptions in routes returned 500 to the client but were not logged anywhere (uvicorn stderr only). Added a catch-all handler that logs to `spinlab.log` with full tracebacks.
 
+## Recording a New Fixture
+
+To create a replay fixture for a different game (or re-record for Love Yourself):
+
+1. Open the ROM in Mesen with SpinLab connected
+2. Navigate to your desired starting point (title screen, overworld, level entrance — wherever you want the recording to begin)
+3. Click **Start Reference Run** in the dashboard
+4. Play through the levels you want in the fixture
+5. Click **Stop Reference Run**
+6. Find the recording in `data/<game_id>/rec/` — there will be a `.spinrec` and matching `.mss` file
+7. Copy both files into `tests/fixtures/<game_name>/` and rename them descriptively (e.g. `two_level.spinrec`, `two_level.mss`)
+8. Update `.gitattributes` if adding a new fixture directory
+9. The integration test needs the same ROM available in `config.rom_dir` at test time — update the test's ROM discovery if the filename differs
+
+The `.mss` is captured automatically at the exact frame recording begins (frame-synchronized with the `.spinrec`). No separate save state step needed.
+
 ## Not In Scope
 
 - No new recording infrastructure — existing reference + replay pipeline is sufficient
