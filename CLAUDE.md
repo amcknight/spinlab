@@ -25,6 +25,7 @@ Red-Green TDD. Keep only tests that document behavior or catch regressions.
 - **Slow tests:** `pytest -m slow` (~4s). Run when touching practice loop or TCP wait logic.
 - **Emulator tests:** `pytest -m emulator` (~6s). Run when touching Lua scripts or transition detection.
 - **Smoke tests:** Included in `pytest -m emulator`. Full-stack: Mesen headless + dashboard + DB. See `tests/integration/test_smoke.py`.
+- **Replay fixture tests:** Included in `pytest -m emulator`. Replays a two-level Love Yourself recording through headless Mesen. Requires `Love Yourself.smc` in `rom.dir` (or set `SPINLAB_REPLAY_ROM`). See `docs/superpowers/specs/2026-04-11-replay-fixture-design.md` for recording instructions.
 - **Static asset tests:** `pytest -m frontend`. Requires `cd frontend && npm run build` first.
 - **Everything:** `pytest` (~30s). Run before committing.
 - **DB reset:** `spinlab db reset [--config config.yaml]` — deletes and recreates the database. Useful after schema changes during development.
