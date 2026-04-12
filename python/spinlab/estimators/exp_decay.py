@@ -23,7 +23,12 @@ def _exp_decay(n: np.ndarray, amplitude: float, decay_rate: float, asymptote: fl
 
 
 def _fit_exp_decay(ns: np.ndarray, ts: np.ndarray) -> tuple[float, float, float, float]:
-    """Fit amplitude*exp(-decay_rate*n)+asymptote. Returns (amplitude, decay_rate, asymptote, sigma)."""
+    """Fit amplitude*exp(-decay_rate*n)+asymptote. Returns (amplitude, decay_rate, asymptote, sigma).
+
+    The asymptote is allowed to go below the observed minimum so the
+    exponential can approximate near-linear improvement (where the true
+    floor hasn't been reached yet).
+    """
     best = float(np.min(ts))
     initial_amplitude = max(float(np.median(ts)) - best, 1.0)
     try:
@@ -36,7 +41,7 @@ def _fit_exp_decay(ns: np.ndarray, ts: np.ndarray) -> tuple[float, float, float,
             popt, _ = curve_fit(
                 _exp_decay, ns, ts,
                 p0=[initial_amplitude, 0.05, best],
-                bounds=([0, 0, 0], [np.inf, np.inf, best]),
+                bounds=([0, 0, 0], [np.inf, np.inf, np.inf]),
             )
         amplitude, decay_rate, asymptote = popt
         residuals = ts - _exp_decay(ns, amplitude, decay_rate, asymptote)
@@ -157,12 +162,12 @@ class ExpDecayEstimator(Estimator):
             total=Estimate(
                 expected_ms=total_expected,
                 ms_per_attempt=total_mpa,
-                floor_ms=max(0.0, state.total_asymptote),
+                floor_ms=state.total_asymptote if state.total_asymptote > 0 else None,
             ),
             clean=Estimate(
                 expected_ms=clean_expected,
                 ms_per_attempt=clean_mpa,
-                floor_ms=max(0.0, state.asymptote),
+                floor_ms=state.asymptote if state.asymptote > 0 else None,
             ),
         )
 

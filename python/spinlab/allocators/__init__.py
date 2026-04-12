@@ -143,6 +143,6 @@ def list_allocators() -> list[str]:
 
 def _register_all():
     """Import all allocator modules to trigger @register_allocator decorators."""
-    from . import greedy, random, round_robin
+    from . import greedy, least_played, random, round_robin
 
 _register_all()

@@ -31,7 +31,7 @@ def api_model(session: SessionManager = Depends(get_session)):
             {"name": n, "display_name": get_estimator(n).display_name or n}
             for n in list_estimators()
         ],
-        "allocator_weights": {alloc.name: int(w) for alloc, w in sched.allocator.entries},
+        "allocator_weights": sched.all_weights,
         "segments": [
             {
                 "segment_id": s.segment_id,
@@ -181,6 +181,11 @@ def segment_history(segment_id: str, db: Database = Depends(get_db)):
     return {
         "segment_id": segment_id,
         "description": seg.description,
+        "level_number": seg.level_number,
+        "start_type": seg.start_type,
+        "start_ordinal": seg.start_ordinal,
+        "end_type": seg.end_type,
+        "end_ordinal": seg.end_ordinal,
         "attempts": attempts,
         "estimator_curves": estimator_curves,
     }

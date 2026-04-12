@@ -176,6 +176,7 @@ class Attempt:
     observed_start_conditions: str | None = None
     observed_end_conditions: str | None = None
     invalidated: bool = False
+    chosen_allocator: str | None = None
 
 
 @dataclass

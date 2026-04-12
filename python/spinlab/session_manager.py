@@ -142,6 +142,15 @@ class SessionManager:
     def fill_gap_segment_id(self, value):
         self.capture.fill_gap_segment_id = value
 
+    @property
+    def current_session_id(self) -> str | None:
+        """Session ID for the active practice or speed run, if any."""
+        if self.mode == Mode.PRACTICE and self.practice_session:
+            return self.practice_session.session_id
+        if self.mode == Mode.SPEED_RUN and self.speed_run_session:
+            return self.speed_run_session.session_id
+        return None
+
     # --- State ---
 
     def get_state(self) -> dict:

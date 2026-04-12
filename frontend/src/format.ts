@@ -1,10 +1,12 @@
 import type { SegmentLike } from "./types";
 
+export function shortEndpoint(type: string, ordinal: number): string {
+  return type === "entrance" ? "start" : type === "goal" ? "goal" : "cp" + ordinal;
+}
+
 export function segmentName(s: SegmentLike): string {
   if (s.description) return s.description;
-  const start = s.start_type === "entrance" ? "start" : "cp" + s.start_ordinal;
-  const end = s.end_type === "goal" ? "goal" : "cp" + s.end_ordinal;
-  return "L" + s.level_number + " " + start + " → " + end;
+  return "L" + s.level_number + " " + shortEndpoint(s.start_type, s.start_ordinal) + " → " + shortEndpoint(s.end_type, s.end_ordinal);
 }
 
 export function formatTime(ms: number | null | undefined): string {

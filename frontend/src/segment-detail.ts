@@ -9,7 +9,7 @@ import {
   Tooltip,
 } from "chart.js";
 import { fetchJSON } from "./api";
-import { formatTime } from "./format";
+import { segmentName, formatTime } from "./format";
 import type { SegmentHistory } from "./types";
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Legend, Tooltip);
@@ -124,7 +124,7 @@ export async function renderSegmentDetail(
 
   _history = history;
   _mode = "total";
-  title.textContent = history.description || segmentId;
+  title.textContent = segmentName(history);
 
   if (history.attempts.length === 0) {
     const msg = document.createElement("p");

@@ -66,6 +66,7 @@ local initialized = false
 local pending_saves = {}
 local pending_loads = {}
 local pending_reset = false
+local state_just_loaded = false  -- set by on_cpu_exec after loading a save state
 
 -- Keyboard debounce
 local key_was_pressed = {}
@@ -1547,10 +1548,12 @@ local function on_cpu_exec(address)
   while #pending_loads > 0 do
     local path = table.remove(pending_loads, 1)
     load_state_from_file(path)
+    state_just_loaded = true
   end
   if pending_reset then
     pending_reset = false
     emu.reset()
+    state_just_loaded = true
     log("SNES reset executed")
   end
 end
@@ -1617,6 +1620,15 @@ local function on_start_frame()
   end
 
   frame_counter = frame_counter + 1
+
+  -- After a save-state load, memory has been replaced wholesale.  Re-sync
+  -- prev so that edge-detection helpers (detect_finish, check_checkpoint_hit,
+  -- is_death_frame, is_exit_frame) don't see phantom transitions from the
+  -- stale pre-load snapshot.
+  if state_just_loaded then
+    prev = read_mem()
+    state_just_loaded = false
+  end
 
   local curr = read_mem()
   if cold_fill.active then

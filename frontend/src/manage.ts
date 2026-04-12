@@ -1,4 +1,4 @@
-import { segmentName, formatTime } from "./format";
+import { segmentName, shortEndpoint, formatTime } from "./format";
 import { fetchJSON, postJSON } from "./api";
 import type { AppState, Reference, ReferenceSegment } from "./types";
 
@@ -110,9 +110,9 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
       'data-id="' + s.id + '" data-field="description"></td>' +
       "<td>" + s.level_number + "</td>" +
       "<td>" +
-      (s.start_type === "entrance" ? "start" : "cp" + s.start_ordinal) +
+      shortEndpoint(s.start_type, s.start_ordinal) +
       " \u2192 " +
-      (s.end_type === "goal" ? "goal" : "cp" + s.end_ordinal) +
+      shortEndpoint(s.end_type, s.end_ordinal) +
       "</td>" +
       "<td>" + stateCell + "</td>" +
       '<td><button class="btn-x" data-id="' + s.id + '">\u2715</button></td>';

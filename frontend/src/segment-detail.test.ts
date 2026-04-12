@@ -4,6 +4,11 @@ import type { SegmentHistory } from "./types";
 const MOCK_HISTORY: SegmentHistory = {
   segment_id: "s1",
   description: "Yoshi's Island 1",
+  level_number: 1,
+  start_type: "entrance",
+  start_ordinal: 0,
+  end_type: "goal",
+  end_ordinal: 0,
   attempts: [
     { attempt_number: 1, time_ms: 4500, clean_tail_ms: 4500, deaths: 0, created_at: "2026-04-01T12:00:00Z" },
     { attempt_number: 2, time_ms: 3800, clean_tail_ms: 3200, deaths: 0, created_at: "2026-04-01T12:05:00Z" },

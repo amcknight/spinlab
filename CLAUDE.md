@@ -27,7 +27,7 @@ Red-Green TDD. Keep only tests that document behavior or catch regressions.
 - **Smoke tests:** Included in `pytest -m emulator`. Full-stack: Mesen headless + dashboard + DB. See `tests/integration/test_smoke.py`.
 - **Replay fixture tests:** Included in `pytest -m emulator`. Replays a two-level Love Yourself recording through headless Mesen. Requires `Love Yourself.smc` in `rom.dir` (or set `SPINLAB_REPLAY_ROM`). See `docs/superpowers/specs/2026-04-11-replay-fixture-design.md` for recording instructions.
 - **Static asset tests:** `pytest -m frontend`. Requires `cd frontend && npm run build` first.
-- **Everything:** `pytest` (~30s). Run before committing.
+- **Everything:** `pytest` (~30s). Run before committing. **Fix all failures, even pre-existing ones unrelated to your current work.** A red suite is never acceptable.
 - **DB reset:** `spinlab db reset [--config config.yaml]` — deletes and recreates the database. Useful after schema changes during development.
 - **Frontend tests:** `cd frontend && npm test` (~2s). Vitest + happy-dom. Pure logic and API contract tests.
 - **Coverage:** `./scripts/coverage.sh` (unit), `--all` (unit+emulator), `--html` (opens report).

@@ -213,7 +213,7 @@ class TestSyncConfigFromDb:
         """Changing weights in the DB between pick_next calls should rebuild
         the allocator."""
         sched = Scheduler(db_with_segments, "g1")
-        initial_weights_json = sched._weights_json
+        initial_weights = dict(sched.all_weights)
 
         new_weights = {"greedy": 100}
         db_with_segments.save_allocator_config(
@@ -221,8 +221,8 @@ class TestSyncConfigFromDb:
         )
 
         sched.pick_next()
-        assert sched._weights_json != initial_weights_json
-        assert json.loads(sched._weights_json) == new_weights
+        assert sched.all_weights != initial_weights
+        assert sched.all_weights["greedy"] == 100
 
     def test_estimator_change_detected(self, db_with_segments):
         """Changing the estimator in the DB should update sched.estimator."""

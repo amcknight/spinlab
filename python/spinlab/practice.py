@@ -55,6 +55,7 @@ class PracticeSession:
 
         self._result_event = asyncio.Event()
         self._result_data: dict | None = None
+        self._last_allocator: str | None = None
 
     def _snapshot_expected_times(
         self, estimator_name: str
@@ -123,13 +124,13 @@ class PracticeSession:
             logger.info("practice: no segments available — ending loop")
             return False
 
-        # Compute expected time
+        self._last_allocator = self.scheduler.last_chosen_allocator
+
         expected_time_ms = None
         sel_out = picked.model_outputs.get(picked.selected_model)
         if sel_out and sel_out.total.expected_ms is not None and sel_out.total.expected_ms > 0:
             expected_time_ms = int(sel_out.total.expected_ms)
 
-        # Build overlay label: use custom description or auto-generate from segment fields
         label = picked.description
         if not label:
             start = "start" if picked.start_type == "entrance" else f"cp{picked.start_ordinal}"
@@ -194,6 +195,7 @@ class PracticeSession:
             deaths=result.get("deaths", 0),
             clean_tail_ms=result.get("clean_tail_ms"),
             source="practice",
+            chosen_allocator=self._last_allocator,
         )
         self.db.log_attempt(attempt)
         self.scheduler.process_attempt(

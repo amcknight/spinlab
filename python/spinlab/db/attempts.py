@@ -28,6 +28,7 @@ class RecentAttemptRow(TypedDict, total=False):
     deaths: int
     clean_tail_ms: int | None
     created_at: str
+    chosen_allocator: str | None
     description: str
     level_number: int
     start_type: str
@@ -47,14 +48,15 @@ class AttemptsMixin:
                (segment_id, session_id, completed, time_ms,
                 strat_version, source, deaths, clean_tail_ms,
                 observed_start_conditions, observed_end_conditions, invalidated,
-                created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                chosen_allocator, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (attempt.segment_id, attempt.session_id, int(attempt.completed),
              attempt.time_ms,
              attempt.strat_version, attempt.source,
              attempt.deaths, attempt.clean_tail_ms,
              attempt.observed_start_conditions, attempt.observed_end_conditions,
              int(attempt.invalidated),
+             attempt.chosen_allocator,
              attempt.created_at.isoformat()),
         )
         self.conn.commit()
@@ -88,18 +90,30 @@ class AttemptsMixin:
         ).fetchone()
         return row["cnt"]
 
-    def get_recent_attempts(self, game_id: str, limit: int = RECENT_ATTEMPTS_DB_LIMIT) -> list[RecentAttemptRow]:
-        """Last N attempts joined with segment info, most recent first."""
+    def get_recent_attempts(
+        self, game_id: str, limit: int = RECENT_ATTEMPTS_DB_LIMIT,
+        session_id: str | None = None,
+    ) -> list[RecentAttemptRow]:
+        """Last N attempts joined with segment info, most recent first.
+
+        If session_id is given, only return attempts from that session.
+        """
+        where = "s.game_id = ?"
+        params: list = [game_id]
+        if session_id:
+            where += " AND a.session_id = ?"
+            params.append(session_id)
+        params.append(limit)
         rows = self.conn.execute(
-            """SELECT a.*, s.description, s.level_number,
+            f"""SELECT a.*, s.description, s.level_number,
                       s.start_type, s.start_ordinal,
                       s.end_type, s.end_ordinal
                FROM attempts a
                JOIN segments s ON a.segment_id = s.id
-               WHERE s.game_id = ?
+               WHERE {where}
                ORDER BY a.created_at DESC, a.id DESC
                LIMIT ?""",
-            (game_id, limit),
+            params,
         ).fetchall()
         return [dict(r) for r in rows]
 

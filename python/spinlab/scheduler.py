@@ -50,7 +50,6 @@ class Scheduler:
             est_name = estimator_name
         self.estimator: Estimator = get_estimator(est_name)
         self.allocator: MixAllocator = self._build_mix_from_db()
-        self._weights_json: str = self.db.load_allocator_config("allocator_weights") or ""
         # Clean up legacy single-allocator config key
         if db.load_allocator_config("allocator") is not None:
             db.delete_allocator_config("allocator")
@@ -59,12 +58,23 @@ class Scheduler:
         raw = self.db.load_allocator_config("allocator_weights")
         if raw:
             weights = json.loads(raw)
+            # Add any newly registered allocators missing from saved config
+            for name in list_allocators():
+                if name not in weights:
+                    weights[name] = 0
+                    logger.info("Added new allocator %r to saved weights (weight=0)", name)
         else:
             names = list_allocators()
             base = 100 // len(names)
             remainder = 100 - base * len(names)
             weights = {n: base + (1 if i < remainder else 0) for i, n in enumerate(names)}
+        self._all_weights = weights
         return self._build_mix(weights)
+
+    @property
+    def all_weights(self) -> dict[str, int]:
+        """All allocator weights including 0-weight entries (for UI display)."""
+        return dict(self._all_weights)
 
     @staticmethod
     def _build_mix(weights: dict[str, int]) -> MixAllocator:
@@ -72,13 +82,19 @@ class Scheduler:
         return MixAllocator(entries=entries)
 
     def _sync_config_from_db(self) -> None:
-        raw = self.db.load_allocator_config("allocator_weights") or ""
-        if raw != self._weights_json:
-            self._weights_json = raw
-            self.allocator = self._build_mix_from_db()
+        raw = self.db.load_allocator_config("allocator_weights")
+        if raw:
+            saved_weights = json.loads(raw)
+            if saved_weights != self._all_weights:
+                self.allocator = self._build_mix_from_db()
         saved_est = self.db.load_allocator_config("estimator")
         if saved_est and saved_est != self.estimator.name:
             self.estimator = get_estimator(saved_est)
+
+    @property
+    def last_chosen_allocator(self) -> str | None:
+        """Name of the sub-allocator that made the most recent pick."""
+        return self.allocator.last_chosen_allocator
 
     def pick_next(self) -> SegmentWithModel | None:
         self._sync_config_from_db()
@@ -150,9 +166,8 @@ class Scheduler:
         for name in weights:
             if name not in valid:
                 raise ValueError(f"Unknown allocator: {name!r}. Available: {valid}")
-        raw = json.dumps(weights)
-        self.db.save_allocator_config("allocator_weights", raw)
-        self._weights_json = raw
+        self.db.save_allocator_config("allocator_weights", json.dumps(weights))
+        self._all_weights = dict(weights)
         self.allocator = self._build_mix(weights)
 
     def switch_estimator(self, name: str) -> None:

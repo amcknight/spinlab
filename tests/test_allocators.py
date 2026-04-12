@@ -17,6 +17,7 @@ class TestGreedyAllocator:
         assert alloc.pick_next([]) is None
 
 
+from spinlab.allocators.least_played import LeastPlayedAllocator
 from spinlab.allocators.random import RandomAllocator
 from spinlab.allocators.round_robin import RoundRobinAllocator
 
@@ -42,6 +43,30 @@ class TestRoundRobinAllocator:
 
     def test_empty_returns_none(self):
         alloc = RoundRobinAllocator()
+        assert alloc.pick_next([]) is None
+
+
+class TestLeastPlayedAllocator:
+    def test_picks_fewest_completed(self):
+        alloc = LeastPlayedAllocator()
+        segments = [
+            make_segment_with_model("a", n_completed=10),
+            make_segment_with_model("b", n_completed=2),
+            make_segment_with_model("c", n_completed=5),
+        ]
+        assert alloc.pick_next(segments) == "b"
+
+    def test_ties_broken_randomly(self):
+        alloc = LeastPlayedAllocator()
+        segments = [
+            make_segment_with_model("a", n_completed=3),
+            make_segment_with_model("b", n_completed=3),
+        ]
+        result = alloc.pick_next(segments)
+        assert result in ("a", "b")
+
+    def test_empty_returns_none(self):
+        alloc = LeastPlayedAllocator()
         assert alloc.pick_next([]) is None
 
 

@@ -8,13 +8,15 @@ const ALLOCATOR_COLORS: Record<string, string> = {
   greedy: "#4caf50",
   random: "#2196f3",
   round_robin: "#ff9800",
+  least_played: "#ab47bc",
 };
 const ALLOCATOR_LABELS: Record<string, string> = {
   greedy: "Greedy",
   random: "Random",
   round_robin: "Round Robin",
+  least_played: "Least Played",
 };
-const ALLOCATOR_ORDER = ["greedy", "random", "round_robin"];
+const ALLOCATOR_ORDER = ["greedy", "random", "round_robin", "least_played"];
 
 let _currentWeights: Record<string, number> | null = null;
 let _tuningParams: TuningData | null = null;
@@ -276,8 +278,13 @@ export function updatePracticeCard(data: AppState): void {
 
   const insight = document.getElementById("insight")!;
   const est = currentEstimate(cs);
+  const expectedStr = formatTime(est?.expected_ms ?? null);
   const trend = formatTrend(est);
-  if (trend) {
+  if (expectedStr) {
+    const parts = ["Expected: " + expectedStr];
+    if (trend) parts.push(trend);
+    insight.innerHTML = "<span>" + parts.join(" · ") + "</span>";
+  } else if (trend) {
     insight.innerHTML = "<span>" + trend + "</span>";
   } else {
     insight.textContent = "No data yet";
@@ -291,6 +298,7 @@ export function updatePracticeCard(data: AppState): void {
       li.classList.add("invalidated");
     }
     const time = formatTime(r.time_ms);
+    const allocColor = r.chosen_allocator ? ALLOCATOR_COLORS[r.chosen_allocator] ?? null : null;
     const cls = r.completed ? "ahead" : "behind";
     const btnLabel = r.invalidated ? "Restore" : "Mark invalid";
     const btn = document.createElement("button");
@@ -305,8 +313,11 @@ export function updatePracticeCard(data: AppState): void {
         // Silently ignore network errors; next SSE update will reflect truth.
       });
     });
+    const timeSpan = '<span class="' + cls + '"'
+      + (allocColor ? ' style="color:' + allocColor + '"' : '')
+      + '>' + time + "</span>";
     li.innerHTML =
-      '<span class="' + cls + '">' + time + "</span>" +
+      timeSpan +
       ' <span class="dim">' + segmentName(r) + "</span>";
     li.appendChild(btn);
     recent.appendChild(li);

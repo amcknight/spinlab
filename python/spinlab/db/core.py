@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS attempts (
   observed_start_conditions TEXT,
   observed_end_conditions TEXT,
   invalidated INTEGER DEFAULT 0,
+  chosen_allocator TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -146,6 +147,7 @@ class DatabaseCore:
         # Retain existing ALTER TABLE migration attempts below (capture_runs.draft etc.)
         for migration in [
             "ALTER TABLE capture_runs ADD COLUMN draft INTEGER DEFAULT 0",
+            "ALTER TABLE attempts ADD COLUMN chosen_allocator TEXT",
         ]:
             try:
                 self.conn.execute(migration)
@@ -160,7 +162,7 @@ class DatabaseCore:
             "attempts": {"id", "segment_id", "session_id", "completed", "time_ms",
                          "strat_version", "source", "deaths", "clean_tail_ms",
                          "observed_start_conditions", "observed_end_conditions",
-                         "invalidated", "created_at"},
+                         "invalidated", "chosen_allocator", "created_at"},
             "segments": {"id", "game_id", "level_number", "start_type", "start_ordinal",
                          "end_type", "end_ordinal", "start_waypoint_id", "end_waypoint_id",
                          "is_primary", "description", "strat_version", "active", "ordinal",

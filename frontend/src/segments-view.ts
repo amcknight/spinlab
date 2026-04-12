@@ -1,3 +1,4 @@
+import { shortEndpoint } from "./format";
 import type { ApiSegment } from "./types";
 
 export function groupByLevel(segs: ApiSegment[]): Record<string, ApiSegment[]> {
@@ -51,15 +52,24 @@ export function renderSegmentsView(container: HTMLElement, segs: ApiSegment[]): 
     section.appendChild(h);
     const table = document.createElement("table");
     table.innerHTML =
-      "<thead><tr><th>Start</th><th>End</th><th>Primary</th></tr></thead>";
+      "<thead><tr><th>Segment</th><th>Conditions</th><th>Primary</th></tr></thead>";
     const tbody = document.createElement("tbody");
     for (const seg of grouped[level] ?? []) {
       const tr = document.createElement("tr");
+      const segLabel = shortEndpoint(seg.start_type, seg.start_ordinal) +
+        " \u2192 " + shortEndpoint(seg.end_type, seg.end_ordinal);
+      const conds = formatConditions(seg.start_conditions);
+
+      const segTd = document.createElement("td");
+      segTd.textContent = segLabel;
+      tr.appendChild(segTd);
+
+      const condTd = document.createElement("td");
+      condTd.className = "dim";
+      condTd.textContent = conds;
+      tr.appendChild(condTd);
+
       const primaryTd = document.createElement("td");
-      tr.innerHTML =
-        `<td>${seg.start_type}.${seg.start_ordinal} [${formatConditions(seg.start_conditions)}]</td>` +
-        `<td>${seg.end_type}.${seg.end_ordinal} [${formatConditions(seg.end_conditions)}]</td>`;
-      tr.appendChild(primaryTd);
       const cb = document.createElement("input");
       cb.type = "checkbox";
       cb.checked = seg.is_primary;
@@ -70,6 +80,7 @@ export function renderSegmentsView(container: HTMLElement, segs: ApiSegment[]): 
         finally { cb.disabled = false; }
       });
       primaryTd.appendChild(cb);
+      tr.appendChild(primaryTd);
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
@@ -81,5 +92,6 @@ export function renderSegmentsView(container: HTMLElement, segs: ApiSegment[]): 
 export async function fetchSegments(gameId: string): Promise<ApiSegment[]> {
   const resp = await fetch(`/api/segments?game_id=${encodeURIComponent(gameId)}`);
   if (!resp.ok) throw new Error(`fetch failed: ${resp.status}`);
-  return resp.json();
+  const data = await resp.json();
+  return data.segments;
 }

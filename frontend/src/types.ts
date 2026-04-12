@@ -125,6 +125,7 @@ export interface RecentAttempt {
   end_type: string;
   end_ordinal: number;
   invalidated: boolean;
+  chosen_allocator: string | null;
 }
 
 /** PATCH /api/attempts/:id request body. */
@@ -228,6 +229,11 @@ export interface EstimatorCurves {
 export interface SegmentHistory {
   segment_id: string;
   description: string;
+  level_number: number;
+  start_type: string;
+  start_ordinal: number;
+  end_type: string;
+  end_ordinal: number;
   attempts: SegmentAttempt[];
   estimator_curves: Record<string, EstimatorCurves>;
 }

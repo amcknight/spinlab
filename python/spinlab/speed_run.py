@@ -79,6 +79,14 @@ class SpeedRunSession:
 
         return levels
 
+    def _cold_state_for_waypoint(self, waypoint_id: str | None, fallback: str | None) -> str | None:
+        """Get cold save state for a waypoint, falling back to default."""
+        if waypoint_id:
+            cold = self.db.get_save_state(waypoint_id, "cold")
+            if cold and os.path.exists(cold.state_path):
+                return cold.state_path
+        return fallback
+
     def _finalize_level(self, segs: list[dict]) -> LevelPlan:
         """Build a LevelPlan from a group of consecutive segments."""
         entrance_seg = segs[0]
@@ -91,7 +99,12 @@ class SpeedRunSession:
 
         checkpoints = []
         for seg in segs[1:]:
-            cp_state = seg.get("state_path")
+            # Prefer cold (death-respawn) save state for checkpoint respawn;
+            # fall back to default if cold variant hasn't been captured yet.
+            default_state = seg.get("state_path")
+            cp_state = self._cold_state_for_waypoint(
+                seg.get("start_waypoint_id"), default_state,
+            )
             if not cp_state or not os.path.exists(cp_state):
                 desc = seg.get("description") or f"L{seg['level_number']}"
                 raise ValueError(

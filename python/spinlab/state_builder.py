@@ -45,7 +45,7 @@ class StateBuilder:
             return base
 
         sched = session._get_scheduler()
-        base["allocator_weights"] = {alloc.name: int(w) for alloc, w in sched.allocator.entries}
+        base["allocator_weights"] = sched.all_weights
         base["estimator"] = sched.estimator.name
 
         if session.mode == Mode.PRACTICE and session.practice_session:
@@ -72,7 +72,10 @@ class StateBuilder:
             if cf_state:
                 base["cold_fill"] = cf_state
 
-        base["recent"] = self.db.get_recent_attempts(session.game_id, limit=RECENT_ATTEMPTS_LIMIT)
+        base["recent"] = self.db.get_recent_attempts(
+            session.game_id, limit=RECENT_ATTEMPTS_LIMIT,
+            session_id=session.current_session_id,
+        )
         return base
 
     def _build_speed_run_state(self, base: dict, session: "SessionManager") -> None:

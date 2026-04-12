@@ -34,15 +34,17 @@ def _api(base_url: str, method: str, path: str, **kwargs):
 
 
 def _wait_for_replay_mode(base_url: str, timeout: float = 10.0) -> dict:
+    """Wait until mode is 'replay' AND replay_started has set frame total."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         resp = _api(base_url, "get", "/api/state")
         state = resp.json()
-        if state["mode"] == "replay":
+        replay = state.get("replay")
+        if state["mode"] == "replay" and replay and replay.get("total", 0) > 0:
             return state
         time.sleep(POLL_INTERVAL_S)
     pytest.fail(
-        f"Mode never reached 'replay' within {timeout}s. "
+        f"Mode never reached 'replay' (with frame total) within {timeout}s. "
         f"Last state: {state}"
     )
 

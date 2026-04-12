@@ -105,6 +105,23 @@ class TestExpDecayModelOutput:
         assert out.total.floor_ms >= 0
         assert out.clean.floor_ms >= 0
 
+    def test_floor_none_when_asymptote_hits_lower_bound(self):
+        """When curve_fit pushes asymptote to 0, floor_ms should be None."""
+        est = ExpDecayEstimator()
+        state = ExpDecayState(
+            n_completed=5, n_attempts=5,
+            amplitude=10000.0, decay_rate=0.1, asymptote=0.0, sigma=100.0,
+            total_amplitude=10000.0, total_decay_rate=0.1,
+            total_asymptote=0.0, total_sigma=100.0,
+        )
+        attempts = _synthetic_exp_attempts(5, amplitude=10000, decay_rate=0.5, asymptote=500)
+        out = est.model_output(state, attempts)
+        assert out.total.floor_ms is None
+        assert out.clean.floor_ms is None
+        # expected and trend should still be computed
+        assert out.total.expected_ms is not None
+        assert out.total.ms_per_attempt is not None
+
     def test_few_points_returns_none(self):
         """With <3 completed, returns all None — no silent fallback."""
         est = ExpDecayEstimator()
