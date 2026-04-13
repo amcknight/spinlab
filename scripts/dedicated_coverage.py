@@ -66,9 +66,9 @@ def spinlab_modules() -> list[Path]:
 
 
 def dedicated_test_file(module: Path) -> Path | None:
-    """Return tests/test_<basename>.py if it exists, else None."""
-    candidate = TESTS_DIR / f"test_{module.stem}.py"
-    return candidate if candidate.exists() else None
+    """Return the first tests/unit/**/test_<basename>.py if it exists, else None."""
+    matches = list((TESTS_DIR / "unit").rglob(f"test_{module.stem}.py"))
+    return matches[0] if matches else None
 
 
 def module_coverage(conn: sqlite3.Connection, module: Path) -> tuple[int, int, int]:
