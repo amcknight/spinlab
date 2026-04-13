@@ -55,7 +55,7 @@ class StateBuilder:
             self._build_speed_run_state(base, session)
 
         if session.mode in (Mode.REFERENCE, Mode.REPLAY):
-            base["capture_run_id"] = session.capture.ref_capture.capture_run_id
+            base["capture_run_id"] = session.capture.recorder.capture_run_id
         if session.mode == Mode.REPLAY:
             base["replay"] = {
                 "rec_path": session.capture.rec_path,
