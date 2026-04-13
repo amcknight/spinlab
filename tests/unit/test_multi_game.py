@@ -9,7 +9,7 @@ from spinlab.db import Database
 from spinlab.models import Segment, Attempt
 from spinlab.romid import rom_checksum, game_name_from_filename
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 
 def _sync_switch(app, game_id, game_name):
