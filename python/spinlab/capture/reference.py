@@ -1,4 +1,4 @@
-"""CaptureController — orchestrates reference recording and replay capture.
+"""ReferenceController — orchestrates reference recording and replay capture.
 
 Owns the start/stop lifecycle for both reference and replay modes, routes
 capture-related TCP events, and manages the transition into draft state.
@@ -11,24 +11,24 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .models import ActionResult, Mode, Status
-from .protocol import (
+from ..models import ActionResult, Mode, Status
+from ..protocol import (
     SPEED_UNCAPPED,
     ReferenceStartCmd, ReferenceStopCmd, ReplayCmd, ReplayStopCmd,
     FillGapLoadCmd,
 )
-from .capture.recorder import SegmentRecorder
-from .capture.draft import DraftManager
-from .condition_registry import ConditionRegistry
+from .recorder import SegmentRecorder
+from .draft import DraftManager
+from ..condition_registry import ConditionRegistry
 
 if TYPE_CHECKING:
-    from .db import Database
-    from .tcp_manager import TcpManager
+    from ..db import Database
+    from ..tcp_manager import TcpManager
 
 logger = logging.getLogger(__name__)
 
 
-class CaptureController:
+class ReferenceController:
     """Manages reference/replay capture and fill-gap flows."""
 
     def __init__(self, db: "Database", tcp: "TcpManager") -> None:
@@ -175,7 +175,7 @@ class CaptureController:
             return False
         waypoint_id = self._fill_gap_waypoint_id
         if waypoint_id:
-            from .models import WaypointSaveState
+            from ..models import WaypointSaveState
             self.db.add_save_state(WaypointSaveState(
                 waypoint_id=waypoint_id,
                 variant_type="cold",

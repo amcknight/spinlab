@@ -20,7 +20,7 @@ from .protocol import (
     GameContextCmd, SetConditionsCmd, SetInvalidateComboCmd,
     SpeedRunCheckpointEvent, SpeedRunDeathEvent, SpeedRunCompleteEvent,
 )
-from .capture_controller import CaptureController
+from .capture import ReferenceController
 from .cold_fill_controller import ColdFillController
 from .sse import SSEBroadcaster
 from .state_builder import StateBuilder
@@ -71,7 +71,7 @@ class SessionManager:
         self._replay_total: int = 0
 
         # Delegated components
-        self.capture = CaptureController(db, tcp)
+        self.capture = ReferenceController(db, tcp)
         self.cold_fill = ColdFillController(db, tcp)
         self.sse = SSEBroadcaster()
         self._state_builder = StateBuilder(db)

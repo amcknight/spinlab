@@ -1,4 +1,4 @@
-"""Tests for CaptureController orchestration logic.
+"""Tests for ReferenceController orchestration logic.
 
 Uses a real SQLite Database (tmp_path) and FakeTcpManager to exercise the
 controller's real interactions with the DB schema and TCP protocol.
@@ -6,7 +6,7 @@ Mocking both collaborators would reduce these to tautology tests.
 """
 import pytest
 
-from spinlab.capture_controller import CaptureController
+from spinlab.capture import ReferenceController
 from spinlab.db import Database
 from spinlab.models import EndpointType, Mode, Segment, Status, Waypoint, WaypointSaveState
 from spinlab.protocol import (
@@ -28,7 +28,7 @@ def db(tmp_path):
 
 @pytest.fixture
 def controller(db, fake_tcp):
-    return CaptureController(db, fake_tcp)
+    return ReferenceController(db, fake_tcp)
 
 
 class TestStartReference:

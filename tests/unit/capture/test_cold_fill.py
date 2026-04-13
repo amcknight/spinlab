@@ -1,4 +1,4 @@
-"""Tests for CaptureController cold-fill flow."""
+"""Tests for ColdFillController cold-fill flow."""
 from unittest.mock import AsyncMock, MagicMock, call
 
 from spinlab.protocol import ColdFillLoadCmd
