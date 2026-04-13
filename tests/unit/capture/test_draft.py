@@ -302,3 +302,59 @@ def test_draft_save_without_times_skips_seeding(db):
 
     assert result.status.value == "ok"
     mock_scheduler.rebuild_all_states.assert_not_called()
+
+
+def test_save_draft_seeds_attempts_and_rebuilds_model(db):
+    """Reference run segment times become first-attempt practice data after save.
+
+    Regression for the seeding bug diagnosed in the 2026-04-13 cleanup pass spec
+    (section 2). Events are constructed from the actual protocol dataclasses so
+    the test is faithful to what the recorder receives at runtime. If
+    LevelEntranceEvent / LevelExitEvent don't carry the timestamps the recorder
+    needs to build RecordedSegmentTime, this test will catch it.
+    """
+    from dataclasses import asdict
+
+    from spinlab.capture import SegmentRecorder
+    from spinlab.condition_registry import ConditionRegistry
+    from spinlab.models import AttemptSource
+    from spinlab.protocol import LevelEntranceEvent, LevelExitEvent
+
+    recorder = SegmentRecorder()
+    registry = ConditionRegistry()
+
+    run_id = "run1"
+    recorder.capture_run_id = run_id
+
+    entrance = asdict(LevelEntranceEvent(level=1, timestamp_ms=0))
+    recorder.handle_entrance(entrance)
+
+    # In production the exit fires ~12s after entrance; the recorder relies on
+    # a timestamp difference to compute time_ms. If the event dataclass doesn't
+    # expose timestamp_ms, the recorder silently drops the segment timing.
+    exit_event = asdict(LevelExitEvent(level=1, goal="exit", timestamp_ms=12345))
+    recorder.handle_exit(exit_event, game_id="g", db=db, registry=registry)
+
+    assert len(recorder.segment_times) == 1, (
+        "recorder must produce a RecordedSegmentTime from entrance+exit — "
+        "if this fails, LevelEntranceEvent or LevelExitEvent is missing timestamp_ms"
+    )
+    assert recorder.segment_times[0].time_ms == 12345
+
+    draft = DraftManager()
+    draft.enter_draft(run_id, recorder.segments_count)
+
+    scheduler = MagicMock()
+    result = draft.save(
+        db, name="Regression run",
+        segment_times=recorder.segment_times,
+        scheduler=scheduler,
+    )
+
+    assert result.status.name == "OK"
+    rows = db.conn.execute(
+        "SELECT source FROM attempts WHERE session_id = ?", (run_id,)
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == AttemptSource.REFERENCE.value
+    scheduler.rebuild_all_states.assert_called_once()

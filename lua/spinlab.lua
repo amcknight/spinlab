@@ -642,11 +642,11 @@ end
 local function on_level_entrance(curr, state_path)
   level_start_frame = frame_counter
   local event_data = {
-    event      = "level_entrance",
-    level      = curr.level_num,
-    room       = curr.room_num,
-    frame      = frame_counter,
-    ts_ms      = ts_ms(),
+    event        = "level_entrance",
+    level        = curr.level_num,
+    room         = curr.room_num,
+    frame        = frame_counter,
+    timestamp_ms = ts_ms(),
     session    = "passive",
     state_path = state_path or "",
     conditions = read_conditions(),
@@ -675,13 +675,13 @@ local function on_level_exit(curr)
   local elapsed = math.floor((frame_counter - level_start_frame) / 60.0 * 1000)
   local goal = goal_type(curr)
   local event_data = {
-    event      = "level_exit",
-    level      = curr.level_num,
-    room       = curr.room_num,
-    goal       = goal,
-    elapsed_ms = elapsed,
-    frame      = frame_counter,
-    ts_ms      = ts_ms(),
+    event        = "level_exit",
+    level        = curr.level_num,
+    room         = curr.room_num,
+    goal         = goal,
+    elapsed_ms   = elapsed,
+    frame        = frame_counter,
+    timestamp_ms = ts_ms(),
     session    = "passive",
     conditions = read_conditions(),
   }

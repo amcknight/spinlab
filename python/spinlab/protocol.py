@@ -36,6 +36,7 @@ class LevelEntranceEvent:
     event: str = "level_entrance"
     level: int = 0
     state_path: str | None = None
+    timestamp_ms: int = 0
     conditions: dict = field(default_factory=dict)
 
 @dataclass
@@ -66,6 +67,7 @@ class LevelExitEvent:
     event: str = "level_exit"
     level: int = 0
     goal: str = "abort"
+    timestamp_ms: int = 0
     conditions: dict = field(default_factory=dict)
 
 @dataclass
