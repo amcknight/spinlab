@@ -3,7 +3,7 @@ import pytest
 from spinlab.db import Database
 from spinlab.models import Attempt, AttemptSource, Segment, Waypoint
 from spinlab.capture import RecordedSegmentTime
-from spinlab.reference_seeding import seed_reference_attempts
+from spinlab.capture.draft import _seed_reference_attempts as seed_reference_attempts
 
 
 @pytest.fixture
@@ -96,7 +96,7 @@ def test_seed_returns_count(db):
 def test_draft_save_seeds_and_rebuilds(db):
     """Full flow: DraftManager.save() triggers seeding + estimator rebuild."""
     from unittest.mock import MagicMock
-    from spinlab.draft_manager import DraftManager
+    from spinlab.capture import DraftManager
     from spinlab.capture import RecordedSegmentTime
 
     db.create_capture_run("run1_draft", "g", "Draft", draft=True)
@@ -124,7 +124,7 @@ def test_draft_save_seeds_and_rebuilds(db):
 def test_draft_save_without_times_skips_seeding(db):
     """DraftManager.save() without segment_times doesn't seed or rebuild."""
     from unittest.mock import MagicMock
-    from spinlab.draft_manager import DraftManager
+    from spinlab.capture import DraftManager
 
     db.create_capture_run("run2", "g", "Draft2", draft=True)
 

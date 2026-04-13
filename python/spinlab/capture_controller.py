@@ -18,7 +18,7 @@ from .protocol import (
     FillGapLoadCmd,
 )
 from .capture.recorder import SegmentRecorder
-from .draft_manager import DraftManager
+from .capture.draft import DraftManager
 from .condition_registry import ConditionRegistry
 
 if TYPE_CHECKING:
