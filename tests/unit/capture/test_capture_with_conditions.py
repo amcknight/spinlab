@@ -1,5 +1,5 @@
 from spinlab.db import Database
-from spinlab.reference_capture import ReferenceCapture
+from spinlab.capture import SegmentRecorder
 from spinlab.condition_registry import ConditionRegistry, ConditionDef, Scope
 
 
@@ -19,7 +19,7 @@ def _bootstrap_db():
 
 def test_entrance_then_goal_creates_segment_with_waypoints():
     db = _bootstrap_db()
-    cap = ReferenceCapture()
+    cap = SegmentRecorder()
     cap.capture_run_id = "run1"
     reg = _registry()
     cap.handle_entrance({
@@ -41,7 +41,7 @@ def test_entrance_then_goal_creates_segment_with_waypoints():
 
 def test_same_geography_different_powerup_creates_two_segments():
     db = _bootstrap_db()
-    cap = ReferenceCapture()
+    cap = SegmentRecorder()
     cap.capture_run_id = "run1"
     reg = _registry()
     # Run 1: entered small, exited
@@ -63,7 +63,7 @@ def test_same_geography_different_powerup_creates_two_segments():
 
 def test_save_state_attaches_to_start_waypoint():
     db = _bootstrap_db()
-    cap = ReferenceCapture()
+    cap = SegmentRecorder()
     cap.capture_run_id = "run1"
     reg = _registry()
     cap.handle_entrance({"level": 5, "state_path": "/tmp/start.mss",

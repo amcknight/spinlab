@@ -8,7 +8,7 @@ from .models import ActionResult, Status
 
 if TYPE_CHECKING:
     from .db import Database
-    from .reference_capture import RefSegmentTime
+    from .capture.recorder import RecordedSegmentTime
     from .scheduler import Scheduler
 
 
@@ -30,7 +30,7 @@ class DraftManager:
 
     def save(
         self, db: "Database", name: str,
-        segment_times: "list[RefSegmentTime] | None" = None,
+        segment_times: "list[RecordedSegmentTime] | None" = None,
         scheduler: "Scheduler | None" = None,
     ) -> ActionResult:
         """Promote draft capture run to saved reference, seed attempts, rebuild model."""

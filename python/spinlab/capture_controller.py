@@ -17,7 +17,7 @@ from .protocol import (
     ReferenceStartCmd, ReferenceStopCmd, ReplayCmd, ReplayStopCmd,
     FillGapLoadCmd,
 )
-from .reference_capture import ReferenceCapture
+from .capture.recorder import SegmentRecorder
 from .draft_manager import DraftManager
 from .condition_registry import ConditionRegistry
 
@@ -34,7 +34,7 @@ class CaptureController:
     def __init__(self, db: "Database", tcp: "TcpManager") -> None:
         self.db = db
         self.tcp = tcp
-        self.ref_capture = ReferenceCapture()
+        self.recorder = SegmentRecorder()
         self.draft = DraftManager()
         self.fill_gap_segment_id: str | None = None
         self._fill_gap_waypoint_id: str | None = None
@@ -47,7 +47,7 @@ class CaptureController:
 
     @property
     def sections_captured(self) -> int:
-        return self.ref_capture.segments_count
+        return self.recorder.segments_count
 
     @property
     def has_draft(self) -> bool:
@@ -58,11 +58,11 @@ class CaptureController:
 
     @property
     def rec_path(self) -> str | None:
-        return self.ref_capture.rec_path
+        return self.recorder.rec_path
 
     def clear_and_idle(self) -> None:
         """Clear capture state. Caller sets mode to IDLE."""
-        self.ref_capture.clear()
+        self.recorder.clear()
 
     def _game_rec_dir(self, data_dir: Path, game_id: str) -> Path:
         d = data_dir / game_id / "rec"
@@ -71,7 +71,7 @@ class CaptureController:
 
     def _enter_draft_from_capture(self) -> None:
         """Transition captured segments into draft state."""
-        run_id, count = self.ref_capture.enter_draft()
+        run_id, count = self.recorder.enter_draft()
         logger.info("capture: entering draft — run=%s segments=%d", run_id, count)
         self.draft.enter_draft(run_id, count)
 
@@ -90,11 +90,11 @@ class CaptureController:
         if not self.tcp.is_connected:
             return ActionResult(status=Status.NOT_CONNECTED)
 
-        self.ref_capture.clear()
+        self.recorder.clear()
         run_id = f"live_{uuid.uuid4().hex[:8]}"
         run_name = run_name or f"Live {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
         self.db.create_capture_run(run_id, game_id, run_name, draft=True)
-        self.ref_capture.capture_run_id = run_id
+        self.recorder.capture_run_id = run_id
         rec_path = str((self._game_rec_dir(data_dir, game_id) / f"{run_id}.spinrec").resolve())
         logger.info("reference: started run=%s name=%r", run_id, run_name)
         await self.tcp.send_command(ReferenceStartCmd(path=rec_path))
@@ -105,9 +105,9 @@ class CaptureController:
             return ActionResult(status=Status.NOT_IN_REFERENCE)
         if self.tcp.is_connected:
             await self.tcp.send_command(ReferenceStopCmd())
-        logger.info("reference: stopped — %d segments captured", self.ref_capture.segments_count)
+        logger.info("reference: stopped — %d segments captured", self.recorder.segments_count)
         self._enter_draft_from_capture()
-        self.ref_capture.clear()
+        self.recorder.clear()
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
 
     # --- Replay mode ---
@@ -127,11 +127,11 @@ class CaptureController:
         if not self.tcp.is_connected:
             return ActionResult(status=Status.NOT_CONNECTED)
 
-        self.ref_capture.clear()
+        self.recorder.clear()
         run_id = f"replay_{uuid.uuid4().hex[:8]}"
         run_name = f"Replay {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
         self.db.create_capture_run(run_id, game_id, run_name, draft=True)
-        self.ref_capture.capture_run_id = run_id
+        self.recorder.capture_run_id = run_id
         await self.tcp.send_command(ReplayCmd(path=spinrec_path, speed=speed))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REPLAY)
 
@@ -140,12 +140,12 @@ class CaptureController:
             return ActionResult(status=Status.NOT_REPLAYING)
         if self.tcp.is_connected:
             await self.tcp.send_command(ReplayStopCmd())
-        if self.ref_capture.segments_count > 0:
+        if self.recorder.segments_count > 0:
             self._enter_draft_from_capture()
-            self.ref_capture.clear()
+            self.recorder.clear()
         else:
-            run_id = self.ref_capture.capture_run_id
-            self.ref_capture.clear()
+            run_id = self.recorder.capture_run_id
+            self.recorder.clear()
             if run_id:
                 self.db.hard_delete_capture_run(run_id)
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
@@ -190,57 +190,57 @@ class CaptureController:
 
     def handle_entrance(self, event: dict) -> None:
         logger.info("capture: entrance level=%s", event.get("level"))
-        self.ref_capture.handle_entrance(event)
+        self.recorder.handle_entrance(event)
 
     def handle_checkpoint(self, event: dict, game_id: str) -> None:
         logger.info("capture: checkpoint level=%s cp=%s",
                      event.get("level_num"), event.get("cp_ordinal"))
-        self.ref_capture.handle_checkpoint(event, game_id, self.db,
+        self.recorder.handle_checkpoint(event, game_id, self.db,
                                            self.condition_registry)
 
     def handle_death(self, event: dict | None = None) -> None:
-        self.ref_capture.died = True
+        self.recorder.died = True
         ts = event.get("timestamp_ms") if event else None
-        self.ref_capture.handle_death(timestamp_ms=ts)
+        self.recorder.handle_death(timestamp_ms=ts)
 
     def handle_spawn(self, event: dict, game_id: str) -> None:
         logger.info("capture: spawn level=%s state_captured=%s",
                      event.get("level_num"), event.get("state_captured"))
-        self.ref_capture.handle_spawn_timing(timestamp_ms=event.get("timestamp_ms"))
-        self.ref_capture.handle_spawn(event, game_id, self.db,
+        self.recorder.handle_spawn_timing(timestamp_ms=event.get("timestamp_ms"))
+        self.recorder.handle_spawn(event, game_id, self.db,
                                       self.condition_registry)
 
     def handle_exit(self, event: dict, game_id: str) -> None:
         logger.info("capture: exit level=%s segments_so_far=%d",
-                     event.get("level"), self.ref_capture.segments_count)
-        self.ref_capture.handle_exit(event, game_id, self.db,
+                     event.get("level"), self.recorder.segments_count)
+        self.recorder.handle_exit(event, game_id, self.db,
                                      self.condition_registry)
 
     def handle_rec_saved(self, event: dict) -> None:
-        self.ref_capture.rec_path = event.get("path")
+        self.recorder.rec_path = event.get("path")
 
     def handle_replay_finished(self) -> None:
         self._enter_draft_from_capture()
-        self.ref_capture.clear()
+        self.recorder.clear()
 
     def handle_replay_error(self) -> None:
-        if self.ref_capture.segments_count > 0:
+        if self.recorder.segments_count > 0:
             self._enter_draft_from_capture()
-            self.ref_capture.clear()
+            self.recorder.clear()
         else:
-            run_id = self.ref_capture.capture_run_id
-            self.ref_capture.clear()
+            run_id = self.recorder.capture_run_id
+            self.recorder.clear()
             if run_id:
                 self.db.hard_delete_capture_run(run_id)
 
     def handle_disconnect(self) -> None:
         """Handle TCP disconnect — enter draft if segments were captured."""
-        if self.ref_capture.segments_count > 0:
+        if self.recorder.segments_count > 0:
             self._enter_draft_from_capture()
-            self.ref_capture.clear()
+            self.recorder.clear()
         else:
-            run_id = self.ref_capture.capture_run_id
-            self.ref_capture.clear()
+            run_id = self.recorder.capture_run_id
+            self.recorder.clear()
             if run_id:
                 self.db.hard_delete_capture_run(run_id)
 
@@ -249,7 +249,7 @@ class CaptureController:
     async def save_draft(self, name: str, scheduler=None) -> ActionResult:
         return self.draft.save(
             self.db, name,
-            segment_times=self.ref_capture.segment_times or None,
+            segment_times=self.recorder.segment_times or None,
             scheduler=scheduler,
         )
 

@@ -128,7 +128,7 @@ class SessionManager:
 
     @property
     def ref_capture(self):
-        return self.capture.ref_capture
+        return self.capture.recorder
 
     @property
     def draft(self):

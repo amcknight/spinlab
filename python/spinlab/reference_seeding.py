@@ -9,7 +9,7 @@ from .models import Attempt, AttemptSource
 
 if TYPE_CHECKING:
     from .db import Database
-    from .reference_capture import RefSegmentTime
+    from .capture.recorder import RecordedSegmentTime
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 def seed_reference_attempts(
     db: "Database",
     capture_run_id: str,
-    segment_times: list["RefSegmentTime"],
+    segment_times: list["RecordedSegmentTime"],
 ) -> int:
     """Insert seed attempts from reference segment times. Returns count inserted."""
     if not segment_times:

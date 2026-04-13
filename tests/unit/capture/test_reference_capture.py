@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import MagicMock
-from spinlab.reference_capture import ReferenceCapture, RefSegmentTime
+from spinlab.capture import SegmentRecorder, RecordedSegmentTime
 from spinlab.condition_registry import ConditionRegistry
 
 
@@ -22,8 +22,8 @@ def registry():
     return ConditionRegistry()
 
 
-def _make_cap(run_id: str = "run1") -> ReferenceCapture:
-    cap = ReferenceCapture()
+def _make_cap(run_id: str = "run1") -> SegmentRecorder:
+    cap = SegmentRecorder()
     cap.capture_run_id = run_id
     return cap
 
@@ -96,7 +96,7 @@ def test_abort_exit_no_timing(db, registry):
 
 def test_death_via_handle_death_increments_counter(db, registry):
     """handle_death increments _deaths_in_segment."""
-    cap = ReferenceCapture()
+    cap = SegmentRecorder()
     cap.capture_run_id = "run1"
     cap.handle_entrance({
         "level": 1, "state_path": "/s.mss",

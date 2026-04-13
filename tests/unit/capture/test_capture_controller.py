@@ -56,7 +56,7 @@ class TestStartReference:
         assert result.new_mode == Mode.REFERENCE
         assert len(fake_tcp.sent_commands) == 1
         assert isinstance(fake_tcp.sent_commands[0], ReferenceStartCmd)
-        assert controller.ref_capture.capture_run_id is not None
+        assert controller.recorder.capture_run_id is not None
 
 
 class TestStopReference:
@@ -66,7 +66,7 @@ class TestStopReference:
 
     async def test_happy_path_enters_draft(self, controller, tmp_path, fake_tcp):
         await controller.start_reference(Mode.IDLE, "g1", tmp_path)
-        controller.ref_capture.segment_times = []
+        controller.recorder.segment_times = []
 
         result = await controller.stop_reference(Mode.REFERENCE)
 
@@ -102,7 +102,7 @@ class TestStopReplay:
 
     async def test_no_segments_hard_deletes_run(self, controller, db, fake_tcp):
         await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
-        run_id = controller.ref_capture.capture_run_id
+        run_id = controller.recorder.capture_run_id
 
         result = await controller.stop_replay(Mode.REPLAY)
 
@@ -116,7 +116,7 @@ class TestStopReplay:
 class TestHandleReplayError:
     async def test_no_segments_deletes_run(self, controller, db):
         await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
-        run_id = controller.ref_capture.capture_run_id
+        run_id = controller.recorder.capture_run_id
         controller.handle_replay_error()
         row = db.conn.execute(
             "SELECT id FROM capture_runs WHERE id = ?", (run_id,)
@@ -127,7 +127,7 @@ class TestHandleReplayError:
 class TestHandleDisconnect:
     async def test_no_segments_deletes_run(self, controller, db, tmp_path):
         await controller.start_reference(Mode.IDLE, "g1", tmp_path)
-        run_id = controller.ref_capture.capture_run_id
+        run_id = controller.recorder.capture_run_id
         controller.handle_disconnect()
         row = db.conn.execute(
             "SELECT id FROM capture_runs WHERE id = ?", (run_id,)

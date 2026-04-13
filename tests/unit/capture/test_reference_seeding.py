@@ -2,7 +2,7 @@
 import pytest
 from spinlab.db import Database
 from spinlab.models import Attempt, AttemptSource, Segment, Waypoint
-from spinlab.reference_capture import RefSegmentTime
+from spinlab.capture import RecordedSegmentTime
 from spinlab.reference_seeding import seed_reference_attempts
 
 
@@ -36,8 +36,8 @@ def test_seed_attempts_inserted(db):
     _make_segment(db, "seg2", level=2)
 
     times = [
-        RefSegmentTime(segment_id="seg1", time_ms=5000, deaths=0, clean_tail_ms=5000),
-        RefSegmentTime(segment_id="seg2", time_ms=8000, deaths=1, clean_tail_ms=3000),
+        RecordedSegmentTime(segment_id="seg1", time_ms=5000, deaths=0, clean_tail_ms=5000),
+        RecordedSegmentTime(segment_id="seg2", time_ms=8000, deaths=1, clean_tail_ms=3000),
     ]
     seed_reference_attempts(db, "run1", times)
 
@@ -60,7 +60,7 @@ def test_seed_attempts_source_is_reference(db):
     """Seeded attempts have source='reference'."""
     _make_segment(db, "seg1", level=1)
 
-    times = [RefSegmentTime(segment_id="seg1", time_ms=4000, deaths=0, clean_tail_ms=4000)]
+    times = [RecordedSegmentTime(segment_id="seg1", time_ms=4000, deaths=0, clean_tail_ms=4000)]
     seed_reference_attempts(db, "run1", times)
 
     row = db.conn.execute(
@@ -85,9 +85,9 @@ def test_seed_returns_count(db):
     _make_segment(db, "seg3", level=3)
 
     times = [
-        RefSegmentTime(segment_id="seg1", time_ms=1000, deaths=0, clean_tail_ms=1000),
-        RefSegmentTime(segment_id="seg2", time_ms=2000, deaths=0, clean_tail_ms=2000),
-        RefSegmentTime(segment_id="seg3", time_ms=3000, deaths=0, clean_tail_ms=3000),
+        RecordedSegmentTime(segment_id="seg1", time_ms=1000, deaths=0, clean_tail_ms=1000),
+        RecordedSegmentTime(segment_id="seg2", time_ms=2000, deaths=0, clean_tail_ms=2000),
+        RecordedSegmentTime(segment_id="seg3", time_ms=3000, deaths=0, clean_tail_ms=3000),
     ]
     count = seed_reference_attempts(db, "run1", times)
     assert count == 3
@@ -97,12 +97,12 @@ def test_draft_save_seeds_and_rebuilds(db):
     """Full flow: DraftManager.save() triggers seeding + estimator rebuild."""
     from unittest.mock import MagicMock
     from spinlab.draft_manager import DraftManager
-    from spinlab.reference_capture import RefSegmentTime
+    from spinlab.capture import RecordedSegmentTime
 
     db.create_capture_run("run1_draft", "g", "Draft", draft=True)
     _make_segment(db, "seg1_draft", ref_id="run1_draft")
 
-    times = [RefSegmentTime(segment_id="seg1_draft", time_ms=5000, deaths=0, clean_tail_ms=5000)]
+    times = [RecordedSegmentTime(segment_id="seg1_draft", time_ms=5000, deaths=0, clean_tail_ms=5000)]
 
     dm = DraftManager()
     dm.enter_draft("run1_draft", 1)

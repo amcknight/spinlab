@@ -1,4 +1,4 @@
-"""ReferenceCapture — owns reference/replay segment capture state and logic."""
+"""SegmentRecorder — owns reference/replay segment capture state and logic."""
 from __future__ import annotations
 
 import logging
@@ -6,14 +6,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .db import Database
-    from .condition_registry import ConditionRegistry
+    from ..db import Database
+    from ..condition_registry import ConditionRegistry
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class RefSegmentTime:
+class RecordedSegmentTime:
     """Timing data for one segment captured during a reference run."""
     segment_id: str
     time_ms: int
@@ -21,7 +21,7 @@ class RefSegmentTime:
     clean_tail_ms: int
 
 
-class ReferenceCapture:
+class SegmentRecorder:
     """Captures segments during reference runs and replays."""
 
     def __init__(self) -> None:
@@ -30,7 +30,7 @@ class ReferenceCapture:
         self.pending_start: dict | None = None
         self.died: bool = False
         self.rec_path: str | None = None
-        self.segment_times: list[RefSegmentTime] = []
+        self.segment_times: list[RecordedSegmentTime] = []
         self._deaths_in_segment: int = 0
         self._last_spawn_ms: int | None = None
 
@@ -73,7 +73,7 @@ class ReferenceCapture:
                        level, end_raw_conditions, registry,
                        end_timestamp_ms: int | None = None) -> None:
         """Create waypoints + segment for the segment ending here."""
-        from .models import Segment, Waypoint, WaypointSaveState
+        from ..models import Segment, Waypoint, WaypointSaveState
 
         start_conds = registry.decode(start["raw_conditions"], level=level)
         end_conds = registry.decode(end_raw_conditions, level=level)
@@ -124,7 +124,7 @@ class ReferenceCapture:
                 clean_tail_ms = end_timestamp_ms - self._last_spawn_ms
             else:
                 clean_tail_ms = time_ms  # fallback
-            self.segment_times.append(RefSegmentTime(
+            self.segment_times.append(RecordedSegmentTime(
                 segment_id=seg_id,
                 time_ms=time_ms,
                 deaths=deaths,
@@ -209,7 +209,7 @@ class ReferenceCapture:
         cp_ord = event.get("cp_ordinal")
         if cold_path is None or level is None or cp_ord is None:
             return
-        from .models import Waypoint, WaypointSaveState
+        from ..models import Waypoint, WaypointSaveState
         conds = registry.decode(event.get("conditions", {}), level=level)
         wp = Waypoint.make(game_id, level, "checkpoint", cp_ord, conds)
         db.upsert_waypoint(wp)
