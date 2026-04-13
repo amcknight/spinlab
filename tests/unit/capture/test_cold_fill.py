@@ -5,7 +5,7 @@ from spinlab.protocol import ColdFillLoadCmd
 
 import pytest
 
-from spinlab.cold_fill_controller import ColdFillController
+from spinlab.capture import ColdFillController
 from spinlab.models import Mode, Status, WaypointSaveState
 
 

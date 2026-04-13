@@ -5,12 +5,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from .models import ActionResult, Mode, Status, WaypointSaveState
-from .protocol import ColdFillLoadCmd
+from ..models import ActionResult, Mode, Status, WaypointSaveState
+from ..protocol import ColdFillLoadCmd
 
 if TYPE_CHECKING:
-    from .db import Database
-    from .tcp_manager import TcpManager
+    from ..db import Database
+    from ..tcp_manager import TcpManager
 
 logger = logging.getLogger(__name__)
 

@@ -20,8 +20,7 @@ from .protocol import (
     GameContextCmd, SetConditionsCmd, SetInvalidateComboCmd,
     SpeedRunCheckpointEvent, SpeedRunDeathEvent, SpeedRunCompleteEvent,
 )
-from .capture import ReferenceController
-from .cold_fill_controller import ColdFillController
+from .capture import ColdFillController, ReferenceController
 from .sse import SSEBroadcaster
 from .state_builder import StateBuilder
 from .system_state import SystemState
