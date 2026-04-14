@@ -371,25 +371,94 @@ FAKE_GAME_ID = "fake_game_frontend_smoke"
 FAKE_GAME_NAME = "FakeGame"
 
 
-@pytest.fixture
-def fake_game_loaded(dashboard_server):
-    """Seed a minimal game + segments + reference + attempts + session, then
-    force the SessionManager's SystemState to reflect a loaded game.
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def fake_dashboard_server():
+    """Start a FastAPI dashboard with a FakeTcpManager — no Mesen required.
 
-    Bypasses the TCP/Lua boundary (which is exercised by test_smoke.py) so
-    frontend contract tests have stable data on every tab without booting
-    a recording emulator.
+    Mirrors the real ``dashboard_server`` fixture but swaps ``session.tcp`` for
+    the in-process FakeTcpManager (see tests/conftest.py) so tests can exercise
+    the dashboard's HTTP API and SessionManager without booting an emulator.
+
+    The dashboard's background event_loop still runs and keeps trying to open
+    a TCP connection on the configured port — nothing listens there, so each
+    attempt fails fast and the loop sleeps. The session's ``tcp`` reference is
+    the fake, which ``SystemState`` reads for ``tcp_connected``.
+
+    Yields (base_url, db, session).
+    """
+    from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeConfig
+    from spinlab.dashboard import create_app
+    from spinlab.db import Database
+    from tests.conftest import FakeTcpManager
+
+    tmp = tempfile.mkdtemp(prefix="spinlab_fake_")
+    tmp_path = Path(tmp)
+
+    db = Database(str(tmp_path / "spinlab.db"))
+    dashboard_port = _free_port()
+    # Port is unused — pick a free one so the real event_loop's connect()
+    # attempts fail with connection-refused rather than colliding with a
+    # running service.
+    fake_tcp_port = _free_port()
+
+    config = AppConfig(
+        network=NetworkConfig(host="127.0.0.1", port=fake_tcp_port, dashboard_port=dashboard_port),
+        emulator=EmulatorConfig(),
+        data_dir=tmp_path,
+        rom_dir=None,
+        practice=PracticeConfig(),
+    )
+
+    app = create_app(db=db, config=config)
+    # Swap TCP for the fake *before* starting uvicorn so the lifespan-started
+    # event_loop's real-TCP retries don't matter: state reads session.tcp.
+    fake_tcp = FakeTcpManager(connected=True)
+    app.state.session.tcp = fake_tcp
+    app.state.session.capture.tcp = fake_tcp
+    app.state.session.cold_fill.tcp = fake_tcp
+
+    uvi_config = uvicorn.Config(app, host="127.0.0.1", port=dashboard_port, log_level="warning")
+    server = uvicorn.Server(uvi_config)
+
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    base_url = f"http://127.0.0.1:{dashboard_port}"
+    for _ in range(40):
+        try:
+            resp = http_requests.get(f"{base_url}/api/state", timeout=1)
+            if resp.status_code == 200:
+                break
+        except http_requests.ConnectionError:
+            pass
+        await asyncio.sleep(0.25)
+    else:
+        pytest.fail("Fake dashboard server did not start within 10 seconds")
+
+    yield base_url, db, app.state.session
+
+    server.should_exit = True
+    thread.join(timeout=5)
+    db.close()
+    import shutil
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.fixture
+def fake_game_loaded(fake_dashboard_server):
+    """Seed a minimal game + segments + reference + attempts + session, then
+    drive the real ``switch_game`` path so SystemState reports a loaded game.
+
+    Uses ``fake_dashboard_server`` (no Mesen) so frontend contract tests have
+    stable data on every tab without the emulator marker.
 
     Yields the seeded game_id.
     """
     from tests.factories import seed_basic_game
-    _base_url, db, session = dashboard_server
+    _base_url, db, session = fake_dashboard_server
     game_id = seed_basic_game(db)
-    # Force SystemState to look "game loaded". tcp_connected is derived from
-    # session.tcp.is_connected; the live dashboard_server has a real Mesen
-    # connection so this is already True. We only need to point the session
-    # at the seeded game (the real code path is switch_game, called by
-    # _handle_rom_info / _handle_game_context when Lua reports a ROM).
+    # switch_game is the real code path used by _handle_rom_info /
+    # _handle_game_context; tcp_connected is already True via FakeTcpManager.
     import asyncio as _asyncio
     _asyncio.run(session.switch_game(game_id, FAKE_GAME_NAME))
     yield game_id
