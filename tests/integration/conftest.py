@@ -346,7 +346,7 @@ async def dashboard_server(smoke_mesen_process):
     else:
         pytest.fail("Dashboard did not connect to Mesen within 10 seconds")
 
-    yield base_url, db
+    yield base_url, db, app.state.session
 
     # Teardown
     server.should_exit = True
@@ -359,8 +359,40 @@ async def dashboard_server(smoke_mesen_process):
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def dashboard_url(dashboard_server) -> str:
     """Convenience alias — just the base URL string."""
-    base_url, _ = dashboard_server
+    base_url, _db, _session = dashboard_server
     return base_url
+
+
+# -- Seeded-game fixture for frontend contract smoke tests -------------------
+#
+# FakeGame identity for the fake_game_loaded fixture. Uses a fixed game_id so
+# seeded rows remain idempotent across repeated session-scoped invocations.
+FAKE_GAME_ID = "fake_game_frontend_smoke"
+FAKE_GAME_NAME = "FakeGame"
+
+
+@pytest.fixture
+def fake_game_loaded(dashboard_server):
+    """Seed a minimal game + segments + reference + attempts + session, then
+    force the SessionManager's SystemState to reflect a loaded game.
+
+    Bypasses the TCP/Lua boundary (which is exercised by test_smoke.py) so
+    frontend contract tests have stable data on every tab without booting
+    a recording emulator.
+
+    Yields the seeded game_id.
+    """
+    from tests.factories import seed_basic_game
+    _base_url, db, session = dashboard_server
+    game_id = seed_basic_game(db)
+    # Force SystemState to look "game loaded". tcp_connected is derived from
+    # session.tcp.is_connected; the live dashboard_server has a real Mesen
+    # connection so this is already True. We only need to point the session
+    # at the seeded game (the real code path is switch_game, called by
+    # _handle_rom_info / _handle_game_context when Lua reports a ROM).
+    import asyncio as _asyncio
+    _asyncio.run(session.switch_game(game_id, FAKE_GAME_NAME))
+    yield game_id
 
 
 @pytest.fixture
