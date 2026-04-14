@@ -15,7 +15,7 @@ dependencies = ["pyyaml>=6,<7", "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "numpy>
 # suite to even collect. Without it, a clean `pip install -e ".[dev]"` appears
 # to install successfully but `pytest -m "not (emulator or slow or frontend)"`
 # fails with ModuleNotFoundError at collection time.
-dev = ["pytest", "pytest-asyncio", "pytest-cov", "httpx", "requests"]
+dev = ["pytest", "pytest-asyncio", "pytest-cov", "httpx", "requests", "playwright>=1.48", "pytest-playwright>=0.5"]
 
 [project.scripts]
 spinlab = "spinlab.cli:main"
