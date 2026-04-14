@@ -364,10 +364,6 @@ async def dashboard_url(dashboard_server) -> str:
 
 
 # -- Seeded-game fixture for frontend contract smoke tests -------------------
-#
-# FakeGame identity for the fake_game_loaded fixture. Uses a fixed game_id so
-# seeded rows remain idempotent across repeated session-scoped invocations.
-FAKE_GAME_ID = "fake_game_frontend_smoke"
 FAKE_GAME_NAME = "FakeGame"
 
 
@@ -444,13 +440,17 @@ async def fake_dashboard_server():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
-@pytest.fixture
-def fake_game_loaded(fake_dashboard_server):
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def fake_game_loaded(fake_dashboard_server):
     """Seed a minimal game + segments + reference + attempts + session, then
     drive the real ``switch_game`` path so SystemState reports a loaded game.
 
     Uses ``fake_dashboard_server`` (no Mesen) so frontend contract tests have
     stable data on every tab without the emulator marker.
+
+    Session-scoped to match ``fake_dashboard_server``'s session loop — seeding
+    is one-time and ``switch_game`` must run on the session loop so any
+    asyncio primitives it creates stay bound to it.
 
     Yields the seeded game_id.
     """
@@ -459,8 +459,7 @@ def fake_game_loaded(fake_dashboard_server):
     game_id = seed_basic_game(db)
     # switch_game is the real code path used by _handle_rom_info /
     # _handle_game_context; tcp_connected is already True via FakeTcpManager.
-    import asyncio as _asyncio
-    _asyncio.run(session.switch_game(game_id, FAKE_GAME_NAME))
+    await session.switch_game(game_id, FAKE_GAME_NAME)
     yield game_id
 
 
