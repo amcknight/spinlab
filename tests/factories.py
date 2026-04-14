@@ -30,6 +30,9 @@ _SEED_SEGMENT_SPECS: tuple[tuple[str, int, str, int], ...] = (
 
 # Two allocators so the model tab's allocator-color legend has >1 bucket.
 # Values must match real allocator identifiers in spinlab.allocators.
+# Spec intent was "attempts across estimators" but estimators are applied
+# over history, not per-attempt. Vary allocators instead — the only
+# per-attempt diversity knob on the Attempt model.
 _SEED_ALLOCATORS: tuple[str, str] = ("greedy", "least_played")
 
 # Attempt spread: (segment_idx, time_ms_offset, completed, allocator_idx).

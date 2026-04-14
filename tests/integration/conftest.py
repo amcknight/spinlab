@@ -346,7 +346,7 @@ async def dashboard_server(smoke_mesen_process):
     else:
         pytest.fail("Dashboard did not connect to Mesen within 10 seconds")
 
-    yield base_url, db, app.state.session
+    yield base_url, db
 
     # Teardown
     server.should_exit = True
@@ -359,7 +359,7 @@ async def dashboard_server(smoke_mesen_process):
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def dashboard_url(dashboard_server) -> str:
     """Convenience alias — just the base URL string."""
-    base_url, _db, _session = dashboard_server
+    base_url, _db = dashboard_server
     return base_url
 
 
