@@ -85,28 +85,6 @@ class TestSegmentEditEndpoints:
         assert db.get_all_segments_with_model("test_game") == []
 
 
-class TestImportManifest:
-    def test_import_manifest(self, client, tmp_path):
-        import yaml
-        manifest = {
-            "game_id": "test_game",
-            "category": "any%",
-            "splits": [
-                {"id": "test_game:1:0:normal", "level_number": 1, "room_id": 0,
-                 "goal": "normal", "name": "L1", "reference_time_ms": 5000},
-            ],
-        }
-        manifest_path = tmp_path / "test_manifest.yaml"
-        with manifest_path.open("w") as f:
-            yaml.dump(manifest, f)
-        resp = client.post(
-            "/api/import-manifest",
-            json={"path": str(manifest_path)},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["segments_imported"] == 1
-
-
 class TestDraftEndpoints:
     def test_save_draft(self, client):
         # Inject draft state

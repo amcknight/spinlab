@@ -1,4 +1,4 @@
-"""System routes: state, SSE, sessions, ROMs, emulator, reset, shutdown, import."""
+"""System routes: state, SSE, sessions, ROMs, emulator, reset, shutdown."""
 from __future__ import annotations
 
 import asyncio
@@ -121,18 +121,6 @@ def launch_emulator(body: dict | None = None, config: AppConfig = Depends(get_co
                 breadcrumb.write_text(lua_dir, encoding="utf-8")
     subprocess.Popen(cmd)
     return {"status": "ok"}
-
-
-@router.post("/import-manifest")
-def import_manifest(body: dict, session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
-    import yaml
-    from spinlab.manifest import seed_db_from_manifest
-    manifest_path = Path(body["path"])
-    with manifest_path.open(encoding="utf-8") as f:
-        manifest = yaml.safe_load(f)
-    game_name = manifest.get("game_id", session.game_id or "unknown")
-    seed_db_from_manifest(db, manifest, game_name)
-    return {"status": "ok", "segments_imported": len(manifest.get("segments", manifest.get("splits", [])))}
 
 
 @router.post("/shutdown")
