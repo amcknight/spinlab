@@ -500,10 +500,6 @@ After a reference or replay capture, segments are in draft state (`capture_runs.
 - **Discard**: hard-delete the capture run and all associated segments/variants
 - **Recovery**: on startup, checks for orphaned drafts and restores draft state
 
-### 6.4 Legacy Manifest Import
-
-YAML manifests can still be imported via `POST /api/import-manifest` for backwards compatibility.
-
 ---
 
 ## 7. Configuration
