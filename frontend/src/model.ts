@@ -1,8 +1,16 @@
 import { segmentName, formatTime, elapsedStr, formatSavings } from "./format";
-import { fetchJSON, postJSON } from "./api";
+import { postJSON } from "./api";
 import { selectedEstimate, currentEstimate, formatTrend, canStartPractice, canStartSpeedRun } from "./model-logic";
 import type { AppState, ModelData, TuningData, SessionInfo } from "./types";
 import { renderSegmentDetail, destroySegmentDetail } from "./segment-detail";
+import {
+  fetchModelData,
+  fetchTuningData,
+  postEstimator,
+  postTuningParams,
+  postAllocatorWeights,
+  patchAttemptInvalidated,
+} from "./model-api";
 
 const ALLOCATOR_COLORS: Record<string, string> = {
   greedy: "#4caf50",
@@ -83,7 +91,7 @@ function renderWeightSlider(weights: Record<string, number>): void {
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
         _currentWeights = { ...weights };
-        postJSON("/api/allocator-weights", weights);
+        postAllocatorWeights(weights);
       };
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
@@ -140,7 +148,7 @@ function renderLegend(
 }
 
 export async function fetchModel(): Promise<void> {
-  const data = await fetchJSON<ModelData>("/api/model");
+  const data = await fetchModelData();
   if (data) updateModel(data);
 }
 
@@ -305,13 +313,7 @@ export function updatePracticeCard(data: AppState): void {
     btn.className = "invalidate-btn";
     btn.textContent = btnLabel;
     btn.addEventListener("click", () => {
-      fetch(`/api/attempts/${r.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ invalidated: !r.invalidated }),
-      }).catch(() => {
-        // Silently ignore network errors; next SSE update will reflect truth.
-      });
+      patchAttemptInvalidated(r.id, !r.invalidated);
     });
     const timeSpan = '<span class="' + cls + '"'
       + (allocColor ? ' style="color:' + allocColor + '"' : '')
@@ -360,7 +362,7 @@ export function updatePracticeControls(data: AppState): void {
 }
 
 async function fetchTuningParams(): Promise<void> {
-  const data = await fetchJSON<TuningData>("/api/estimator-params");
+  const data = await fetchTuningData();
   if (!data) return;
   _tuningParams = data;
   renderTuningParams(data);
@@ -415,7 +417,7 @@ function collectTuningParams(): Record<string, number> {
 
 async function applyTuningParams(): Promise<void> {
   const params = collectTuningParams();
-  await postJSON("/api/estimator-params", { params });
+  await postTuningParams(params);
   fetchModel();
 }
 
@@ -436,7 +438,7 @@ async function resetTuningDefaults(): Promise<void> {
 
 export function initModelTab(): void {
   document.getElementById("estimator-select")!.addEventListener("change", async (e) => {
-    await postJSON("/api/estimator", { name: (e.target as HTMLSelectElement).value });
+    await postEstimator((e.target as HTMLSelectElement).value);
     fetchModel();
     fetchTuningParams();
   });
