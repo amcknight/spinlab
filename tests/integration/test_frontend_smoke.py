@@ -62,29 +62,43 @@ async def _serve_static(route, request):
 TABS = ("model", "manage", "segments")
 
 
-@pytest_asyncio.fixture(loop_scope="session")
-async def page(fake_dashboard_server, fake_game_loaded):
-    base_url, _db, _session = fake_dashboard_server
-    async with async_playwright() as p:
-        browser = await p.chromium.launch()
-        ctx = await browser.new_context()
-        pg = await ctx.new_page()
-        # Route page/asset requests to the on-disk built bundle; /api/** still
-        # hits the real FastAPI dashboard via route.continue_().
-        await pg.route("**/*", _serve_static)
-        errors: list[str] = []
-        pg.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
-        pg.on(
-            "console",
-            lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None,
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def browser(fake_dashboard_server, fake_game_loaded):
+    # Fail fast with a useful message if the frontend bundle hasn't been built.
+    # All 6 tests share this fixture, so the guard fires once per session.
+    if not (_STATIC_ROOT / "index.html").exists():
+        pytest.fail(
+            "Frontend bundle missing. Run `cd frontend && npm run build` first."
         )
-        await pg.goto(base_url)
-        # Don't wait for networkidle — the dashboard holds an SSE stream open,
-        # so network never goes idle. DOMContentLoaded + selector waits below
-        # are sufficient for contract-level smoke.
-        await pg.wait_for_load_state("domcontentloaded")
-        yield pg, errors
-        await browser.close()
+    async with async_playwright() as p:
+        b = await p.chromium.launch()
+        yield b
+        await b.close()
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def page(browser, fake_dashboard_server):
+    # Function-scoped: each test gets a fresh page + empty errors list, so
+    # console errors from one test can't leak into another's assertion.
+    base_url, _db, _session = fake_dashboard_server
+    ctx = await browser.new_context()
+    pg = await ctx.new_page()
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    pg.on(
+        "console",
+        lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None,
+    )
+    # Route page/asset requests to the on-disk built bundle; /api/** still
+    # hits the real FastAPI dashboard via route.continue_().
+    await pg.route("**/*", _serve_static)
+    await pg.goto(base_url)
+    # Don't wait for networkidle — the dashboard holds an SSE stream open,
+    # so network never goes idle. DOMContentLoaded + selector waits below
+    # are sufficient for contract-level smoke.
+    await pg.wait_for_load_state("domcontentloaded")
+    yield pg, errors
+    await ctx.close()
 
 
 @pytest.mark.asyncio(loop_scope="session")
