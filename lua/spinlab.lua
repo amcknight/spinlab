@@ -445,27 +445,8 @@ local function draw_practice_overlay()
 
   local label = practice.segment and practice.segment.description or "?"
   if label == "" then label = "?" end
-  -- Use expected time (Kalman μ) for comparison, fall back to reference time
-  local compare_time = nil
-  if practice.segment then
-    compare_time = practice.segment.expected_time_ms or practice.segment.reference_time_ms
-  end
 
-  if practice.state == PSTATE_PLAYING or practice.state == PSTATE_LOADING then
-    local elapsed = ts_ms() - practice.start_ms
-    draw_text(4, 2, label, 0x00000000, 0xFFFFFFFF)
-    draw_timer_row(12, elapsed, compare_time)
-
-  elseif practice.state == PSTATE_RESULT then
-    local prefix = practice.completed and "Clear!" or "Abort"
-    draw_text(4, 2, label, 0x00000000, 0xFFFFFFFF)
-    draw_timer_row(12, practice.elapsed_ms, compare_time, prefix)
-
-    -- Row 3: countdown to auto-advance
-    local remaining = practice.auto_advance_ms - (ts_ms() - practice.result_start_ms)
-    local secs = string.format("%.1f", math.max(0, remaining / 1000))
-    draw_text(4, 22, "Next in " .. secs .. "s", 0x00000000, 0xFF888888)
-  end
+  draw_text(4, 2, label, 0x00000000, 0xFFFFFFFF)
 end
 
 local function draw_speed_run_overlay()

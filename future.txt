@@ -7,4 +7,3 @@
 - A small library of actual full runs recorded for reseeding and testing new functionality, including some gnarly weird ones
 - Consider how to add full bayesian uncertainty and priors into a new set of Estimators
 - Backfilling and tuning hyperparams for Estimators
-- maybe drop the timer form the Overlay? Could drop the Overlay completely but the Goal may be important..
