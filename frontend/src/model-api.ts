@@ -21,6 +21,25 @@ export async function postAllocatorWeights(weights: Record<string, number>): Pro
   await postJSON("/api/allocator-weights", weights);
 }
 
+export async function postPracticeStart(): Promise<void> {
+  await postJSON("/api/practice/start");
+}
+
+export async function postPracticeStop(): Promise<void> {
+  await postJSON("/api/practice/stop");
+}
+
+export async function postSpeedrunStart(): Promise<void> {
+  await postJSON("/api/speedrun/start");
+}
+
+export async function postSpeedrunStop(): Promise<void> {
+  await postJSON("/api/speedrun/stop");
+}
+
+// Uses raw fetch + silent .catch() to preserve original semantics: network
+// failures are intentionally swallowed because the next SSE state update
+// will reconcile UI state. fetchJSON/postJSON would surface errors via toast.
 export async function patchAttemptInvalidated(id: number, invalidated: boolean): Promise<void> {
   await fetch(`/api/attempts/${id}`, {
     method: "PATCH",

@@ -1,5 +1,4 @@
 import { segmentName, formatTime, elapsedStr, formatSavings } from "./format";
-import { postJSON } from "./api";
 import { selectedEstimate, currentEstimate, formatTrend, canStartPractice, canStartSpeedRun } from "./model-logic";
 import type { AppState, ModelData, TuningData, SessionInfo } from "./types";
 import { renderSegmentDetail, destroySegmentDetail } from "./segment-detail";
@@ -10,6 +9,10 @@ import {
   postTuningParams,
   postAllocatorWeights,
   patchAttemptInvalidated,
+  postPracticeStart,
+  postPracticeStop,
+  postSpeedrunStart,
+  postSpeedrunStop,
 } from "./model-api";
 
 const ALLOCATOR_COLORS: Record<string, string> = {
@@ -442,18 +445,10 @@ export function initModelTab(): void {
     fetchModel();
     fetchTuningParams();
   });
-  document.getElementById("btn-practice-start")!.addEventListener("click", () =>
-    postJSON("/api/practice/start"),
-  );
-  document.getElementById("btn-practice-stop")!.addEventListener("click", () =>
-    postJSON("/api/practice/stop"),
-  );
-  document.getElementById("btn-speedrun-start")!.addEventListener("click", () =>
-    postJSON("/api/speedrun/start"),
-  );
-  document.getElementById("btn-speedrun-stop")!.addEventListener("click", () =>
-    postJSON("/api/speedrun/stop"),
-  );
+  document.getElementById("btn-practice-start")!.addEventListener("click", () => postPracticeStart());
+  document.getElementById("btn-practice-stop")!.addEventListener("click", () => postPracticeStop());
+  document.getElementById("btn-speedrun-start")!.addEventListener("click", () => postSpeedrunStart());
+  document.getElementById("btn-speedrun-stop")!.addEventListener("click", () => postSpeedrunStop());
 
   const toggle = document.getElementById("tuning-toggle");
   const panel = document.getElementById("tuning-panel");
