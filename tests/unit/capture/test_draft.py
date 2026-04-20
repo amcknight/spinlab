@@ -3,6 +3,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from spinlab.db import Database
+from spinlab.errors import NoDraftError
 from spinlab.models import Mode, Segment, Status, Waypoint
 from spinlab.session_manager import SessionManager
 from spinlab.capture import DraftManager, RecordedSegmentTime
@@ -106,10 +107,10 @@ class TestSaveAndDiscard:
         assert sm.draft.segments_count == 0
         mock_db.hard_delete_capture_run.assert_called_once_with("live_abc")
 
-    async def test_save_no_draft_returns_error(self, mock_db, mock_tcp, tmp_path):
+    async def test_save_no_draft_raises(self, mock_db, mock_tcp, tmp_path):
         sm = make_sm(mock_db, mock_tcp, tmp_path)
-        result = await sm.save_draft("Name")
-        assert result.status == Status.NO_DRAFT
+        with pytest.raises(NoDraftError):
+            await sm.save_draft("Name")
 
 
 class TestStopReplayDraft:
