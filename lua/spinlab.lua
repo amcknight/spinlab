@@ -611,10 +611,10 @@ end
 -- TRANSITION DETECTION
 -----------------------------------------------------------------------
 local function goal_type(curr)
-  if curr.io_port == 7 then return "key"
-  elseif curr.io_port == 3 then return "orb"
+  if curr.io_port == IO_KEY then return "key"
+  elseif curr.io_port == IO_ORB then return "orb"
   elseif curr.boss_defeat ~= 0 and curr.fanfare == 1 then return "boss"
-  elseif curr.fanfare == 1 or curr.io_port == 4 then return "normal"
+  elseif curr.fanfare == 1 or curr.io_port == IO_GOAL then return "normal"
   else return "abort"  -- start+select, death exit, etc.
   end
 end
@@ -678,10 +678,10 @@ end
 
 -- Returns "midway" or "cp_entrance" if a checkpoint was hit this frame, nil otherwise.
 local function check_checkpoint_hit(curr)
-  local got_orb     = curr.io_port == 3
-  local got_goal    = curr.fanfare == 1 or curr.io_port == 4
-  local got_key     = curr.io_port == 7
-  local got_fadeout = curr.io_port == 8
+  local got_orb     = curr.io_port == IO_ORB
+  local got_goal    = curr.fanfare == 1 or curr.io_port == IO_GOAL
+  local got_key     = curr.io_port == IO_KEY
+  local got_fadeout = curr.io_port == IO_FADEOUT
 
   local midway_hit = (prev.midway == 0 and curr.midway == 1)
       and not got_orb and not got_goal and not got_key and not got_fadeout
