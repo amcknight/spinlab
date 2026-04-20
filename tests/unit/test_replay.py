@@ -2,6 +2,7 @@
 """Tests for SessionManager replay orchestration."""
 import pytest
 
+from spinlab.errors import PracticeActiveError, ReferenceActiveError
 from spinlab.models import Mode, Status
 from spinlab.protocol import ReplayCmd
 from spinlab.session_manager import SessionManager
@@ -28,16 +29,16 @@ class TestStartReplay:
         sm.game_id = "abcdef0123456789"
         sm.mode = Mode.PRACTICE
 
-        result = await sm.start_replay("/data/test.spinrec")
-        assert result.status == Status.PRACTICE_ACTIVE
+        with pytest.raises(PracticeActiveError):
+            await sm.start_replay("/data/test.spinrec")
 
     async def test_rejects_during_reference(self, mock_db, mock_tcp, tmp_path):
         sm = SessionManager(db=mock_db, tcp=mock_tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
         sm.game_id = "abcdef0123456789"
         sm.mode = Mode.REFERENCE
 
-        result = await sm.start_replay("/data/test.spinrec")
-        assert result.status == Status.REFERENCE_ACTIVE
+        with pytest.raises(ReferenceActiveError):
+            await sm.start_replay("/data/test.spinrec")
 
 
 class TestReplayEvents:

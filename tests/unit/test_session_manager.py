@@ -9,6 +9,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from spinlab.errors import (
+    AlreadyRunningError,
+    DraftPendingError,
+    MissingSaveStatesError,
+    NotConnectedError,
+    NotRunningError,
+)
 from spinlab.models import ActionResult, Mode, Segment, WaypointSaveState, Status
 from spinlab.session_manager import SessionManager
 from spinlab import session_manager as session_manager_module
@@ -67,11 +74,12 @@ class TestEventRouting:
 
 class TestModeGuards:
     async def test_start_reference_during_practice(self, mock_db, mock_tcp):
+        from spinlab.errors import PracticeActiveError
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         sm.mode = Mode.PRACTICE
-        result = await sm.start_reference()
-        assert result.status == Status.PRACTICE_ACTIVE
+        with pytest.raises(PracticeActiveError):
+            await sm.start_reference()
 
     async def test_on_practice_done_sets_idle(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
@@ -399,15 +407,15 @@ class TestPracticeLifecycle:
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         sm.capture.draft.run_id = "fake_draft_run"
-        result = await sm.start_practice()
-        assert result.status == Status.DRAFT_PENDING
+        with pytest.raises(DraftPendingError):
+            await sm.start_practice()
 
     async def test_start_practice_blocked_by_not_connected(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         mock_tcp.is_connected = False
-        result = await sm.start_practice()
-        assert result.status == Status.NOT_CONNECTED
+        with pytest.raises(NotConnectedError):
+            await sm.start_practice()
 
     async def test_start_practice_blocked_when_already_running(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
@@ -415,13 +423,13 @@ class TestPracticeLifecycle:
         fake_ps = MagicMock()
         fake_ps.is_running = True
         sm.practice_session = fake_ps
-        result = await sm.start_practice()
-        assert result.status == Status.ALREADY_RUNNING
+        with pytest.raises(AlreadyRunningError):
+            await sm.start_practice()
 
     async def test_stop_practice_when_not_running(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
-        result = await sm.stop_practice()
-        assert result.status == Status.NOT_RUNNING
+        with pytest.raises(NotRunningError):
+            await sm.stop_practice()
 
     async def test_stop_practice_clears_stale_mode(self, mock_db, mock_tcp):
         """If mode=PRACTICE but no session, stop_practice should still reset."""
@@ -463,20 +471,20 @@ class TestSpeedRunLifecycle:
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         sm.capture.draft.run_id = "fake_draft_run"
-        result = await sm.start_speed_run()
-        assert result.status == Status.DRAFT_PENDING
+        with pytest.raises(DraftPendingError):
+            await sm.start_speed_run()
 
     async def test_start_blocked_by_not_connected(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         mock_tcp.is_connected = False
-        result = await sm.start_speed_run()
-        assert result.status == Status.NOT_CONNECTED
+        with pytest.raises(NotConnectedError):
+            await sm.start_speed_run()
 
     async def test_start_missing_save_states(self, mock_db, mock_tcp):
-        """SpeedRunSession._finalize_level raises ValueError when a segment
+        """SpeedRunSession.__init__ raises ValueError when a segment
         has no save_state path on disk; start_speed_run translates that to
-        MISSING_SAVE_STATES."""
+        MissingSaveStatesError."""
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         mock_db.get_all_segments_with_model.return_value = [{
@@ -490,13 +498,13 @@ class TestSpeedRunLifecycle:
             "description": "L1",
             "state_path": "/definitely/not/a/real/path.mss",
         }]
-        result = await sm.start_speed_run()
-        assert result.status == Status.MISSING_SAVE_STATES
+        with pytest.raises(MissingSaveStatesError):
+            await sm.start_speed_run()
 
     async def test_stop_when_not_running(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
-        result = await sm.stop_speed_run()
-        assert result.status == Status.NOT_RUNNING
+        with pytest.raises(NotRunningError):
+            await sm.stop_speed_run()
 
     async def test_stop_clears_stale_mode(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
