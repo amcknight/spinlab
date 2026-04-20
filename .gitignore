@@ -8,6 +8,7 @@ __pycache__/
 .claude/settings.local.json
 .claude/homunculus/
 .claude/projects/
+.claude/scheduled_tasks.lock
 .playwright-mcp/
 *.egg-info/
 spinlab.db

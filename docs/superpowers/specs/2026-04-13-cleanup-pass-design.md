@@ -1,7 +1,7 @@
 # Cleanup Pass — Capture Consolidation, Frontend Hygiene, Dead Code, Test Reorg
 
 **Date:** 2026-04-13
-**Status:** Design — pending user review
+**Status:** Complete — all sections implemented 2026-04-14 through 2026-04-20
 
 ## Goal
 
