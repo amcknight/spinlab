@@ -194,6 +194,7 @@ def test_speed_run_refuses_missing_state(tmp_path):
         SpeedRunSession(tcp=tcp, db=db, game_id="g")
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_speed_run_sends_level_load(sr_db):
     """First run_one should send speed_run_load for level 1."""
@@ -223,6 +224,7 @@ async def test_speed_run_sends_level_load(sr_db):
     assert cmd.checkpoints[0]["ordinal"] == 1
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_speed_run_cold_recording_on_checkpoint(sr_db):
     """Checkpoint hit after cold start should record an attempt."""
@@ -261,6 +263,7 @@ async def test_speed_run_cold_recording_on_checkpoint(sr_db):
     assert len(attempts2) == 0
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_speed_run_death_makes_next_segment_cold(sr_db):
     """Death should mark next sub-segment as cold for recording."""
@@ -302,6 +305,7 @@ async def test_speed_run_death_makes_next_segment_cold(sr_db):
     assert attempts[0]["time_ms"] == 15000
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_speed_run_stops_after_last_level(sr_db):
     """Session should return False after last level completes."""

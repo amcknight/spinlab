@@ -439,6 +439,7 @@ class TestPracticeLifecycle:
         assert result.status == Status.STOPPED
         assert sm.mode == Mode.IDLE
 
+    @pytest.mark.slow
     async def test_stop_practice_cancels_hung_task(self, mock_db, mock_tcp, monkeypatch):
         """When practice task doesn't exit on is_running=False, stop should cancel
         after the timeout elapses."""
