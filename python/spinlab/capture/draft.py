@@ -5,6 +5,7 @@ import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from ..errors import NoDraftError
 from ..models import ActionResult, Attempt, AttemptSource, Status
 
 if TYPE_CHECKING:
@@ -68,7 +69,7 @@ class DraftManager:
     ) -> ActionResult:
         """Promote draft capture run to saved reference, seed attempts, rebuild model."""
         if not self.run_id:
-            return ActionResult(status=Status.NO_DRAFT)
+            raise NoDraftError()
         db.promote_draft(self.run_id, name)
         db.set_active_capture_run(self.run_id)
 
@@ -84,7 +85,7 @@ class DraftManager:
     def discard(self, db: "Database") -> ActionResult:
         """Hard-delete draft capture run and all associated data."""
         if not self.run_id:
-            return ActionResult(status=Status.NO_DRAFT)
+            raise NoDraftError()
         db.hard_delete_capture_run(self.run_id)
         self.run_id = None
         self.segments_count = 0

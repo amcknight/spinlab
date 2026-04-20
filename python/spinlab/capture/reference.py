@@ -11,6 +11,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..errors import (
+    AlreadyReplayingError,
+    DraftPendingError,
+    NoHotVariantError,
+    NotConnectedError,
+    NotInReferenceError,
+    NotReplayingError,
+    PracticeActiveError,
+    ReferenceActiveError,
+)
 from ..models import ActionResult, Mode, Status
 from ..protocol import (
     SPEED_UNCAPPED,
@@ -82,13 +92,13 @@ class ReferenceController:
         game_id: str, data_dir: Path, run_name: str | None = None,
     ) -> ActionResult:
         if self.draft.has_draft:
-            return ActionResult(status=Status.DRAFT_PENDING)
+            raise DraftPendingError()
         if mode == Mode.PRACTICE:
-            return ActionResult(status=Status.PRACTICE_ACTIVE)
+            raise PracticeActiveError()
         if mode == Mode.REPLAY:
-            return ActionResult(status=Status.ALREADY_REPLAYING)
+            raise AlreadyReplayingError()
         if not self.tcp.is_connected:
-            return ActionResult(status=Status.NOT_CONNECTED)
+            raise NotConnectedError()
 
         self.recorder.clear()
         run_id = f"live_{uuid.uuid4().hex[:8]}"
@@ -102,7 +112,7 @@ class ReferenceController:
 
     async def stop_reference(self, mode: Mode) -> ActionResult:
         if mode != Mode.REFERENCE:
-            return ActionResult(status=Status.NOT_IN_REFERENCE)
+            raise NotInReferenceError()
         if self.tcp.is_connected:
             await self.tcp.send_command(ReferenceStopCmd())
         logger.info("reference: stopped — %d segments captured", self.recorder.segments_count)
@@ -117,15 +127,15 @@ class ReferenceController:
         game_id: str, spinrec_path: str, speed: int = SPEED_UNCAPPED,
     ) -> ActionResult:
         if self.draft.has_draft:
-            return ActionResult(status=Status.DRAFT_PENDING)
+            raise DraftPendingError()
         if mode == Mode.PRACTICE:
-            return ActionResult(status=Status.PRACTICE_ACTIVE)
+            raise PracticeActiveError()
         if mode == Mode.REFERENCE:
-            return ActionResult(status=Status.REFERENCE_ACTIVE)
+            raise ReferenceActiveError()
         if mode == Mode.REPLAY:
-            return ActionResult(status=Status.ALREADY_REPLAYING)
+            raise AlreadyReplayingError()
         if not self.tcp.is_connected:
-            return ActionResult(status=Status.NOT_CONNECTED)
+            raise NotConnectedError()
 
         self.recorder.clear()
         run_id = f"replay_{uuid.uuid4().hex[:8]}"
@@ -137,7 +147,7 @@ class ReferenceController:
 
     async def stop_replay(self, mode: Mode) -> ActionResult:
         if mode != Mode.REPLAY:
-            return ActionResult(status=Status.NOT_REPLAYING)
+            raise NotReplayingError()
         if self.tcp.is_connected:
             await self.tcp.send_command(ReplayStopCmd())
         if self.recorder.segments_count > 0:
@@ -154,7 +164,7 @@ class ReferenceController:
 
     async def start_fill_gap(self, segment_id: str) -> ActionResult:
         if not self.tcp.is_connected:
-            return ActionResult(status=Status.NOT_CONNECTED)
+            raise NotConnectedError()
         # Look up the start waypoint for this segment and get its hot save state.
         row = self.db.conn.execute(
             "SELECT start_waypoint_id FROM segments WHERE id = ?", (segment_id,)
@@ -163,7 +173,7 @@ class ReferenceController:
         hot = (self.db.get_save_state(start_waypoint_id, "hot")
                if start_waypoint_id else None)
         if not hot:
-            return ActionResult(status=Status.NO_HOT_VARIANT)
+            raise NoHotVariantError()
         self.fill_gap_segment_id = segment_id
         self._fill_gap_waypoint_id = start_waypoint_id
         await self.tcp.send_command(FillGapLoadCmd(state_path=hot.state_path, message="Die to capture cold start"))

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from spinlab.config import AppConfig
-from spinlab.dashboard import SSE_KEEPALIVE_S, _check_result
+from spinlab.dashboard import SSE_KEEPALIVE_S
 from spinlab.db import Database
 from spinlab.models import Mode
 from spinlab.session_manager import SessionManager
@@ -56,7 +56,11 @@ def api_sessions(session: SessionManager = Depends(get_session), db: Database = 
 
 @router.post("/reset")
 async def reset_data(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
-    await session.stop_practice()
+    from spinlab.errors import NotRunningError
+    try:
+        await session.stop_practice()
+    except NotRunningError:
+        pass
     if session.mode == Mode.REFERENCE:
         session._clear_ref_and_idle()
     gid = session.game_id

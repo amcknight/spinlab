@@ -9,6 +9,13 @@ from pathlib import Path
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from .errors import (
+    AlreadyRunningError,
+    DraftPendingError,
+    MissingSaveStatesError,
+    NotConnectedError,
+    NotRunningError,
+)
 from .models import ActionResult, Mode, Status
 from .protocol import (
     SPEED_UNCAPPED,
@@ -397,11 +404,11 @@ class SessionManager:
 
     async def start_practice(self) -> ActionResult:
         if self.capture.has_draft:
-            return ActionResult(status=Status.DRAFT_PENDING)
+            raise DraftPendingError()
         if self.practice_session and self.practice_session.is_running:
-            return ActionResult(status=Status.ALREADY_RUNNING)
+            raise AlreadyRunningError()
         if not self.tcp.is_connected:
-            return ActionResult(status=Status.NOT_CONNECTED)
+            raise NotConnectedError()
         if self.mode == Mode.REFERENCE:
             self._clear_ref_and_idle()
 
@@ -437,17 +444,17 @@ class SessionManager:
         if self.mode == Mode.PRACTICE:
             self.mode = Mode.IDLE
             return ActionResult(status=Status.STOPPED)
-        return ActionResult(status=Status.NOT_RUNNING)
+        raise NotRunningError()
 
     # --- Speed Run mode ---
 
     async def start_speed_run(self) -> ActionResult:
         if self.capture.has_draft:
-            return ActionResult(status=Status.DRAFT_PENDING)
+            raise DraftPendingError()
         if self.speed_run_session and self.speed_run_session.is_running:
-            return ActionResult(status=Status.ALREADY_RUNNING)
+            raise AlreadyRunningError()
         if not self.tcp.is_connected:
-            return ActionResult(status=Status.NOT_CONNECTED)
+            raise NotConnectedError()
         if self.mode == Mode.REFERENCE:
             self._clear_ref_and_idle()
 
@@ -458,7 +465,7 @@ class SessionManager:
                 on_event=lambda _: asyncio.ensure_future(self._notify_sse()),
             )
         except ValueError:
-            return ActionResult(status=Status.MISSING_SAVE_STATES)
+            raise MissingSaveStatesError()
 
         self.speed_run_session = sr
         self.speed_run_task = asyncio.create_task(sr.run_loop())
@@ -486,7 +493,7 @@ class SessionManager:
         if self.mode == Mode.SPEED_RUN:
             self.mode = Mode.IDLE
             return ActionResult(status=Status.STOPPED)
-        return ActionResult(status=Status.NOT_RUNNING)
+        raise NotRunningError()
 
     async def _handle_speed_run_checkpoint(self, event: SpeedRunCheckpointEvent) -> None:
         if self.mode != Mode.SPEED_RUN or not self.speed_run_session:
@@ -516,8 +523,15 @@ class SessionManager:
         self._clear_ref_and_idle()
 
     async def shutdown(self) -> None:
-        await self.stop_practice()
-        await self.stop_speed_run()
+        from .errors import NotRunningError
+        try:
+            await self.stop_practice()
+        except NotRunningError:
+            pass
+        try:
+            await self.stop_speed_run()
+        except NotRunningError:
+            pass
         if self.mode == Mode.REFERENCE:
             self._clear_ref_and_idle()
         await self.tcp.disconnect()

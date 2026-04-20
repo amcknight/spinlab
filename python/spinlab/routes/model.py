@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException
 
 logger = logging.getLogger(__name__)
 
-from spinlab.dashboard import _check_result
 from spinlab.db import Database
 from spinlab.estimators import get_estimator, list_estimators
 from spinlab.scheduler import _attempts_from_rows

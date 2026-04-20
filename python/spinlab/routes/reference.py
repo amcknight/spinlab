@@ -5,7 +5,6 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from spinlab.dashboard import _check_result
 from spinlab.db import Database
 from spinlab.protocol import SPEED_UNCAPPED
 from spinlab.session_manager import SessionManager
@@ -17,12 +16,12 @@ router = APIRouter(prefix="/api")
 
 @router.post("/reference/start")
 async def reference_start(session: SessionManager = Depends(get_session)):
-    return _check_result(await session.start_reference())
+    return (await session.start_reference()).to_response()
 
 
 @router.post("/reference/stop")
 async def reference_stop(session: SessionManager = Depends(get_session)):
-    return _check_result(await session.stop_reference())
+    return (await session.stop_reference()).to_response()
 
 
 @router.post("/replay/start")
@@ -34,12 +33,12 @@ async def replay_start(req: Request, session: SessionManager = Depends(get_sessi
         raise HTTPException(status_code=400, detail="ref_id required")
     gid = session.game_id or "unknown"
     spinrec_path = str((session.data_dir / gid / "rec" / f"{ref_id}.spinrec").resolve())
-    return _check_result(await session.start_replay(spinrec_path, speed=speed))
+    return (await session.start_replay(spinrec_path, speed=speed)).to_response()
 
 
 @router.post("/replay/stop")
 async def replay_stop(session: SessionManager = Depends(get_session)):
-    return _check_result(await session.stop_replay())
+    return (await session.stop_replay()).to_response()
 
 
 @router.get("/references")
@@ -67,12 +66,12 @@ def create_reference(body: dict, session: SessionManager = Depends(get_session),
 async def draft_save(req: Request, session: SessionManager = Depends(get_session)):
     body = await req.json()
     name = body.get("name", "Untitled")
-    return _check_result(await session.save_draft(name))
+    return (await session.save_draft(name)).to_response()
 
 
 @router.post("/references/draft/discard")
 async def draft_discard(session: SessionManager = Depends(get_session)):
-    return _check_result(await session.discard_draft())
+    return (await session.discard_draft()).to_response()
 
 
 @router.get("/references/{ref_id}/spinrec")

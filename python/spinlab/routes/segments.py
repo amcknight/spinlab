@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException
 logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 
-from spinlab.dashboard import _check_result
 from spinlab.db import Database
 from spinlab.session_manager import SessionManager
 
@@ -64,4 +63,4 @@ def delete_segment(segment_id: str, db: Database = Depends(get_db)):
 
 @router.post("/segments/{segment_id}/fill-gap")
 async def fill_gap(segment_id: str, session: SessionManager = Depends(get_session)):
-    return _check_result(await session.start_fill_gap(segment_id))
+    return (await session.start_fill_gap(segment_id)).to_response()

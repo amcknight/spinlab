@@ -61,23 +61,11 @@ class EventType(StrEnum):
 
 
 class Status(StrEnum):
+    """Success outcomes from controller actions. Errors are raised as ActionError subclasses."""
     OK = "ok"
     STARTED = "started"
     STOPPED = "stopped"
-    NOT_CONNECTED = "not_connected"
-    DRAFT_PENDING = "draft_pending"
-    PRACTICE_ACTIVE = "practice_active"
-    REFERENCE_ACTIVE = "reference_active"
-    ALREADY_RUNNING = "already_running"
-    ALREADY_REPLAYING = "already_replaying"
-    NOT_IN_REFERENCE = "not_in_reference"
-    NOT_REPLAYING = "not_replaying"
-    NOT_RUNNING = "not_running"
-    NO_DRAFT = "no_draft"
-    NO_HOT_VARIANT = "no_hot_variant"
     NO_GAPS = "no_gaps"
-    SHUTTING_DOWN = "shutting_down"
-    MISSING_SAVE_STATES = "missing_save_states"
 
 
 class AttemptSource(StrEnum):

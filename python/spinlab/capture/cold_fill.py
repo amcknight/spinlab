@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from ..errors import NotConnectedError
 from ..models import ActionResult, Mode, Status, WaypointSaveState
 from ..protocol import ColdFillLoadCmd
 
@@ -31,7 +32,7 @@ class ColdFillController:
         """Begin cold-fill for all segments missing cold save states."""
         if not self.tcp.is_connected:
             logger.info("cold_fill: skipped — TCP not connected")
-            return ActionResult(status=Status.NOT_CONNECTED)
+            raise NotConnectedError()
         gaps = self.db.segments_missing_cold(game_id)
         if not gaps:
             logger.info("cold_fill: no gaps found — all segments have cold states")
