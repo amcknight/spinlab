@@ -5,8 +5,7 @@
 -- Keyboard (manual testing):
 --   T = save state to test file
 --   Y = load state from test file
--- TCP commands: ping, save, load, save:<path>, load:<path>,
---               practice_load:<json>, practice_stop, quit
+-- TCP commands: JSON messages via send_command() (see handle_json_message)
 --
 -- Mesen2 API notes:
 --   emu.createSavestate() / emu.loadSavestate(data) -- must call from cpuExec callback
@@ -1347,97 +1346,6 @@ local function handle_json_message(line)
   end
 end
 
--- DEPRECATED: these prefixed handlers are kept for backward compatibility.
--- Remove once all Python code uses JSON-only commands via send_command().
-local text_commands = {
-  save = function()
-    table.insert(pending_saves, TEST_STATE_FILE)
-    client:send("ok:queued\n")
-  end,
-  load = function()
-    table.insert(pending_loads, TEST_STATE_FILE)
-    client:send("ok:queued\n")
-  end,
-  -- DEPRECATED: these prefixed handlers are kept for backward compatibility.
-  -- Remove once all Python code uses JSON-only commands via send_command().
-  practice_stop = function()
-    practice_reset()
-    pending_loads     = {}
-    client:send("ok\n")
-    log("Practice mode stopped")
-  end,
-  reset = function()
-    practice_reset()
-    pending_loads     = {}
-    pending_saves     = {}
-    pending_reset     = true
-    client:send("ok\n")
-    log("Reset queued: practice cleared, SNES reset on next cpuExec")
-  end,
-  ping = function()
-    client:send("pong\n")
-  end,
-  quit = function()
-    client:send("bye\n")
-    client:close()
-    client = nil
-    log("TCP client disconnected")
-  end,
-}
-
-local prefixed_commands = {
-  ["load"] = function(arg)
-    table.insert(pending_loads, arg)
-    client:send("ok:queued\n")
-  end,
-  ["save"] = function(arg)
-    table.insert(pending_saves, arg)
-    client:send("ok:queued\n")
-  end,
-  ["set_conditions"] = function(arg)
-    -- arg is JSON array: [{"name":"...","address":N,"size":N}, ...]
-    local defs, err = parse_conditions_json(arg)
-    if not defs then
-      log("set_conditions: invalid payload — " .. tostring(err))
-      client:send("err:set_conditions_invalid\n")
-      return
-    end
-    condition_defs = defs
-    client:send("ok:conditions_set\n")
-    log("set_conditions: loaded " .. #condition_defs .. " conditions")
-  end,
-  ["set_invalidate_combo"] = function(arg)
-    -- arg is a JSON array of SNES button name strings: ["L","Select"]
-    local ok, result = pcall(parse_string_array, arg)
-    if not ok then
-      log("set_invalidate_combo: invalid payload — " .. tostring(result))
-      client:send("err:set_invalidate_combo_invalid\n")
-      return
-    end
-    invalidate_combo = result
-    client:send("ok:invalidate_combo_set\n")
-    log("set_invalidate_combo: " .. arg)
-  end,
-  ["practice_load"] = function(arg)
-    local json_str = arg
-    practice.segment         = parse_practice_segment(json_str)
-    practice.auto_advance_ms = practice.segment.auto_advance_delay_ms or 2000
-    practice.active          = true
-    practice.state           = PSTATE_LOADING
-    local sp = practice.segment.state_path
-    if not sp or sp == "" then
-      log("ERROR: No valid state_path for segment " .. (practice.segment.id or "?"))
-      client:send("err:no_state_path\n")
-      practice_reset()
-    else
-      table.insert(pending_loads, sp)
-      practice.start_ms = ts_ms()
-      client:send("ok:queued\n")
-      log("Practice load queued: " .. (practice.segment.id or "?"))
-    end
-  end,
-}
-
 local function tcp_dispatch(line)
   log("TCP received: " .. line)
 
@@ -1450,23 +1358,6 @@ local function tcp_dispatch(line)
   if line:sub(1, 1) == "{" then
     handle_json_message(line)
     return
-  end
-
-  -- Exact-match text commands
-  local handler = text_commands[line]
-  if handler then
-    handler()
-    return
-  end
-
-  -- Prefixed commands (prefix:argument)
-  local prefix, arg = line:match("^([^:]+):(.+)$")
-  if prefix then
-    local pfx_handler = prefixed_commands[prefix]
-    if pfx_handler then
-      pfx_handler(arg)
-      return
-    end
   end
 
   log("ERROR: unknown command: " .. line)
