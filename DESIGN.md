@@ -71,7 +71,7 @@ EVERY FRAME:
   4. IF mode == PRACTICE and state == RESULT:
      - Draw overlay: segment name, goal, your time vs expected, auto-advance timer
      - After `auto_advance_delay_ms`, send `attempt_result` event over TCP
-     - Wait for next `practice_load:` command from orchestrator
+     - Wait for next `practice_load` command from orchestrator
      - Load state: data = io.open(path, "rb"):read("*a"); emu.loadSavestate(data)
      - Clear overlay, resume play
 
@@ -134,9 +134,8 @@ TCP socket, newline-delimited JSON messages. Port 15482 (configurable).
 
 ### 3.1 Python → Lua Messages
 
-Messages use `"event"` as the type field. Two formats are supported:
+All messages are JSON with `"event"` as the type field:
 
-**JSON messages** (start with `{`):
 ```jsonc
 // Set game context (sent after rom_info auto-discovery)
 {"event": "game_context", "game_id": "abc123", "game_name": "SMW Hack"}
@@ -153,31 +152,25 @@ Messages use `"event"` as the type field. Two formats are supported:
 // Stop replay
 {"event": "replay_stop"}
 
-// Load state for fill-gap mode
+// Load state for fill-gap mode (single segment)
 {"event": "fill_gap_load", "state_path": "/abs/path/to/state.mss", "message": "Die to capture cold start"}
-```
 
-**Text commands** (plain strings, no JSON):
-```
-ping                                    → pong
-save                                    → ok:queued (save test state)
-load                                    → ok:queued (load test state)
-save:/abs/path.mss                      → ok:queued
-load:/abs/path.mss                      → ok:queued
-practice_load:{json}                    → ok:queued (load segment for practice)
-practice_stop                           → ok
-reset                                   → ok (stops practice, queues SNES reset)
-quit                                    → bye (closes connection)
-```
+// Load state for cold-fill mode (batch queue)
+{"event": "cold_fill_load", "state_path": "/abs/path/to/state.mss", "segment_id": "seg_id"}
 
-The `practice_load` JSON payload matches `SegmentCommand.to_dict()`:
-```jsonc
-{"id": "gameid:105:entrance.0:goal.0",
- "state_path": "/abs/path/to/state.mss",
- "description": "Level description",
- "end_type": "goal",
- "expected_time_ms": 34200,
- "auto_advance_delay_ms": 1000}
+// Load segment for practice
+{"event": "practice_load", "id": "gameid:105:entrance.0:goal.0",
+ "state_path": "/abs/path/to/state.mss", "description": "Level description",
+ "end_type": "goal", "expected_time_ms": 34200, "auto_advance_delay_ms": 1000}
+
+// Stop practice
+{"event": "practice_stop"}
+
+// Set game-specific conditions (memory watches)
+{"event": "set_conditions", "definitions": [{"name": "powerup", "address": 25, "size": 1}]}
+
+// Set invalidation combo (button combo to mark attempt invalid)
+{"event": "set_invalidate_combo", "combo": ["L", "Select"]}
 ```
 
 ### 3.2 Lua → Python Messages
@@ -208,7 +201,7 @@ The `practice_load` JSON payload matches `SegmentCommand.to_dict()`:
  "completed": true, "time_ms": 34210, "goal": "goal"}
 ```
 
-**Plain text responses**: `pong`, `ok`, `ok:queued`, `ok:recording`, `ok:stopped`, `ok:replay_stopped`, `bye`, `err:unknown_command`, `err:no_state_path`, `heartbeat`
+**Plain text responses**: `ok`, `ok:queued`, `ok:recording`, `ok:stopped`, `ok:replay_stopped`, `ok:fill_gap`, `ok:cold_fill`, `ok:conditions_set`, `ok:invalidate_combo_set`, `err:unknown_command`, `err:no_state_path`, `heartbeat`
 
 ### 3.3 Connection Lifecycle
 

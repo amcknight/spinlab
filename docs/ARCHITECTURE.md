@@ -22,7 +22,7 @@
 
 Mesen2 has LuaSocket compiled in. The Lua script runs a TCP server; Python connects as client. Messages are newline-delimited JSON.
 
-**Python → Lua commands:** `reference_start`, `reference_stop`, `replay`, `replay_stop`, `practice_load:<json>`, `practice_stop`, `fill_gap_load`.
+**Python → Lua commands:** `game_context`, `reference_start`, `reference_stop`, `replay`, `replay_stop`, `practice_load`, `practice_stop`, `speed_run_load`, `speed_run_stop`, `fill_gap_load`, `cold_fill_load`, `set_conditions`, `set_invalidate_combo`. All JSON format.
 
 **Lua → Python events:** `rom_info`, `game_context`, `level_entrance`, `checkpoint`, `death`, `spawn`, `level_exit`, `attempt_result`, `rec_saved`, `replay_started`, `replay_progress`, `replay_finished`, `replay_error`.
 
