@@ -93,3 +93,45 @@ class FakeTcpManager:
 def fake_tcp():
     """Fresh FakeTcpManager per test, starts connected."""
     return FakeTcpManager(connected=True)
+
+
+from spinlab.db import Database
+from spinlab.models import Segment, Waypoint, WaypointSaveState
+
+
+def make_seg_with_state(db, game_id, level, start_type, end_type,
+                        state_path, ordinal=1):
+    """Create waypoints + segment + hot save state; return segment."""
+    wp_start = Waypoint.make(game_id, level, start_type, 0, {})
+    wp_end = Waypoint.make(game_id, level, end_type, 0, {})
+    db.upsert_waypoint(wp_start)
+    db.upsert_waypoint(wp_end)
+    seg = Segment(
+        id=Segment.make_id(game_id, level, start_type, 0, end_type, 0,
+                           wp_start.id, wp_end.id),
+        game_id=game_id, level_number=level,
+        start_type=start_type, start_ordinal=0,
+        end_type=end_type, end_ordinal=0,
+        description=f"L{level}" if start_type == "entrance" else "",
+        ordinal=ordinal,
+        start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
+    )
+    db.upsert_segment(seg)
+    db.add_save_state(WaypointSaveState(
+        waypoint_id=wp_start.id, variant_type="hot",
+        state_path=str(state_path), is_default=True,
+    ))
+    return seg
+
+
+@pytest.fixture
+def practice_db(tmp_path):
+    """Real DB with one game + one entrance->goal segment for practice tests."""
+    d = Database(tmp_path / "test.db")
+    d.upsert_game("g", "Game", "any%")
+    state_file = tmp_path / "test.mss"
+    state_file.write_bytes(b"fake state")
+    seg = make_seg_with_state(d, "g", 1, "entrance", "goal", state_file)
+    d._test_seg_id = seg.id
+    d._test_state_file = state_file
+    return d

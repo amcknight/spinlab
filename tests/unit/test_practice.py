@@ -2,56 +2,17 @@
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from pathlib import Path
 
-from spinlab.db import Database
-from spinlab.models import Segment, Waypoint, WaypointSaveState
+from spinlab.models import Segment, Waypoint
 from spinlab.practice import PracticeSession
 from spinlab.protocol import PracticeLoadCmd
 from spinlab.scheduler import Scheduler
 
 
-def _make_seg_with_state(db, game_id, level, start_type, end_type,
-                         state_path, ordinal=1):
-    """Create waypoints + segment + hot save state; return segment."""
-    wp_start = Waypoint.make(game_id, level, start_type, 0, {})
-    wp_end = Waypoint.make(game_id, level, end_type, 0, {})
-    db.upsert_waypoint(wp_start)
-    db.upsert_waypoint(wp_end)
-    seg = Segment(
-        id=Segment.make_id(game_id, level, start_type, 0, end_type, 0,
-                           wp_start.id, wp_end.id),
-        game_id=game_id, level_number=level,
-        start_type=start_type, start_ordinal=0,
-        end_type=end_type, end_ordinal=0,
-        description="L1" if start_type == "entrance" else "",
-        ordinal=ordinal,
-        start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
-    )
-    db.upsert_segment(seg)
-    db.add_save_state(WaypointSaveState(
-        waypoint_id=wp_start.id, variant_type="hot",
-        state_path=str(state_path), is_default=True,
-    ))
-    return seg
-
-
-@pytest.fixture
-def db(tmp_path):
-    d = Database(tmp_path / "test.db")
-    d.upsert_game("g", "Game", "any%")
-    state_file = tmp_path / "test.mss"
-    state_file.write_bytes(b"fake state")
-    seg = _make_seg_with_state(d, "g", 1, "entrance", "goal", state_file)
-    d._test_seg_id = seg.id
-    d._test_state_file = state_file
-    return d
-
-
 @pytest.mark.asyncio
-async def test_practice_session_picks_and_sends(db):
+async def test_practice_session_picks_and_sends(practice_db):
     """Practice session should pick a segment and send practice_load."""
-    seg_id = db._test_seg_id
+    seg_id = practice_db._test_seg_id
     mock_tcp = AsyncMock()
     mock_tcp.is_connected = True
     mock_tcp.send = AsyncMock()
@@ -65,7 +26,7 @@ async def test_practice_session_picks_and_sends(db):
         "time_ms": 4500,
     }
 
-    session = PracticeSession(tcp=mock_tcp, db=db, game_id="g")
+    session = PracticeSession(tcp=mock_tcp, db=practice_db, game_id="g")
     session.is_running = True
 
     # Deliver result via receive_result after a short delay
@@ -82,14 +43,14 @@ async def test_practice_session_picks_and_sends(db):
     assert isinstance(cmd, PracticeLoadCmd)
 
     # Verify attempt was logged
-    attempts = db.get_segment_attempts(seg_id)
+    attempts = practice_db.get_segment_attempts(seg_id)
     assert len(attempts) == 1
     assert attempts[0]["completed"] == 1
 
 
 @pytest.mark.asyncio
-async def test_practice_session_state(db):
-    session = PracticeSession(tcp=AsyncMock(), db=db, game_id="g")
+async def test_practice_session_state(practice_db):
+    session = PracticeSession(tcp=AsyncMock(), db=practice_db, game_id="g")
     assert session.is_running is False
     assert session.current_segment_id is None
     assert session.segments_attempted == 0
@@ -149,17 +110,17 @@ class TestReceiveResult:
         assert ps.segments_completed == 1
 
 
-def test_snapshot_expected_times_at_start(db):
+def test_snapshot_expected_times_at_start(practice_db):
     """start() should populate initial_expected_total_ms and _clean_ms
     with the sum of expected_ms across practicable segments."""
-    seg_id = db._test_seg_id
+    seg_id = practice_db._test_seg_id
     # Seed an attempt so the estimator produces an expected_ms.
-    sched = Scheduler(db, "g")
+    sched = Scheduler(practice_db, "g")
     sched.process_attempt(seg_id, time_ms=5000, completed=True, deaths=0)
 
     tcp = AsyncMock()
     tcp.is_connected = True
-    ps = PracticeSession(tcp=tcp, db=db, game_id="g")
+    ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
     ps.start()
 
     assert ps.initial_expected_total_ms is not None
@@ -169,14 +130,14 @@ def test_snapshot_expected_times_at_start(db):
     assert ps.initial_expected_clean_ms > 0
 
 
-def test_snapshot_skips_segments_without_state_path(db, tmp_path):
+def test_snapshot_skips_segments_without_state_path(practice_db, tmp_path):
     """Segments whose state_path does not exist on disk are excluded."""
-    seg_id = db._test_seg_id
+    seg_id = practice_db._test_seg_id
     # Add a second segment with no waypoint save state -> state_path = None
     wp_start2 = Waypoint.make("g", 2, "entrance", 0, {"n": "2"})
     wp_end2 = Waypoint.make("g", 2, "goal", 0, {"n": "2"})
-    db.upsert_waypoint(wp_start2)
-    db.upsert_waypoint(wp_end2)
+    practice_db.upsert_waypoint(wp_start2)
+    practice_db.upsert_waypoint(wp_end2)
     seg2_id = Segment.make_id("g", 2, "entrance", 0, "goal", 0,
                               wp_start2.id, wp_end2.id)
     seg2 = Segment(
@@ -186,17 +147,17 @@ def test_snapshot_skips_segments_without_state_path(db, tmp_path):
         description="L2", ordinal=2,
         start_waypoint_id=wp_start2.id, end_waypoint_id=wp_end2.id,
     )
-    db.upsert_segment(seg2)
+    practice_db.upsert_segment(seg2)
     # No save state for wp_start2 => state_path will be NULL
 
     # Seed attempts on BOTH segments so they each have estimates.
-    sched = Scheduler(db, "g")
+    sched = Scheduler(practice_db, "g")
     sched.process_attempt(seg_id, time_ms=5000, completed=True, deaths=0)
     sched.process_attempt(seg2_id, time_ms=8000, completed=True, deaths=0)
 
     tcp = AsyncMock()
     tcp.is_connected = True
-    ps = PracticeSession(tcp=tcp, db=db, game_id="g")
+    ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
     ps.start()
 
     # Only seg_id had a real state_path; seg2 contributes nothing.
@@ -205,12 +166,12 @@ def test_snapshot_skips_segments_without_state_path(db, tmp_path):
     assert ps.initial_expected_total_ms < 6000
 
 
-def test_snapshot_all_missing_returns_none(db):
+def test_snapshot_all_missing_returns_none(practice_db):
     """When no segment has estimates at session start, both snapshots are None."""
     tcp = AsyncMock()
     tcp.is_connected = True
     # No process_attempt call -> no model state -> no expected_ms
-    ps = PracticeSession(tcp=tcp, db=db, game_id="g")
+    ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
     ps.start()
 
     assert ps.initial_expected_total_ms is None
@@ -218,9 +179,9 @@ def test_snapshot_all_missing_returns_none(db):
 
 
 @pytest.mark.asyncio
-async def test_practice_session_passes_death_penalty_ms(db):
+async def test_practice_session_passes_death_penalty_ms(practice_db):
     """PracticeSession should forward death_penalty_ms to PracticeLoadCmd."""
-    seg_id = db._test_seg_id
+    seg_id = practice_db._test_seg_id
     mock_tcp = AsyncMock()
     mock_tcp.is_connected = True
     mock_tcp.send_command = AsyncMock()
@@ -232,7 +193,7 @@ async def test_practice_session_passes_death_penalty_ms(db):
         "time_ms": 4500,
     }
 
-    session = PracticeSession(tcp=mock_tcp, db=db, game_id="g", death_penalty_ms=2500)
+    session = PracticeSession(tcp=mock_tcp, db=practice_db, game_id="g", death_penalty_ms=2500)
     session.is_running = True
 
     async def deliver():
@@ -248,15 +209,15 @@ async def test_practice_session_passes_death_penalty_ms(db):
     assert cmd.death_penalty_ms == 2500
 
 
-def test_current_expected_times_reflects_model_updates(db):
+def test_current_expected_times_reflects_model_updates(practice_db):
     """After process_attempt runs, current_expected_times() returns the new sum."""
-    seg_id = db._test_seg_id
-    sched = Scheduler(db, "g")
+    seg_id = practice_db._test_seg_id
+    sched = Scheduler(practice_db, "g")
     sched.process_attempt(seg_id, time_ms=5000, completed=True, deaths=0)
 
     tcp = AsyncMock()
     tcp.is_connected = True
-    ps = PracticeSession(tcp=tcp, db=db, game_id="g")
+    ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
     ps.start()
     initial_total = ps.initial_expected_total_ms
 
