@@ -8,6 +8,16 @@ import pytest
 
 from spinlab.capture import ReferenceController
 from spinlab.db import Database
+from spinlab.errors import (
+    AlreadyReplayingError,
+    DraftPendingError,
+    NoHotVariantError,
+    NotConnectedError,
+    NotInReferenceError,
+    NotReplayingError,
+    PracticeActiveError,
+    ReferenceActiveError,
+)
 from spinlab.models import EndpointType, Mode, Segment, Status, Waypoint, WaypointSaveState
 from spinlab.protocol import (
     FillGapLoadCmd,
@@ -34,21 +44,21 @@ def controller(db, fake_tcp):
 class TestStartReference:
     async def test_guard_draft_pending(self, controller, tmp_path):
         controller.draft.run_id = "fake_draft_run"
-        result = await controller.start_reference(Mode.IDLE, "g1", tmp_path, run_name="test")
-        assert result.status == Status.DRAFT_PENDING
+        with pytest.raises(DraftPendingError):
+            await controller.start_reference(Mode.IDLE, "g1", tmp_path, run_name="test")
 
     async def test_guard_practice_active(self, controller, tmp_path):
-        result = await controller.start_reference(Mode.PRACTICE, "g1", tmp_path)
-        assert result.status == Status.PRACTICE_ACTIVE
+        with pytest.raises(PracticeActiveError):
+            await controller.start_reference(Mode.PRACTICE, "g1", tmp_path)
 
     async def test_guard_already_replaying(self, controller, tmp_path):
-        result = await controller.start_reference(Mode.REPLAY, "g1", tmp_path)
-        assert result.status == Status.ALREADY_REPLAYING
+        with pytest.raises(AlreadyReplayingError):
+            await controller.start_reference(Mode.REPLAY, "g1", tmp_path)
 
     async def test_guard_not_connected(self, controller, tmp_path, fake_tcp):
         fake_tcp.is_connected = False
-        result = await controller.start_reference(Mode.IDLE, "g1", tmp_path)
-        assert result.status == Status.NOT_CONNECTED
+        with pytest.raises(NotConnectedError):
+            await controller.start_reference(Mode.IDLE, "g1", tmp_path)
 
     async def test_happy_path(self, controller, tmp_path, fake_tcp):
         result = await controller.start_reference(Mode.IDLE, "g1", tmp_path, run_name="my run")
@@ -61,8 +71,8 @@ class TestStartReference:
 
 class TestStopReference:
     async def test_not_in_reference(self, controller):
-        result = await controller.stop_reference(Mode.IDLE)
-        assert result.status == Status.NOT_IN_REFERENCE
+        with pytest.raises(NotInReferenceError):
+            await controller.stop_reference(Mode.IDLE)
 
     async def test_happy_path_enters_draft(self, controller, tmp_path, fake_tcp):
         await controller.start_reference(Mode.IDLE, "g1", tmp_path)
@@ -78,12 +88,12 @@ class TestStopReference:
 
 class TestStartReplay:
     async def test_guard_reference_active(self, controller):
-        result = await controller.start_replay(Mode.REFERENCE, "g1", "/tmp/foo.spinrec")
-        assert result.status == Status.REFERENCE_ACTIVE
+        with pytest.raises(ReferenceActiveError):
+            await controller.start_replay(Mode.REFERENCE, "g1", "/tmp/foo.spinrec")
 
     async def test_guard_already_replaying(self, controller):
-        result = await controller.start_replay(Mode.REPLAY, "g1", "/tmp/foo.spinrec")
-        assert result.status == Status.ALREADY_REPLAYING
+        with pytest.raises(AlreadyReplayingError):
+            await controller.start_replay(Mode.REPLAY, "g1", "/tmp/foo.spinrec")
 
     async def test_happy_path(self, controller, fake_tcp):
         result = await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec", speed=2)
@@ -97,8 +107,8 @@ class TestStartReplay:
 
 class TestStopReplay:
     async def test_not_replaying(self, controller):
-        result = await controller.stop_replay(Mode.IDLE)
-        assert result.status == Status.NOT_REPLAYING
+        with pytest.raises(NotReplayingError):
+            await controller.stop_replay(Mode.IDLE)
 
     async def test_no_segments_hard_deletes_run(self, controller, db, fake_tcp):
         await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
@@ -141,8 +151,8 @@ class TestHandleDisconnect:
 class TestStartFillGap:
     async def test_not_connected(self, controller, fake_tcp):
         fake_tcp.is_connected = False
-        result = await controller.start_fill_gap("seg1")
-        assert result.status == Status.NOT_CONNECTED
+        with pytest.raises(NotConnectedError):
+            await controller.start_fill_gap("seg1")
 
     async def test_no_hot_variant(self, controller, db):
         wp_start = Waypoint.make("g1", 1, "entrance", 0, {})
@@ -157,8 +167,8 @@ class TestStartFillGap:
         )
         db.upsert_segment(seg)
 
-        result = await controller.start_fill_gap("seg1")
-        assert result.status == Status.NO_HOT_VARIANT
+        with pytest.raises(NoHotVariantError):
+            await controller.start_fill_gap("seg1")
 
     async def test_happy_path(self, controller, db, tmp_path, fake_tcp):
         wp_start = Waypoint.make("g1", 1, "entrance", 0, {})
