@@ -6,6 +6,7 @@ from spinlab.protocol import ColdFillLoadCmd
 import pytest
 
 from spinlab.capture import ColdFillController
+from spinlab.errors import NotConnectedError
 from spinlab.models import Mode, Status, WaypointSaveState
 
 
@@ -67,8 +68,8 @@ class TestStartColdFill:
     async def test_start_cold_fill_not_connected(self, tcp, db):
         tcp.is_connected = False
         cc = ColdFillController(db, tcp)
-        result = await cc.start("g1")
-        assert result.status == Status.NOT_CONNECTED
+        with pytest.raises(NotConnectedError):
+            await cc.start("g1")
 
 
 class TestHandleColdFillSpawn:
