@@ -143,18 +143,22 @@ local practice = {
     last_death_ms = 0,    -- timestamp of most recent death reload
 }
 
-local function practice_reset()
-    practice.active = false
-    practice.state = PSTATE_IDLE
-    practice.segment = nil
-    practice.start_ms = 0
-    practice.elapsed_ms = 0
-    practice.completed = false
-    practice.result_start_ms = 0
-    practice.auto_advance_ms = AUTO_ADVANCE_DEFAULT_MS
-    practice.deaths = 0           -- number of deaths in this attempt
-    practice.last_death_ms = 0    -- timestamp of most recent death reload
+local function reset_mode_state(tbl)
+    tbl.active = false
+    tbl.state = PSTATE_IDLE
+    tbl.segment = nil
+    tbl.start_ms = 0
+    tbl.elapsed_ms = 0
+    tbl.result_start_ms = 0
+    tbl.auto_advance_ms = AUTO_ADVANCE_DEFAULT_MS
     reset_transition_state()
+end
+
+local function practice_reset()
+    reset_mode_state(practice)
+    practice.completed = false
+    practice.deaths = 0
+    practice.last_death_ms = 0
 end
 
 -- Speed run state
@@ -173,18 +177,11 @@ local speed_run = {
 }
 
 local function speed_run_reset()
-    speed_run.active = false
-    speed_run.state = PSTATE_IDLE
-    speed_run.segment = nil
-    speed_run.start_ms = 0
+    reset_mode_state(speed_run)
     speed_run.split_ms = 0
-    speed_run.elapsed_ms = 0
     speed_run.respawn_path = ""
     speed_run.cp_index = 0
-    speed_run.result_start_ms = 0
     speed_run.result_split_ms = 0
-    speed_run.auto_advance_ms = AUTO_ADVANCE_DEFAULT_MS
-    reset_transition_state()
 end
 
 -- Recording state (passive mode input capture)
