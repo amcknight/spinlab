@@ -81,8 +81,12 @@ def test_clear_resets_segment_times(db, registry):
 
     cap.clear()
     assert cap.segment_times == []
-    assert cap._deaths_in_segment == 0
-    assert cap._last_spawn_ms is None
+
+    # After clear, a new segment should start fresh with zero deaths
+    cap.handle_entrance({"level": 2, "timestamp_ms": 10000, "state_path": "/s2.mss"})
+    cap.handle_exit({"level": 2, "goal": "goal", "timestamp_ms": 15000}, "g1", db, registry)
+    assert cap.segment_times[0].deaths == 0
+    assert cap.segment_times[0].clean_tail_ms == 5000
 
 
 def test_abort_exit_no_timing(db, registry):
@@ -95,7 +99,7 @@ def test_abort_exit_no_timing(db, registry):
 
 
 def test_death_via_handle_death_increments_counter(db, registry):
-    """handle_death increments _deaths_in_segment."""
+    """Two deaths during a segment are reflected in the recorded segment time."""
     cap = SegmentRecorder()
     cap.capture_run_id = "run1"
     cap.handle_entrance({
@@ -104,4 +108,7 @@ def test_death_via_handle_death_increments_counter(db, registry):
     })
     cap.handle_death(timestamp_ms=2000)
     cap.handle_death(timestamp_ms=3000)
-    assert cap._deaths_in_segment == 2
+    cap.handle_spawn_timing(timestamp_ms=4000)
+    cap.handle_exit({"level": 1, "goal": "goal", "timestamp_ms": 6000}, "g1", db, registry)
+
+    assert cap.segment_times[0].deaths == 2
