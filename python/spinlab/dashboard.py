@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from .config import AppConfig, EmulatorConfig, NetworkConfig
 from .db import Database
+from .errors import ActionError
 from .models import ActionResult, Status
 from .session_manager import SessionManager
 from .tcp_manager import TcpManager
@@ -94,6 +95,10 @@ def create_app(
             terminate_vite(vite_process)
 
     app = FastAPI(title="SpinLab Dashboard", lifespan=lifespan)
+
+    @app.exception_handler(ActionError)
+    async def action_error_handler(request: Request, exc: ActionError):
+        return JSONResponse(status_code=exc.http_code, content={"detail": exc.detail})
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):

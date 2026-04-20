@@ -54,3 +54,51 @@ def test_detail_codes_unique():
     for cls, _, detail in ERROR_TABLE:
         assert detail not in seen, f"duplicate detail {detail}"
         seen.add(detail)
+
+
+# --- FastAPI handler integration ---
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from starlette.responses import JSONResponse
+
+
+def _build_app_with_raising_route(exc_factory):
+    """Minimal app with the ActionError handler wired up."""
+    from spinlab.errors import ActionError
+
+    app = FastAPI()
+
+    @app.exception_handler(ActionError)
+    async def _handle(request, exc: ActionError):
+        return JSONResponse(status_code=exc.http_code, content={"detail": exc.detail})
+
+    @app.get("/boom")
+    def boom():
+        raise exc_factory()
+
+    return app
+
+
+def test_handler_maps_not_connected_to_503():
+    app = _build_app_with_raising_route(NotConnectedError)
+    client = TestClient(app)
+    resp = client.get("/boom")
+    assert resp.status_code == 503
+    assert resp.json() == {"detail": "not_connected"}
+
+
+def test_handler_maps_draft_pending_to_409():
+    app = _build_app_with_raising_route(DraftPendingError)
+    client = TestClient(app)
+    resp = client.get("/boom")
+    assert resp.status_code == 409
+    assert resp.json() == {"detail": "draft_pending"}
+
+
+def test_handler_maps_no_draft_to_404():
+    app = _build_app_with_raising_route(NoDraftError)
+    client = TestClient(app)
+    resp = client.get("/boom")
+    assert resp.status_code == 404
+    assert resp.json() == {"detail": "no_draft"}
