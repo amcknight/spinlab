@@ -64,37 +64,16 @@ class TestStatus:
         assert Status.OK == "ok"
         assert Status.STARTED == "started"
         assert Status.STOPPED == "stopped"
-
-    def test_error_statuses(self):
-        assert Status.NOT_CONNECTED == "not_connected"
-        assert Status.DRAFT_PENDING == "draft_pending"
+        assert Status.NO_GAPS == "no_gaps"
 
     def test_all_statuses_present(self):
-        expected = {
-            "ok",
-            "started",
-            "stopped",
-            "not_connected",
-            "draft_pending",
-            "practice_active",
-            "reference_active",
-            "already_running",
-            "already_replaying",
-            "not_in_reference",
-            "not_replaying",
-            "not_running",
-            "no_draft",
-            "no_hot_variant",
-            "no_gaps",
-            "shutting_down",
-            "missing_save_states",
-        }
+        expected = {"ok", "started", "stopped", "no_gaps"}
         actual = {s.value for s in Status}
         assert expected == actual
 
     def test_from_string(self):
         assert Status("ok") is Status.OK
-        assert Status("not_connected") is Status.NOT_CONNECTED
+        assert Status("no_gaps") is Status.NO_GAPS
 
     def test_invalid_raises(self):
         with pytest.raises(ValueError):

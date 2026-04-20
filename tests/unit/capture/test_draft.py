@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from spinlab.db import Database
-from spinlab.errors import NoDraftError
+from spinlab.errors import DraftPendingError, NoDraftError
 from spinlab.models import Mode, Segment, Status, Waypoint
 from spinlab.session_manager import SessionManager
 from spinlab.capture import DraftManager, RecordedSegmentTime
@@ -67,20 +67,20 @@ class TestDraftGuards:
     async def test_start_reference_blocked_by_draft(self, mock_db, mock_tcp, tmp_path):
         sm = make_sm(mock_db, mock_tcp, tmp_path)
         sm.draft.run_id = "draft_pending"
-        result = await sm.start_reference()
-        assert result.status == Status.DRAFT_PENDING
+        with pytest.raises(DraftPendingError):
+            await sm.start_reference()
 
     async def test_start_replay_blocked_by_draft(self, mock_db, mock_tcp, tmp_path):
         sm = make_sm(mock_db, mock_tcp, tmp_path)
         sm.draft.run_id = "draft_pending"
-        result = await sm.start_replay("/data/test.spinrec")
-        assert result.status == Status.DRAFT_PENDING
+        with pytest.raises(DraftPendingError):
+            await sm.start_replay("/data/test.spinrec")
 
     async def test_start_practice_blocked_by_draft(self, mock_db, mock_tcp, tmp_path):
         sm = make_sm(mock_db, mock_tcp, tmp_path)
         sm.draft.run_id = "draft_pending"
-        result = await sm.start_practice()
-        assert result.status == Status.DRAFT_PENDING
+        with pytest.raises(DraftPendingError):
+            await sm.start_practice()
 
 
 class TestSaveAndDiscard:

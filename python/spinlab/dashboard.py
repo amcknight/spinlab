@@ -7,13 +7,12 @@ import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .config import AppConfig, EmulatorConfig, NetworkConfig
 from .db import Database
 from .errors import ActionError
-from .models import ActionResult, Status
 from .session_manager import SessionManager
 from .tcp_manager import TcpManager
 
@@ -23,27 +22,6 @@ TCP_CONNECT_TIMEOUT_S = 2
 TCP_RETRY_DELAY_S = 2
 TCP_EVENT_TIMEOUT_S = 1.0
 SSE_KEEPALIVE_S = 30
-
-_ERROR_STATUS_CODES: dict[Status, int] = {
-    Status.NOT_CONNECTED: 503,
-    Status.DRAFT_PENDING: 409,
-    Status.PRACTICE_ACTIVE: 409,
-    Status.REFERENCE_ACTIVE: 409,
-    Status.ALREADY_RUNNING: 409,
-    Status.ALREADY_REPLAYING: 409,
-    Status.NOT_IN_REFERENCE: 409,
-    Status.NOT_REPLAYING: 409,
-    Status.NOT_RUNNING: 409,
-    Status.NO_DRAFT: 404,
-    Status.NO_HOT_VARIANT: 404,
-}
-
-
-def _check_result(result: ActionResult) -> dict:
-    code = _ERROR_STATUS_CODES.get(result.status)
-    if code:
-        raise HTTPException(status_code=code, detail=result.status.value)
-    return result.to_response()
 
 
 async def event_loop(session: SessionManager, tcp: TcpManager) -> None:
