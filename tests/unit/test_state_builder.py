@@ -45,7 +45,7 @@ class TestSpeedRunBranch:
         fake_sched = MagicMock()
         fake_sched.allocator.entries = []
         fake_sched.estimator.name = "kalman"
-        sm._get_scheduler.return_value = fake_sched
+        sm.get_scheduler.return_value = fake_sched
 
         fake_level = MagicMock()
         fake_level.level_number = 5
@@ -89,7 +89,7 @@ class TestColdFillBranch:
         fake_sched = MagicMock()
         fake_sched.allocator.entries = []
         fake_sched.estimator.name = "kalman"
-        sm._get_scheduler.return_value = fake_sched
+        sm.get_scheduler.return_value = fake_sched
 
         sm.cold_fill.get_state.return_value = {
             "current_segment_id": "seg1",
@@ -116,7 +116,7 @@ class TestColdFillBranch:
         fake_sched = MagicMock()
         fake_sched.allocator.entries = []
         fake_sched.estimator.name = "kalman"
-        sm._get_scheduler.return_value = fake_sched
+        sm.get_scheduler.return_value = fake_sched
 
         sm.cold_fill.get_state.return_value = None
 
@@ -137,7 +137,7 @@ class TestDraftBranch:
         fake_sched = MagicMock()
         fake_sched.allocator.entries = []
         fake_sched.estimator.name = "kalman"
-        sm._get_scheduler.return_value = fake_sched
+        sm.get_scheduler.return_value = fake_sched
 
         sm.capture.get_draft_state.return_value = {
             "run_id": "run-xyz", "segment_count": 7,

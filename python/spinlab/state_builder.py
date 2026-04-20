@@ -44,7 +44,7 @@ class StateBuilder:
         if session.game_id is None:
             return base
 
-        sched = session._get_scheduler()
+        sched = session.get_scheduler()
         base["allocator_weights"] = sched.all_weights
         base["estimator"] = sched.estimator.name
 
@@ -59,8 +59,8 @@ class StateBuilder:
         if session.mode == Mode.REPLAY:
             base["replay"] = {
                 "rec_path": session.capture.rec_path,
-                "frame": session._replay_frame,
-                "total": session._replay_total,
+                "frame": session.replay_frame,
+                "total": session.replay_total,
             }
 
         draft_state = session.capture.get_draft_state()

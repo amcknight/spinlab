@@ -73,8 +73,8 @@ class SessionManager:
         self.speed_run_task: asyncio.Task | None = None
 
         # Last-seen replay progress (frame/total from Lua replay_progress events)
-        self._replay_frame: int = 0
-        self._replay_total: int = 0
+        self.replay_frame: int = 0
+        self.replay_total: int = 0
 
         # Delegated components
         self.capture = ReferenceController(db, tcp)
@@ -163,14 +163,14 @@ class SessionManager:
         """Full state snapshot for API and SSE."""
         return self._state_builder.build(self)
 
-    def _get_scheduler(self):
+    def get_scheduler(self):
         """Lazy-init scheduler for current game."""
         if self.scheduler is None:
             from spinlab.scheduler import Scheduler
-            self.scheduler = Scheduler(self.db, self._require_game())
+            self.scheduler = Scheduler(self.db, self.require_game())
         return self.scheduler
 
-    def _require_game(self) -> str:
+    def require_game(self) -> str:
         if self.game_id is None:
             from fastapi import HTTPException
             raise HTTPException(status_code=409, detail="No game loaded")
@@ -236,10 +236,10 @@ class SessionManager:
             checksum = f"file_{name.lower().replace(' ', '_')}"
             logger.warning("ROM not found in rom_dir: %s — using filename as ID", filename)
         await self.switch_game(checksum, name)
-        await self._install_condition_registry(checksum)
+        await self.install_condition_registry(checksum)
         await self.tcp.send_command(GameContextCmd(game_id=checksum, game_name=name))
 
-    async def _install_condition_registry(self, game_id: str) -> None:
+    async def install_condition_registry(self, game_id: str) -> None:
         """Load per-game condition definitions and push them to Lua over TCP."""
         from .condition_registry import load_registry_for_game
         registry = load_registry_for_game(game_id)
@@ -268,7 +268,7 @@ class SessionManager:
     async def _handle_checkpoint(self, event: CheckpointEvent) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
-        self.capture.handle_checkpoint(dataclasses.asdict(event), self._require_game())
+        self.capture.handle_checkpoint(dataclasses.asdict(event), self.require_game())
         await self._notify_sse()
 
     async def _handle_death(self, event: DeathEvent) -> None:
@@ -293,12 +293,12 @@ class SessionManager:
                 await self._notify_sse()
             return
         if self.mode in (Mode.REFERENCE, Mode.REPLAY):
-            self.capture.handle_spawn(event_dict, self._require_game())
+            self.capture.handle_spawn(event_dict, self.require_game())
 
     async def _handle_level_exit(self, event: LevelExitEvent) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
-        self.capture.handle_exit(dataclasses.asdict(event), self._require_game())
+        self.capture.handle_exit(dataclasses.asdict(event), self.require_game())
         await self._notify_sse()
 
     async def _handle_attempt_result(self, event: AttemptResultEvent) -> None:
@@ -312,26 +312,26 @@ class SessionManager:
         self.capture.handle_rec_saved(dataclasses.asdict(event))
 
     async def _handle_replay_started(self, event: ReplayStartedEvent) -> None:
-        self._replay_frame = 0
-        self._replay_total = event.frame_count
+        self.replay_frame = 0
+        self.replay_total = event.frame_count
         await self._notify_sse()
 
     async def _handle_replay_progress(self, event: ReplayProgressEvent) -> None:
-        self._replay_frame = event.frame
-        self._replay_total = event.total
+        self.replay_frame = event.frame
+        self.replay_total = event.total
         await self._notify_sse()
 
     async def _handle_replay_finished(self, event: ReplayFinishedEvent) -> None:
-        self._replay_frame = 0
-        self._replay_total = 0
+        self.replay_frame = 0
+        self.replay_total = 0
         self.capture.handle_replay_finished()
         self._clear_ref_and_idle()
         await self._notify_sse()
 
     async def _handle_replay_error(self, event: ReplayErrorEvent) -> None:
         logger.warning("replay_error: %s", event.message)
-        self._replay_frame = 0
-        self._replay_total = 0
+        self.replay_frame = 0
+        self.replay_total = 0
         self.capture.handle_replay_error()
         self._clear_ref_and_idle()
         await self._notify_sse()
@@ -359,7 +359,7 @@ class SessionManager:
     async def start_reference(self, run_name: str | None = None) -> ActionResult:
         return await self._apply_result(
             await self.capture.start_reference(
-                self.mode, self._require_game(), self.data_dir, run_name,
+                self.mode, self.require_game(), self.data_dir, run_name,
             )
         )
 
@@ -371,7 +371,7 @@ class SessionManager:
     async def start_replay(self, spinrec_path: str, speed: int = SPEED_UNCAPPED) -> ActionResult:
         return await self._apply_result(
             await self.capture.start_replay(
-                self.mode, self._require_game(), spinrec_path, speed,
+                self.mode, self.require_game(), spinrec_path, speed,
             )
         )
 
@@ -386,7 +386,7 @@ class SessionManager:
         )
 
     async def save_draft(self, name: str) -> ActionResult:
-        scheduler = self._get_scheduler() if self.game_id else None
+        scheduler = self.get_scheduler() if self.game_id else None
         result = await self.capture.save_draft(name, scheduler=scheduler)
         if result.status == Status.OK and self.game_id and self.tcp.is_connected:
             cf_result = await self.cold_fill.start(self.game_id)
@@ -414,7 +414,7 @@ class SessionManager:
 
         from .practice import PracticeSession
         ps = PracticeSession(
-            tcp=self.tcp, db=self.db, game_id=self._require_game(),
+            tcp=self.tcp, db=self.db, game_id=self.require_game(),
             death_penalty_ms=self.capture.condition_registry.death_penalty_ms,
             on_attempt=lambda _: asyncio.ensure_future(self._notify_sse()),
         )
@@ -461,7 +461,7 @@ class SessionManager:
         from .speed_run import SpeedRunSession
         try:
             sr = SpeedRunSession(
-                tcp=self.tcp, db=self.db, game_id=self._require_game(),
+                tcp=self.tcp, db=self.db, game_id=self.require_game(),
                 on_event=lambda _: asyncio.ensure_future(self._notify_sse()),
             )
         except ValueError:

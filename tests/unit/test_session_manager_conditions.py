@@ -17,7 +17,7 @@ def make_sm(mock_db, mock_tcp, **kwargs):
 
 class TestInstallConditionRegistry:
     async def test_loads_registry_and_sets_on_capture(self, mock_db, mock_tcp, tmp_path):
-        """_install_condition_registry populates capture.condition_registry."""
+        """install_condition_registry populates capture.condition_registry."""
         games_dir = tmp_path / "games" / "abc123"
         games_dir.mkdir(parents=True)
         (games_dir / "conditions.yaml").write_text(
@@ -41,7 +41,7 @@ class TestInstallConditionRegistry:
         def patched_load(game_id, games_root=None):
             return original_fn(game_id, games_root=tmp_path / "games")
 
-        sm_module = __import__("spinlab.session_manager", fromlist=["_install_condition_registry"])
+        sm_module = __import__("spinlab.session_manager", fromlist=["install_condition_registry"])
         import spinlab.session_manager as sm_mod
         orig_load = sm_mod  # just need the reference
 
@@ -53,10 +53,10 @@ class TestInstallConditionRegistry:
         assert len(sm.capture.condition_registry.definitions) == 1
         assert sm.capture.condition_registry.definitions[0].name == "powerup"
 
-    async def test_install_condition_registry_sends_set_conditions_when_connected(
+    async def testinstall_condition_registry_sends_set_conditions_when_connected(
         self, mock_db, mock_tcp, tmp_path, monkeypatch
     ):
-        """_install_condition_registry sends set_conditions over TCP when connected."""
+        """install_condition_registry sends set_conditions over TCP when connected."""
         games_dir = tmp_path / "games" / "mygame"
         games_dir.mkdir(parents=True)
         (games_dir / "conditions.yaml").write_text(
@@ -82,7 +82,7 @@ class TestInstallConditionRegistry:
             ),
         )
 
-        await sm._install_condition_registry("mygame")
+        await sm.install_condition_registry("mygame")
 
         # Registry should be set on capture controller.
         assert len(sm.capture.condition_registry.definitions) == 1
@@ -98,10 +98,10 @@ class TestInstallConditionRegistry:
         assert payload[0]["address"] == 0x19
         assert payload[0]["size"] == 1
 
-    async def test_install_condition_registry_no_send_when_empty(
+    async def testinstall_condition_registry_no_send_when_empty(
         self, mock_db, mock_tcp, tmp_path, monkeypatch
     ):
-        """_install_condition_registry skips set_conditions (but still sends combo) when no definitions."""
+        """install_condition_registry skips set_conditions (but still sends combo) when no definitions."""
         sm = make_sm(mock_db, mock_tcp)
         mock_tcp.is_connected = True
 
@@ -112,17 +112,17 @@ class TestInstallConditionRegistry:
             lambda gid, games_root=None: cr_mod.ConditionRegistry(definitions=[]),
         )
 
-        await sm._install_condition_registry("unknown_game")
+        await sm.install_condition_registry("unknown_game")
 
         # Empty registry — set_conditions is NOT sent, but set_invalidate_combo IS sent.
         sent_cmds = [c[0][0] for c in mock_tcp.send_command.call_args_list]
         assert not any(isinstance(c, SetConditionsCmd) for c in sent_cmds)
         assert any(isinstance(c, SetInvalidateComboCmd) for c in sent_cmds)
 
-    async def test_install_condition_registry_no_send_when_disconnected(
+    async def testinstall_condition_registry_no_send_when_disconnected(
         self, mock_db, mock_tcp, tmp_path, monkeypatch
     ):
-        """_install_condition_registry skips TCP send when not connected."""
+        """install_condition_registry skips TCP send when not connected."""
         games_dir = tmp_path / "games" / "mygame"
         games_dir.mkdir(parents=True)
         (games_dir / "conditions.yaml").write_text(
@@ -147,14 +147,14 @@ class TestInstallConditionRegistry:
             ),
         )
 
-        await sm._install_condition_registry("mygame")
+        await sm.install_condition_registry("mygame")
 
         # Registry still set, but no TCP send.
         assert len(sm.capture.condition_registry.definitions) == 1
         mock_tcp.send_command.assert_not_called()
 
     async def test_rom_info_triggers_install(self, mock_db, mock_tcp, tmp_path, monkeypatch):
-        """rom_info event calls _install_condition_registry for the resolved game_id."""
+        """rom_info event calls install_condition_registry for the resolved game_id."""
         rom_file = tmp_path / "roms" / "test.sfc"
         rom_file.parent.mkdir(parents=True)
         rom_file.write_bytes(b"\x00" * 512)
@@ -167,7 +167,7 @@ class TestInstallConditionRegistry:
         async def fake_install(game_id: str) -> None:
             installed.append(game_id)
 
-        monkeypatch.setattr(sm, "_install_condition_registry", fake_install)
+        monkeypatch.setattr(sm, "install_condition_registry", fake_install)
 
         await sm.route_event({"event": "rom_info", "filename": "test.sfc"})
 

@@ -58,7 +58,7 @@ def create_reference(body: dict, session: SessionManager = Depends(get_session),
     import uuid
     run_id = f"ref_{uuid.uuid4().hex[:8]}"
     name = body.get("name", "Untitled")
-    db.create_capture_run(run_id, session._require_game(), name)
+    db.create_capture_run(run_id, session.require_game(), name)
     return {"id": run_id, "name": name}
 
 

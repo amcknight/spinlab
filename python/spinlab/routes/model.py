@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api")
 def api_model(session: SessionManager = Depends(get_session)):
     if session.game_id is None:
         return {"estimator": None, "estimators": [], "allocator_weights": None, "segments": []}
-    sched = session._get_scheduler()
+    sched = session.get_scheduler()
     segments = sched.get_all_model_states()
     return {
         "estimator": sched.estimator.name,
@@ -57,7 +57,7 @@ def api_model(session: SessionManager = Depends(get_session)):
 
 @router.post("/allocator-weights")
 def set_allocator_weights(body: dict, session: SessionManager = Depends(get_session)):
-    sched = session._get_scheduler()
+    sched = session.get_scheduler()
     try:
         sched.set_allocator_weights(body)
     except (ValueError, TypeError) as e:
@@ -74,7 +74,7 @@ def switch_estimator(body: dict, session: SessionManager = Depends(get_session))
     if name not in valid:
         logger.warning("switch_estimator: unknown %r (valid: %s)", name, valid)
         raise HTTPException(status_code=400, detail=f"Unknown estimator: {name}. Valid: {valid}")
-    sched = session._get_scheduler()
+    sched = session.get_scheduler()
     sched.switch_estimator(name)
     return {"estimator": name}
 
@@ -83,7 +83,7 @@ def switch_estimator(body: dict, session: SessionManager = Depends(get_session))
 def get_estimator_params(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
     if session.game_id is None:
         return {"estimator": None, "params": []}
-    sched = session._get_scheduler()
+    sched = session.get_scheduler()
     est = sched.estimator
     declared = est.declared_params()
     raw = db.load_allocator_config(f"estimator_params:{est.name}")
@@ -102,7 +102,7 @@ def get_estimator_params(session: SessionManager = Depends(get_session), db: Dat
 
 @router.post("/estimator-params")
 def set_estimator_params(body: dict, session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
-    sched = session._get_scheduler()
+    sched = session.get_scheduler()
     est = sched.estimator
     params = body.get("params", {})
     # Validate param names

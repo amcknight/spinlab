@@ -59,7 +59,7 @@ class TestAttemptInvalidatedEvent:
 
 class TestSetInvalidateCombo:
     async def test_combo_pushed_to_lua_on_install(self, mock_db, mock_tcp, monkeypatch):
-        """_install_condition_registry pushes set_invalidate_combo to Lua when connected."""
+        """install_condition_registry pushes set_invalidate_combo to Lua when connected."""
         sm = make_sm(mock_db, mock_tcp, invalidate_combo=["L", "Select"])
         mock_tcp.is_connected = True
 
@@ -70,7 +70,7 @@ class TestSetInvalidateCombo:
             lambda gid, games_root=None: cr_mod.ConditionRegistry(definitions=[]),
         )
 
-        await sm._install_condition_registry("anygame")
+        await sm.install_condition_registry("anygame")
 
         sent_cmds = [c[0][0] for c in mock_tcp.send_command.call_args_list]
         combo_cmds = [c for c in sent_cmds if isinstance(c, SetInvalidateComboCmd)]
@@ -78,7 +78,7 @@ class TestSetInvalidateCombo:
         assert combo_cmds[0].combo == ["L", "Select"]
 
     async def test_combo_not_pushed_when_disconnected(self, mock_db, mock_tcp, monkeypatch):
-        """_install_condition_registry skips TCP push when not connected."""
+        """install_condition_registry skips TCP push when not connected."""
         sm = make_sm(mock_db, mock_tcp, invalidate_combo=["L", "Select"])
         mock_tcp.is_connected = False
 
@@ -89,7 +89,7 @@ class TestSetInvalidateCombo:
             lambda gid, games_root=None: cr_mod.ConditionRegistry(definitions=[]),
         )
 
-        await sm._install_condition_registry("anygame")
+        await sm.install_condition_registry("anygame")
 
         mock_tcp.send_command.assert_not_called()
 
@@ -105,7 +105,7 @@ class TestSetInvalidateCombo:
             lambda gid, games_root=None: cr_mod.ConditionRegistry(definitions=[]),
         )
 
-        await sm._install_condition_registry("anygame")
+        await sm.install_condition_registry("anygame")
 
         sent_cmds = [c[0][0] for c in mock_tcp.send_command.call_args_list]
         combo_cmds = [c for c in sent_cmds if isinstance(c, SetInvalidateComboCmd)]
