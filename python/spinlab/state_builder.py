@@ -13,11 +13,10 @@ if TYPE_CHECKING:
     from .db import Database
     from .session_manager import SessionManager
 
+from .db.attempts import RECENT_ATTEMPTS_DB_LIMIT
 from .models import Mode, ModelOutput
 
 logger = logging.getLogger(__name__)
-
-RECENT_ATTEMPTS_LIMIT = 8
 
 
 class StateBuilder:
@@ -73,7 +72,7 @@ class StateBuilder:
                 base["cold_fill"] = cf_state
 
         base["recent"] = self.db.get_recent_attempts(
-            session.game_id, limit=RECENT_ATTEMPTS_LIMIT,
+            session.game_id, limit=RECENT_ATTEMPTS_DB_LIMIT,
             session_id=session.current_session_id,
         )
         return base
