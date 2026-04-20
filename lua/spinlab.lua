@@ -1237,6 +1237,20 @@ local function handle_json_message(line)
     else
       client:send("ok:not_replaying\n")
     end
+  elseif decoded_event == "fill_gap_load" then
+    local path = json_get_str(line, "state_path")
+    if not path then
+      client:send(to_json({event = "error", message = "fill_gap_load requires state_path"}) .. "\n")
+    else
+      table.insert(pending_loads, path)
+      cold_fill.active = true
+      cold_fill.state = CFSTATE_WAITING_DEATH
+      cold_fill.segment_id = "fill_gap"
+      cold_fill.prev_anim = 0
+      cold_fill.prev_level_start = 0
+      client:send("ok:fill_gap\n")
+      log("Fill-gap: loaded state -- die to capture cold start")
+    end
   elseif decoded_event == "cold_fill_load" then
     local path = json_get_str(line, "state_path")
     local seg_id = json_get_str(line, "segment_id")
@@ -1327,6 +1341,9 @@ local function handle_json_message(line)
     pending_loads = {}
     client:send("ok\n")
     log("Speed run stopped")
+  else
+    log("ERROR: unknown JSON command: " .. tostring(decoded_event))
+    client:send(to_json({event = "error", message = "unknown command: " .. tostring(decoded_event)}) .. "\n")
   end
 end
 
@@ -1452,6 +1469,7 @@ local function tcp_dispatch(line)
     end
   end
 
+  log("ERROR: unknown command: " .. line)
   client:send("err:unknown_command\n")
 end
 
