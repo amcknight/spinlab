@@ -314,8 +314,6 @@ def test_save_draft_seeds_attempts_and_rebuilds_model(db):
     LevelEntranceEvent / LevelExitEvent don't carry the timestamps the recorder
     needs to build RecordedSegmentTime, this test will catch it.
     """
-    from dataclasses import asdict
-
     from spinlab.capture import SegmentRecorder
     from spinlab.condition_registry import ConditionRegistry
     from spinlab.models import AttemptSource
@@ -327,14 +325,13 @@ def test_save_draft_seeds_attempts_and_rebuilds_model(db):
     run_id = "run1"
     recorder.capture_run_id = run_id
 
-    entrance = asdict(LevelEntranceEvent(level=1, timestamp_ms=0))
-    recorder.handle_entrance(entrance)
+    recorder.handle_entrance(LevelEntranceEvent(level=1, timestamp_ms=0))
 
     # In production the exit fires ~12s after entrance; the recorder relies on
     # a timestamp difference to compute time_ms. If the event dataclass doesn't
     # expose timestamp_ms, the recorder silently drops the segment timing.
-    exit_event = asdict(LevelExitEvent(level=1, goal="exit", timestamp_ms=12345))
-    recorder.handle_exit(exit_event, game_id="g", db=db, registry=registry)
+    recorder.handle_exit(LevelExitEvent(level=1, goal="exit", timestamp_ms=12345),
+                         game_id="g", db=db, registry=registry)
 
     assert len(recorder.segment_times) == 1, (
         "recorder must produce a RecordedSegmentTime from entrance+exit — "

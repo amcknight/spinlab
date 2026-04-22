@@ -188,9 +188,9 @@ class ReferenceController:
         await self.tcp.send_command(FillGapLoadCmd(state_path=hot.state_path, message="Die to capture cold start"))
         return ActionResult(status=Status.STARTED, new_mode=Mode.FILL_GAP)
 
-    def handle_fill_gap_spawn(self, event: dict) -> bool:
+    def handle_fill_gap_spawn(self, event: SpawnEvent) -> bool:
         """Returns True if cold save state was captured and mode should return to IDLE."""
-        if not event.get("state_captured") or not self.fill_gap_segment_id:
+        if not event.state_captured or not self.fill_gap_segment_id:
             return False
         waypoint_id = self._fill_gap_waypoint_id
         if waypoint_id:
@@ -198,7 +198,7 @@ class ReferenceController:
             self.db.add_save_state(WaypointSaveState(
                 waypoint_id=waypoint_id,
                 variant_type="cold",
-                state_path=event["state_path"],
+                state_path=event.state_path,
                 is_default=True,
             ))
         self.fill_gap_segment_id = None

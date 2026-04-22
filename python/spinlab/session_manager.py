@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -276,13 +275,13 @@ class SessionManager:
     async def _handle_level_entrance(self, event: LevelEntranceEvent) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
-        self.capture.handle_entrance(dataclasses.asdict(event))
+        self.capture.handle_entrance(event)
         await self._notify_sse()
 
     async def _handle_checkpoint(self, event: CheckpointEvent) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
-        self.capture.handle_checkpoint(dataclasses.asdict(event), self.require_game())
+        self.capture.handle_checkpoint(event, self.require_game())
         await self._notify_sse()
 
     async def _handle_death(self, event: DeathEvent) -> None:
@@ -291,39 +290,38 @@ class SessionManager:
         if self.mode == Mode.COLD_FILL:
             logger.info("death during cold_fill — waiting for respawn")
         if self.mode in (Mode.REFERENCE, Mode.REPLAY):
-            self.capture.handle_death(dataclasses.asdict(event))
+            self.capture.handle_death(event)
 
     async def _handle_spawn(self, event: SpawnEvent) -> None:
-        event_dict = dataclasses.asdict(event)
         if self.mode == Mode.COLD_FILL:
-            done = await self.cold_fill.handle_spawn(event_dict)
+            done = await self.cold_fill.handle_spawn(event)
             if done:
                 self.mode = Mode.IDLE
             await self._notify_sse()
             return
         if self.mode == Mode.FILL_GAP:
-            if self.capture.handle_fill_gap_spawn(event_dict):
+            if self.capture.handle_fill_gap_spawn(event):
                 self.mode = Mode.IDLE
                 await self._notify_sse()
             return
         if self.mode in (Mode.REFERENCE, Mode.REPLAY):
-            self.capture.handle_spawn(event_dict, self.require_game())
+            self.capture.handle_spawn(event, self.require_game())
 
     async def _handle_level_exit(self, event: LevelExitEvent) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
-        self.capture.handle_exit(dataclasses.asdict(event), self.require_game())
+        self.capture.handle_exit(event, self.require_game())
         await self._notify_sse()
 
     async def _handle_attempt_result(self, event: AttemptResultEvent) -> None:
         if self.mode != Mode.PRACTICE:
             return
         if self.practice_session:
-            self.practice_session.receive_result(dataclasses.asdict(event))
+            self.practice_session.receive_result(event)
         await self._notify_sse()
 
     async def _handle_rec_saved(self, event: RecSavedEvent) -> None:
-        self.capture.handle_rec_saved(dataclasses.asdict(event))
+        self.capture.handle_rec_saved(event)
 
     async def _handle_replay_started(self, event: ReplayStartedEvent) -> None:
         self.replay_frame = 0

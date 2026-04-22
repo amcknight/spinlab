@@ -16,7 +16,7 @@ from spinlab.errors import (
     NotConnectedError,
     NotRunningError,
 )
-from spinlab.models import ActionResult, Mode, Segment, WaypointSaveState, Status
+from spinlab.models import ActionResult, Mode, Status
 from spinlab.session_manager import SessionManager
 from spinlab import session_manager as session_manager_module
 
@@ -100,7 +100,7 @@ class TestReferenceCapture:
             "state_path": "/path/to/state.mss",
         })
         assert sm.ref_capture.pending_start is not None
-        assert sm.ref_capture.pending_start["level_num"] == 105
+        assert sm.ref_capture.pending_start.level_num == 105
 
     async def test_exit_pairs_with_entrance(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
@@ -165,7 +165,7 @@ class TestReferenceCapture:
         assert seg.start_type == "entrance"
         assert seg.end_type == "checkpoint"
         assert seg.end_ordinal == 1
-        assert sm.ref_capture.pending_start["type"] == "checkpoint"
+        assert sm.ref_capture.pending_start.type == "checkpoint"
 
     async def test_checkpoint_then_exit_creates_two_segments(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
@@ -213,43 +213,35 @@ class TestReferenceCapture:
 
 
 class TestFillGap:
-    async def test_fill_gap_loads_hot_and_captures_cold(self, mock_db, mock_tcp):
-        from unittest.mock import MagicMock
-        sm = make_sm(mock_db, mock_tcp)
-        sm.game_id = "game1"
+    async def test_fill_gap_loads_hot_and_captures_cold(self, practice_db, mock_tcp):
+        sm = make_sm(practice_db, mock_tcp)
+        sm.game_id = "g"
         sm.ref_capture.capture_run_id = "run1"
 
-        start_wp_id = "wp_start_abc"
-        # Mock conn.execute to return a row with start_waypoint_id
-        conn_row = MagicMock()
-        conn_row.__getitem__ = MagicMock(return_value=start_wp_id)
-        mock_db.conn = MagicMock()
-        mock_db.conn.execute.return_value.fetchone.return_value = conn_row
+        seg_id = practice_db._test_seg_id
 
-        # Mock get_save_state to return a hot state for our waypoint
-        hot_ss = WaypointSaveState(waypoint_id=start_wp_id, variant_type="hot",
-                                   state_path="/hot.mss", is_default=False)
-        mock_db.get_save_state = MagicMock(
-            side_effect=lambda wid, vt: hot_ss if (wid == start_wp_id and vt == "hot") else None
-        )
-        mock_db.add_save_state = MagicMock()
-
-        seg_id = Segment.make_id("game1", 105, "checkpoint", 1, "goal", 0,
-                                 "stub_start", "stub_end")
         result = await sm.start_fill_gap(seg_id)
         assert result.status == Status.STARTED
 
+        # Verify hot state was sent to emulator
+        mock_tcp.send_command.assert_called_once()
+        cmd = mock_tcp.send_command.call_args[0][0]
+        assert str(practice_db._test_state_file) in cmd.state_path
+
         await sm.route_event({
-            "event": "spawn", "level_num": 105,
-            "is_cold_cp": True, "cp_ordinal": 1,
+            "event": "spawn", "level_num": 1,
+            "is_cold_cp": True, "cp_ordinal": 0,
             "timestamp_ms": 1000, "state_captured": True,
             "state_path": "/cold.mss",
         })
 
-        cold_calls = [c for c in mock_db.add_save_state.call_args_list
-                      if c[0][0].variant_type == "cold"]
-        assert len(cold_calls) == 1
-        assert cold_calls[0][0][0].state_path == "/cold.mss"
+        # Verify cold save state was persisted in DB
+        seg_row = practice_db.conn.execute(
+            "SELECT start_waypoint_id FROM segments WHERE id = ?", (seg_id,)
+        ).fetchone()
+        cold = practice_db.get_save_state(seg_row[0], "cold")
+        assert cold is not None
+        assert cold.state_path == "/cold.mss"
         assert sm.fill_gap_segment_id is None
         assert sm.mode == Mode.IDLE
 
