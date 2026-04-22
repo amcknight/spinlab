@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..condition_registry import ConditionRegistry
 from ..errors import (
     AlreadyReplayingError,
     DraftPendingError,
@@ -24,12 +25,20 @@ from ..errors import (
 from ..models import ActionResult, Mode, Status
 from ..protocol import (
     SPEED_UNCAPPED,
-    ReferenceStartCmd, ReferenceStopCmd, ReplayCmd, ReplayStopCmd,
+    CheckpointEvent,
+    DeathEvent,
     FillGapLoadCmd,
+    LevelEntranceEvent,
+    LevelExitEvent,
+    RecSavedEvent,
+    ReferenceStartCmd,
+    ReferenceStopCmd,
+    ReplayCmd,
+    ReplayStopCmd,
+    SpawnEvent,
 )
-from .recorder import SegmentRecorder
 from .draft import DraftManager
-from ..condition_registry import ConditionRegistry
+from .recorder import SegmentRecorder
 
 if TYPE_CHECKING:
     from ..db import Database
@@ -198,36 +207,35 @@ class ReferenceController:
 
     # --- Capture event routing ---
 
-    def handle_entrance(self, event: dict) -> None:
-        logger.info("capture: entrance level=%s", event.get("level"))
+    def handle_entrance(self, event: LevelEntranceEvent) -> None:
+        logger.info("capture: entrance level=%s", event.level)
         self.recorder.handle_entrance(event)
 
-    def handle_checkpoint(self, event: dict, game_id: str) -> None:
+    def handle_checkpoint(self, event: CheckpointEvent, game_id: str) -> None:
         logger.info("capture: checkpoint level=%s cp=%s",
-                     event.get("level_num"), event.get("cp_ordinal"))
+                     event.level_num, event.cp_ordinal)
         self.recorder.handle_checkpoint(event, game_id, self.db,
                                            self.condition_registry)
 
-    def handle_death(self, event: dict | None = None) -> None:
+    def handle_death(self, event: DeathEvent) -> None:
         self.recorder.died = True
-        ts = event.get("timestamp_ms") if event else None
-        self.recorder.handle_death(timestamp_ms=ts)
+        self.recorder.handle_death(timestamp_ms=None)
 
-    def handle_spawn(self, event: dict, game_id: str) -> None:
+    def handle_spawn(self, event: SpawnEvent, game_id: str) -> None:
         logger.info("capture: spawn level=%s state_captured=%s",
-                     event.get("level_num"), event.get("state_captured"))
-        self.recorder.handle_spawn_timing(timestamp_ms=event.get("timestamp_ms"))
+                     event.level_num, event.state_captured)
+        self.recorder.handle_spawn_timing(timestamp_ms=None)
         self.recorder.handle_spawn(event, game_id, self.db,
                                       self.condition_registry)
 
-    def handle_exit(self, event: dict, game_id: str) -> None:
+    def handle_exit(self, event: LevelExitEvent, game_id: str) -> None:
         logger.info("capture: exit level=%s segments_so_far=%d",
-                     event.get("level"), self.recorder.segments_count)
+                     event.level, self.recorder.segments_count)
         self.recorder.handle_exit(event, game_id, self.db,
                                      self.condition_registry)
 
-    def handle_rec_saved(self, event: dict) -> None:
-        self.recorder.rec_path = event.get("path")
+    def handle_rec_saved(self, event: RecSavedEvent) -> None:
+        self.recorder.rec_path = event.path
 
     def handle_replay_finished(self) -> None:
         self._enter_draft_from_capture()
