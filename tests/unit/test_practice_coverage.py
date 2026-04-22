@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from spinlab.practice import PracticeSession
-from spinlab.protocol import PracticeLoadCmd, PracticeStopCmd
+from spinlab.protocol import AttemptResultEvent, PracticeLoadCmd, PracticeStopCmd
 
 
 def _make_tcp():
@@ -27,11 +27,11 @@ class TestRunLoopLifecycle:
         # Deliver a result then stop
         async def deliver_and_stop():
             await asyncio.sleep(0.05)
-            ps.receive_result({
-                "event": "attempt_result",
-                "segment_id": seg_id,
-                "completed": True, "time_ms": 5000,
-            })
+            ps.receive_result(AttemptResultEvent(
+                segment_id=seg_id,
+                completed=True,
+                time_ms=5000,
+            ))
             await asyncio.sleep(0.05)
             ps.is_running = False
 
@@ -75,11 +75,11 @@ class TestOnAttemptCallback:
 
         async def deliver():
             await asyncio.sleep(0.05)
-            ps.receive_result({
-                "event": "attempt_result",
-                "segment_id": seg_id,
-                "completed": True, "time_ms": 4500,
-            })
+            ps.receive_result(AttemptResultEvent(
+                segment_id=seg_id,
+                completed=True,
+                time_ms=4500,
+            ))
 
         asyncio.create_task(deliver())
         await ps.run_one()
@@ -120,11 +120,11 @@ class TestOverlayLabelGeneration:
 
         async def deliver():
             await asyncio.sleep(0.05)
-            ps.receive_result({
-                "event": "attempt_result",
-                "segment_id": seg_id,
-                "completed": True, "time_ms": 5000,
-            })
+            ps.receive_result(AttemptResultEvent(
+                segment_id=seg_id,
+                completed=True,
+                time_ms=5000,
+            ))
 
         asyncio.create_task(deliver())
         await ps.run_one()
@@ -145,11 +145,11 @@ class TestOverlayLabelGeneration:
 
         async def deliver():
             await asyncio.sleep(0.05)
-            ps.receive_result({
-                "event": "attempt_result",
-                "segment_id": seg_id,
-                "completed": True, "time_ms": 5000,
-            })
+            ps.receive_result(AttemptResultEvent(
+                segment_id=seg_id,
+                completed=True,
+                time_ms=5000,
+            ))
 
         asyncio.create_task(deliver())
         await ps.run_one()

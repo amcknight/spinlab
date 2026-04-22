@@ -9,8 +9,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Callable
 
 from .allocators import SegmentWithModel
-from .models import Attempt, SegmentCommand
-from .protocol import PracticeLoadCmd, PracticeStopCmd
+from .models import Attempt, AttemptSource, SegmentCommand
+from .protocol import AttemptResultEvent, PracticeLoadCmd, PracticeStopCmd
 from .scheduler import Scheduler
 
 if TYPE_CHECKING:
@@ -54,7 +54,7 @@ class PracticeSession:
         self.initial_expected_clean_ms: float | None = None
 
         self._result_event = asyncio.Event()
-        self._result_data: dict | None = None
+        self._result_data: AttemptResultEvent | None = None
         self._last_allocator: str | None = None
 
     def _snapshot_expected_times(
@@ -112,7 +112,7 @@ class PracticeSession:
         logger.info("practice: stopped session=%s attempted=%d completed=%d",
                      self.session_id[:8], self.segments_attempted, self.segments_completed)
 
-    def receive_result(self, event: dict) -> None:
+    def receive_result(self, event: AttemptResultEvent) -> None:
         """Called by SessionManager.route_event when attempt_result arrives."""
         self._result_data = event
         self._result_event.set()
@@ -137,6 +137,7 @@ class PracticeSession:
             end = "goal" if picked.end_type == "goal" else f"cp{picked.end_ordinal}"
             label = f"L{picked.level_number} {start} > {end}"
 
+        assert picked.state_path is not None  # scheduler only picks segments with save states
         cmd = SegmentCommand(
             id=picked.segment_id,
             state_path=picked.state_path,
@@ -172,13 +173,13 @@ class PracticeSession:
             except asyncio.TimeoutError:
                 continue
 
-        if self._result_data and self._result_data.get("event") == "attempt_result":
+        if self._result_data is not None:
             self._process_result(self._result_data, cmd)
 
         self.current_segment_id = None
         return True
 
-    def _process_result(self, result: dict, cmd: SegmentCommand) -> None:
+    def _process_result(self, result: AttemptResultEvent, cmd: SegmentCommand) -> None:
         # TODO(Task 12 followup): populate observed_start_conditions and
         # observed_end_conditions here. The start conditions should come from
         # the Waypoint.conditions_json of the segment's start_waypoint_id
@@ -188,29 +189,29 @@ class PracticeSession:
         # payload, or the SessionManager would need to track the last
         # transition-event conditions and pass them here.
         attempt = Attempt(
-            segment_id=result["segment_id"],
+            segment_id=result.segment_id,
             session_id=self.session_id,
-            completed=result["completed"],
-            time_ms=result.get("time_ms"),
-            deaths=result.get("deaths", 0),
-            clean_tail_ms=result.get("clean_tail_ms"),
-            source="practice",
+            completed=result.completed,
+            time_ms=result.time_ms,
+            deaths=result.deaths,
+            clean_tail_ms=result.clean_tail_ms,
+            source=AttemptSource.PRACTICE,
             chosen_allocator=self._last_allocator,
         )
         self.db.log_attempt(attempt)
         self.scheduler.process_attempt(
-            result["segment_id"],
-            time_ms=result.get("time_ms", 0),
-            completed=result["completed"],
-            deaths=result.get("deaths", 0),
-            clean_tail_ms=result.get("clean_tail_ms"),
+            result.segment_id,
+            time_ms=result.time_ms or 0,
+            completed=result.completed,
+            deaths=result.deaths,
+            clean_tail_ms=result.clean_tail_ms,
         )
         self.segments_attempted += 1
-        if result["completed"]:
+        if result.completed:
             self.segments_completed += 1
         logger.info("practice: attempt segment=%s completed=%s time=%s deaths=%d",
-                     result["segment_id"], result["completed"],
-                     result.get("time_ms"), result.get("deaths", 0))
+                     result.segment_id, result.completed,
+                     result.time_ms, result.deaths)
         if self.on_attempt:
             self.on_attempt(attempt)
 
