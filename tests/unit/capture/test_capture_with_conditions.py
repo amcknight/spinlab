@@ -1,6 +1,7 @@
 from spinlab.db import Database
 from spinlab.capture import SegmentRecorder
 from spinlab.condition_registry import ConditionRegistry, ConditionDef, Scope
+from spinlab.protocol import LevelEntranceEvent, LevelExitEvent
 
 
 def _registry():
@@ -22,12 +23,12 @@ def test_entrance_then_goal_creates_segment_with_waypoints():
     cap = SegmentRecorder()
     cap.capture_run_id = "run1"
     reg = _registry()
-    cap.handle_entrance({
-        "level": 5, "state_path": "/tmp/start.mss",
-        "conditions": {"powerup": 0},  # raw: small
-    })
+    cap.handle_entrance(LevelEntranceEvent(
+        level=5, state_path="/tmp/start.mss",
+        conditions={"powerup": 0},  # raw: small
+    ))
     cap.handle_exit(
-        {"level": 5, "goal": "goal", "conditions": {"powerup": 0}},
+        LevelExitEvent(level=5, goal="goal", conditions={"powerup": 0}),
         "g1", db, reg)
     segs = db.get_active_segments("g1")
     assert len(segs) == 1
@@ -45,15 +46,15 @@ def test_same_geography_different_powerup_creates_two_segments():
     cap.capture_run_id = "run1"
     reg = _registry()
     # Run 1: entered small, exited
-    cap.handle_entrance({"level": 5, "state_path": "/tmp/s1.mss",
-                         "conditions": {"powerup": 0}})
-    cap.handle_exit({"level": 5, "goal": "goal", "conditions": {"powerup": 0}},
+    cap.handle_entrance(LevelEntranceEvent(level=5, state_path="/tmp/s1.mss",
+                                           conditions={"powerup": 0}))
+    cap.handle_exit(LevelExitEvent(level=5, goal="goal", conditions={"powerup": 0}),
                     "g1", db, reg)
     # Run 2: entered big, exited
     cap.pending_start = None  # reset
-    cap.handle_entrance({"level": 5, "state_path": "/tmp/s2.mss",
-                         "conditions": {"powerup": 1}})
-    cap.handle_exit({"level": 5, "goal": "goal", "conditions": {"powerup": 1}},
+    cap.handle_entrance(LevelEntranceEvent(level=5, state_path="/tmp/s2.mss",
+                                           conditions={"powerup": 1}))
+    cap.handle_exit(LevelExitEvent(level=5, goal="goal", conditions={"powerup": 1}),
                     "g1", db, reg)
     segs = db.get_active_segments("g1")
     assert len(segs) == 2
@@ -66,9 +67,9 @@ def test_save_state_attaches_to_start_waypoint():
     cap = SegmentRecorder()
     cap.capture_run_id = "run1"
     reg = _registry()
-    cap.handle_entrance({"level": 5, "state_path": "/tmp/start.mss",
-                         "conditions": {"powerup": 0}})
-    cap.handle_exit({"level": 5, "goal": "goal", "conditions": {"powerup": 0}},
+    cap.handle_entrance(LevelEntranceEvent(level=5, state_path="/tmp/start.mss",
+                                           conditions={"powerup": 0}))
+    cap.handle_exit(LevelExitEvent(level=5, goal="goal", conditions={"powerup": 0}),
                     "g1", db, reg)
     segs = db.get_active_segments("g1")
     ss = db.get_default_save_state(segs[0].start_waypoint_id)
