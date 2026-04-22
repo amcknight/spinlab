@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from ..db.segments import MissingColdRow
 from ..errors import NotConnectedError
 from ..models import ActionResult, Mode, Status, WaypointSaveState
-from ..protocol import ColdFillLoadCmd
+from ..protocol import ColdFillLoadCmd, SpawnEvent
 
 if TYPE_CHECKING:
     from ..db import Database
@@ -23,7 +24,7 @@ class ColdFillController:
     def __init__(self, db: "Database", tcp: "TcpManager") -> None:
         self.db = db
         self.tcp = tcp
-        self.queue: list[dict] = []
+        self.queue: list[MissingColdRow] = []
         self.current: str | None = None
         self.cold_waypoint_id: str | None = None
         self.total: int = 0
@@ -60,22 +61,22 @@ class ColdFillController:
         ))
         return ActionResult(status=Status.STARTED, new_mode=Mode.COLD_FILL)
 
-    async def handle_spawn(self, event: dict) -> bool:
+    async def handle_spawn(self, event: SpawnEvent) -> bool:
         """Store cold save state, advance queue. Returns True when all done."""
         if not self.current:
             logger.warning("cold_fill: spawn received but no current segment")
             return False
-        if not event.get("state_captured"):
+        if not event.state_captured:
             logger.info("cold_fill: spawn without state_captured — ignoring (state_path=%s)",
-                        event.get("state_path"))
+                        event.state_path)
             return False
         logger.info("cold_fill: captured cold state for segment=%s path=%s",
-                     self.current, event.get("state_path"))
+                     self.current, event.state_path)
         if self.cold_waypoint_id:
             self.db.add_save_state(WaypointSaveState(
                 waypoint_id=self.cold_waypoint_id,
                 variant_type="cold",
-                state_path=event["state_path"],
+                state_path=event.state_path,
                 is_default=True,
             ))
         self.queue.pop(0)
