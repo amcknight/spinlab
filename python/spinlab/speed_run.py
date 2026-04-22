@@ -9,8 +9,17 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Callable
 
+from .db.segments import SegmentRow
 from .models import Attempt, AttemptSource
-from .protocol import SpeedRunLoadCmd, SpeedRunStopCmd
+from .protocol import (
+    SpeedRunCheckpointEvent,
+    SpeedRunCompleteEvent,
+    SpeedRunDeathEvent,
+    SpeedRunLoadCmd,
+    SpeedRunStopCmd,
+)
+
+SpeedRunEvent = SpeedRunCheckpointEvent | SpeedRunDeathEvent | SpeedRunCompleteEvent
 
 if TYPE_CHECKING:
     from .db import Database
@@ -28,7 +37,7 @@ class LevelPlan:
     level_number: int
     description: str
     entrance_state_path: str
-    segments: list[dict] = field(default_factory=list)
+    segments: list[SegmentRow] = field(default_factory=list)
     checkpoints: list[dict] = field(default_factory=list)
 
 
@@ -57,7 +66,7 @@ class SpeedRunSession:
         self.segments_recorded = 0
 
         self.levels = self._build_levels()
-        self._event_queue: asyncio.Queue = asyncio.Queue()
+        self._event_queue: asyncio.Queue[SpeedRunEvent] = asyncio.Queue()
 
     def _build_levels(self) -> list[LevelPlan]:
         """Query segments, group into levels, validate save states exist."""
@@ -66,7 +75,7 @@ class SpeedRunSession:
             return []
 
         levels: list[LevelPlan] = []
-        current_level_segs: list[dict] = []
+        current_level_segs: list[SegmentRow] = []
 
         for row in rows:
             if row["start_type"] == "entrance" and current_level_segs:
@@ -87,7 +96,7 @@ class SpeedRunSession:
                 return cold.state_path
         return fallback
 
-    def _finalize_level(self, segs: list[dict]) -> LevelPlan:
+    def _finalize_level(self, segs: list[SegmentRow]) -> LevelPlan:
         """Build a LevelPlan from a group of consecutive segments."""
         entrance_seg = segs[0]
         entrance_state = entrance_seg.get("state_path")
@@ -144,8 +153,16 @@ class SpeedRunSession:
             self.session_id[:8], self.levels_completed, self.segments_recorded,
         )
 
-    def receive_event(self, event: dict) -> None:
-        """Called by SessionManager when a speed_run_* event arrives."""
+    def receive_checkpoint(self, event: SpeedRunCheckpointEvent) -> None:
+        """Called by SessionManager when a speed_run_checkpoint event arrives."""
+        self._event_queue.put_nowait(event)
+
+    def receive_death(self, event: SpeedRunDeathEvent) -> None:
+        """Called by SessionManager when a speed_run_death event arrives."""
+        self._event_queue.put_nowait(event)
+
+    def receive_complete(self, event: SpeedRunCompleteEvent) -> None:
+        """Called by SessionManager when a speed_run_complete event arrives."""
         self._event_queue.put_nowait(event)
 
     async def run_one(self) -> bool:
@@ -183,26 +200,24 @@ class SpeedRunSession:
             except asyncio.TimeoutError:
                 continue
 
-            event_type = event.get("event")
-
-            if event_type == "speed_run_checkpoint":
+            if isinstance(event, SpeedRunCheckpointEvent):
                 if cold_since and current_sub_index < len(level.segments):
                     self._record_attempt(
                         level.segments[current_sub_index],
-                        time_ms=event.get("split_ms", 0),
+                        time_ms=event.split_ms,
                         completed=True,
                     )
                 current_sub_index += 1
                 cold_since = False
 
-            elif event_type == "speed_run_death":
+            elif isinstance(event, SpeedRunDeathEvent):
                 cold_since = True
 
-            elif event_type == "speed_run_complete":
+            elif isinstance(event, SpeedRunCompleteEvent):
                 if cold_since and current_sub_index < len(level.segments):
                     self._record_attempt(
                         level.segments[current_sub_index],
-                        time_ms=event.get("split_ms", 0),
+                        time_ms=event.split_ms,
                         completed=True,
                     )
                 self.levels_completed += 1
@@ -214,7 +229,7 @@ class SpeedRunSession:
 
         return True
 
-    def _record_attempt(self, seg: dict, time_ms: int, completed: bool) -> None:
+    def _record_attempt(self, seg: SegmentRow, time_ms: int, completed: bool) -> None:
         """Record a cold attempt for a sub-segment."""
         attempt = Attempt(
             segment_id=seg["id"],

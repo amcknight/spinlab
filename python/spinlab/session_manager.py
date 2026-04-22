@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .capture import ColdFillController, ReferenceController
 from .errors import (
     AlreadyRunningError,
     DraftPendingError,
@@ -19,15 +20,28 @@ from .errors import (
 from .models import ActionResult, Mode, Status
 from .protocol import (
     SPEED_UNCAPPED,
+    AttemptInvalidatedEvent,
+    AttemptResultEvent,
+    CheckpointEvent,
+    DeathEvent,
+    GameContextCmd,
+    GameContextEvent,
+    LevelEntranceEvent,
+    LevelExitEvent,
+    RecSavedEvent,
+    ReplayErrorEvent,
+    ReplayFinishedEvent,
+    ReplayProgressEvent,
+    ReplayStartedEvent,
+    RomInfoEvent,
+    SetConditionsCmd,
+    SetInvalidateComboCmd,
+    SpawnEvent,
+    SpeedRunCheckpointEvent,
+    SpeedRunCompleteEvent,
+    SpeedRunDeathEvent,
     parse_event,
-    RomInfoEvent, GameContextEvent, LevelEntranceEvent, CheckpointEvent,
-    DeathEvent, SpawnEvent, LevelExitEvent, AttemptResultEvent,
-    RecSavedEvent, ReplayStartedEvent, ReplayProgressEvent,
-    ReplayFinishedEvent, ReplayErrorEvent, AttemptInvalidatedEvent,
-    GameContextCmd, SetConditionsCmd, SetInvalidateComboCmd,
-    SpeedRunCheckpointEvent, SpeedRunDeathEvent, SpeedRunCompleteEvent,
 )
-from .capture import ColdFillController, ReferenceController
 from .sse import SSEBroadcaster
 from .state_builder import StateBuilder
 from .system_state import SystemState
@@ -227,7 +241,7 @@ class SessionManager:
             return
         rom_path = self.rom_dir / filename
         if rom_path.exists():
-            from spinlab.romid import rom_checksum, game_name_from_filename
+            from spinlab.romid import game_name_from_filename, rom_checksum
             checksum = rom_checksum(rom_path)
             name = game_name_from_filename(filename)
         else:
@@ -498,19 +512,19 @@ class SessionManager:
     async def _handle_speed_run_checkpoint(self, event: SpeedRunCheckpointEvent) -> None:
         if self.mode != Mode.SPEED_RUN or not self.speed_run_session:
             return
-        self.speed_run_session.receive_event(dataclasses.asdict(event))
+        self.speed_run_session.receive_checkpoint(event)
         await self._notify_sse()
 
     async def _handle_speed_run_death(self, event: SpeedRunDeathEvent) -> None:
         if self.mode != Mode.SPEED_RUN or not self.speed_run_session:
             return
-        self.speed_run_session.receive_event(dataclasses.asdict(event))
+        self.speed_run_session.receive_death(event)
         await self._notify_sse()
 
     async def _handle_speed_run_complete(self, event: SpeedRunCompleteEvent) -> None:
         if self.mode != Mode.SPEED_RUN or not self.speed_run_session:
             return
-        self.speed_run_session.receive_event(dataclasses.asdict(event))
+        self.speed_run_session.receive_complete(event)
         await self._notify_sse()
 
     def on_disconnect(self) -> None:

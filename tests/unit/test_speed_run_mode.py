@@ -207,11 +207,10 @@ async def test_speed_run_sends_level_load(sr_db):
 
     async def deliver():
         await asyncio.sleep(0.05)
-        sr.receive_event({
-            "event": "speed_run_complete",
-            "elapsed_ms": 30000,
-            "split_ms": 30000,
-        })
+        sr.receive_complete(SpeedRunCompleteEvent(
+            elapsed_ms=30000,
+            split_ms=30000,
+        ))
 
     asyncio.create_task(deliver())
     result = await sr.run_one()
@@ -237,18 +236,16 @@ async def test_speed_run_cold_recording_on_checkpoint(sr_db):
 
     async def deliver():
         await asyncio.sleep(0.05)
-        sr.receive_event({
-            "event": "speed_run_checkpoint",
-            "ordinal": 1,
-            "elapsed_ms": 12000,
-            "split_ms": 12000,
-        })
+        sr.receive_checkpoint(SpeedRunCheckpointEvent(
+            ordinal=1,
+            elapsed_ms=12000,
+            split_ms=12000,
+        ))
         await asyncio.sleep(0.05)
-        sr.receive_event({
-            "event": "speed_run_complete",
-            "elapsed_ms": 30000,
-            "split_ms": 18000,
-        })
+        sr.receive_complete(SpeedRunCompleteEvent(
+            elapsed_ms=30000,
+            split_ms=18000,
+        ))
 
     asyncio.create_task(deliver())
     await sr.run_one()
@@ -276,24 +273,21 @@ async def test_speed_run_death_makes_next_segment_cold(sr_db):
 
     async def deliver():
         await asyncio.sleep(0.02)
-        sr.receive_event({
-            "event": "speed_run_checkpoint",
-            "ordinal": 1,
-            "elapsed_ms": 12000,
-            "split_ms": 12000,
-        })
+        sr.receive_checkpoint(SpeedRunCheckpointEvent(
+            ordinal=1,
+            elapsed_ms=12000,
+            split_ms=12000,
+        ))
         await asyncio.sleep(0.02)
-        sr.receive_event({
-            "event": "speed_run_death",
-            "elapsed_ms": 18000,
-            "split_ms": 6000,
-        })
+        sr.receive_death(SpeedRunDeathEvent(
+            elapsed_ms=18000,
+            split_ms=6000,
+        ))
         await asyncio.sleep(0.02)
-        sr.receive_event({
-            "event": "speed_run_complete",
-            "elapsed_ms": 40000,
-            "split_ms": 15000,
-        })
+        sr.receive_complete(SpeedRunCompleteEvent(
+            elapsed_ms=40000,
+            split_ms=15000,
+        ))
 
     asyncio.create_task(deliver())
     await sr.run_one()
@@ -318,14 +312,14 @@ async def test_speed_run_stops_after_last_level(sr_db):
 
     async def deliver_l1():
         await asyncio.sleep(0.02)
-        sr.receive_event({"event": "speed_run_complete", "elapsed_ms": 30000, "split_ms": 30000})
+        sr.receive_complete(SpeedRunCompleteEvent(elapsed_ms=30000, split_ms=30000))
     asyncio.create_task(deliver_l1())
     result1 = await sr.run_one()
     assert result1 is True
 
     async def deliver_l2():
         await asyncio.sleep(0.02)
-        sr.receive_event({"event": "speed_run_complete", "elapsed_ms": 20000, "split_ms": 20000})
+        sr.receive_complete(SpeedRunCompleteEvent(elapsed_ms=20000, split_ms=20000))
     asyncio.create_task(deliver_l2())
     result2 = await sr.run_one()
     assert result2 is True
