@@ -140,17 +140,14 @@ class Scheduler:
                 state = EstimatorState.deserialize(est.name, row["state_json"])
                 # Bare state from a death-first attempt: no completed observations
                 # have been folded in yet, so process_attempt would update from
-                # whatever defaults the dataclass has (Kalman's mu=0, etc.) and
-                # produce a nonsense estimate.  Treat the first real completion
-                # as init_state so population priors get applied properly, then
-                # carry over the prior failed-attempt count so n_attempts stays
-                # honest.
-                if getattr(state, "n_completed", 0) == 0 and completed and time_ms is not None:
-                    prior_n_attempts = getattr(state, "n_attempts", 0)
+                # the dataclass defaults (Kalman's mu=0, etc.) and produce a
+                # nonsense estimate.  Route through init_state with population
+                # priors and carry the prior failed-attempt count forward.
+                if state.n_completed == 0 and completed and time_ms is not None:
+                    prior_n_attempts = state.n_attempts
                     priors = est.get_priors(self.db, self.game_id)
                     state = est.init_state(new_attempt, priors, params=params)
-                    if hasattr(state, "n_attempts"):
-                        state.n_attempts += prior_n_attempts
+                    state.n_attempts += prior_n_attempts
                 else:
                     state = est.process_attempt(state, new_attempt, all_attempts, params=params)
             else:

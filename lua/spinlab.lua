@@ -862,19 +862,24 @@ end
 -----------------------------------------------------------------------
 -- DISCONNECT CLEANUP
 -----------------------------------------------------------------------
+-- Drain pending I/O and queue an emu.reset() for the next cpuExec callback.
+-- Used both by disconnect cleanup and by the dashboard's "reset" command so
+-- the "drain before reset" invariant lives in one place.
+local function queue_reset()
+  pending_loads = {}
+  pending_saves = {}
+  pending_reset = true
+end
+
 local function disconnect_cleanup()
   if practice.active then
     practice_reset()
-    pending_loads     = {}
-    pending_saves     = {}
-    pending_reset     = true
+    queue_reset()
     log("Practice auto-cleared on disconnect — reset queued")
   end
   if speed_run.active then
     speed_run_reset()
-    pending_loads     = {}
-    pending_saves     = {}
-    pending_reset     = true
+    queue_reset()
     log("Speed run auto-cleared on disconnect — reset queued")
   end
   if recording.active then
@@ -1147,11 +1152,7 @@ local function handle_json_message(line)
     client:send("ok\n")
     log("Speed run stopped")
   elseif decoded_event == "reset" then
-    -- Drain pending I/O so the reset doesn't fight a save/load mid-flight,
-    -- then queue an emu.reset() for the next cpuExec callback.
-    pending_loads = {}
-    pending_saves = {}
-    pending_reset = true
+    queue_reset()
     client:send("ok:reset\n")
     log("Reset queued from dashboard")
   else

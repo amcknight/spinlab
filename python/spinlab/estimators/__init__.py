@@ -32,7 +32,16 @@ class ParamDef:
 
 @dataclass
 class EstimatorState(ABC):
-    """Base class for estimator-specific state."""
+    """Base class for estimator-specific state.
+
+    Concrete subclasses must declare their own fields after the inherited
+    ``n_completed`` / ``n_attempts`` counters; the scheduler reads these two
+    fields generically (e.g. to detect a bare state from a death-first
+    attempt) so every estimator must keep them honest.
+    """
+    n_completed: int = 0
+    n_attempts: int = 0
+
     _state_classes: ClassVar[dict[str, type["EstimatorState"]]] = {}
 
     @classmethod
@@ -57,8 +66,26 @@ class EstimatorState(ABC):
         ...
 
 
+def load_mature_states(
+    db: "Database", game_id: str, estimator_name: str,
+    state_cls: type["EstimatorState"], maturity_threshold: int,
+) -> list["EstimatorState"]:
+    """Load this estimator's saved states for a game and return mature ones.
 
-
+    Mature = at least ``maturity_threshold`` completions, i.e. enough data to
+    contribute meaningfully to population priors.  Used by Kalman and Exp Decay
+    to compute their priors; both used to roll their own copy of this loop.
+    """
+    rows = db.load_all_model_states(game_id)
+    states: list[EstimatorState] = []
+    for r in rows:
+        if r["estimator"] != estimator_name or not r["state_json"]:
+            continue
+        try:
+            states.append(state_cls.from_dict(json.loads(r["state_json"])))
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return [s for s in states if s.n_completed >= maturity_threshold]
 
 
 class Estimator(ABC):

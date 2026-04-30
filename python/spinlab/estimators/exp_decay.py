@@ -6,7 +6,6 @@ via scipy.optimize.curve_fit. Two fits: one on total times, one on clean tails.
 """
 from __future__ import annotations
 
-import json
 import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -14,7 +13,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 from scipy.optimize import OptimizeWarning, curve_fit
 
-from spinlab.estimators import Estimator, EstimatorState, register_estimator
+from spinlab.estimators import (
+    Estimator, EstimatorState, load_mature_states, register_estimator,
+)
 from spinlab.models import AttemptRecord, Estimate, ModelOutput
 
 if TYPE_CHECKING:
@@ -76,8 +77,6 @@ def _fit_exp_decay(
 class ExpDecayState(EstimatorState):
     """Bookkeeping + cached fit params."""
 
-    n_completed: int = 0
-    n_attempts: int = 0
     amplitude: float = 0.0
     decay_rate: float = 0.0
     asymptote: float = 0.0
@@ -190,27 +189,17 @@ class ExpDecayEstimator(Estimator):
 
     def get_priors(self, db: "Database", game_id: str) -> dict:
         """Average fit params across all mature exp_decay states for this game."""
-        all_rows = db.load_all_model_states(game_id)
-        states = []
-        for r in all_rows:
-            if r["estimator"] != "exp_decay" or not r["state_json"]:
-                continue
-            try:
-                states.append(ExpDecayState.from_dict(json.loads(r["state_json"])))
-            except (json.JSONDecodeError, KeyError):
-                continue
-        mature = [s for s in states if s.n_completed >= MATURITY_THRESHOLD]
+        mature = load_mature_states(db, game_id, "exp_decay", ExpDecayState, MATURITY_THRESHOLD)
         if not mature:
             return {}
+        keys = ("amplitude", "decay_rate", "asymptote",
+                "total_amplitude", "total_decay_rate", "total_asymptote")
+        sums = dict.fromkeys(keys, 0.0)
+        for s in mature:
+            for k in keys:
+                sums[k] += getattr(s, k)
         n = len(mature)
-        return {
-            "amplitude": sum(s.amplitude for s in mature) / n,
-            "decay_rate": sum(s.decay_rate for s in mature) / n,
-            "asymptote": sum(s.asymptote for s in mature) / n,
-            "total_amplitude": sum(s.total_amplitude for s in mature) / n,
-            "total_decay_rate": sum(s.total_decay_rate for s in mature) / n,
-            "total_asymptote": sum(s.total_asymptote for s in mature) / n,
-        }
+        return {k: v / n for k, v in sums.items()}
 
     def model_output(  # type: ignore[override]
         self, state: ExpDecayState, all_attempts: list[AttemptRecord],

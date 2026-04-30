@@ -18,9 +18,6 @@ DEFAULT_WINDOW_SIZE = 0
 class RollingMeanState(EstimatorState):
     """Minimal bookkeeping. Rolling mean recomputes from all_attempts each time."""
 
-    n_completed: int = 0
-    n_attempts: int = 0
-
     def to_dict(self) -> dict:
         return {"n_completed": self.n_completed, "n_attempts": self.n_attempts}
 
@@ -33,13 +30,18 @@ EstimatorState.register_state("rolling_mean", RollingMeanState)
 
 
 def _resolve_window(params: dict | None) -> int:
-    if not params:
+    if not params or "window_size" not in params:
         return DEFAULT_WINDOW_SIZE
-    raw = params.get("window_size", DEFAULT_WINDOW_SIZE)
+    raw = params["window_size"]
+    # Per CLAUDE.md: tunable knobs fail loud rather than silently snapping back
+    # to defaults — a bad value in the DB should be visible, not absorbed.
     try:
-        return max(0, int(raw))
-    except (TypeError, ValueError):
-        return DEFAULT_WINDOW_SIZE
+        n = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"window_size must be an int, got {raw!r}") from exc
+    if n < 0:
+        raise ValueError(f"window_size must be >= 0, got {n}")
+    return n
 
 
 @register_estimator

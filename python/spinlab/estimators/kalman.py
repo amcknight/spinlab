@@ -4,7 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from spinlab.estimators import Estimator, EstimatorState, ParamDef, register_estimator
+from spinlab.estimators import (
+    Estimator, EstimatorState, ParamDef, load_mature_states, register_estimator,
+)
 from spinlab.models import AttemptRecord, Estimate, ModelOutput
 
 if TYPE_CHECKING:
@@ -39,8 +41,6 @@ class KalmanState(EstimatorState):
     Q_dm: float = DEFAULT_Q_MD
     Q_dd: float = DEFAULT_Q_DD
     gold: float = float("inf")
-    n_completed: int = 0
-    n_attempts: int = 0
 
     # Clean tail filter state (parallel Kalman on clean_tail_ms)
     c_mu: float = 0.0
@@ -317,31 +317,19 @@ class KalmanEstimator(Estimator):
             "label": label,
         }
 
-    def get_population_priors(self, all_states: list[KalmanState]) -> dict:
-        mature = [s for s in all_states if s.n_completed >= MATURITY_THRESHOLD]
+    def get_priors(self, db: "Database", game_id: str) -> dict:
+        mature = load_mature_states(db, game_id, "kalman", KalmanState, MATURITY_THRESHOLD)
         if not mature:
             return {"d": DEFAULT_D, "R": DEFAULT_R, "Q_mm": DEFAULT_Q_MM, "Q_dd": DEFAULT_Q_DD}
+        # Single pass: accumulate sums, divide once at the end.
+        sums = {"d": 0.0, "R": 0.0, "Q_mm": 0.0, "Q_dd": 0.0}
+        for s in mature:
+            sums["d"] += s.d
+            sums["R"] += s.R
+            sums["Q_mm"] += s.Q_mm
+            sums["Q_dd"] += s.Q_dd
         n = len(mature)
-        return {
-            "d": sum(s.d for s in mature) / n,
-            "R": sum(s.R for s in mature) / n,
-            "Q_mm": sum(s.Q_mm for s in mature) / n,
-            "Q_dd": sum(s.Q_dd for s in mature) / n,
-        }
-
-    def get_priors(self, db: "Database", game_id: str) -> dict:
-        """Load population priors from all mature kalman states for this game."""
-        import json
-        all_rows = db.load_all_model_states(game_id)
-        kalman_rows = [r for r in all_rows if r["estimator"] == "kalman"]
-        all_states = []
-        for r in kalman_rows:
-            if r["state_json"]:
-                try:
-                    all_states.append(KalmanState.from_dict(json.loads(r["state_json"])))
-                except (json.JSONDecodeError, KeyError):
-                    pass
-        return self.get_population_priors(all_states)
+        return {k: v / n for k, v in sums.items()}
 
     def rebuild_state(self, attempts: list[AttemptRecord],
                       params: dict | None = None) -> KalmanState:
