@@ -10,7 +10,6 @@ import dataclasses
 import json
 from dataclasses import dataclass, field
 
-
 # API uses speed=0 to mean "uncapped / as fast as possible".
 # Mesen's emu.setSpeed(0) means "paused" — so the Lua side must
 # never pass SPEED_UNCAPPED directly to setSpeed.
@@ -205,6 +204,9 @@ class SpeedRunLoadCmd:
     checkpoints: list = field(default_factory=list)
     expected_time_ms: int | None = None
     auto_advance_delay_ms: int = 1000
+    # Length of the post-death blackout before the cold save state is reloaded.
+    # See SpeedRunSession.death_delay_ms for rationale.
+    death_delay_ms: int = 1500
 
 @dataclass
 class SpeedRunStopCmd:

@@ -7,7 +7,6 @@ from typing import Any, Iterable
 
 import yaml
 
-
 # Default death penalty: time added per death to account for death animation
 # + respawn in a standard SMW retry (~3.2 s measured from SMW NTSC timing).
 DEFAULT_DEATH_PENALTY_MS: int = 3200
@@ -29,7 +28,7 @@ class Scope:
 
     # Alias used by tests for readability.
     @classmethod
-    def levels(cls, levels_: Iterable[int]) -> "Scope":
+    def for_levels(cls, levels_: Iterable[int]) -> "Scope":
         return cls.levels_of(levels_)
 
     def covers(self, level: int) -> bool:

@@ -156,3 +156,47 @@ def test_patch_segment_unknown_id_returns_404(db, client):
     """PATCH /api/segments/:id returns 404 when segment does not exist."""
     resp = client.patch("/api/segments/nonexistent-id", json={"is_primary": False})
     assert resp.status_code == 404
+
+
+def test_patch_segment_updates_description(db, client):
+    """PATCH /api/segments/:id can update description field."""
+    seg = _seed_segment_with_conditions(db)
+    resp = client.patch(f"/api/segments/{seg.id}", json={"description": "New Name"})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+def test_patch_segment_sets_active_false(db, client):
+    """PATCH /api/segments/:id can deactivate a segment."""
+    seg = _seed_segment_with_conditions(db)
+    resp = client.patch(f"/api/segments/{seg.id}", json={"active": False})
+    assert resp.status_code == 200
+
+
+# -- DELETE /api/segments/:id ------------------------------------------------
+
+def test_delete_segment_soft_deletes(db, client):
+    """DELETE /api/segments/:id soft-deletes (sets active=0)."""
+    seg = _seed_segment_with_conditions(db)
+    resp = client.delete(f"/api/segments/{seg.id}")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    # Soft-deleted segments no longer appear in get_all_segments_with_model
+    rows = db.get_all_segments_with_model(GAME_ID)
+    assert len(rows) == 0
+
+
+def test_delete_segment_unknown_id_returns_404(db, client):
+    """DELETE /api/segments/:id returns 404 when segment does not exist."""
+    resp = client.delete("/api/segments/nonexistent-id")
+    assert resp.status_code == 404
+
+
+# -- POST /api/segments/:id/fill-gap -----------------------------------------
+
+def test_fill_gap_not_connected_returns_503(db, client):
+    """fill-gap requires TCP connection."""
+    seg = _seed_segment_with_conditions(db)
+    resp = client.post(f"/api/segments/{seg.id}/fill-gap")
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "not_connected"

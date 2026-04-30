@@ -1,25 +1,24 @@
 """Tests for StateBuilder — covers branches not already exercised by
 test_dashboard_integration.py (which covers the practice branch).
-"""
-from unittest.mock import MagicMock
 
+Uses real SessionManager + real DB instead of mocking SessionManager
+attributes, so tests break if the SM interface changes.
+"""
 import pytest
 
 from spinlab.models import Mode
-from spinlab.state_builder import StateBuilder
+from spinlab.session_manager import SessionManager
+from spinlab.speed_run import LevelPlan, SpeedRunSession
+
+
+def _make_sm(db, tcp):
+    return SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
 
 
 class TestIdleBaseCase:
-    def test_no_game_returns_bare_state(self, mock_db):
-        sb = StateBuilder(mock_db)
-        sm = MagicMock()
-        sm.mode = Mode.IDLE
-        sm.tcp.is_connected = True
-        sm.game_id = None
-        sm.game_name = None
-        sm.capture.sections_captured = 0
-
-        state = sb.build(sm)
+    def test_no_game_returns_bare_state(self, practice_db, mock_tcp):
+        sm = _make_sm(practice_db, mock_tcp)
+        state = sm.get_state()
 
         assert state["mode"] == "idle"
         assert state["game_id"] is None
@@ -32,116 +31,73 @@ class TestIdleBaseCase:
 
 
 class TestSpeedRunBranch:
-    def test_speed_run_populates_current_level(self, mock_db):
-        sb = StateBuilder(mock_db)
-        sm = MagicMock()
-        sm.mode = Mode.SPEED_RUN
-        sm.tcp.is_connected = True
-        sm.game_id = "g1"
-        sm.game_name = "Test"
-        sm.capture.sections_captured = 0
-        sm.capture.get_draft_state.return_value = None
+    def test_speed_run_populates_current_level(self, practice_db, mock_tcp):
+        sm = _make_sm(practice_db, mock_tcp)
+        sm.game_id = "g"
+        sm.game_name = "Game"
 
-        fake_sched = MagicMock()
-        fake_sched.allocator.entries = []
-        fake_sched.estimator.name = "kalman"
-        sm.get_scheduler.return_value = fake_sched
-
-        fake_level = MagicMock()
-        fake_level.level_number = 5
-        fake_level.description = "Level 5"
-        fake_level.entrance_state_path = "/tmp/l5.mss"
-        fake_level.segments = [{"id": "seg-l5"}]
-
-        sr = MagicMock()
-        sr.session_id = "sr-abc"
-        sr.started_at = "2026-04-10T12:00:00"
+        sr = SpeedRunSession(tcp=mock_tcp, db=practice_db, game_id="g")
         sr.segments_recorded = 3
         sr.levels_completed = 2
-        sr.current_level_index = 0
-        sr.levels = [fake_level]
-        sr.game_id = "g1"
         sm.speed_run_session = sr
+        sm.mode = Mode.SPEED_RUN
 
-        state = sb.build(sm)
+        state = sm.get_state()
 
         assert state["mode"] == "speed_run"
-        assert state["session"]["id"] == "sr-abc"
+        assert state["session"]["id"] == sr.session_id
         assert state["session"]["segments_attempted"] == 3
         assert state["session"]["segments_completed"] == 2
-        assert state["current_segment"]["level_number"] == 5
-        assert state["current_segment"]["description"] == "Level 5"
-        assert state["current_segment"]["state_path"] == "/tmp/l5.mss"
-        assert state["current_segment"]["id"] == "seg-l5"
+        # Real SpeedRunSession built its levels from DB — verify current level
+        assert state["current_segment"]["level_number"] == 1
+        assert state["current_segment"]["state_path"] is not None
 
 
 class TestColdFillBranch:
-    def test_cold_fill_includes_state(self, mock_db):
-        sb = StateBuilder(mock_db)
-        sm = MagicMock()
+    def test_cold_fill_includes_state(self, practice_db, mock_tcp):
+        sm = _make_sm(practice_db, mock_tcp)
+        sm.game_id = "g"
+        sm.game_name = "Game"
         sm.mode = Mode.COLD_FILL
-        sm.tcp.is_connected = True
-        sm.game_id = "g1"
-        sm.game_name = "Test"
-        sm.capture.sections_captured = 0
-        sm.capture.get_draft_state.return_value = None
 
-        fake_sched = MagicMock()
-        fake_sched.allocator.entries = []
-        fake_sched.estimator.name = "kalman"
-        sm.get_scheduler.return_value = fake_sched
+        # Drive the real ColdFillController into mid-fill state
+        sm.cold_fill.queue = [
+            {"segment_id": "seg1", "hot_state_path": "/hot1.mss",
+             "level_number": 105, "start_type": "checkpoint", "start_ordinal": 1,
+             "end_type": "checkpoint", "end_ordinal": 2, "description": ""},
+            {"segment_id": "seg2", "hot_state_path": "/hot2.mss",
+             "level_number": 105, "start_type": "checkpoint", "start_ordinal": 2,
+             "end_type": "goal", "end_ordinal": 0, "description": ""},
+        ]
+        sm.cold_fill.current = "seg1"
+        sm.cold_fill.total = 5
 
-        sm.cold_fill.get_state.return_value = {
-            "current_segment_id": "seg1",
-            "remaining": 3,
-            "total": 5,
-        }
-
-        state = sb.build(sm)
+        state = sm.get_state()
         assert state["mode"] == "cold_fill"
-        assert state["cold_fill"]["remaining"] == 3
+        # current_num = total - len(queue) + 1 = 5 - 2 + 1 = 4
+        assert state["cold_fill"]["current"] == 4
         assert state["cold_fill"]["total"] == 5
 
-    def test_cold_fill_none_state_omitted(self, mock_db):
-        """When cold_fill.get_state() returns None, no cold_fill key is added."""
-        sb = StateBuilder(mock_db)
-        sm = MagicMock()
+    def test_cold_fill_none_state_omitted(self, practice_db, mock_tcp):
+        """When cold_fill has no current segment, no cold_fill key is added."""
+        sm = _make_sm(practice_db, mock_tcp)
+        sm.game_id = "g"
+        sm.game_name = "Game"
         sm.mode = Mode.COLD_FILL
-        sm.tcp.is_connected = True
-        sm.game_id = "g1"
-        sm.game_name = "Test"
-        sm.capture.sections_captured = 0
-        sm.capture.get_draft_state.return_value = None
+        # cold_fill.current is None by default → get_state() returns None
 
-        fake_sched = MagicMock()
-        fake_sched.allocator.entries = []
-        fake_sched.estimator.name = "kalman"
-        sm.get_scheduler.return_value = fake_sched
-
-        sm.cold_fill.get_state.return_value = None
-
-        state = sb.build(sm)
+        state = sm.get_state()
         assert "cold_fill" not in state
 
 
 class TestDraftBranch:
-    def test_draft_state_included_when_active(self, mock_db):
-        sb = StateBuilder(mock_db)
-        sm = MagicMock()
-        sm.mode = Mode.IDLE
-        sm.tcp.is_connected = True
-        sm.game_id = "g1"
-        sm.game_name = "Test"
-        sm.capture.sections_captured = 7
+    def test_draft_state_included_when_active(self, practice_db, mock_tcp):
+        sm = _make_sm(practice_db, mock_tcp)
+        sm.game_id = "g"
+        sm.game_name = "Game"
 
-        fake_sched = MagicMock()
-        fake_sched.allocator.entries = []
-        fake_sched.estimator.name = "kalman"
-        sm.get_scheduler.return_value = fake_sched
+        sm.capture.draft.enter_draft("run-xyz", 7)
 
-        sm.capture.get_draft_state.return_value = {
-            "run_id": "run-xyz", "segment_count": 7,
-        }
-
-        state = sb.build(sm)
-        assert state["draft"] == {"run_id": "run-xyz", "segment_count": 7}
+        state = sm.get_state()
+        assert state["draft"]["run_id"] == "run-xyz"
+        assert state["draft"]["segments_captured"] == 7

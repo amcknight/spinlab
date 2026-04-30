@@ -125,7 +125,7 @@ class ExpDecayEstimator(Estimator):
     def init_state(self, first_attempt: AttemptRecord, priors: dict, params: dict | None = None) -> ExpDecayState:
         return ExpDecayState(n_completed=1, n_attempts=1)
 
-    def process_attempt(
+    def process_attempt(  # type: ignore[override]
         self, state: ExpDecayState, new_attempt: AttemptRecord,
         all_attempts: list[AttemptRecord],
         params: dict | None = None,
@@ -137,7 +137,7 @@ class ExpDecayEstimator(Estimator):
         new_state.n_attempts = state.n_attempts + 1
         return new_state
 
-    def model_output(self, state: ExpDecayState, all_attempts: list[AttemptRecord]) -> ModelOutput:
+    def model_output(self, state: ExpDecayState, all_attempts: list[AttemptRecord]) -> ModelOutput:  # type: ignore[override]
         completed = [a for a in all_attempts if a.completed and a.time_ms is not None]
         n = len(completed)
 

@@ -17,7 +17,7 @@
 local SNES = emu.memType.snesMemory
 
 -----------------------------------------------------------------------
--- ADDRESS MAP (loaded from shared source of truth)
+-- SHARED MODULES (addresses, JSON helpers)
 -----------------------------------------------------------------------
 local _pe_dir = debug.getinfo(1, "S").source:match("@?(.*[\\/])") or ""
 if _pe_dir == "" then
@@ -26,6 +26,7 @@ if _pe_dir == "" then
     if f then _pe_dir = f:read("*l") or ""; f:close() end
 end
 dofile(_pe_dir .. "addresses.lua")
+dofile(_pe_dir .. "json.lua")
 
 local ADDR_MAP = {
   game_mode    = ADDR_GAME_MODE,

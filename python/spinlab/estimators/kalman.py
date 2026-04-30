@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from spinlab.estimators import Estimator, EstimatorState, register_estimator
+from spinlab.estimators import Estimator, EstimatorState, ParamDef, register_estimator
 from spinlab.models import AttemptRecord, Estimate, ModelOutput
 
 if TYPE_CHECKING:
@@ -98,8 +98,7 @@ class KalmanEstimator(Estimator):
     name = "kalman"
     display_name = "Kalman Filter"
 
-    def declared_params(self) -> list["ParamDef"]:
-        from spinlab.estimators import ParamDef
+    def declared_params(self) -> list[ParamDef]:
         return [
             ParamDef("D0", "Initial Drift", 0.0, -5.0, 5.0, 0.1,
                      "Assumed improvement rate before data (seconds/attempt). 0 = no assumption."),
@@ -162,6 +161,7 @@ class KalmanEstimator(Estimator):
     def init_state(self, first_attempt: AttemptRecord, priors: dict,
                    params: dict | None = None) -> KalmanState:
         p = self._resolve_params(params)
+        assert first_attempt.time_ms is not None  # init_state is called with completed attempts
         first_time = first_attempt.time_ms / 1000.0
         d = priors.get("d", p["D0"])
         R = priors.get("R", p["R"])
@@ -221,7 +221,7 @@ class KalmanEstimator(Estimator):
         R_blended = (1 - r_blend) * state.c_R + r_blend * R_new
         return replace(state, c_R=max(R_blended, r_floor))
 
-    def process_attempt(
+    def process_attempt(  # type: ignore[override]
         self, state: KalmanState, new_attempt: AttemptRecord,
         all_attempts: list[AttemptRecord],
         params: dict | None = None,
@@ -275,7 +275,7 @@ class KalmanEstimator(Estimator):
 
         return result
 
-    def model_output(self, state: KalmanState, all_attempts: list[AttemptRecord]) -> ModelOutput:
+    def model_output(self, state: KalmanState, all_attempts: list[AttemptRecord]) -> ModelOutput:  # type: ignore[override]
         none_estimate = Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None)
         if state.n_completed == 0:
             return ModelOutput(total=none_estimate, clean=none_estimate)

@@ -28,14 +28,17 @@ def api_segments(session: SessionManager = Depends(get_session), db: Database = 
     if session.game_id is None:
         return {"segments": []}
     rows = db.get_all_segments_with_model(session.game_id, primary_only=False)
-    out = []
+    out: list[dict] = []
     for r in rows:
-        start_wp = db.get_waypoint(r["start_waypoint_id"]) if r.get("start_waypoint_id") else None
-        end_wp = db.get_waypoint(r["end_waypoint_id"]) if r.get("end_waypoint_id") else None
-        r["start_conditions"] = json.loads(start_wp.conditions_json) if start_wp else {}
-        r["end_conditions"] = json.loads(end_wp.conditions_json) if end_wp else {}
-        r["is_primary"] = bool(r.get("is_primary", 1))
-        out.append(r)
+        d: dict = dict(r)
+        swid = d.get("start_waypoint_id")
+        ewid = d.get("end_waypoint_id")
+        start_wp = db.get_waypoint(swid) if swid else None
+        end_wp = db.get_waypoint(ewid) if ewid else None
+        d["start_conditions"] = json.loads(start_wp.conditions_json) if start_wp else {}
+        d["end_conditions"] = json.loads(end_wp.conditions_json) if end_wp else {}
+        d["is_primary"] = bool(d.get("is_primary", 1))
+        out.append(d)
     return {"segments": out}
 
 

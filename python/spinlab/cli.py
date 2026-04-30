@@ -97,10 +97,11 @@ def main(args: list[str] | None = None) -> None:
 
     elif parsed.command == "dashboard":
         import uvicorn
+
         from spinlab.config import AppConfig
         from spinlab.dashboard import create_app
         from spinlab.db import Database
-        from spinlab.vite import spawn_vite, VITE_PORT, ViteStartupError
+        from spinlab.vite import VITE_PORT, ViteStartupError, spawn_vite
 
         config = AppConfig.from_yaml(Path(parsed.config))
         _setup_file_logging(config.data_dir)
@@ -124,8 +125,8 @@ def main(args: list[str] | None = None) -> None:
         uvicorn.run(app, host="0.0.0.0", port=dashboard_port, log_level="warning")
 
     elif parsed.command == "replay":
-        import yaml
         import requests
+        import yaml
         config_path = Path(parsed.config)
         with config_path.open(encoding="utf-8") as f:
             config = yaml.safe_load(f)
@@ -140,6 +141,7 @@ def main(args: list[str] | None = None) -> None:
 
     elif parsed.command == "lua-cmd":
         import socket
+
         import yaml
         config_path = Path(parsed.config)
         with config_path.open(encoding="utf-8") as f:

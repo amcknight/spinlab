@@ -12,12 +12,18 @@ Fixtures:
     dashboard_server   — session-scoped: real FastAPI dashboard connected to smoke Mesen
     dashboard_url      — session-scoped: convenience alias for the dashboard base URL
     api                — function-scoped: requests session pre-configured with dashboard URL
+
+Diagnostics:
+    On emulator/integration test failure, a diagnostic block is appended to the
+    pytest longrepr showing dashboard state, DB row counts, and Mesen process
+    status. Controlled by the ``pytest_runtest_makereport`` hook below.
 """
 from __future__ import annotations
 
 import asyncio
 
 import json
+import logging
 import os
 import socket
 import subprocess
@@ -144,14 +150,7 @@ async def mesen_process():
 
     yield proc
 
-    # Teardown: kill if still running
-    if proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+    _hard_kill(proc)
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
@@ -239,6 +238,57 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _hard_kill(proc: subprocess.Popen) -> None:
+    """Best-effort kill that survives Mesen processes that ignore terminate().
+
+    On Windows, ``Popen.terminate()`` and ``Popen.kill()`` both call
+    ``TerminateProcess()`` — there is no real escalation between them.  Use
+    ``taskkill /F /T`` so the whole tree dies and we don't leak children.
+    Every wait gets a timeout so a wedged Mesen can't hang the pytest
+    finalizer.
+    """
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """Sweep orphan Mesen processes before any fixture spawns a new one.
+
+    Pytest fixture finalizers don't run if pytest is interrupted (Ctrl+C,
+    crash, OOM), so on Windows every interrupted run leaks a Mesen.exe child.
+    The next session inherits the orphan on the fixed port (15482) and every
+    test fails with "Did not receive rom_info from Lua".  Killing leftovers up
+    front breaks that cycle.
+
+    Set ``SPINLAB_NO_MESEN_SWEEP=1`` to skip — useful if you're running pytest
+    while a real Mesen window is open for unrelated work.
+    """
+    if os.environ.get("SPINLAB_NO_MESEN_SWEEP"):
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/IM", "Mesen.exe", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def smoke_mesen_process():
     """Launch a separate Mesen2 with spinlab.lua on a free TCP port for smoke tests.
@@ -263,25 +313,19 @@ async def smoke_mesen_process():
         encoding="utf-8",
     )
 
-    # Copy addresses.lua to the temp dir so dofile resolves it
+    # Copy shared Lua modules to the temp dir so dofile resolves them
     import shutil as _shutil
-    addresses_src = LUA_DIR / "addresses.lua"
-    if addresses_src.exists():
-        _shutil.copy2(str(addresses_src), str(tmp_lua_dir / "addresses.lua"))
+    for lua_module in ("addresses.lua", "json.lua", "overlay.lua", "spinrec.lua"):
+        src = LUA_DIR / lua_module
+        if src.exists():
+            _shutil.copy2(str(src), str(tmp_lua_dir / lua_module))
 
     cmd = [_mesen, "--testrunner", _rom, str(patched_lua)]
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     yield proc, tcp_port
 
-    if proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-
+    _hard_kill(proc)
     _shutil.rmtree(str(tmp_lua_dir), ignore_errors=True)
 
 
@@ -498,23 +542,17 @@ async def replay_mesen_process():
     )
 
     import shutil as _shutil
-    addresses_src = LUA_DIR / "addresses.lua"
-    if addresses_src.exists():
-        _shutil.copy2(str(addresses_src), str(tmp_lua_dir / "addresses.lua"))
+    for lua_module in ("addresses.lua", "json.lua", "overlay.lua", "spinrec.lua"):
+        src = LUA_DIR / lua_module
+        if src.exists():
+            _shutil.copy2(str(src), str(tmp_lua_dir / lua_module))
 
     cmd = [_mesen, "--testrunner", _love_yourself_rom, str(patched_lua)]
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     yield proc, tcp_port
 
-    if proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-
+    _hard_kill(proc)
     _shutil.rmtree(str(tmp_lua_dir), ignore_errors=True)
 
 
@@ -580,5 +618,113 @@ async def replay_dashboard(replay_mesen_process):
     server.should_exit = True
     thread.join(timeout=5)
     db.close()
-    import shutil
-    shutil.rmtree(tmp, ignore_errors=True)
+    import shutil as _shutil_cleanup
+    _shutil_cleanup.rmtree(tmp, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic dump on integration test failure
+# ---------------------------------------------------------------------------
+
+# Collect event log lines from the spinlab logger during the entire session.
+# The handler is installed once at import time; the ring buffer is read by
+# the failure hook to include recent events in the pytest report.
+
+_EVENT_LOG_CAPACITY = 200
+
+
+class _RingHandler(logging.Handler):
+    """Fixed-capacity ring buffer logging handler."""
+
+    def __init__(self, capacity: int = _EVENT_LOG_CAPACITY):
+        super().__init__()
+        self._buf: list[str] = []
+        self._capacity = capacity
+
+    def emit(self, record: logging.LogRecord) -> None:
+        line = self.format(record)
+        self._buf.append(line)
+        if len(self._buf) > self._capacity:
+            self._buf = self._buf[-self._capacity:]
+
+    def recent(self, n: int = 30) -> list[str]:
+        return self._buf[-n:]
+
+
+_ring = _RingHandler()
+_ring.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+logging.getLogger("spinlab").addHandler(_ring)
+
+
+def _collect_diagnostics(item: pytest.Item) -> str:
+    """Best-effort snapshot of integration test state at failure time."""
+    parts: list[str] = []
+
+    # --- Dashboard API state ---
+    for fixture_name in ("dashboard_server", "replay_dashboard"):
+        fixture_val = item.funcargs.get(fixture_name)
+        if fixture_val is None:
+            continue
+        if fixture_name == "dashboard_server":
+            base_url, db = fixture_val
+        else:
+            base_url, db, _ = fixture_val
+        try:
+            state = http_requests.get(f"{base_url}/api/state", timeout=2).json()
+            parts.append(f"  /api/state: {json.dumps(state, indent=2)}")
+        except Exception as exc:
+            parts.append(f"  /api/state: <unavailable: {exc}>")
+
+        # DB row counts
+        try:
+            seg_count = db.conn.execute(
+                "SELECT COUNT(*) FROM segments WHERE active = 1"
+            ).fetchone()[0]
+            ref_count = db.conn.execute(
+                "SELECT COUNT(*) FROM capture_runs"
+            ).fetchone()[0]
+            draft_count = db.conn.execute(
+                "SELECT COUNT(*) FROM capture_runs WHERE draft = 1"
+            ).fetchone()[0]
+            parts.append(f"  DB: {seg_count} active segments, {ref_count} capture_runs ({draft_count} drafts)")
+        except Exception as exc:
+            parts.append(f"  DB: <unavailable: {exc}>")
+        break
+
+    # --- Mesen process status ---
+    for proc_name in ("smoke_mesen_process", "replay_mesen_process"):
+        proc_val = item.funcargs.get(proc_name)
+        if proc_val is None:
+            continue
+        proc, tcp_port = proc_val
+        status = "running" if proc.poll() is None else f"exited ({proc.returncode})"
+        parts.append(f"  Mesen ({proc_name}): {status}, TCP port {tcp_port}")
+
+    # --- Recent event log ---
+    recent = _ring.recent(30)
+    if recent:
+        parts.append(f"  Recent log ({len(recent)} lines):")
+        for line in recent:
+            parts.append(f"    {line}")
+
+    if not parts:
+        return ""
+    return "\n--- SpinLab Integration Diagnostics ---\n" + "\n".join(parts)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Append diagnostic state to the report when an integration test fails."""
+    outcome = yield
+    report = outcome.get_result()
+    if report.when != "call" or not report.failed:
+        return
+    # Only for tests in the integration directory
+    if "integration" not in str(item.fspath):
+        return
+    diag = _collect_diagnostics(item)
+    if diag:
+        # Append to the longrepr so it shows in terminal output
+        if hasattr(report, "longreprtext"):
+            report.longreprtext += diag
+        report.sections.append(("SpinLab Diagnostics", diag))

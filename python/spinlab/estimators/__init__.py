@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
     from spinlab.db import Database
@@ -33,6 +33,7 @@ class ParamDef:
 @dataclass
 class EstimatorState(ABC):
     """Base class for estimator-specific state."""
+    _state_classes: ClassVar[dict[str, type["EstimatorState"]]] = {}
 
     @classmethod
     def register_state(cls, name: str, state_cls: type["EstimatorState"]) -> None:
@@ -56,8 +57,8 @@ class EstimatorState(ABC):
         ...
 
 
-# Class-level registry — set after class body to avoid dataclass field issues
-EstimatorState._state_classes: dict[str, type[EstimatorState]] = {}
+
+
 
 
 class Estimator(ABC):

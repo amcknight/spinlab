@@ -49,3 +49,23 @@ exclude_lines = [
 
 [tool.coverage.html]
 directory = "coverage/html"
+
+[tool.pyright]
+pythonVersion = "3.11"
+include = ["python"]
+# Side-effect-only imports used by registries (estimators, allocators)
+reportUnusedImport = false
+
+[tool.ruff]
+src = ["python"]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",   # line length — not bulk-reformatting existing code
+]
+# F401: side-effect imports power the estimator/allocator registries
+# E402: route modules configure logging before imports (intentional)
+per-file-ignores = { "python/spinlab/estimators/__init__.py" = ["F401"], "python/spinlab/allocators/__init__.py" = ["F401"], "python/spinlab/routes/*.py" = ["E402"], "python/spinlab/scheduler.py" = ["E402"] }

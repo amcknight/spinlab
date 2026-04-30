@@ -50,12 +50,19 @@ class SpeedRunSession:
         db: "Database",
         game_id: str,
         auto_advance_delay_ms: int = 1000,
+        death_delay_ms: int = 1500,
         on_event: Callable | None = None,
     ) -> None:
+        # death_delay_ms: time the emulator holds a black-screen overlay after
+        # a death before reloading the cold save state.  The cold save is
+        # captured at the start of SMW's post-respawn fade-in, so reloading it
+        # instantly looks like a glitchy replay of the death sequence.  A short
+        # blackout gives the death weight without making practice feel sluggish.
         self.tcp = tcp
         self.db = db
         self.game_id = game_id
         self.auto_advance_delay_ms = auto_advance_delay_ms
+        self.death_delay_ms = death_delay_ms
         self.on_event = on_event
 
         self.session_id = uuid.uuid4().hex
@@ -178,6 +185,7 @@ class SpeedRunSession:
             description=level.description,
             checkpoints=level.checkpoints,
             auto_advance_delay_ms=self.auto_advance_delay_ms,
+            death_delay_ms=self.death_delay_ms,
         )
 
         logger.info(

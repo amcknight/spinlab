@@ -1,5 +1,7 @@
 """Segment and segment variant queries."""
 
+import sqlite3
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TypedDict
 
@@ -37,6 +39,8 @@ class MissingColdRow(TypedDict):
 
 class SegmentsMixin:
     """Segment CRUD and variant management."""
+    conn: sqlite3.Connection
+    _row_to_segment: Callable[[sqlite3.Row], Segment]
 
     # -- Segments --
 
@@ -110,7 +114,7 @@ class SegmentsMixin:
             (game_id,),
         )
         actual_cols = [desc[0] for desc in cur.description]
-        return [dict(zip(actual_cols, row)) for row in cur.fetchall()]
+        return [dict(zip(actual_cols, row)) for row in cur.fetchall()]  # type: ignore[return-value]
 
     def segments_missing_cold(self, game_id: str) -> list[MissingColdRow]:
         """Return segments whose start waypoint has hot but not cold save state."""
@@ -129,7 +133,7 @@ class SegmentsMixin:
         ).fetchall()
         cols = ["segment_id", "hot_state_path", "level_number",
                 "start_type", "start_ordinal", "end_type", "end_ordinal", "description"]
-        return [dict(zip(cols, r)) for r in rows]
+        return [dict(zip(cols, r)) for r in rows]  # type: ignore[return-value]
 
     def update_segment(self, segment_id: str, **kwargs) -> None:
         """Partial update: pass description=, active= as kwargs."""

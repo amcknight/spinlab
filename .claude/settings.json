@@ -54,7 +54,14 @@
       "Bash(tasklist)",
       "Bash(curl -s http://127.0.0.1:8000/api/state)",
       "Bash(xargs ls:*)",
-      "Bash(git -C frontend status)"
+      "Bash(git -C frontend status)",
+      "Bash(lua -v)",
+      "Bash(luajit -v)",
+      "Bash(python -m py_compile python/spinlab/estimators/rolling_mean.py)",
+      "Bash(python -m pyflakes python/spinlab/estimators/rolling_mean.py)",
+      "Bash(python -m mypy python/spinlab/estimators/rolling_mean.py --ignore-missing-imports)",
+      "Bash(ruff check *)",
+      "Bash(npx pyright *)"
     ],
     "additionalDirectories": []
   },

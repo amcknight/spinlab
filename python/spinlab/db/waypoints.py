@@ -1,9 +1,12 @@
 """Waypoint CRUD."""
 
+import sqlite3
+
 from ..models import Waypoint
 
 
 class WaypointsMixin:
+    conn: sqlite3.Connection
     def upsert_waypoint(self, w: Waypoint) -> None:
         self.conn.execute(
             """INSERT INTO waypoints

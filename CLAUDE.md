@@ -27,10 +27,20 @@ Red-Green TDD. Keep only tests that document behavior or catch regressions.
 - **Smoke tests:** Included in `pytest -m emulator`. Full-stack: Mesen headless + dashboard + DB. See `tests/integration/test_smoke.py`.
 - **Replay fixture tests:** Included in `pytest -m emulator`. Replays a two-level Love Yourself recording through headless Mesen. Requires `Love Yourself.smc` in `rom.dir` (or set `SPINLAB_REPLAY_ROM`). See `docs/superpowers/specs/2026-04-11-replay-fixture-design.md` for recording instructions.
 - **Static asset tests:** `pytest -m frontend`. Requires `cd frontend && npm run build` first.
-- **Everything:** `pytest` (~30s). Run before committing. **Fix all failures, even pre-existing ones unrelated to your current work.** A red suite is never acceptable.
+- **Everything:** `python -m pytest` (~30s). **This is the command you must run before reporting work as done.** Not `pytest -m "not ..."`, not a subset — the full unfiltered suite. Fix all failures, even pre-existing ones unrelated to your current work. A red suite is never acceptable.
 - **DB reset:** `spinlab db reset [--config config.yaml]` — deletes and recreates the database. Useful after schema changes during development.
 - **Frontend tests:** `cd frontend && npm test` (~2s). Vitest + happy-dom. Pure logic and API contract tests.
 - **Coverage:** `./scripts/coverage.sh` (unit), `--all` (unit+emulator), `--html` (opens report).
+
+### Static Analysis
+
+- **Type check:** `npx pyright python/` — same engine as Pylance in VS Code. Run when changing function signatures, model types, or TypedDict shapes.
+- **Lint:** `ruff check python/` — unused imports, dead code, style. `ruff check --fix python/` auto-fixes safe issues.
+- Don't introduce new errors. Existing errors are tracked and will be cleaned up over time.
+
+### Integration test diagnostics
+
+When an emulator/integration test fails, a diagnostic block is automatically appended to the pytest report showing: `/api/state` snapshot, DB row counts (segments, capture_runs, drafts), Mesen process status, and the last 30 lines from the `spinlab` logger ring buffer. Implemented in `tests/integration/conftest.py` via `pytest_runtest_makereport` hook. Use this output to diagnose intermittent failures — it captures the state that would otherwise be lost.
 
 ### Gotchas
 

@@ -126,7 +126,7 @@ class Waypoint:
     conditions_json: str     # canonical JSON (sorted keys)
 
     @staticmethod
-    def make(game_id: str, level_number: int, endpoint_type: str,
+    def make(game_id: str, level_number: int, endpoint_type: "EndpointType",
              ordinal: int, conditions: dict) -> "Waypoint":
         canonical = json.dumps(conditions, sort_keys=True, separators=(", ", ": "))
         h = hashlib.sha256(

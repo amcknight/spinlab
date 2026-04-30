@@ -279,6 +279,25 @@ h3 {
   background: var(--surface);
   border: 1px solid var(--card);
   border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#recent li.invalidated { opacity: 0.5; }
+.invalidate-btn {
+  margin-left: auto;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--card);
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 10px;
+}
+.invalidate-btn:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
 }
 
 /* Result colors */

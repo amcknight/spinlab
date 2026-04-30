@@ -35,7 +35,7 @@ class RollingMeanEstimator(Estimator):
     def init_state(self, first_attempt: AttemptRecord, priors: dict, params: dict | None = None) -> RollingMeanState:
         return RollingMeanState(n_completed=1, n_attempts=1)
 
-    def process_attempt(
+    def process_attempt(  # type: ignore[override]
         self, state: RollingMeanState, new_attempt: AttemptRecord,
         all_attempts: list[AttemptRecord],
         params: dict | None = None,
@@ -43,7 +43,7 @@ class RollingMeanEstimator(Estimator):
         n_completed = state.n_completed + (1 if new_attempt.completed else 0)
         return RollingMeanState(n_completed=n_completed, n_attempts=state.n_attempts + 1)
 
-    def model_output(self, state: RollingMeanState, all_attempts: list[AttemptRecord]) -> ModelOutput:
+    def model_output(self, state: RollingMeanState, all_attempts: list[AttemptRecord]) -> ModelOutput:  # type: ignore[override]
         completed = [a for a in all_attempts if a.completed and a.time_ms is not None]
         if not completed:
             return ModelOutput(
@@ -51,7 +51,7 @@ class RollingMeanEstimator(Estimator):
                 clean=Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None),
             )
 
-        total_times = [a.time_ms for a in completed]
+        total_times = [a.time_ms for a in completed if a.time_ms is not None]
         clean_tails = [a.clean_tail_ms for a in completed if a.clean_tail_ms is not None]
 
         avg_total = statistics.mean(total_times)

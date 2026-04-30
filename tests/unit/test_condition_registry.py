@@ -43,7 +43,7 @@ def test_in_scope_filtering():
         ConditionDef(name="powerup", address=0x19, size=1, type="enum",
                      values={0: "small"}, scope=Scope.game()),
         ConditionDef(name="yellow_key", address=0x7E1F2D, size=1, type="bool",
-                     values=None, scope=Scope.levels([42])),
+                     values=None, scope=Scope.for_levels([42])),
     ])
     assert [d.name for d in reg.in_scope(level=5)] == ["powerup"]
     assert [d.name for d in reg.in_scope(level=42)] == ["powerup", "yellow_key"]
@@ -68,7 +68,7 @@ def test_decode_drops_out_of_scope():
         ConditionDef(name="powerup", address=0x19, size=1, type="enum",
                      values={0: "small"}, scope=Scope.game()),
         ConditionDef(name="yellow_key", address=0x7E1F2D, size=1, type="bool",
-                     values=None, scope=Scope.levels([42])),
+                     values=None, scope=Scope.for_levels([42])),
     ])
     result = reg.decode({"powerup": 0, "yellow_key": 1}, level=5)
     assert result == {"powerup": "small"}

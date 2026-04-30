@@ -164,3 +164,49 @@ class TestListReferencesHasSpinrec:
         refs = resp.json()["references"]
         assert len(refs) == 1
         assert refs[0]["has_spinrec"] is False
+
+
+class TestReplayStop:
+    def test_replay_stop_not_running(self, client):
+        """POST /api/replay/stop returns 409 when no replay is active."""
+        resp = client.post("/api/replay/stop")
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "not_replaying"
+
+    def test_replay_stop_success(self, client):
+        client.app.state.session.stop_replay = AsyncMock(
+            return_value=ActionResult(status=Status.STOPPED)
+        )
+        resp = client.post("/api/replay/stop")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "stopped"
+
+
+class TestReferenceSegments:
+    def test_get_reference_segments(self, client, db):
+        """GET /api/references/:id/segments returns segments for that reference."""
+        db.create_capture_run("ref1", "test_game", "Run 1")
+        s = Segment(id="s1", game_id="test_game", level_number=1,
+                    start_type="entrance", start_ordinal=0,
+                    end_type="goal", end_ordinal=0,
+                    reference_id="ref1")
+        db.upsert_segment(s)
+
+        resp = client.get("/api/references/ref1/segments")
+        assert resp.status_code == 200
+        segs = resp.json()["segments"]
+        assert len(segs) == 1
+        assert segs[0]["id"] == "s1"
+
+    def test_get_reference_segments_empty(self, client, db):
+        """GET /api/references/:id/segments returns empty list when no segments."""
+        db.create_capture_run("ref1", "test_game", "Run 1")
+        resp = client.get("/api/references/ref1/segments")
+        assert resp.status_code == 200
+        assert resp.json()["segments"] == []
+
+    def test_get_reference_segments_unknown_ref(self, client):
+        """GET /api/references/:id/segments returns empty for unknown ref."""
+        resp = client.get("/api/references/nonexistent/segments")
+        assert resp.status_code == 200
+        assert resp.json()["segments"] == []

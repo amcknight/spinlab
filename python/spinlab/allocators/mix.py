@@ -11,7 +11,7 @@ from spinlab.allocators import Allocator, SegmentWithModel
 class MixAllocator:
     """Holds (allocator, weight) pairs; dispatches each pick via weighted random."""
 
-    entries: list[tuple[Allocator, float]]
+    entries: list[tuple[Allocator, int | float]]
     last_chosen_allocator: str | None = None
 
     def pick_next(self, segment_states: list[SegmentWithModel]) -> str | None:

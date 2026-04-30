@@ -27,7 +27,29 @@ let _currentWeights: Record<string, number> | null = null;
 let _tuningParams: TuningData | null = null;
 let _tuningDebounce: ReturnType<typeof setTimeout> | null = null;
 let _currentSegmentId: string | null = null;
+let _lastTuningGameId: string | null = null;
 const TUNING_DEBOUNCE_MS = 200;
+
+/**
+ * Refetch tuning params when the active game changes.
+ *
+ * Tuning is fetched once at page init, but at that moment the dashboard is
+ * still bootstrapping and `session.game_id` is `None` — so the route returns
+ * an empty list and the user later sees "No tunable parameters" even for
+ * estimators that declare them.  Watch the SSE state for game_id changes and
+ * refetch when a real game appears.  Exported (and tested) so this regression
+ * doesn't sneak back in.
+ */
+export function syncTuningWithGame(gameId: string | null): void {
+  if (gameId === _lastTuningGameId) return;
+  _lastTuningGameId = gameId;
+  if (gameId !== null) fetchTuningParams();
+}
+
+// Test-only: reset the cached game id so each test starts from a clean slate.
+export function _resetTuningGameCache(): void {
+  _lastTuningGameId = null;
+}
 
 function debouncedApply(): void {
   if (_tuningDebounce) clearTimeout(_tuningDebounce);
@@ -128,7 +150,7 @@ export function updatePracticeControls(data: AppState): void {
   srStopBtn.style.display = isSpeedRun ? "" : "none";
 }
 
-async function fetchTuningParams(): Promise<void> {
+export async function fetchTuningParams(): Promise<void> {
   const data = await fetchTuningData();
   if (!data) return;
   _tuningParams = data;

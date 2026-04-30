@@ -5,6 +5,7 @@ import {
   updatePracticeControls,
   fetchModel,
   initModelTab,
+  syncTuningWithGame,
 } from "./model";
 import { fetchManage, initManageTab, updateManageState } from "./manage";
 import { fetchSegments, renderSegmentsView } from "./segments-view";
@@ -14,6 +15,7 @@ let _currentGameId: string | null = null;
 
 function updateFromState(data: AppState): void {
   _currentGameId = data.game_id;
+  syncTuningWithGame(data.game_id);
   updateHeader(data);
   updatePracticeCard(data);
   updatePracticeControls(data);

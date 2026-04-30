@@ -438,3 +438,95 @@ def test_segment_history_no_completed_attempts(seeded_db, client):
     for est_curves in data["estimator_curves"].values():
         assert est_curves["total"]["expected_ms"] == []
         assert est_curves["clean"]["expected_ms"] == []
+
+
+# -- GET /roms ---------------------------------------------------------------
+
+class TestRomsEndpoint:
+    def test_roms_no_rom_dir(self, bare_client):
+        """GET /api/roms returns empty list when rom_dir is not configured."""
+        resp = bare_client.get("/api/roms")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["roms"] == []
+        assert "error" in data
+
+    def test_roms_with_rom_dir(self, tmp_path):
+        """GET /api/roms lists ROM files from rom_dir."""
+        rom_dir = tmp_path / "roms"
+        rom_dir.mkdir()
+        (rom_dir / "Game A.smc").write_bytes(b"\x00")
+        (rom_dir / "Game B.sfc").write_bytes(b"\x00")
+        (rom_dir / "readme.txt").write_text("not a rom")
+
+        from spinlab.dashboard import create_app
+        from conftest import make_test_config
+        db = Database(tmp_path / "test.db")
+        app = create_app(db=db, config=make_test_config(rom_dir=rom_dir))
+        client = TestClient(app)
+
+        resp = client.get("/api/roms")
+        assert resp.status_code == 200
+        roms = resp.json()["roms"]
+        assert len(roms) == 2
+        assert "Game A.smc" in roms
+        assert "Game B.sfc" in roms
+        assert "readme.txt" not in roms
+
+
+# -- POST /shutdown ----------------------------------------------------------
+
+def test_shutdown_returns_shutting_down(bare_client):
+    """POST /api/shutdown calls session.shutdown and returns status."""
+    from unittest.mock import AsyncMock, patch
+    bare_client.app.state.session.shutdown = AsyncMock()
+    with patch("signal.raise_signal"):
+        resp = bare_client.post("/api/shutdown")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "shutting_down"
+    bare_client.app.state.session.shutdown.assert_called_once()
+
+
+# -- GET/POST /estimator-params ----------------------------------------------
+
+class TestEstimatorParams:
+    def test_get_estimator_params_no_game(self, no_game_client):
+        resp = no_game_client.get("/api/estimator-params")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["estimator"] is None
+        assert data["params"] == []
+
+    def test_get_estimator_params_returns_declared(self, active_client):
+        resp = active_client.get("/api/estimator-params")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["estimator"] == "kalman"
+        assert len(data["params"]) > 0
+        # Each param has required fields
+        for p in data["params"]:
+            assert "name" in p
+            assert "default" in p
+            assert "value" in p
+
+    def test_post_estimator_params_roundtrip(self, active_client):
+        """POST /api/estimator-params saves params, GET reads them back."""
+        resp = active_client.post(
+            "/api/estimator-params",
+            json={"params": {"D0": 1.5}},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+        resp2 = active_client.get("/api/estimator-params")
+        data = resp2.json()
+        d0 = next(p for p in data["params"] if p["name"] == "D0")
+        assert d0["value"] == 1.5
+
+    def test_post_estimator_params_unknown_param(self, active_client):
+        resp = active_client.post(
+            "/api/estimator-params",
+            json={"params": {"nonexistent_param": 42}},
+        )
+        assert resp.status_code == 400
+        assert "Unknown param" in resp.json()["detail"]

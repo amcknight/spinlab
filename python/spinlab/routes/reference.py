@@ -1,8 +1,6 @@
 """Reference CRUD, drafts, and replay routes."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from spinlab.db import Database
@@ -47,10 +45,13 @@ def list_references(session: SessionManager = Depends(get_session), db: Database
         return {"references": []}
     gid = session.game_id
     refs = db.list_capture_runs(gid)
+    out: list[dict] = []
     for ref in refs:
-        rec_path = session.data_dir / gid / "rec" / f"{ref['id']}.spinrec"
-        ref["has_spinrec"] = rec_path.is_file()
-    return {"references": refs}
+        d: dict = dict(ref)
+        rec_path = session.data_dir / gid / "rec" / f"{d['id']}.spinrec"
+        d["has_spinrec"] = rec_path.is_file()
+        out.append(d)
+    return {"references": out}
 
 
 @router.post("/references")

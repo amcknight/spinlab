@@ -32,10 +32,13 @@ _TEST_CONDITION_NAME = "powerup"
 async def test_level_entrance_carries_conditions(run_scenario, tcp_client):
     """After set_conditions, level_entrance event payload includes conditions key."""
     # (Re-)register conditions so this test is self-contained even when run alone.
-    payload = json.dumps([
-        {"name": _TEST_CONDITION_NAME, "address": _TEST_ADDRESS, "size": 1}
-    ])
-    await tcp_client.send(f"set_conditions:{payload}")
+    cmd = json.dumps({
+        "event": "set_conditions",
+        "definitions": [
+            {"name": _TEST_CONDITION_NAME, "address": _TEST_ADDRESS, "size": 1}
+        ],
+    })
+    await tcp_client.send(cmd)
 
     # entrance_goal.poke: enter level 105, then exit normally.
     events = await run_scenario("entrance_goal.poke")
@@ -58,10 +61,13 @@ async def test_level_entrance_carries_conditions(run_scenario, tcp_client):
 
 async def test_level_exit_carries_conditions(run_scenario, tcp_client):
     """After set_conditions, level_exit event payload includes conditions key."""
-    payload = json.dumps([
-        {"name": _TEST_CONDITION_NAME, "address": _TEST_ADDRESS, "size": 1}
-    ])
-    await tcp_client.send(f"set_conditions:{payload}")
+    cmd = json.dumps({
+        "event": "set_conditions",
+        "definitions": [
+            {"name": _TEST_CONDITION_NAME, "address": _TEST_ADDRESS, "size": 1}
+        ],
+    })
+    await tcp_client.send(cmd)
 
     events = await run_scenario("entrance_goal.poke")
 
@@ -76,10 +82,13 @@ async def test_level_exit_carries_conditions(run_scenario, tcp_client):
 
 async def test_death_and_spawn_carry_conditions(run_scenario, tcp_client):
     """After set_conditions, death and spawn events include conditions key."""
-    payload = json.dumps([
-        {"name": _TEST_CONDITION_NAME, "address": _TEST_ADDRESS, "size": 1}
-    ])
-    await tcp_client.send(f"set_conditions:{payload}")
+    cmd = json.dumps({
+        "event": "set_conditions",
+        "definitions": [
+            {"name": _TEST_CONDITION_NAME, "address": _TEST_ADDRESS, "size": 1}
+        ],
+    })
+    await tcp_client.send(cmd)
 
     events = await run_scenario("entrance_death_spawn.poke")
 
@@ -99,10 +108,13 @@ async def test_death_and_spawn_carry_conditions(run_scenario, tcp_client):
 
 async def test_checkpoint_carries_conditions(run_scenario, tcp_client):
     """After set_conditions, checkpoint event includes conditions key."""
-    payload = json.dumps([
-        {"name": _TEST_CONDITION_NAME, "address": _TEST_ADDRESS, "size": 1}
-    ])
-    await tcp_client.send(f"set_conditions:{payload}")
+    cmd = json.dumps({
+        "event": "set_conditions",
+        "definitions": [
+            {"name": _TEST_CONDITION_NAME, "address": _TEST_ADDRESS, "size": 1}
+        ],
+    })
+    await tcp_client.send(cmd)
 
     events = await run_scenario("checkpoint_cold_spawn.poke")
 
@@ -117,7 +129,8 @@ async def test_checkpoint_carries_conditions(run_scenario, tcp_client):
 async def test_empty_conditions_when_not_set(run_scenario, tcp_client):
     """When no conditions are configured, events still arrive with an empty conditions dict."""
     # Clear conditions by sending an empty array.
-    await tcp_client.send("set_conditions:[]")
+    cmd = json.dumps({"event": "set_conditions", "definitions": []})
+    await tcp_client.send(cmd)
 
     events = await run_scenario("entrance_goal.poke")
 

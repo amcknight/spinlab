@@ -24,6 +24,12 @@ local TCP_HOST   = "127.0.0.1"
 local JSONL_LOGGING = false  -- set true to enable passive_log.jsonl (debugging)
 local MAX_RECORDING_FRAMES = 360000  -- 100 minutes at 60fps
 local AUTO_ADVANCE_DEFAULT_MS = 2000
+-- Default delay between dying and reloading the cold save state in speed run mode.
+-- The cold save state is captured at level_start 0->1, which lands during the
+-- post-death fade-in, so loading it instantly looks like it's replaying the
+-- death.  A short blackout gives the death some weight without making practice
+-- feel sluggish.  Overridden per run via speed_run_load.death_delay_ms.
+local DEATH_DELAY_DEFAULT_MS = 1500
 local REPLAY_PROGRESS_INTERVAL_MS = 100
 -- API uses speed=0 to mean "uncapped", but Mesen's setSpeed(0) means "paused".
 -- Use this constant to make the intent clear and avoid accidentally pausing.
@@ -43,16 +49,18 @@ local function get_rom_filename()
     return "unknown.sfc"
 end
 
--- Memory addresses — loaded from shared source of truth
--- debug.getinfo source includes the directory when Mesen receives an absolute path;
--- when Mesen auto-loads a remembered script the source may lack a directory prefix.
-local _spinlab_dir = debug.getinfo(1, "S").source:match("@?(.*[\\/])") or ""
-if _spinlab_dir == "" then
-    -- Fallback: read lua directory from breadcrumb written by dashboard at launch
+-- Shared modules — loaded from lua/ directory via dofile().
+-- Bootstrap: resolve lua dir so dofile can find sibling scripts.
+local _boot_dir = debug.getinfo(1, "S").source:match("@?(.*[\\/])") or ""
+if _boot_dir == "" then
     local f = io.open(DATA_DIR .. "/lua_dir.txt", "r")
-    if f then _spinlab_dir = f:read("*l") or ""; f:close() end
+    if f then _boot_dir = f:read("*l") or ""; f:close() end
 end
-dofile(_spinlab_dir .. "addresses.lua")
+LUA_DIR = _boot_dir
+dofile(LUA_DIR .. "addresses.lua")
+dofile(LUA_DIR .. "json.lua")
+dofile(LUA_DIR .. "overlay.lua")
+dofile(LUA_DIR .. "spinrec.lua")
 
 -----------------------------------------------------------------------
 -- STATE
@@ -124,10 +132,11 @@ function reset_detection_state()
   exit_this_frame = false
 end
 
--- Practice mode state
+-- Practice / speed-run mode state
 local PSTATE_IDLE    = "idle"
 local PSTATE_LOADING = "loading"
 local PSTATE_PLAYING = "playing"
+local PSTATE_DYING   = "dying"   -- speed run only: post-death blackout before respawn
 local PSTATE_RESULT  = "result"
 
 local practice = {
@@ -174,6 +183,8 @@ local speed_run = {
     result_start_ms = 0,
     result_split_ms = 0,
     auto_advance_ms = AUTO_ADVANCE_DEFAULT_MS,
+    death_delay_ms = DEATH_DELAY_DEFAULT_MS,
+    death_started_ms = 0,
 }
 
 local function speed_run_reset()
@@ -182,6 +193,8 @@ local function speed_run_reset()
     speed_run.respawn_path = ""
     speed_run.cp_index = 0
     speed_run.result_split_ms = 0
+    speed_run.death_delay_ms = DEATH_DELAY_DEFAULT_MS
+    speed_run.death_started_ms = 0
 end
 
 -- Recording state (passive mode input capture)
@@ -209,7 +222,7 @@ local replay = {
 -----------------------------------------------------------------------
 -- HELPERS
 -----------------------------------------------------------------------
-local function log(msg)
+function log(msg)
   emu.log("[SpinLab] " .. msg)
 end
 
@@ -243,58 +256,6 @@ local function save_state_to_file(path)
   return true
 end
 
-local function flush_spinrec(path, game_id_str, buffer)
-  -- Header: SREC (4) + version (2) + game_id (16) + frame_count (4) + reserved (6) = 32
-  local f = io.open(path, "wb")
-  if not f then
-    log("ERROR: Cannot write spinrec: " .. path)
-    return false
-  end
-  -- Magic
-  f:write("SREC")
-  -- Version (uint16 LE)
-  f:write(string.char(1, 0))
-  -- Game ID (16 bytes ASCII, pad with zeros if shorter)
-  local gid = (game_id_str or ""):sub(1, 16)
-  f:write(gid .. string.rep("\0", 16 - #gid))
-  -- Frame count (uint32 LE)
-  local n = #buffer
-  f:write(string.char(n & 0xFF, (n >> 8) & 0xFF, (n >> 16) & 0xFF, (n >> 24) & 0xFF))
-  -- Reserved (6 zeros)
-  f:write(string.rep("\0", 6))
-  -- Body: 2 bytes per frame (uint16 LE)
-  for _, mask in ipairs(buffer) do
-    f:write(string.char(mask & 0xFF, (mask >> 8) & 0xFF))
-  end
-  f:close()
-  log("Wrote spinrec: " .. path .. " (" .. n .. " frames)")
-  return true
-end
-
-local function read_spinrec(path)
-  local f = io.open(path, "rb")
-  if not f then return nil, "file not found: " .. path end
-  local data = f:read("*a")
-  f:close()
-  if #data < 32 then return nil, "file too short" end
-  -- Validate magic
-  if data:sub(1, 4) ~= "SREC" then return nil, "bad magic" end
-  -- Parse header
-  local b = function(i) return data:byte(i) end
-  local frame_count = b(23) + b(24) * 256 + b(25) * 65536 + b(26) * 16777216
-  local gid = data:sub(7, 22)
-  -- Validate body length
-  local expected_body = frame_count * 2
-  if #data - 32 < expected_body then return nil, "body truncated" end
-  -- Parse frames
-  local frames = {}
-  for i = 1, frame_count do
-    local offset = 32 + (i - 1) * 2
-    frames[i] = b(offset + 1) + b(offset + 2) * 256
-  end
-  return {game_id = gid, frame_count = frame_count, frames = frames}, nil
-end
-
 local function load_state_from_file(path)
   local f = io.open(path, "rb")
   if not f then
@@ -310,50 +271,6 @@ local function load_state_from_file(path)
   emu.loadSavestate(data)
   log("Loaded state from: " .. path .. " (" .. #data .. " bytes)")
   return true
-end
-
--- Extract a string field from a flat JSON object string.
--- Handles backslash-escaped backslashes (e.g. Windows paths).
-local function json_get_str(json_str, key)
-  local raw = json_str:match('"' .. key .. '"%s*:%s*"(.-)"[%s,}%]]')
-  if not raw then return nil end
-  -- unescape in the correct order: \\ -> \ first, then \" -> "
-  return (raw:gsub('\\\\', '\\'):gsub('\\"', '"'))
-end
-
--- Extract a number field from a flat JSON object string.
-local function json_get_num(json_str, key)
-  return tonumber(json_str:match('"' .. key .. '"%s*:%s*(%d+)'))
-end
-
--- Extract a boolean field from a flat JSON object string. Returns nil if absent.
-local function json_get_bool(json_str, key)
-  local val = json_str:match('"' .. key .. '"%s*:%s*(%a+)')
-  if val == "true" then return true
-  elseif val == "false" then return false
-  else return nil end
-end
-
--- Extract a JSON array field as a raw substring.
--- Balances brackets to find the full array, even if nested.
--- Returns nil if the key is not found.
-local function json_get_arr(json_str, key)
-  local start = json_str:find('"' .. key .. '"%s*:%s*%[')
-  if not start then return nil end
-  local arr_start = json_str:find('%[', start)
-  if not arr_start then return nil end
-  local depth = 0
-  for i = arr_start, #json_str do
-    local c = json_str:sub(i, i)
-    if c == '[' then depth = depth + 1
-    elseif c == ']' then
-      depth = depth - 1
-      if depth == 0 then
-        return json_str:sub(arr_start, i)
-      end
-    end
-  end
-  return nil
 end
 
 -- Parse practice_load JSON payload into a table.
@@ -397,99 +314,13 @@ local function parse_speed_run_segment(json_str)
     checkpoints            = parse_checkpoints(json_str),
     expected_time_ms       = json_get_num(json_str, "expected_time_ms"),
     auto_advance_delay_ms  = json_get_num(json_str, "auto_advance_delay_ms") or AUTO_ADVANCE_DEFAULT_MS,
+    death_delay_ms         = json_get_num(json_str, "death_delay_ms") or DEATH_DELAY_DEFAULT_MS,
   }
-end
-
--- drawString renders one char per row vertically in Mesen2 — work around it
--- by drawing one character at a time with manual x offsets.
-local CHAR_W = 6  -- measureString("A", 1).width
-
-local function draw_text(x, y, text, fg, bg)
-  for i = 1, #text do
-    emu.drawString(x + (i - 1) * CHAR_W, y, text:sub(i, i), fg, bg, 1)
-  end
-end
-
-local function ms_to_display(ms)
-  -- Format milliseconds as M:SS.d (e.g. 75340 -> "1:15.3")
-  if not ms then return "?" end
-  local total_s = math.floor(ms / 100) / 10
-  local m = math.floor(total_s / 60)
-  local s = total_s - m * 60
-  return string.format("%d:%04.1f", m, s)
-end
-
-local function format_goal(goal)
-  if not goal or goal == "" then return "?" end
-  return "Exit: " .. goal:sub(1, 1):upper() .. goal:sub(2)
-end
-
-local function draw_timer_row(y, elapsed, compare_time, prefix)
-  local timer_color
-  if compare_time then
-    timer_color = (elapsed < compare_time) and 0xFF44FF44 or 0xFFFF4444
-  else
-    timer_color = 0xFFFFFFFF
-  end
-  local cmp_str = compare_time and ms_to_display(compare_time) or "?"
-  local text = (prefix and (prefix .. "  ") or "") .. ms_to_display(elapsed) .. " / " .. cmp_str
-  draw_text(4, y, text, 0x00000000, timer_color)
-end
-
-local function draw_practice_overlay()
-  if not practice.active then return end
-
-  local label = practice.segment and practice.segment.description or "?"
-  if label == "" then label = "?" end
-
-  draw_text(4, 2, label, 0x00000000, 0xFFFFFFFF)
-end
-
-local function draw_speed_run_overlay()
-  if not speed_run.active then return end
-
-  local label = speed_run.segment and speed_run.segment.description or "?"
-  if label == "" then label = "?" end
-  local compare_time = speed_run.segment and speed_run.segment.expected_time_ms
-
-  if speed_run.state == PSTATE_PLAYING or speed_run.state == PSTATE_LOADING then
-    local elapsed = ts_ms() - speed_run.start_ms
-    draw_text(4, 2, "SR: " .. label, 0x00000000, 0xFF44DDFF)
-    draw_timer_row(12, elapsed, compare_time)
-
-  elseif speed_run.state == PSTATE_RESULT then
-    draw_text(4, 2, "SR: " .. label, 0x00000000, 0xFF44DDFF)
-    draw_timer_row(12, speed_run.elapsed_ms, compare_time, "Clear!")
-
-    local remaining = speed_run.auto_advance_ms - (ts_ms() - speed_run.result_start_ms)
-    local secs = string.format("%.1f", math.max(0, remaining / 1000))
-    draw_text(4, 22, "Next in " .. secs .. "s", 0x00000000, 0xFF888888)
-  end
 end
 
 -----------------------------------------------------------------------
 -- JSONL LOGGER
 -----------------------------------------------------------------------
-
--- JSON serializer for string/number/bool/table values.
--- Nested tables are serialized as JSON objects.
-local function to_json(t)
-  local parts = {}
-  for k, v in pairs(t) do
-    local val
-    if type(v) == "string" then
-      val = '"' .. v:gsub('\\', '\\\\'):gsub('"', '\\"') .. '"'
-    elseif type(v) == "boolean" then
-      val = tostring(v)
-    elseif type(v) == "table" then
-      val = to_json(v)
-    else
-      val = tostring(v)
-    end
-    parts[#parts + 1] = '"' .. k .. '":' .. val
-  end
-  return "{" .. table.concat(parts, ",") .. "}"
-end
 
 local function send_event(event)
   if not client then return end
@@ -505,29 +336,6 @@ end
 function send_raw_event(json_str)
   if not client then return end
   client:send(json_str .. "\n")
-end
-
--- Input bitmask encoding: matches SNES joypad register layout
-local INPUT_BITS = {
-  b = 0, y = 1, select = 2, start = 3,
-  up = 4, down = 5, left = 6, right = 7,
-  a = 8, x = 9, l = 10, r = 11,
-}
-
-local function encode_input(tbl)
-  local mask = 0
-  for name, bit in pairs(INPUT_BITS) do
-    if tbl[name] then mask = mask + (1 << bit) end
-  end
-  return mask
-end
-
-local function decode_input(mask)
-  local tbl = {}
-  for name, bit in pairs(INPUT_BITS) do
-    tbl[name] = (mask & (1 << bit)) ~= 0
-  end
-  return tbl
 end
 
 local function log_jsonl(obj)
@@ -975,7 +783,10 @@ local function handle_speed_run(curr)
     speed_run.split_ms = ts_ms()
 
   elseif speed_run.state == PSTATE_PLAYING then
-    -- Death check (highest priority)
+    -- Death check (highest priority).  We send the death event immediately
+    -- so split timing is honest, but defer the actual respawn to PSTATE_DYING
+    -- so the player gets a brief blackout instead of an instant snap that
+    -- looks like the cold save state replaying its own fade-in.
     if is_death_frame(curr) then
       local elapsed = ts_ms() - speed_run.start_ms
       local split = ts_ms() - speed_run.split_ms
@@ -986,9 +797,9 @@ local function handle_speed_run(curr)
           split_ms   = math.floor(split),
         }) .. "\n")
       end
-      table.insert(pending_loads, speed_run.respawn_path)
-      speed_run.split_ms = ts_ms()
-      log("Speed run: death — reloading " .. speed_run.respawn_path)
+      speed_run.state = PSTATE_DYING
+      speed_run.death_started_ms = ts_ms()
+      log("Speed run: death — blackout for " .. speed_run.death_delay_ms .. "ms")
 
     elseif check_checkpoint_hit(curr) then
       local elapsed = ts_ms() - speed_run.start_ms
@@ -1016,6 +827,20 @@ local function handle_speed_run(curr)
       speed_run.result_start_ms = ts_ms()
       speed_run.result_split_ms = split
       log("Speed run: GOAL — " .. math.floor(speed_run.elapsed_ms) .. "ms")
+    end
+
+  elseif speed_run.state == PSTATE_DYING then
+    -- Hold a black overlay (drawn by the speed-run overlay function) while
+    -- waiting out death_delay_ms, then queue the cold-state load and resume.
+    -- We bump start_ms by the blackout length so the level timer doesn't
+    -- count time the player spent staring at a black screen.
+    if ts_ms() - speed_run.death_started_ms >= speed_run.death_delay_ms then
+      table.insert(pending_loads, speed_run.respawn_path)
+      local elapsed_blackout = ts_ms() - speed_run.death_started_ms
+      speed_run.start_ms = speed_run.start_ms + elapsed_blackout
+      speed_run.split_ms = ts_ms()
+      speed_run.state = PSTATE_PLAYING
+      log("Speed run: respawn — reloading " .. speed_run.respawn_path)
     end
 
   elseif speed_run.state == PSTATE_RESULT then
@@ -1124,23 +949,6 @@ local function tcp_heartbeat()
     end
   end
   return true
-end
-
--- Parse a JSON array of plain strings: ["L","Select"] → {"L","Select"}
--- Fails loud (error) on malformed input so misconfiguration is obvious.
-local function parse_string_array(json_str)
-  local body = json_str:match("^%s*%[(.*)%]%s*$")
-  if not body then
-    error("parse_string_array: expected JSON array, got: " .. tostring(json_str))
-  end
-  local result = {}
-  for s in body:gmatch('"([^"]*)"') do
-    result[#result + 1] = s
-  end
-  if #result == 0 then
-    error("parse_string_array: no strings found in: " .. tostring(json_str))
-  end
-  return result
 end
 
 local function handle_json_message(line)
@@ -1316,6 +1124,7 @@ local function handle_json_message(line)
   elseif decoded_event == "speed_run_load" then
     speed_run.segment = parse_speed_run_segment(line)
     speed_run.auto_advance_ms = speed_run.segment.auto_advance_delay_ms or 2000
+    speed_run.death_delay_ms = speed_run.segment.death_delay_ms or DEATH_DELAY_DEFAULT_MS
     speed_run.respawn_path = speed_run.segment.state_path
     speed_run.cp_index = 0
     speed_run.active = true
@@ -1533,8 +1342,8 @@ local function on_start_frame()
   pcall(check_invalidate_combo)
   handle_tcp()
 
-  draw_practice_overlay()
-  draw_speed_run_overlay()
+  draw_practice_overlay(practice, ts_ms())
+  draw_speed_run_overlay(speed_run, ts_ms())
 end
 
 -- Register callbacks

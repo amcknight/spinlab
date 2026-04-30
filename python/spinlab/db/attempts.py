@@ -1,7 +1,7 @@
 """Attempt queries."""
 
+import sqlite3
 from collections import defaultdict
-from datetime import UTC, datetime
 from typing import Optional, TypedDict
 
 from ..models import Attempt
@@ -41,6 +41,7 @@ RECENT_ATTEMPTS_DB_LIMIT = 8
 
 class AttemptsMixin:
     """Attempt logging and statistics."""
+    conn: sqlite3.Connection
 
     def log_attempt(self, attempt: Attempt) -> int:
         cur = self.conn.execute(
@@ -60,7 +61,7 @@ class AttemptsMixin:
              attempt.created_at.isoformat()),
         )
         self.conn.commit()
-        return cur.lastrowid
+        return cur.lastrowid  # type: ignore[return-value]  # always set after INSERT
 
     def get_segment_stats(self, segment_id: str, strat_version: Optional[int] = None) -> dict:
         """Get aggregate stats for a segment."""
@@ -115,7 +116,7 @@ class AttemptsMixin:
                LIMIT ?""",
             params,
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in rows]  # type: ignore[return-value]
 
     def get_segment_attempts(self, segment_id: str) -> list[AttemptRow]:
         """Get all attempts for a segment, ordered by created_at."""
@@ -125,7 +126,7 @@ class AttemptsMixin:
             (segment_id,),
         )
         cols = ["segment_id", "completed", "time_ms", "deaths", "clean_tail_ms", "created_at", "invalidated"]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]  # type: ignore[return-value]
 
     def get_all_attempts_by_segment(self, game_id: str) -> dict[str, list[AttemptRow]]:
         """Load all attempts for all active segments in a game."""

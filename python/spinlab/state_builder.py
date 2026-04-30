@@ -80,6 +80,7 @@ class StateBuilder:
     def _build_speed_run_state(self, base: dict, session: "SessionManager") -> None:
         """Populate speed-run-specific fields into state dict."""
         sr = session.speed_run_session
+        assert sr is not None  # caller checks before calling
         base["session"] = {
             "id": sr.session_id,
             "started_at": sr.started_at,
@@ -108,6 +109,7 @@ class StateBuilder:
     def _build_practice_state(self, base: dict, session: "SessionManager", sched) -> None:
         """Populate practice-specific fields into state dict."""
         ps = session.practice_session
+        assert ps is not None  # caller checks before calling
         base["session"] = {
             "id": ps.session_id,
             "started_at": ps.started_at,
@@ -127,21 +129,22 @@ class StateBuilder:
         )
         base["session"]["saved_total_ms"] = saved_total
         base["session"]["saved_clean_ms"] = saved_clean
-        if ps.current_segment_id:
+        if ps.current_segment_id and session.game_id:
             segments = self.db.get_all_segments_with_model(session.game_id)
             seg_map = {s["id"]: s for s in segments}
             if ps.current_segment_id in seg_map:
-                current_seg = seg_map[ps.current_segment_id]
+                current_seg: dict = dict(seg_map[ps.current_segment_id])
                 current_seg["attempt_count"] = self.db.get_segment_attempt_count(
                     ps.current_segment_id, ps.session_id
                 )
                 state_rows = self.db.load_all_model_states_for_segment(ps.current_segment_id)
                 model_outputs = {}
                 for sr in state_rows:
-                    if sr.get("output_json"):
+                    output_json = sr.get("output_json")
+                    if output_json:
                         try:
                             model_outputs[sr["estimator"]] = ModelOutput.from_dict(
-                                json.loads(sr["output_json"])
+                                json.loads(output_json)
                             ).to_dict()
                         except (json.JSONDecodeError, KeyError):
                             pass

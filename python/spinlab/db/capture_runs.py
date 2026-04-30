@@ -1,5 +1,6 @@
 """Capture run (reference) queries."""
 
+import sqlite3
 from datetime import UTC, datetime
 from typing import TypedDict
 
@@ -30,6 +31,7 @@ class ReferenceSegmentRow(TypedDict):
 
 class CaptureRunsMixin:
     """Reference run CRUD and draft lifecycle."""
+    conn: sqlite3.Connection
 
     def create_capture_run(self, run_id: str, game_id: str, name: str, draft: bool = False) -> None:
         now = datetime.now(UTC).isoformat()
@@ -46,7 +48,7 @@ class CaptureRunsMixin:
             "WHERE game_id = ? AND draft = 0 ORDER BY created_at",
             (game_id,),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in rows]  # type: ignore[return-value]
 
     def set_active_capture_run(self, run_id: str) -> None:
         row = self.conn.execute(
@@ -107,7 +109,7 @@ class CaptureRunsMixin:
                 seg_ids,
             )
             self.conn.execute(
-                f"DELETE FROM segments WHERE reference_id = ?", (run_id,),
+                "DELETE FROM segments WHERE reference_id = ?", (run_id,),
             )
         self.conn.execute("DELETE FROM capture_runs WHERE id = ?", (run_id,))
         self.conn.commit()
@@ -125,4 +127,4 @@ class CaptureRunsMixin:
             (reference_id,),
         )
         actual_cols = [desc[0] for desc in cur.description]
-        return [dict(zip(actual_cols, row)) for row in cur.fetchall()]
+        return [dict(zip(actual_cols, row)) for row in cur.fetchall()]  # type: ignore[return-value]

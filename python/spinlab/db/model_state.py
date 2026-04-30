@@ -1,5 +1,6 @@
 """Model state, allocator config, and gold computation queries."""
 
+import sqlite3
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import TypedDict
@@ -20,6 +21,7 @@ class GoldRow(TypedDict):
 
 class ModelStateMixin:
     """Estimator state persistence and allocator config."""
+    conn: sqlite3.Connection
 
     def save_model_state(
         self, segment_id: str, estimator: str, state_json: str, output_json: str
@@ -65,7 +67,7 @@ class ModelStateMixin:
             (segment_id,),
         )
         cols = ["segment_id", "estimator", "state_json", "output_json", "updated_at"]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]  # type: ignore[return-value]
 
     def load_all_model_states(self, game_id: str) -> list[ModelStateRow]:
         cur = self.conn.execute(
@@ -76,7 +78,7 @@ class ModelStateMixin:
             (game_id,),
         )
         cols = ["segment_id", "estimator", "state_json", "output_json", "updated_at"]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]  # type: ignore[return-value]
 
     def load_all_model_states_for_game(self, game_id: str) -> dict[str, list[ModelStateRow]]:
         """Load all estimator states for all active segments in a game."""
@@ -91,7 +93,7 @@ class ModelStateMixin:
         result: dict[str, list[ModelStateRow]] = defaultdict(list)
         for row in cur.fetchall():
             d = dict(zip(cols, row))
-            result[d["segment_id"]].append(d)
+            result[d["segment_id"]].append(d)  # type: ignore[arg-type]
         return result
 
     def compute_golds(self, game_id: str) -> dict[str, GoldRow]:

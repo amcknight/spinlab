@@ -1,5 +1,6 @@
 """Session queries."""
 
+import sqlite3
 from datetime import UTC, datetime
 from typing import TypedDict
 
@@ -17,6 +18,7 @@ SESSION_HISTORY_LIMIT = 10
 
 class SessionsMixin:
     """Practice session lifecycle."""
+    conn: sqlite3.Connection
 
     def create_session(self, session_id: str, game_id: str) -> None:
         now = datetime.now(UTC).isoformat()
@@ -42,7 +44,7 @@ class SessionsMixin:
             "ORDER BY started_at DESC LIMIT 1",
             (game_id,),
         ).fetchone()
-        return dict(row) if row else None
+        return dict(row) if row else None  # type: ignore[return-value]
 
     def get_session_history(self, game_id: str, limit: int = SESSION_HISTORY_LIMIT) -> list[SessionRow]:
         """Recent sessions, most recent first."""
@@ -53,4 +55,4 @@ class SessionsMixin:
                LIMIT ?""",
             (game_id, limit),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in rows]  # type: ignore[return-value]
