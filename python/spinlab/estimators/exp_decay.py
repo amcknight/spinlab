@@ -6,8 +6,10 @@ via scipy.optimize.curve_fit. Two fits: one on total times, one on clean tails.
 """
 from __future__ import annotations
 
+import json
 import warnings
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 from scipy.optimize import OptimizeWarning, curve_fit
@@ -15,15 +17,33 @@ from scipy.optimize import OptimizeWarning, curve_fit
 from spinlab.estimators import Estimator, EstimatorState, register_estimator
 from spinlab.models import AttemptRecord, Estimate, ModelOutput
 
+if TYPE_CHECKING:
+    from spinlab.db import Database
+
 MIN_POINTS_FOR_FIT = 3
+# Mirror the Kalman estimator's bar — only segments with this many completions
+# are considered "mature" enough to contribute to population priors.  Below the
+# threshold the per-segment fit is too noisy to help anyone else.
+MATURITY_THRESHOLD = 10
+# Default decay-rate seed when no priors are available.  0.05 = ~5% improvement
+# per attempt early on, decaying smoothly.  Empirically reasonable for SMW
+# splits with ~10 attempts of practice; anything smaller barely curves.
+DEFAULT_DECAY_RATE_SEED = 0.05
 
 
 def _exp_decay(n: np.ndarray, amplitude: float, decay_rate: float, asymptote: float) -> np.ndarray:
     return amplitude * np.exp(-decay_rate * n) + asymptote
 
 
-def _fit_exp_decay(ns: np.ndarray, ts: np.ndarray) -> tuple[float, float, float, float]:
-    """Fit amplitude*exp(-decay_rate*n)+asymptote. Returns (amplitude, decay_rate, asymptote, sigma).
+def _fit_exp_decay(
+    ns: np.ndarray, ts: np.ndarray,
+    p0_seed: tuple[float, float, float] | None = None,
+) -> tuple[float, float, float, float]:
+    """Fit amplitude*exp(-decay_rate*n)+asymptote.
+
+    Returns (amplitude, decay_rate, asymptote, sigma).  If ``p0_seed`` is given,
+    those values prime the optimizer instead of the default heuristics — useful
+    when population priors give a better starting point than per-segment guesses.
 
     The asymptote is allowed to go below the observed minimum so the
     exponential can approximate near-linear improvement (where the true
@@ -31,6 +51,7 @@ def _fit_exp_decay(ns: np.ndarray, ts: np.ndarray) -> tuple[float, float, float,
     """
     best = float(np.min(ts))
     initial_amplitude = max(float(np.median(ts)) - best, 1.0)
+    p0 = list(p0_seed) if p0_seed else [initial_amplitude, DEFAULT_DECAY_RATE_SEED, best]
     try:
         # We discard the covariance matrix, so scipy's OptimizeWarning
         # ("Covariance of the parameters could not be estimated") is noise —
@@ -40,7 +61,7 @@ def _fit_exp_decay(ns: np.ndarray, ts: np.ndarray) -> tuple[float, float, float,
             warnings.simplefilter("ignore", OptimizeWarning)
             popt, _ = curve_fit(
                 _exp_decay, ns, ts,
-                p0=[initial_amplitude, 0.05, best],
+                p0=p0,
                 bounds=([0, 0, 0], [np.inf, np.inf, np.inf]),
             )
         amplitude, decay_rate, asymptote = popt
@@ -98,23 +119,40 @@ class ExpDecayEstimator(Estimator):
     name = "exp_decay"
     display_name = "Exp. Decay"
 
-    def _run_fits(self, completed: list[AttemptRecord]) -> ExpDecayState:
+    def _run_fits(
+        self, completed: list[AttemptRecord], priors: dict | None = None,
+    ) -> ExpDecayState:
         state = ExpDecayState(n_completed=len(completed), n_attempts=len(completed))
         if len(completed) < MIN_POINTS_FOR_FIT:
+            # Honest: not enough data to fit.  Leave fit params at zero so
+            # model_output returns None.  Priors don't get to fake an estimate.
             return state
 
         ns = np.arange(len(completed), dtype=float)
+        # Population priors prime the optimizer's initial guess, but the fit
+        # is still driven by this segment's data — bounds + curve_fit will
+        # move away from the seed when observations contradict it.
+        clean_seed = (
+            (priors["amplitude"], priors["decay_rate"], priors["asymptote"])
+            if priors and {"amplitude", "decay_rate", "asymptote"} <= priors.keys()
+            else None
+        )
+        total_seed = (
+            (priors["total_amplitude"], priors["total_decay_rate"], priors["total_asymptote"])
+            if priors and {"total_amplitude", "total_decay_rate", "total_asymptote"} <= priors.keys()
+            else None
+        )
 
         clean_ts = np.array([a.clean_tail_ms if a.clean_tail_ms is not None else a.time_ms
                              for a in completed], dtype=float)
-        a, b, c, sigma = _fit_exp_decay(ns, clean_ts)
+        a, b, c, sigma = _fit_exp_decay(ns, clean_ts, p0_seed=clean_seed)
         state.amplitude = a
         state.decay_rate = b
         state.asymptote = c
         state.sigma = sigma
 
         total_ts = np.array([att.time_ms for att in completed], dtype=float)
-        ta, tb, tc, tsigma = _fit_exp_decay(ns, total_ts)
+        ta, tb, tc, tsigma = _fit_exp_decay(ns, total_ts, p0_seed=total_seed)
         state.total_amplitude = ta
         state.total_decay_rate = tb
         state.total_asymptote = tc
@@ -123,6 +161,10 @@ class ExpDecayEstimator(Estimator):
         return state
 
     def init_state(self, first_attempt: AttemptRecord, priors: dict, params: dict | None = None) -> ExpDecayState:
+        # Priors are not used to fabricate fit params here — with one
+        # observation the curve isn't determined.  They flow through to
+        # process_attempt -> _run_fits as the curve_fit p0 seed once we
+        # cross MIN_POINTS_FOR_FIT.
         return ExpDecayState(n_completed=1, n_attempts=1)
 
     def process_attempt(  # type: ignore[override]
@@ -132,12 +174,48 @@ class ExpDecayEstimator(Estimator):
     ) -> ExpDecayState:
         n_completed = state.n_completed + (1 if new_attempt.completed else 0)
         completed = [a for a in all_attempts if a.completed and a.time_ms is not None]
-        new_state = self._run_fits(completed)
+        # Once the fit has converged at least once (n_completed >= MIN_POINTS_FOR_FIT
+        # at the time of the last fit), use the previous fit params as p0 so
+        # successive fits converge smoothly.  Below that threshold we have no
+        # local prior to carry, so leave p0 at the heuristic default.
+        carry_priors = {
+            "amplitude": state.amplitude, "decay_rate": state.decay_rate, "asymptote": state.asymptote,
+            "total_amplitude": state.total_amplitude, "total_decay_rate": state.total_decay_rate,
+            "total_asymptote": state.total_asymptote,
+        } if state.n_completed >= MIN_POINTS_FOR_FIT else None
+        new_state = self._run_fits(completed, priors=carry_priors)
         new_state.n_completed = n_completed
         new_state.n_attempts = state.n_attempts + 1
         return new_state
 
-    def model_output(self, state: ExpDecayState, all_attempts: list[AttemptRecord]) -> ModelOutput:  # type: ignore[override]
+    def get_priors(self, db: "Database", game_id: str) -> dict:
+        """Average fit params across all mature exp_decay states for this game."""
+        all_rows = db.load_all_model_states(game_id)
+        states = []
+        for r in all_rows:
+            if r["estimator"] != "exp_decay" or not r["state_json"]:
+                continue
+            try:
+                states.append(ExpDecayState.from_dict(json.loads(r["state_json"])))
+            except (json.JSONDecodeError, KeyError):
+                continue
+        mature = [s for s in states if s.n_completed >= MATURITY_THRESHOLD]
+        if not mature:
+            return {}
+        n = len(mature)
+        return {
+            "amplitude": sum(s.amplitude for s in mature) / n,
+            "decay_rate": sum(s.decay_rate for s in mature) / n,
+            "asymptote": sum(s.asymptote for s in mature) / n,
+            "total_amplitude": sum(s.total_amplitude for s in mature) / n,
+            "total_decay_rate": sum(s.total_decay_rate for s in mature) / n,
+            "total_asymptote": sum(s.total_asymptote for s in mature) / n,
+        }
+
+    def model_output(  # type: ignore[override]
+        self, state: ExpDecayState, all_attempts: list[AttemptRecord],
+        params: dict | None = None,
+    ) -> ModelOutput:
         completed = [a for a in all_attempts if a.completed and a.time_ms is not None]
         n = len(completed)
 

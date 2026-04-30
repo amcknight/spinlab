@@ -123,6 +123,52 @@ class TestRollingMeanModelOutput:
         assert out.clean.floor_ms is None
 
 
+class TestRollingMeanWindow:
+    def test_default_no_window_uses_all_attempts(self):
+        # Ten attempts, all 10s. With no window, mean is 10s.
+        est = RollingMeanEstimator()
+        attempts = [make_attempt_record(10000, True, clean_tail_ms=10000) for _ in range(10)]
+        state = est.init_state(attempts[0], priors={})
+        for a in attempts[1:]:
+            state = est.process_attempt(state, a, attempts)
+        out = est.model_output(state, attempts)
+        assert out.total.expected_ms == pytest.approx(10000.0)
+
+    def test_window_size_limits_to_recent_completions(self):
+        # First five attempts at 10s, last three at 20s.  A window of 3 should
+        # see only the 20s ones; a window of 0 (default) averages all eight.
+        est = RollingMeanEstimator()
+        times = [10000] * 5 + [20000] * 3
+        attempts = [make_attempt_record(t, True, clean_tail_ms=t) for t in times]
+        state = est.init_state(attempts[0], priors={})
+        for a in attempts[1:]:
+            state = est.process_attempt(state, a, attempts)
+
+        out_no_window = est.model_output(state, attempts, params={"window_size": 0})
+        out_windowed = est.model_output(state, attempts, params={"window_size": 3})
+
+        assert out_no_window.total.expected_ms == pytest.approx(13750.0)  # 5*10 + 3*20 / 8
+        assert out_windowed.total.expected_ms == pytest.approx(20000.0)
+
+    def test_window_smaller_than_history_keeps_floor_global(self):
+        # Floor should report the all-time best, not a windowed best — a window
+        # tight enough to drop the gold shouldn't lie about it.
+        est = RollingMeanEstimator()
+        times = [5000, 10000, 10000, 10000]  # gold = 5000, but it's the oldest
+        attempts = [make_attempt_record(t, True, clean_tail_ms=t) for t in times]
+        state = est.init_state(attempts[0], priors={})
+        for a in attempts[1:]:
+            state = est.process_attempt(state, a, attempts)
+        out = est.model_output(state, attempts, params={"window_size": 2})
+        assert out.total.expected_ms == pytest.approx(10000.0)
+        assert out.total.floor_ms == pytest.approx(5000.0)
+
+    def test_declared_params_includes_window_size(self):
+        est = RollingMeanEstimator()
+        names = {p.name for p in est.declared_params()}
+        assert "window_size" in names
+
+
 class TestRollingMeanRebuild:
     def test_rebuild_from_attempts(self):
         est = RollingMeanEstimator()

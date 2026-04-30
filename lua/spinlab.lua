@@ -1146,6 +1146,14 @@ local function handle_json_message(line)
     pending_loads = {}
     client:send("ok\n")
     log("Speed run stopped")
+  elseif decoded_event == "reset" then
+    -- Drain pending I/O so the reset doesn't fight a save/load mid-flight,
+    -- then queue an emu.reset() for the next cpuExec callback.
+    pending_loads = {}
+    pending_saves = {}
+    pending_reset = true
+    client:send("ok:reset\n")
+    log("Reset queued from dashboard")
   else
     log("ERROR: unknown JSON command: " .. tostring(decoded_event))
     client:send(to_json({event = "error", message = "unknown command: " .. tostring(decoded_event)}) .. "\n")

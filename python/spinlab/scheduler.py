@@ -138,21 +138,35 @@ class Scheduler:
 
             if row and row["state_json"]:
                 state = EstimatorState.deserialize(est.name, row["state_json"])
-                state = est.process_attempt(state, new_attempt, all_attempts, params=params)
+                # Bare state from a death-first attempt: no completed observations
+                # have been folded in yet, so process_attempt would update from
+                # whatever defaults the dataclass has (Kalman's mu=0, etc.) and
+                # produce a nonsense estimate.  Treat the first real completion
+                # as init_state so population priors get applied properly, then
+                # carry over the prior failed-attempt count so n_attempts stays
+                # honest.
+                if getattr(state, "n_completed", 0) == 0 and completed and time_ms is not None:
+                    prior_n_attempts = getattr(state, "n_attempts", 0)
+                    priors = est.get_priors(self.db, self.game_id)
+                    state = est.init_state(new_attempt, priors, params=params)
+                    if hasattr(state, "n_attempts"):
+                        state.n_attempts += prior_n_attempts
+                else:
+                    state = est.process_attempt(state, new_attempt, all_attempts, params=params)
             else:
                 if completed and time_ms is not None:
                     priors = est.get_priors(self.db, self.game_id)
                     state = est.init_state(new_attempt, priors, params=params)
                 else:
                     state = est.rebuild_state([new_attempt], params=params)
-                    output = est.model_output(state, all_attempts_with_new)
+                    output = est.model_output(state, all_attempts_with_new, params=params)
                     self.db.save_model_state(
                         segment_id, est.name,
                         json.dumps(state.to_dict()), json.dumps(output.to_dict()),
                     )
                     continue
 
-            output = est.model_output(state, all_attempts_with_new)
+            output = est.model_output(state, all_attempts_with_new, params=params)
             self.db.save_model_state(
                 segment_id, est.name,
                 json.dumps(state.to_dict()), json.dumps(output.to_dict()),
@@ -195,7 +209,7 @@ class Scheduler:
             for est in [get_estimator(n) for n in list_estimators()]:
                 params = self._load_estimator_params(est.name)
                 state = est.rebuild_state(all_attempts, params=params)
-                output = est.model_output(state, all_attempts)
+                output = est.model_output(state, all_attempts, params=params)
                 self.db.save_model_state(
                     segment_id, est.name,
                     json.dumps(state.to_dict()), json.dumps(output.to_dict()),

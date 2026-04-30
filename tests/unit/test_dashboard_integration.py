@@ -187,9 +187,10 @@ class TestApiState:
         assert "kalman" in data["current_segment"]["model_outputs"]
 
     def test_recent_attempts_ordered_newest_first(self, active_client):
+        from spinlab.db.attempts import RECENT_ATTEMPTS_DB_LIMIT
         data = active_client.get("/api/state").json()
         recent = data["recent"]
-        assert len(recent) == 8
+        assert len(recent) == RECENT_ATTEMPTS_DB_LIMIT
         assert recent[0]["segment_id"] == "s3"
         assert recent[0]["time_ms"] == 11500
 

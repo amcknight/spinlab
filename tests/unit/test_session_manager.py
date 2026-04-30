@@ -297,6 +297,33 @@ class TestColdFill:
         })
         assert sm.mode == Mode.IDLE
 
+    async def test_cold_fill_completion_sends_reset_command(self, mock_db, mock_tcp):
+        # When the last cold state is captured we want the emulator power-
+        # cycled back to the title screen, not left mid-respawn in whatever
+        # level the final capture happened in.
+        from spinlab.protocol import ResetCmd
+
+        sm = make_sm(mock_db, mock_tcp)
+        sm.game_id = "game1"
+        sm.mode = Mode.COLD_FILL
+        sm.cold_fill.current = "seg1"
+        sm.cold_fill.queue = [
+            {"segment_id": "seg1", "hot_state_path": "/hot1.mss",
+             "level_number": 105, "start_type": "checkpoint", "start_ordinal": 1,
+             "end_type": "goal", "end_ordinal": 0, "description": ""},
+        ]
+        sm.cold_fill.total = 1
+
+        await sm.route_event({
+            "event": "spawn",
+            "state_captured": True,
+            "state_path": "/cold1.mss",
+        })
+        assert sm.mode == Mode.IDLE
+        sent_cmds = [call.args[0] for call in mock_tcp.send_command.call_args_list]
+        sent_resets = [c for c in sent_cmds if isinstance(c, ResetCmd)]
+        assert len(sent_resets) == 1, f"expected one ResetCmd, got: {sent_cmds}"
+
     async def test_disconnect_during_cold_fill_returns_idle(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"

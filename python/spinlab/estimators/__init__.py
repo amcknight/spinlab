@@ -92,9 +92,14 @@ class Estimator(ABC):
 
     @abstractmethod
     def model_output(
-        self, state: EstimatorState, all_attempts: list["AttemptRecord"]
+        self, state: EstimatorState, all_attempts: list["AttemptRecord"],
+        params: dict | None = None,
     ) -> "ModelOutput":
-        """Produce standardized ModelOutput from current state."""
+        """Produce standardized ModelOutput from current state.
+
+        ``params`` carries tunable estimator parameters (see ``declared_params``).
+        Estimators that don't read params at output time can ignore it.
+        """
         ...
 
     @abstractmethod

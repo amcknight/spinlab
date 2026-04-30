@@ -32,6 +32,7 @@ from .protocol import (
     ReplayFinishedEvent,
     ReplayProgressEvent,
     ReplayStartedEvent,
+    ResetCmd,
     RomInfoEvent,
     SetConditionsCmd,
     SetInvalidateComboCmd,
@@ -297,6 +298,13 @@ class SessionManager:
             done = await self.cold_fill.handle_spawn(event)
             if done:
                 self.mode = Mode.IDLE
+                # Power-cycle the emulator so the user lands at the title
+                # screen instead of mid-respawn in whatever level the last
+                # capture happened in.
+                try:
+                    await self.tcp.send_command(ResetCmd())
+                except (ConnectionError, OSError):
+                    logger.warning("cold_fill: reset command failed (TCP gone)")
             await self._notify_sse()
             return
         if self.mode == Mode.FILL_GAP:

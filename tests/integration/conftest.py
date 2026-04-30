@@ -724,7 +724,7 @@ def pytest_runtest_makereport(item, call):
         return
     diag = _collect_diagnostics(item)
     if diag:
-        # Append to the longrepr so it shows in terminal output
-        if hasattr(report, "longreprtext"):
-            report.longreprtext += diag
+        # `longreprtext` is a read-only property in current pytest, so the
+        # diagnostic block has to ride along on `sections` instead.  pytest
+        # renders sections in the terminal report after the traceback.
         report.sections.append(("SpinLab Diagnostics", diag))

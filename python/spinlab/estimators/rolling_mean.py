@@ -5,8 +5,13 @@ from __future__ import annotations
 import statistics
 from dataclasses import dataclass
 
-from spinlab.estimators import Estimator, EstimatorState, register_estimator
+from spinlab.estimators import Estimator, EstimatorState, ParamDef, register_estimator
 from spinlab.models import AttemptRecord, Estimate, ModelOutput
+
+# 0 = no window: average across every completed attempt.  A positive value
+# uses only the most recent N completions, so the estimate adapts to recent
+# play instead of being dragged by ancient runs.
+DEFAULT_WINDOW_SIZE = 0
 
 
 @dataclass
@@ -27,10 +32,30 @@ class RollingMeanState(EstimatorState):
 EstimatorState.register_state("rolling_mean", RollingMeanState)
 
 
+def _resolve_window(params: dict | None) -> int:
+    if not params:
+        return DEFAULT_WINDOW_SIZE
+    raw = params.get("window_size", DEFAULT_WINDOW_SIZE)
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return DEFAULT_WINDOW_SIZE
+
+
 @register_estimator
 class RollingMeanEstimator(Estimator):
     name = "rolling_mean"
     display_name = "Rolling Mean"
+
+    def declared_params(self) -> list[ParamDef]:
+        return [
+            ParamDef(
+                "window_size", "Window Size",
+                float(DEFAULT_WINDOW_SIZE), 0.0, 100.0, 1.0,
+                "Number of most recent completions to average. "
+                "0 = use every completion (no window).",
+            ),
+        ]
 
     def init_state(self, first_attempt: AttemptRecord, priors: dict, params: dict | None = None) -> RollingMeanState:
         return RollingMeanState(n_completed=1, n_attempts=1)
@@ -43,7 +68,10 @@ class RollingMeanEstimator(Estimator):
         n_completed = state.n_completed + (1 if new_attempt.completed else 0)
         return RollingMeanState(n_completed=n_completed, n_attempts=state.n_attempts + 1)
 
-    def model_output(self, state: RollingMeanState, all_attempts: list[AttemptRecord]) -> ModelOutput:  # type: ignore[override]
+    def model_output(  # type: ignore[override]
+        self, state: RollingMeanState, all_attempts: list[AttemptRecord],
+        params: dict | None = None,
+    ) -> ModelOutput:
         completed = [a for a in all_attempts if a.completed and a.time_ms is not None]
         if not completed:
             return ModelOutput(
@@ -51,12 +79,15 @@ class RollingMeanEstimator(Estimator):
                 clean=Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None),
             )
 
-        total_times = [a.time_ms for a in completed if a.time_ms is not None]
-        clean_tails = [a.clean_tail_ms for a in completed if a.clean_tail_ms is not None]
+        window = _resolve_window(params)
+        windowed = completed[-window:] if window > 0 else completed
+
+        total_times = [a.time_ms for a in windowed if a.time_ms is not None]
+        clean_tails = [a.clean_tail_ms for a in windowed if a.clean_tail_ms is not None]
 
         avg_total = statistics.mean(total_times)
 
-        n = len(completed)
+        n = len(windowed)
         if n >= 2:
             half = max(n // 2, 1)
             first_half = statistics.mean(total_times[:half])
@@ -83,11 +114,14 @@ class RollingMeanEstimator(Estimator):
         else:
             clean_estimate = Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None)
 
+        # floor_ms reports the best time across ALL completions, not just the
+        # window — a window slim enough to cut the gold off would lie about it.
+        all_total_times = [a.time_ms for a in completed if a.time_ms is not None]
         return ModelOutput(
             total=Estimate(
                 expected_ms=avg_total,
                 ms_per_attempt=total_trend,
-                floor_ms=float(min(total_times)),
+                floor_ms=float(min(all_total_times)),
             ),
             clean=clean_estimate,
         )

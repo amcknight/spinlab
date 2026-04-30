@@ -156,7 +156,7 @@ def segment_history(segment_id: str, db: Database = Depends(get_db)):
 
         if completed:
             state = est.init_state(completed[0], priors, params=params)
-            out = est.model_output(state, completed[:1])
+            out = est.model_output(state, completed[:1], params=params)
             total_expected.append(out.total.expected_ms)
             total_floor.append(out.total.floor_ms)
             clean_expected.append(out.clean.expected_ms)
@@ -166,7 +166,7 @@ def segment_history(segment_id: str, db: Database = Depends(get_db)):
                 state = est.process_attempt(
                     state, completed[j], completed[:j + 1], params=params,
                 )
-                out = est.model_output(state, completed[:j + 1])
+                out = est.model_output(state, completed[:j + 1], params=params)
                 total_expected.append(out.total.expected_ms)
                 total_floor.append(out.total.floor_ms)
                 clean_expected.append(out.clean.expected_ms)

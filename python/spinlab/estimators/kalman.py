@@ -275,7 +275,10 @@ class KalmanEstimator(Estimator):
 
         return result
 
-    def model_output(self, state: KalmanState, all_attempts: list[AttemptRecord]) -> ModelOutput:  # type: ignore[override]
+    def model_output(  # type: ignore[override]
+        self, state: KalmanState, all_attempts: list[AttemptRecord],
+        params: dict | None = None,
+    ) -> ModelOutput:
         none_estimate = Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None)
         if state.n_completed == 0:
             return ModelOutput(total=none_estimate, clean=none_estimate)

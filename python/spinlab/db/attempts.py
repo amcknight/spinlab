@@ -36,7 +36,7 @@ class RecentAttemptRow(TypedDict, total=False):
     end_type: str
     end_ordinal: int
 
-RECENT_ATTEMPTS_DB_LIMIT = 8
+RECENT_ATTEMPTS_DB_LIMIT = 5
 
 
 class AttemptsMixin:

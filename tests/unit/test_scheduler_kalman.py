@@ -109,6 +109,32 @@ class TestSchedulerProcessAttempt:
         rows = db_with_segments.load_all_model_states_for_segment(segment_id)
         assert len(rows) == len(list_estimators())
 
+    def test_first_attempt_death_then_completion_seeds_kalman(self, db_with_segments):
+        # Regression: a death-first attempt creates a bare model state
+        # (n_completed=0).  When the next successful attempt arrives, the
+        # scheduler used to call process_attempt against that bare state,
+        # which produced expected_ms ~= 0.5 * observed_time (Kalman update
+        # from the default mu=0).  The fix routes through init_state with
+        # population priors when n_completed is still zero.
+        sched = Scheduler(db_with_segments, "g1")
+        segment_id = db_with_segments._test_segs[0].id
+
+        sched.process_attempt(segment_id, time_ms=0, completed=False)
+        sched.process_attempt(segment_id, time_ms=12000, completed=True)
+
+        row = db_with_segments.load_model_state(segment_id, "kalman")
+        state = json.loads(row["state_json"])
+        assert state["n_completed"] == 1
+        assert state["n_attempts"] == 2
+        # mu should equal the observed time (12s), not 6s — that's the
+        # signature of a bug-free init_state path.
+        assert state["mu"] == pytest.approx(12.0)
+        output = ModelOutput.from_dict(json.loads(row["output_json"]))
+        assert output.total.expected_ms is not None
+        # Loose bound: the estimate should be in the same ballpark as the
+        # only observation, not half of it.
+        assert 9000 < output.total.expected_ms < 15000
+
 
 class TestSchedulerWeights:
     def test_set_weights_persists_and_rebuilds(self, db_with_segments):

@@ -212,6 +212,11 @@ class SpeedRunLoadCmd:
 class SpeedRunStopCmd:
     event: str = "speed_run_stop"
 
+@dataclass
+class ResetCmd:
+    """Power-cycle the emulator (back to title screen)."""
+    event: str = "reset"
+
 
 # ---------------------------------------------------------------------------
 # Event registry and parser
