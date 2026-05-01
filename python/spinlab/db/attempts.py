@@ -20,7 +20,7 @@ class AttemptRow(TypedDict):
 class RecentAttemptRow(TypedDict, total=False):
     id: int
     segment_id: str
-    session_id: str
+    parent_id: str
     completed: int
     time_ms: int | None
     strat_version: int
@@ -46,12 +46,12 @@ class AttemptsMixin:
     def log_attempt(self, attempt: Attempt) -> int:
         cur = self.conn.execute(
             """INSERT INTO attempts
-               (segment_id, session_id, completed, time_ms,
+               (segment_id, parent_id, completed, time_ms,
                 strat_version, source, deaths, clean_tail_ms,
                 observed_start_conditions, observed_end_conditions, invalidated,
                 chosen_allocator, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (attempt.segment_id, attempt.session_id, int(attempt.completed),
+            (attempt.segment_id, attempt.parent_id, int(attempt.completed),
              attempt.time_ms,
              attempt.strat_version, attempt.source,
              attempt.deaths, attempt.clean_tail_ms,
@@ -83,10 +83,14 @@ class AttemptsMixin:
         return dict(row)
 
     def get_segment_attempt_count(self, segment_id: str, session_id: str) -> int:
-        """Count attempts on a segment in a specific session."""
+        """Count attempts on a segment in a specific practice session.
+
+        Note: ``session_id`` here is whatever populates ``attempts.parent_id`` —
+        a practice session id, capture run id, or speed-run id, depending on call site.
+        """
         row = self.conn.execute(
             "SELECT COUNT(*) as cnt FROM attempts "
-            "WHERE segment_id = ? AND session_id = ?",
+            "WHERE segment_id = ? AND parent_id = ?",
             (segment_id, session_id),
         ).fetchone()
         return row["cnt"]
@@ -102,7 +106,7 @@ class AttemptsMixin:
         where = "s.game_id = ?"
         params: list = [game_id]
         if session_id:
-            where += " AND a.session_id = ?"
+            where += " AND a.parent_id = ?"
             params.append(session_id)
         params.append(limit)
         rows = self.conn.execute(
@@ -155,7 +159,7 @@ class AttemptsMixin:
 
     def get_last_practice_attempt(self, session_id: str) -> int | None:
         row = self.conn.execute(
-            "SELECT id FROM attempts WHERE session_id = ? "
+            "SELECT id FROM attempts WHERE parent_id = ? "
             "ORDER BY id DESC LIMIT 1",
             (session_id,),
         ).fetchone()

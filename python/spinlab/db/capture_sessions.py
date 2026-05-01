@@ -2,7 +2,7 @@
 
 Note on naming: `capture_sessions` are recording sessions within a multi-session
 reference run. They are distinct from `sessions` (practice sessions) and from
-`attempts.session_id` (polymorphic parent grouping). All three exist; read carefully.
+`attempts.parent_id` (polymorphic parent grouping). All three exist; read carefully.
 """
 import logging
 import sqlite3

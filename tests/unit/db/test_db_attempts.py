@@ -22,20 +22,20 @@ def db_with_attempts(tmp_path):
     # s1: 3 completed, 1 incomplete
     for t in [12000, 11000, 10000]:
         db.log_attempt(Attempt(
-            segment_id="s1", session_id="sess1", completed=True,
+            segment_id="s1", parent_id="sess1", completed=True,
             time_ms=t, deaths=0, clean_tail_ms=t,
         ))
     db.log_attempt(Attempt(
-        segment_id="s1", session_id="sess1", completed=False,
+        segment_id="s1", parent_id="sess1", completed=False,
         time_ms=None, deaths=1,
     ))
     # s2: 2 completed with deaths
     db.log_attempt(Attempt(
-        segment_id="s2", session_id="sess1", completed=True,
+        segment_id="s2", parent_id="sess1", completed=True,
         time_ms=20000, deaths=2, clean_tail_ms=8000,
     ))
     db.log_attempt(Attempt(
-        segment_id="s2", session_id="sess1", completed=True,
+        segment_id="s2", parent_id="sess1", completed=True,
         time_ms=18000, deaths=1, clean_tail_ms=9000,
     ))
     return db

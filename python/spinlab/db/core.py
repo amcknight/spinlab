@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS waypoint_save_states (
 CREATE TABLE IF NOT EXISTS attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   segment_id TEXT NOT NULL REFERENCES segments(id),
-  session_id TEXT NOT NULL,
+  parent_id TEXT NOT NULL,
   completed INTEGER NOT NULL,
   time_ms INTEGER,
   strat_version INTEGER NOT NULL,
@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS recorded_segment_times (
 );
 
 CREATE INDEX IF NOT EXISTS idx_attempts_segment ON attempts(segment_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_attempts_session ON attempts(session_id);
+CREATE INDEX IF NOT EXISTS idx_attempts_parent ON attempts(parent_id);
 CREATE INDEX IF NOT EXISTS idx_transitions_game ON transitions(game_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_capture_sessions_run ON capture_sessions(capture_run_id, ordinal);
 CREATE INDEX IF NOT EXISTS idx_recorded_segment_times_session ON recorded_segment_times(capture_session_id);
@@ -184,7 +184,7 @@ class DatabaseCore:
     def _expected_columns(table: str) -> set[str]:
         return {
             "model_state": {"segment_id", "estimator", "state_json", "output_json", "updated_at"},
-            "attempts": {"id", "segment_id", "session_id", "completed", "time_ms",
+            "attempts": {"id", "segment_id", "parent_id", "completed", "time_ms",
                          "strat_version", "source", "deaths", "clean_tail_ms",
                          "observed_start_conditions", "observed_end_conditions",
                          "invalidated", "chosen_allocator", "created_at"},

@@ -50,11 +50,11 @@ def test_get_segment_attempt_count(db):
     db.create_session("sess1", "test_game")
     for _ in range(3):
         db.log_attempt(Attempt(
-            segment_id=seg.id, session_id="sess1", completed=True,
+            segment_id=seg.id, parent_id="sess1", completed=True,
             time_ms=1000,
         ))
     db.log_attempt(Attempt(
-        segment_id=seg.id, session_id="other_sess", completed=True,
+        segment_id=seg.id, parent_id="other_sess", completed=True,
         time_ms=1000,
     ))
     assert db.get_segment_attempt_count(seg.id, "sess1") == 3
@@ -65,7 +65,7 @@ def test_get_recent_attempts(db):
     db.create_session("sess1", "test_game")
     for i in range(10):
         db.log_attempt(Attempt(
-            segment_id=seg.id, session_id="sess1", completed=(i % 2 == 0),
+            segment_id=seg.id, parent_id="sess1", completed=(i % 2 == 0),
             time_ms=1000 + i * 100,
         ))
     results = db.get_recent_attempts("test_game", limit=5)
@@ -134,8 +134,8 @@ def test_reset_game_data_scoped(tmp_db):
     s2 = _make_segment(tmp_db, "g2", 1)
     tmp_db.create_session("s1", "g1")
     tmp_db.create_session("s2", "g2")
-    tmp_db.log_attempt(Attempt(segment_id=s1.id, time_ms=5000, completed=True, session_id="s1"))
-    tmp_db.log_attempt(Attempt(segment_id=s2.id, time_ms=6000, completed=True, session_id="s2"))
+    tmp_db.log_attempt(Attempt(segment_id=s1.id, time_ms=5000, completed=True, parent_id="s1"))
+    tmp_db.log_attempt(Attempt(segment_id=s2.id, time_ms=6000, completed=True, parent_id="s2"))
 
     tmp_db.reset_game_data("g1")
 

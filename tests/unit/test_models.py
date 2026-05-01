@@ -56,7 +56,7 @@ from spinlab.models import Attempt, AttemptSource
 
 def test_attempt_has_observed_conditions_and_invalidated():
     a = Attempt(
-        segment_id="s1", session_id="sess1", completed=True,
+        segment_id="s1", parent_id="sess1", completed=True,
         time_ms=1000, source=AttemptSource.PRACTICE, deaths=0,
         observed_start_conditions='{"powerup": "big"}',
         observed_end_conditions='{"powerup": "small"}',

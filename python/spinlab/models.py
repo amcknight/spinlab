@@ -154,7 +154,7 @@ class WaypointSaveState:
 @dataclass
 class Attempt:
     segment_id: str
-    session_id: str
+    parent_id: str
     completed: bool
     time_ms: int | None = None
     strat_version: int = 1

@@ -197,7 +197,7 @@ async def test_save_and_finish_is_atomic_rolls_back_on_failure(started_session, 
     assert row is not None and row[0] == 1, "run must remain draft after rollback"
     # No attempts persisted
     attempt_count = db.conn.execute(
-        "SELECT COUNT(*) FROM attempts WHERE session_id = ?", (run_id,)
+        "SELECT COUNT(*) FROM attempts WHERE parent_id = ?", (run_id,)
     ).fetchone()[0]
     assert attempt_count == 0, "no attempts should survive a rolled-back transaction"
     # Timing rows must NOT have been deleted (drain was rolled back too)

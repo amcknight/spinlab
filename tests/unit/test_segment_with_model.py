@@ -89,7 +89,7 @@ class TestLoadAll:
         rows = db_with_segments.get_all_segments_with_model("g1")
         seg_id = rows[0]["id"]
         db_with_segments.log_attempt(Attempt(
-            segment_id=seg_id, session_id="s1", completed=True,
+            segment_id=seg_id, parent_id="s1", completed=True,
             time_ms=10000, deaths=0, clean_tail_ms=10000,
         ))
         results = SegmentWithModel.load_all(db_with_segments, "g1")

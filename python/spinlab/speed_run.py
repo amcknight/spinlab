@@ -241,7 +241,7 @@ class SpeedRunSession:
         """Record a cold attempt for a sub-segment."""
         attempt = Attempt(
             segment_id=seg["id"],
-            session_id=self.session_id,
+            parent_id=self.session_id,
             completed=completed,
             time_ms=time_ms if completed else None,
             deaths=0,

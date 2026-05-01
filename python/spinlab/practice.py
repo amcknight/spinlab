@@ -190,7 +190,7 @@ class PracticeSession:
         # transition-event conditions and pass them here.
         attempt = Attempt(
             segment_id=result.segment_id,
-            session_id=self.session_id,
+            parent_id=self.session_id,
             completed=result.completed,
             time_ms=result.time_ms,
             deaths=result.deaths,

@@ -78,7 +78,7 @@ def seeded_db(tmp_path):
 
     for segment_id, time_ms, completed in ATTEMPTS:
         db.log_attempt(Attempt(
-            segment_id=segment_id, session_id="sess1",
+            segment_id=segment_id, parent_id="sess1",
             completed=completed, time_ms=time_ms,
         ))
 

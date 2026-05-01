@@ -75,7 +75,7 @@ def _seed_reference_attempts(
     for row in timing_rows:
         attempt = Attempt(
             segment_id=row["segment_id"],
-            session_id=capture_run_id,
+            parent_id=capture_run_id,
             completed=True,
             time_ms=row["time_ms"],
             deaths=row["deaths"],
@@ -358,7 +358,7 @@ class ReferenceController:
             for row in timing_rows:
                 attempt = Attempt(
                     segment_id=row["segment_id"],
-                    session_id=run_id,
+                    parent_id=run_id,
                     completed=True,
                     time_ms=row["time_ms"],
                     deaths=row["deaths"],
@@ -368,12 +368,12 @@ class ReferenceController:
                 )
                 self.db.conn.execute(
                     """INSERT INTO attempts
-                       (segment_id, session_id, completed, time_ms,
+                       (segment_id, parent_id, completed, time_ms,
                         strat_version, source, deaths, clean_tail_ms,
                         observed_start_conditions, observed_end_conditions, invalidated,
                         chosen_allocator, created_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (attempt.segment_id, attempt.session_id, int(attempt.completed),
+                    (attempt.segment_id, attempt.parent_id, int(attempt.completed),
                      attempt.time_ms,
                      attempt.strat_version, attempt.source,
                      attempt.deaths, attempt.clean_tail_ms,

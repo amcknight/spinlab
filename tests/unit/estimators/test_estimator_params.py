@@ -125,7 +125,7 @@ class TestSchedulerParamsWiring:
         db.create_session("sess1", "g1")
         for t in [12000, 11000, 10000]:
             db.log_attempt(Attempt(
-                segment_id="s1", session_id="sess1", completed=True,
+                segment_id="s1", parent_id="sess1", completed=True,
                 time_ms=t, deaths=0, clean_tail_ms=t,
             ))
 

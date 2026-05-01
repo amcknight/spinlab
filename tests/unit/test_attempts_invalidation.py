@@ -13,7 +13,7 @@ def _seed(db):
 
 
 def _attempt(sid="sess1"):
-    return Attempt(segment_id="s1", session_id=sid, completed=True,
+    return Attempt(segment_id="s1", parent_id=sid, completed=True,
                    time_ms=1000, source=AttemptSource.PRACTICE)
 
 

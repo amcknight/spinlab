@@ -160,7 +160,7 @@ class TestHardDelete:
         )
         # Add an attempt row
         tmp_db.conn.execute(
-            "INSERT INTO attempts (segment_id, session_id, completed, time_ms, strat_version, created_at) "
+            "INSERT INTO attempts (segment_id, parent_id, completed, time_ms, strat_version, created_at) "
             f"VALUES ('{seg_id}', 'sess1', 1, 5000, 1, '2026-01-01')"
         )
         tmp_db.conn.commit()

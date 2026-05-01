@@ -131,7 +131,7 @@ def test_reset_is_game_scoped(app_with_rom_dir):
     )
     db.upsert_segment(s_a)
     db.create_session("sa", c_a)
-    db.log_attempt(Attempt(segment_id=s_a.id, time_ms=5000, completed=True, session_id="sa"))
+    db.log_attempt(Attempt(segment_id=s_a.id, time_ms=5000, completed=True, parent_id="sa"))
 
     # Set up game B with data
     _sync_switch(app, c_b, "game_b")
@@ -146,7 +146,7 @@ def test_reset_is_game_scoped(app_with_rom_dir):
     )
     db.upsert_segment(s_b)
     db.create_session("sb", c_b)
-    db.log_attempt(Attempt(segment_id=s_b.id, time_ms=6000, completed=True, session_id="sb"))
+    db.log_attempt(Attempt(segment_id=s_b.id, time_ms=6000, completed=True, parent_id="sb"))
 
     # Reset game B (active game)
     client = TestClient(app)

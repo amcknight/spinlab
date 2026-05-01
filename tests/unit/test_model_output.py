@@ -134,7 +134,7 @@ class TestDBMultiModel:
         db = self._setup_db()
         db.create_session("sess1", "g1")
         attempt = Attempt(
-            segment_id="s1", session_id="sess1", completed=True,
+            segment_id="s1", parent_id="sess1", completed=True,
             time_ms=12000, deaths=3, clean_tail_ms=4000,
         )
         db.log_attempt(attempt)
@@ -147,7 +147,7 @@ class TestDBMultiModel:
         db = self._setup_db()
         db.create_session("sess1", "g1")
         attempt = Attempt(
-            segment_id="s1", session_id="sess1", completed=True,
+            segment_id="s1", parent_id="sess1", completed=True,
             time_ms=12000,
         )
         db.log_attempt(attempt)

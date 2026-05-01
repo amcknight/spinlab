@@ -18,7 +18,7 @@ def _seed(db: Database) -> int:
     )
     db.conn.commit()
     return db.log_attempt(Attempt(
-        segment_id="s1", session_id="sess1", completed=True,
+        segment_id="s1", parent_id="sess1", completed=True,
         time_ms=1000, source=AttemptSource.PRACTICE,
     ))
 

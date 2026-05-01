@@ -81,7 +81,7 @@ def seed_basic_game(db: "Database") -> str:
     for seg_idx, offset_ms, completed, alloc_idx in _SEED_ATTEMPT_SPECS:
         _, _, _, ref_ms = _SEED_SEGMENT_SPECS[seg_idx]
         db.log_attempt(Attempt(
-            segment_id=seg_ids[seg_idx], session_id=session_id,
+            segment_id=seg_ids[seg_idx], parent_id=session_id,
             completed=completed,
             time_ms=(ref_ms + offset_ms) if completed else None,
             chosen_allocator=_SEED_ALLOCATORS[alloc_idx],
