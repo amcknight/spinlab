@@ -6,6 +6,7 @@ is organized by domain while consumers see a single object.
 
 from .attempts import AttemptsMixin
 from .capture_runs import CaptureRunsMixin
+from .capture_sessions import CaptureSessionsMixin
 from .core import DatabaseCore
 from .model_state import ModelStateMixin
 from .segments import SegmentsMixin
@@ -20,6 +21,7 @@ class Database(
     SessionsMixin,
     ModelStateMixin,
     CaptureRunsMixin,
+    CaptureSessionsMixin,
     DatabaseCore,
 ):
     """Unified database interface composed from domain-specific mixins."""
