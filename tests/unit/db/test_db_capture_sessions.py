@@ -76,3 +76,25 @@ def test_max_session_ordinal_for_run(db):
     db.create_capture_session("sess_1", "run_1", 1, "/tmp/1.spinrec")
     db.create_capture_session("sess_2", "run_1", 2, "/tmp/2.spinrec")
     assert db.max_session_ordinal_for_run("run_1") == 2
+
+
+def test_delete_capture_session_removes_row(db):
+    db.create_capture_session("sess_1", "run_1", 1, "/tmp/x.spinrec")
+    db.delete_capture_session("sess_1")
+    assert db.get_capture_session("sess_1") is None
+
+
+def test_delete_capture_session_cascades_to_recorded_segment_times(db):
+    db.create_capture_session("sess_1", "run_1", 1, "/tmp/x.spinrec")
+    db.add_recorded_segment_time("sess_1", "seg_x", time_ms=1000, deaths=0, clean_tail_ms=1000)
+    rows = db.conn.execute(
+        "SELECT COUNT(*) FROM recorded_segment_times WHERE capture_session_id = ?",
+        ("sess_1",),
+    ).fetchone()
+    assert rows[0] == 1
+    db.delete_capture_session("sess_1")
+    rows = db.conn.execute(
+        "SELECT COUNT(*) FROM recorded_segment_times WHERE capture_session_id = ?",
+        ("sess_1",),
+    ).fetchone()
+    assert rows[0] == 0

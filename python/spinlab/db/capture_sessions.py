@@ -82,3 +82,10 @@ class CaptureSessionsMixin:
             (capture_run_id,),
         ).fetchone()
         return int(row[0])
+
+    def delete_capture_session(self, session_id: str) -> None:
+        """Delete a capture session. FK ON DELETE CASCADE removes related rows."""
+        self.conn.execute(
+            "DELETE FROM capture_sessions WHERE id = ?", (session_id,),
+        )
+        self.conn.commit()
