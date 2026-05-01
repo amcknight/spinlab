@@ -266,6 +266,27 @@ def test_session_end_log_includes_ordinal_duration_segments(db, caplog):
     assert re.search(r"\bduration", msg.lower()), msg
 
 
+def test_list_capture_sessions_includes_segment_count(db):
+    db.upsert_game("smw", "SMW", "any%")
+    db.create_capture_run("run_y", "smw", "Y", draft=True)
+    db.create_capture_session("s1", "run_y", 1, "/tmp/1.spinrec")
+    db.create_capture_session("s2", "run_y", 2, "/tmp/2.spinrec")
+    # 2 segments in s1, 1 in s2
+    for sid, csid in [("a", "s1"), ("b", "s1"), ("c", "s2")]:
+        db.conn.execute(
+            "INSERT INTO segments (id, game_id, level_number, start_type, "
+            "start_ordinal, end_type, end_ordinal, capture_session_id, "
+            "reference_id, created_at, updated_at) VALUES (?, 'smw', 1, "
+            "'entrance', 0, 'goal', 0, ?, 'run_y', datetime('now'), datetime('now'))",
+            (sid, csid),
+        )
+    db.conn.commit()
+
+    sessions = db.list_capture_sessions_for_run("run_y")
+    counts = {s["id"]: s["segment_count"] for s in sessions}
+    assert counts == {"s1": 2, "s2": 1}
+
+
 # --- Helpers ---
 
 def _make_minimal_segment(db, run_id, sess_id, seg_id):

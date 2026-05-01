@@ -20,6 +20,7 @@ class CaptureSessionRow(TypedDict):
     ended_at: str | None
     spinrec_path: str
     end_reason: str | None
+    segment_count: int
 
 
 class CaptureSessionsMixin:
@@ -45,8 +46,11 @@ class CaptureSessionsMixin:
 
     def get_capture_session(self, session_id: str) -> CaptureSessionRow | None:
         row = self.conn.execute(
-            "SELECT id, capture_run_id, ordinal, started_at, ended_at, "
-            "spinrec_path, end_reason FROM capture_sessions WHERE id = ?",
+            "SELECT s.id, s.capture_run_id, s.ordinal, s.started_at, s.ended_at, "
+            "s.spinrec_path, s.end_reason, "
+            "(SELECT COUNT(*) FROM segments WHERE capture_session_id = s.id) "
+            "  AS segment_count "
+            "FROM capture_sessions s WHERE s.id = ?",
             (session_id,),
         ).fetchone()
         if row is None:
@@ -64,9 +68,12 @@ class CaptureSessionsMixin:
 
     def list_capture_sessions_for_run(self, capture_run_id: str) -> list[CaptureSessionRow]:
         rows = self.conn.execute(
-            "SELECT id, capture_run_id, ordinal, started_at, ended_at, "
-            "spinrec_path, end_reason FROM capture_sessions "
-            "WHERE capture_run_id = ? ORDER BY ordinal",
+            "SELECT s.id, s.capture_run_id, s.ordinal, s.started_at, s.ended_at, "
+            "s.spinrec_path, s.end_reason, "
+            "(SELECT COUNT(*) FROM segments WHERE capture_session_id = s.id) "
+            "  AS segment_count "
+            "FROM capture_sessions s "
+            "WHERE s.capture_run_id = ? ORDER BY s.ordinal",
             (capture_run_id,),
         ).fetchall()
         return [dict(r) for r in rows]  # type: ignore[return-value]

@@ -79,6 +79,7 @@ export interface CaptureSession {
   ended_at: string | null;
   spinrec_path: string;
   end_reason: string | null;
+  segment_count: number;
 }
 
 export interface PausedRunState {

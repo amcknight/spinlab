@@ -153,7 +153,7 @@ async function renderSessionsList(runId: string): Promise<void> {
       `<td>${s.started_at}</td>` +
       `<td>${s.ended_at || "(open)"}</td>` +
       `<td>${s.end_reason || ""}</td>` +
-      `<td>&#8212;</td>` +
+      `<td>${s.segment_count}</td>` +
       `<td><button data-sess-id="${s.id}" class="btn-del-sess btn-sm btn-danger-sm">Delete</button></td>`;
     body.appendChild(tr);
   });
