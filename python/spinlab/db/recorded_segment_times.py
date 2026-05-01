@@ -37,21 +37,31 @@ class RecordedSegmentTimesMixin:
         self.conn.commit()
 
     def drain_recorded_segment_times_for_run(self, capture_run_id: str) -> list[RecordedSegmentTimeRow]:
-        """Return all timing rows for the run, then delete them. Atomic."""
-        rows = self.conn.execute(
-            "SELECT t.id, t.capture_session_id, t.segment_id, t.time_ms, "
-            "t.deaths, t.clean_tail_ms, t.recorded_at "
-            "FROM recorded_segment_times t "
-            "JOIN capture_sessions s ON t.capture_session_id = s.id "
-            "WHERE s.capture_run_id = ? ORDER BY t.id",
-            (capture_run_id,),
-        ).fetchall()
-        result = [dict(r) for r in rows]
-        ids = [r["id"] for r in result]
-        if ids:
-            placeholders = ",".join("?" * len(ids))
-            self.conn.execute(
-                f"DELETE FROM recorded_segment_times WHERE id IN ({placeholders})", ids,
-            )
-        self.conn.commit()
+        """Return all timing rows for the run, then delete them, atomically.
+
+        Wraps SELECT and DELETE in a single transaction so finalize is
+        all-or-nothing: a crash mid-drain cannot leave the buffer in a
+        half-drained state that would seed duplicate attempts on retry.
+        """
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            rows = self.conn.execute(
+                "SELECT t.id, t.capture_session_id, t.segment_id, t.time_ms, "
+                "t.deaths, t.clean_tail_ms, t.recorded_at "
+                "FROM recorded_segment_times t "
+                "JOIN capture_sessions s ON t.capture_session_id = s.id "
+                "WHERE s.capture_run_id = ? ORDER BY t.id",
+                (capture_run_id,),
+            ).fetchall()
+            result = [dict(r) for r in rows]
+            ids = [r["id"] for r in result]
+            if ids:
+                placeholders = ",".join("?" * len(ids))
+                self.conn.execute(
+                    f"DELETE FROM recorded_segment_times WHERE id IN ({placeholders})", ids,
+                )
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
         return result  # type: ignore[return-value]
