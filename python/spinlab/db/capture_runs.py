@@ -26,6 +26,7 @@ class ReferenceSegmentRow(TypedDict):
     active: int
     ordinal: int | None
     reference_id: str | None
+    capture_session_id: str | None
     state_path: str | None
 
 
@@ -137,7 +138,7 @@ class CaptureRunsMixin:
         cur = self.conn.execute(
             """SELECT id, game_id, level_number, start_type, start_ordinal,
                       end_type, end_ordinal, description, active, ordinal,
-                      reference_id,
+                      reference_id, capture_session_id,
                       NULL AS state_path
                FROM segments WHERE reference_id = ? AND active = 1
                ORDER BY ordinal""",

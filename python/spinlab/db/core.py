@@ -269,4 +269,5 @@ class DatabaseCore:
             start_waypoint_id=row["start_waypoint_id"] if "start_waypoint_id" in keys else None,
             end_waypoint_id=row["end_waypoint_id"] if "end_waypoint_id" in keys else None,
             is_primary=bool(row["is_primary"]) if "is_primary" in keys else True,
+            capture_session_id=row["capture_session_id"] if "capture_session_id" in keys else None,
         )

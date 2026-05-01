@@ -107,6 +107,7 @@ class Segment:
     start_waypoint_id: Optional[str] = None
     end_waypoint_id: Optional[str] = None
     is_primary: bool = True
+    capture_session_id: Optional[str] = None
 
     @staticmethod
     def make_id(game_id: str, level: int, start_type: str, start_ord: int,
