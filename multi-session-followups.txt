@@ -5,55 +5,28 @@ Captured 2026-05-01, immediately after merging f362972. This is the
 backlog from the multi-session work — items that landed as known
 follow-ups, items the final code review surfaced but didn't block,
 pre-existing bugs the work exposed, and improvements that became
-obvious during implementation. Picking up later, with cleared context,
-this should be enough to know WHY each item exists and roughly what's
-involved.
+obvious during implementation.
 
 Reference docs:
   Spec: docs/superpowers/specs/2026-05-01-multi-session-reference-runs-design.md
   Plan: docs/superpowers/plans/2026-05-01-multi-session-reference-runs.md
-  Final review summary in conversation history (3 critical bugs fixed
-  in commits 068179c, 205eab1, c4ae4cb, plus the C2 correction in 1717c92).
 
-Suggested order at the bottom (Wave 1 / 2 / 3).
-
-UPDATE 2026-05-01 — followups pass landed
-=========================================
-
-A cohesive correctness/dashboard/observability/hygiene cluster from this
-backlog was completed on branch followups-2026-05. See:
+Followups pass (2026-05-01) landed items 1, 2, 4, 5, 6, 8, 9, 10, 12,
+15, 17, 20, 24, 34, 35, 36. See:
   Spec: docs/superpowers/specs/2026-05-01-multi-session-followups-design.md
   Plan: docs/superpowers/plans/2026-05-01-multi-session-followups.md
 
-Items completed in that pass: 1, 2, 4, 5, 8, 9, 10, 12, 15, 17, 24, 33, 34, 36
-plus the §2 scheduler-rebuild semantics (item 6 was answered: always rebuild
-after set_active_capture_run).
+Open from that pass for the user:
+  - Manual empty-state UI verification (item 33; spec §3.5).
+  - Decide on em-dash vs zero rendering for empty per-session segment
+    counts (current: shows "0").
 
-Item 7 (paused_run_id / capture_run_id desync) was reviewed but not addressed
-this pass; left as a Wave 2 candidate. Item 11 (save_and_finish atomicity
-mixin Option A) and item 19 (real migrations) remain explicitly deferred.
-
-Open from this pass for the user:
-  - Manual empty-state UI verification (Task 7 of the plan).
-  - Decide on em-dash vs zero rendering for empty per-session segment counts
-    (current: shows "0"; alternative: "—" via `s.segment_count > 0 ? ... : "—"`).
+Items numbered as in the original capture; gaps reflect items already
+completed and removed.
 
 
 A. Direct deferred items
 ========================
-
-1. [S] Per-session segment count in manage UI sessions table.
-   Currently shows '—' as a placeholder. The list_capture_sessions_for_run
-   query needs to add: (SELECT COUNT(*) FROM segments WHERE
-   capture_session_id = s.id) AS segment_count, and CaptureSession
-   TypedDict + frontend rendering need the new field. ~30 min.
-   Without it the salvage UI is half-blind — you can't see at a glance
-   which session contributed which slice of the run.
-
-2. [S] sections_captured TS type tightening.
-   types.ts:163 declares it as `number`, but state_builder.py emits
-   `int | None`. Frontend uses `?? 0` so it works at runtime, but the
-   contract lies. Change to `number | null`.
 
 3. [M] Playwright crash-and-resume smoke test.
    Scaffolded but skipped at tests/integration/test_multi_session_smoke.py.
@@ -62,27 +35,6 @@ A. Direct deferred items
    only end-to-end visual proof that recovery surfaces correctly in the
    UI. Python-level crash test (test_crash_recovery.py) covers the data
    layer exhaustively, so this is purely UI confidence.
-
-4. [S] RunPendingError alias migration.
-   errors.py has `RunPendingError = DraftPendingError` for wire-format
-   preservation. The comment claims Task 14 will migrate call sites,
-   but that didn't happen. Either complete the rename across callers
-   (mechanical sweep) or drop the comment and accept the alias as
-   permanent.
-
-5. [S] "Session" column in segments tab.
-   Plan called for it ("see which session captured each segment" for
-   the salvage workflow). Skipped during Task 18. The data is already
-   on the segment rows (capture_session_id); just needs a column in the
-   manage page segments table rendering.
-
-6. [S] _seed_reference_attempts scheduler rebuild logic.
-   finalize_run and save_and_finish_run skip rebuild_all_states when
-   seeded == 0 (no completed segments). But set_active_capture_run ran,
-   so the active reference changed and the scheduler may need to
-   rebuild from older attempts anyway. Either always rebuild after
-   activation, or document why no-attempts case intentionally preserves
-   prior model state.
 
 
 B. Issues from final review — not blocking, but real
@@ -96,24 +48,6 @@ B. Issues from final review — not blocking, but real
    single state object or add an _assert_invariants helper used by
    tests.
 
-8. [S] delete_capture_session race during active recording.
-   API accepts any session_id. If recorder.current_capture_session_id
-   == session_id (i.e., the user is mid-segment in the session being
-   deleted), next segment-close will hit a FK violation. Add a guard
-   raising the appropriate error. Not exposed in the UI today but the
-   API surface is exposed.
-
-9. [S] recover_paused_capture_run silently destroys data.
-   When multiple drafts exist for a game, picks newest and
-   hard_delete_capture_run on the rest. Defensive but silent. Add a
-   logger.warning("Discarding stranded draft %s for game %s") so if
-   this fires in the wild we know.
-
-10. [S] NotInReferenceError overloaded.
-    Used for both "wrong mode" and "no paused run exists" cases.
-    Adding NoPausedRunError clarifies the API and matches the spec's
-    original intent. Mechanical change.
-
 11. [S] save_and_finish_run atomicity uses raw SQL (Option B).
     Works correctly. Cleaner long-term API would be teaching the mixin
     methods to honor an open transaction (Option A). Defer until you
@@ -123,16 +57,6 @@ B. Issues from final review — not blocking, but real
 
 C. Pre-existing bugs surfaced by this work
 ==========================================
-
-12. [M] clean_tail_ms is always equal to time_ms for segments with
-    deaths.
-    Recorder uses _last_spawn_ms which is only set when
-    handle_spawn_timing(timestamp_ms=...) gets a non-None value, but
-    reference.py:425 calls it with None. So the deaths-tracking
-    clean-tail feature has been broken in main since whenever it
-    landed. The new recorded_segment_times table now propagates this
-    wrong value into attempts. Fix: investigate where timestamp_ms on
-    SpawnEvent should come from (Lua-side?) and wire it through.
 
 13. [M] Eight pre-existing pyright errors.
     None new from this work but worth a sweep:
@@ -152,24 +76,12 @@ D. Test gaps
     segments across 20 sessions, then runs recovery, would catch
     scaling regressions early.
 
-15. [S] Frontend click-handler tests.
-    Vitest covers render but not the new btn-resume / btn-save-and-
-    finish / btn-discard-run handlers. Quick add: mock fetch, click
-    button, assert URL + body shape.
-
 16. [M] Mutation-test-worthy assertions.
     Some new tests would not catch silent regressions. Example:
     test_save_and_finish_seeds_attempts_and_finalizes does not fail
     if you delete the set_active_capture_run call. One pass: for each
     new test, ask "would this fail if I deleted line X of the
     implementation?".
-
-17. [S] End-to-end real-flow integration test.
-    Scenario: user has paused run A, replays a different reference B,
-    replay finishes, recovery on next restart still picks A back up.
-    Was unit-tested but not integration-tested. The interaction of
-    `id NOT LIKE 'replay_%'` filter + replay's lifecycle is fragile
-    and a place where future-Claude could easily break recovery.
 
 18. [S] Unused imports cleanup.
     pytest_asyncio unused in test_crash_recovery.py and
@@ -186,13 +98,6 @@ E. Architecture improvements
     migration log BEFORE the data starts mattering. This is the single
     biggest tech debt item — it's a future "I lost my data" event
     waiting to happen.
-
-20. [M] Verbal overload of "session" across the codebase.
-    Three meanings now: sessions table (practice), attempts.session_id
-    (polymorphic parent), capture_sessions (recording sessions within
-    a run). Renaming attempts.session_id → attempts.parent_id reflects
-    its actual semantics. Mechanical sweep, no migration needed
-    (greenfield).
 
 21. [M] is_primary auto-promotion on segment delete.
     Spec deferred this. Today: deleting the primary segment for a
@@ -213,11 +118,6 @@ E. Architecture improvements
     to attach segments. The id LIKE 'replay_%' filter in recovery is
     a hack working around it. Cleaner: scratch run that's not in
     capture_runs at all. Big refactor, low priority — the hack works.
-
-24. [S] One-paused-run-per-game as a DB constraint.
-    Currently enforced only in code via recover_paused_capture_run's
-    delete-older behavior. Belt + suspenders: a partial unique index
-    `WHERE draft = 1 AND id NOT LIKE 'replay_%'`.
 
 
 F. Efficiency improvements
@@ -275,27 +175,8 @@ G. UX polish
 33. [S] Empty-state messaging.
     Verify the manage page reads well with zero references and no
     paused run after the rework. Easy to break first-run UX during a
-    refactor and not notice.
-
-
-H. Operational / observability
-==============================
-
-34. [S] Session-end summary log.
-    When _end_current_session fires, log "session X (ordinal N) ended
-    after T minutes, captured K segments, reason=<reason>". Aids
-    future debugging when something feels off.
-
-35. [M] Recovery audit trail.
-    recover_paused_capture_run makes silent decisions: kept this run,
-    deleted that one, marked these orphan sessions crashed. A small
-    recovery_log table, or even structured logger calls, would help
-    diagnose the rare "wait, where did my run go?" cases.
-
-36. [S] Spinrec file unlink failures swallowed.
-    hard_delete_capture_run and delete_capture_session use `pass` on
-    OSError. Log it — disk-full or permissions errors are exactly the
-    kind of thing you want surfaced.
+    refactor and not notice. (Manual UI pass deferred to user from
+    followups Task 7.)
 
 
 I. Documentation
@@ -305,6 +186,9 @@ I. Documentation
     The mixin docstrings call it out individually. A single doc — e.g.,
     a section in docs/ARCHITECTURE.md — would help new readers and
     Future You.
+    (Note: post-rename of attempts.session_id → attempts.parent_id, the
+    overload is reduced — capture_sessions and the practice sessions
+    table are the two remaining "session" meanings.)
 
 38. [S] Update plan doc with deviations.
     Plan still reads as if all 21 tasks landed verbatim. Consider a
@@ -322,16 +206,12 @@ I. Documentation
 Suggested ordering
 ==================
 
-Wave 1 (1-2 weekends, catch silent regression risks):
-  1, 5, 9, 12, 15
-  Per-session count, Session column, recovery log warning, the
-  pre-existing clean_tail_ms bug, frontend handler tests.
-
 Wave 2 (next month, solidify boundaries):
-  7, 8, 10, 14, 25, 34, 19
-  State invariants, delete-session race, NoPausedRunError, load test,
-  paused_state caching, session-end log, real migrations (the big one).
+  7, 14, 25, 19
+  State invariants, load test, paused_state caching, real migrations
+  (the big one).
 
 Wave 3 (later, nice-to-haves):
-  Everything else — efficiency improvements (#22, #26), UX polish (G),
-  architecture cleanups (#20, #21, #23, #24).
+  Everything else — efficiency improvements (#22, #26, #27, #28), UX
+  polish (G), architecture cleanups (#21, #23), the pyright sweep
+  (#13), unused-imports cleanup (#18), documentation (I).
