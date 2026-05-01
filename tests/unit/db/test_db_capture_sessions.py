@@ -23,6 +23,7 @@ def test_create_and_get_capture_session(db):
     assert sess["capture_run_id"] == "run_1"
     assert sess["ordinal"] == 1
     assert sess["spinrec_path"] == "/tmp/sess_1.spinrec"
+    assert sess["started_at"] is not None
     assert sess["ended_at"] is None
     assert sess["end_reason"] is None
 
