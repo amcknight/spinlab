@@ -10,13 +10,13 @@ from spinlab.capture import ReferenceController
 from spinlab.db import Database
 from spinlab.errors import (
     AlreadyReplayingError,
-    DraftPendingError,
     NoHotVariantError,
     NotConnectedError,
     NotInReferenceError,
     NotReplayingError,
     PracticeActiveError,
     ReferenceActiveError,
+    RunPendingError,
 )
 from spinlab.models import EndpointType, Mode, Segment, Status, Waypoint, WaypointSaveState
 from spinlab.protocol import (
@@ -42,9 +42,9 @@ def controller(db, fake_tcp):
 
 
 class TestStartReference:
-    async def test_guard_draft_pending(self, controller, tmp_path):
-        controller.draft.run_id = "fake_draft_run"
-        with pytest.raises(DraftPendingError):
+    async def test_guard_paused_run_pending(self, controller, tmp_path):
+        controller.paused_run_id = "fake_paused_run"
+        with pytest.raises(RunPendingError):
             await controller.start_reference(Mode.IDLE, "g1", tmp_path, run_name="test")
 
     async def test_guard_practice_active(self, controller, tmp_path):
@@ -74,9 +74,9 @@ class TestStopReference:
         with pytest.raises(NotInReferenceError):
             await controller.stop_reference(Mode.IDLE)
 
-    async def test_happy_path_enters_draft(self, controller, tmp_path, fake_tcp):
+    async def test_happy_path_pauses_run(self, controller, tmp_path, fake_tcp, db):
         await controller.start_reference(Mode.IDLE, "g1", tmp_path)
-        controller.recorder.segment_times = []
+        run_id = controller.recorder.capture_run_id
 
         result = await controller.stop_reference(Mode.REFERENCE)
 
@@ -84,6 +84,11 @@ class TestStopReference:
         assert result.new_mode == Mode.IDLE
         stop_cmds = [c for c in fake_tcp.sent_commands if isinstance(c, ReferenceStopCmd)]
         assert len(stop_cmds) == 1
+        assert controller.paused_run_id == run_id
+        row = db.conn.execute(
+            "SELECT draft FROM capture_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        assert row is not None and row[0] == 1
 
 
 class TestStartReplay:
@@ -135,14 +140,18 @@ class TestHandleReplayError:
 
 
 class TestHandleDisconnect:
-    async def test_no_segments_deletes_run(self, controller, db, tmp_path):
+    async def test_no_segments_pauses_run(self, controller, db, tmp_path):
         await controller.start_reference(Mode.IDLE, "g1", tmp_path)
         run_id = controller.recorder.capture_run_id
         controller.handle_disconnect()
+        # Disconnect ends the session but does NOT delete the run — it stays paused.
+        assert controller.paused_run_id == run_id
         row = db.conn.execute(
             "SELECT id FROM capture_runs WHERE id = ?", (run_id,)
         ).fetchone()
-        assert row is None
+        assert row is not None, "run should remain in DB as paused, not be deleted"
+        sessions = db.list_capture_sessions_for_run(run_id)
+        assert sessions[0]["end_reason"] == "disconnected"
 
     def test_idempotent_when_nothing_active(self, controller):
         controller.handle_disconnect()
