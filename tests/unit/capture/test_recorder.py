@@ -154,3 +154,39 @@ def test_death_via_handle_death_increments_counter(db, registry):
     ).fetchall()
     assert len(times) == 1
     assert times[0][0] == 2
+
+
+def test_handle_spawn_event_propagates_timestamp_ms(db, registry):
+    """ReferenceController.handle_spawn must pass event.timestamp_ms through to
+    the recorder's _last_spawn_ms, otherwise clean_tail_ms is always == time_ms
+    for any segment with deaths. Regression test for the multi-session work."""
+    from spinlab.capture.reference import ReferenceController
+    from spinlab.protocol import (
+        LevelEntranceEvent, LevelExitEvent, SpawnEvent, DeathEvent,
+    )
+    from tests.conftest import FakeTcpManager
+    # The module-level `db` fixture already pre-creates game="g1", run="run1",
+    # session="sess1" — reuse those rather than building a parallel fixture.
+    ctl = ReferenceController(db, FakeTcpManager(connected=False))
+    ctl.recorder.capture_run_id = "run1"
+    ctl.recorder.current_capture_session_id = "sess1"
+
+    ctl.handle_entrance(LevelEntranceEvent(
+        level=1, state_path=None, timestamp_ms=1000, conditions={},
+    ))
+    ctl.handle_death(DeathEvent())
+    ctl.handle_spawn(SpawnEvent(
+        level_num=1, state_captured=False, state_path=None,
+        is_cold_cp=False, cp_ordinal=None,
+        timestamp_ms=3000, conditions={},
+    ), game_id="g1")
+    ctl.handle_exit(LevelExitEvent(
+        level=1, goal="exit", timestamp_ms=5000, conditions={},
+    ), game_id="g1")
+
+    rows = db.drain_recorded_segment_times_for_run("run1")
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["deaths"] == 1
+    assert row["time_ms"] == 4000        # 5000 - 1000
+    assert row["clean_tail_ms"] == 2000  # 5000 - 3000 (NOT 4000)

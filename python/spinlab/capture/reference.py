@@ -514,7 +514,7 @@ class ReferenceController:
     def handle_spawn(self, event: SpawnEvent, game_id: str) -> None:
         logger.info("capture: spawn level=%s state_captured=%s",
                      event.level_num, event.state_captured)
-        self.recorder.handle_spawn_timing(timestamp_ms=None)
+        self.recorder.handle_spawn_timing(timestamp_ms=event.timestamp_ms)
         self.recorder.handle_spawn(event, game_id, self.db,
                                       self.condition_registry)
 

@@ -60,6 +60,7 @@ class SpawnEvent:
     conditions: dict = field(default_factory=dict)
     is_cold_cp: bool = False
     cp_ordinal: int | None = None
+    timestamp_ms: int = 0
 
 @dataclass
 class LevelExitEvent:
