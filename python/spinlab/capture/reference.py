@@ -31,7 +31,11 @@ from ..errors import (
     SessionDeleteAfterFinalizeError,
 )
 from ..models import (
-    ActionResult, Attempt, AttemptSource, Mode, Status,
+    ActionResult,
+    Attempt,
+    AttemptSource,
+    Mode,
+    Status,
 )
 from ..protocol import (
     SPEED_UNCAPPED,
@@ -50,7 +54,10 @@ from ..protocol import (
 from .recorder import SegmentRecorder
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from ..db import Database
+    from ..db.recorded_segment_times import RecordedSegmentTimeRow
     from ..scheduler import Scheduler
     from ..tcp_manager import TcpManager
 
@@ -58,7 +65,7 @@ logger = logging.getLogger(__name__)
 
 
 def _seed_reference_attempts(
-    db: "Database", capture_run_id: str, timing_rows: list[dict],
+    db: "Database", capture_run_id: str, timing_rows: "Sequence[RecordedSegmentTimeRow]",
 ) -> int:
     """Insert seed attempts from drained recorded_segment_times rows. Returns count."""
     if not timing_rows:

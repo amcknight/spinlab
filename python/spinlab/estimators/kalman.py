@@ -5,7 +5,11 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from spinlab.estimators import (
-    Estimator, EstimatorState, ParamDef, load_mature_states, register_estimator,
+    Estimator,
+    EstimatorState,
+    ParamDef,
+    load_mature_states,
+    register_estimator,
 )
 from spinlab.models import AttemptRecord, Estimate, ModelOutput
 

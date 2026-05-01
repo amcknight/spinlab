@@ -23,6 +23,10 @@ class CaptureSessionsMixin:
     """CRUD and recovery for capture_sessions."""
     conn: sqlite3.Connection
 
+    # Forward declaration for cross-mixin method call in recover_paused_capture_run.
+    # The concrete implementation lives in CaptureRunsMixin; Database inherits both.
+    def hard_delete_capture_run(self, run_id: str) -> None: ...
+
     def create_capture_session(
         self, session_id: str, capture_run_id: str,
         ordinal: int, spinrec_path: str,
