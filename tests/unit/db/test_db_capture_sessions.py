@@ -30,3 +30,41 @@ def test_create_and_get_capture_session(db):
 
 def test_get_capture_session_missing_returns_none(db):
     assert db.get_capture_session("nonexistent") is None
+
+
+def test_end_capture_session_sets_ended_at_and_reason(db):
+    db.create_capture_session("sess_1", "run_1", 1, "/tmp/x.spinrec")
+    db.end_capture_session("sess_1", end_reason="stopped")
+    sess = db.get_capture_session("sess_1")
+    assert sess["ended_at"] is not None
+    assert sess["end_reason"] == "stopped"
+
+
+def test_list_capture_sessions_for_run_orders_by_ordinal(db):
+    db.create_capture_session("sess_a", "run_1", 2, "/tmp/a.spinrec")
+    db.create_capture_session("sess_b", "run_1", 1, "/tmp/b.spinrec")
+    db.create_capture_session("sess_c", "run_1", 3, "/tmp/c.spinrec")
+    sessions = db.list_capture_sessions_for_run("run_1")
+    assert [s["id"] for s in sessions] == ["sess_b", "sess_a", "sess_c"]
+    assert [s["ordinal"] for s in sessions] == [1, 2, 3]
+
+
+def test_mark_orphan_capture_sessions_crashed(db):
+    # Two open sessions and one already-ended
+    db.create_capture_session("sess_a", "run_1", 1, "/tmp/a.spinrec")
+    db.end_capture_session("sess_a", end_reason="stopped")
+    db.create_capture_session("sess_b", "run_1", 2, "/tmp/b.spinrec")
+    db.create_capture_session("sess_c", "run_1", 3, "/tmp/c.spinrec")
+    count = db.mark_orphan_capture_sessions_crashed("run_1")
+    assert count == 2
+    assert db.get_capture_session("sess_a")["end_reason"] == "stopped"
+    assert db.get_capture_session("sess_b")["end_reason"] == "crashed"
+    assert db.get_capture_session("sess_b")["ended_at"] is not None
+    assert db.get_capture_session("sess_c")["end_reason"] == "crashed"
+
+
+def test_max_session_ordinal_for_run(db):
+    assert db.max_session_ordinal_for_run("run_1") == 0
+    db.create_capture_session("sess_1", "run_1", 1, "/tmp/1.spinrec")
+    db.create_capture_session("sess_2", "run_1", 2, "/tmp/2.spinrec")
+    assert db.max_session_ordinal_for_run("run_1") == 2
