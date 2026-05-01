@@ -86,12 +86,6 @@ def _test_rom_path() -> str | None:
     return None
 
 
-def _tcp_port() -> int:
-    """Resolve TCP port from config or default."""
-    config = _load_config()
-    return config.get("network", {}).get("port", 15482)
-
-
 # Skip all integration tests if Mesen2 not available
 _mesen = _mesen_path()
 _rom = _test_rom_path()
@@ -135,28 +129,57 @@ skip_no_love_yourself = pytest.mark.skipif(
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def mesen_process():
-    """Launch Mesen2 in --testrunner mode with poke_engine.lua (once per session)."""
+    """Launch Mesen2 in --testrunner mode with poke_engine.lua on a free port.
+
+    The TCP port that ``spinlab.lua`` binds is hardcoded as a local; we patch
+    a temp-dir copy to use a per-session free port. This mirrors
+    ``smoke_mesen_process``/``replay_mesen_process`` and prevents the
+    cross-run port-collision flake where a previous session's Mesen hadn't
+    fully released port 15482 before the next session's fixture spawned a
+    new Mesen.
+
+    Yields ``(proc, tcp_port)``.
+    """
     if not _mesen or not _rom:
         pytest.skip("Mesen2 or test ROM not configured")
 
-    poke_engine = str(LUA_DIR / "poke_engine.lua")
-    cmd = [_mesen, "--testrunner", _rom, poke_engine]
+    tcp_port = _free_port()
+    poke_engine = LUA_DIR / "poke_engine.lua"
+    spinlab_lua = LUA_DIR / "spinlab.lua"
 
+    # Copy poke_engine.lua + spinlab.lua (port-patched) + shared modules to a
+    # temp dir so this Mesen instance is fully isolated from any other one.
+    tmp_lua_dir = Path(tempfile.mkdtemp(prefix="spinlab_poke_lua_"))
+    import shutil as _shutil
+    _shutil.copy2(str(poke_engine), str(tmp_lua_dir / "poke_engine.lua"))
+    patched_lua = tmp_lua_dir / "spinlab.lua"
+    original = spinlab_lua.read_text(encoding="utf-8")
+    patched_lua.write_text(
+        original.replace("local TCP_PORT   = 15482", f"local TCP_PORT   = {tcp_port}"),
+        encoding="utf-8",
+    )
+    for lua_module in ("addresses.lua", "json.lua", "overlay.lua", "spinrec.lua"):
+        src = LUA_DIR / lua_module
+        if src.exists():
+            _shutil.copy2(str(src), str(tmp_lua_dir / lua_module))
+
+    cmd = [_mesen, "--testrunner", _rom, str(tmp_lua_dir / "poke_engine.lua")]
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
 
-    yield proc
+    yield proc, tcp_port
 
     _hard_kill(proc)
+    _shutil.rmtree(str(tmp_lua_dir), ignore_errors=True)
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def tcp_client(mesen_process) -> AsyncGenerator[TcpManager, None]:
     """Connect TcpManager to the Lua TCP server with retry (once per session)."""
-    port = _tcp_port()
+    _proc, port = mesen_process
     client = TcpManager("127.0.0.1", port)
 
     # Retry connection — Mesen2 may need time to start TCP server
