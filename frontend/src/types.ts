@@ -161,7 +161,7 @@ export interface AppState {
   current_segment: CurrentSegment | null;
   recent: RecentAttempt[];
   session: SessionInfo | null;
-  sections_captured: number;
+  sections_captured: number | null;
   allocator_weights: Record<string, number> | null;
   estimator: string | null;
   capture_run_id: string | null;
