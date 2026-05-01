@@ -274,7 +274,10 @@ class ReferenceController:
         self.db.promote_draft(run_id, name)
         self.db.set_active_capture_run(run_id)
         seeded = _seed_reference_attempts(self.db, run_id, timing_rows)
-        if seeded and scheduler:
+        # Always rebuild after activation: set_active_capture_run changed which
+        # reference the scheduler should be reasoning about, regardless of whether
+        # this finalize added new attempts.
+        if scheduler:
             scheduler.rebuild_all_states()
         self.paused_run_id = None
         logger.info("reference: finalized run=%s as %r (seeded %d attempts)",
@@ -388,7 +391,7 @@ class ReferenceController:
             self.db.conn.rollback()
             raise
 
-        if seeded and scheduler:
+        if scheduler:
             scheduler.rebuild_all_states()
         self.paused_run_id = None
         logger.info("reference: save_and_finish run=%s as %r (seeded %d attempts)",

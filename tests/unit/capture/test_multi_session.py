@@ -311,6 +311,32 @@ def test_get_segments_by_reference_includes_session_ordinal(db):
     assert by_id["c"]["session_ordinal"] is None
 
 
+def test_finalize_rebuilds_scheduler_even_when_zero_segments(db):
+    """Activating a reference invalidates scheduler state regardless of how many
+    new attempts were seeded. Rebuild must fire."""
+    from spinlab.capture.reference import ReferenceController
+    from tests.conftest import FakeTcpManager
+    import asyncio
+
+    db.upsert_game("smw", "SMW", "any%")
+    db.create_capture_run("run_e", "smw", "Empty", draft=True)
+    db.create_capture_session("s_e", "run_e", 1, "/tmp/e.spinrec")
+
+    class RecordingScheduler:
+        def __init__(self): self.rebuild_calls = 0
+        def rebuild_all_states(self): self.rebuild_calls += 1
+    sched = RecordingScheduler()
+
+    ctl = ReferenceController(db, FakeTcpManager(connected=False))
+    ctl.paused_run_id = "run_e"
+
+    asyncio.run(ctl.finalize_run(name="Empty Run", scheduler=sched))
+
+    assert sched.rebuild_calls == 1, (
+        "scheduler must rebuild after set_active_capture_run, even with zero seeded attempts"
+    )
+
+
 # --- Helpers ---
 
 def _make_minimal_segment(db, run_id, sess_id, seg_id):
