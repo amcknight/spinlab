@@ -8,7 +8,7 @@ import pytest_asyncio
 
 from spinlab.capture import ReferenceController
 from spinlab.db import Database
-from spinlab.errors import RunPendingError, SessionDeleteAfterFinalizeError
+from spinlab.errors import DraftPendingError, SessionDeleteAfterFinalizeError
 from spinlab.models import Mode, Status
 
 from tests.conftest import FakeTcpManager
@@ -147,7 +147,7 @@ async def test_delete_capture_session_after_finalize_rejected(started_session, d
 @pytest.mark.asyncio
 async def test_start_reference_rejects_when_paused_run_exists(started_session, tmp_path):
     await started_session.stop_reference(Mode.REFERENCE)
-    with pytest.raises(RunPendingError):
+    with pytest.raises(DraftPendingError):
         await started_session.start_reference(
             Mode.IDLE, "smw", tmp_path, run_name="Other",
         )

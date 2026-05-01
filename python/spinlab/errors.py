@@ -36,11 +36,6 @@ class SessionDeleteAfterFinalizeError(ActionError):
     detail = "session_delete_after_finalize"
 
 
-# Forward name — same semantics as DraftPendingError, kept for new code clarity.
-# Task 14 will migrate call sites to use RunPendingError directly.
-RunPendingError = DraftPendingError
-
-
 class PracticeActiveError(ActionError):
     http_code = 409
     detail = "practice_active"

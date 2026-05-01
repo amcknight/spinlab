@@ -10,13 +10,13 @@ from spinlab.capture import ReferenceController
 from spinlab.db import Database
 from spinlab.errors import (
     AlreadyReplayingError,
+    DraftPendingError,
     NoHotVariantError,
     NotConnectedError,
     NotInReferenceError,
     NotReplayingError,
     PracticeActiveError,
     ReferenceActiveError,
-    RunPendingError,
 )
 from spinlab.models import EndpointType, Mode, Segment, Status, Waypoint, WaypointSaveState
 from spinlab.protocol import (
@@ -44,7 +44,7 @@ def controller(db, fake_tcp):
 class TestStartReference:
     async def test_guard_paused_run_pending(self, controller, tmp_path):
         controller.paused_run_id = "fake_paused_run"
-        with pytest.raises(RunPendingError):
+        with pytest.raises(DraftPendingError):
             await controller.start_reference(Mode.IDLE, "g1", tmp_path, run_name="test")
 
     async def test_guard_practice_active(self, controller, tmp_path):

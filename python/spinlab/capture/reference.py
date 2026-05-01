@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from ..condition_registry import ConditionRegistry
 from ..errors import (
     AlreadyReplayingError,
+    DraftPendingError,
     NoHotVariantError,
     NoPausedRunError,
     NotConnectedError,
@@ -28,7 +29,6 @@ from ..errors import (
     NotReplayingError,
     PracticeActiveError,
     ReferenceActiveError,
-    RunPendingError,
     SessionDeleteAfterFinalizeError,
 )
 from ..models import (
@@ -208,7 +208,7 @@ class ReferenceController:
         game_id: str, data_dir: Path, run_name: str | None = None,
     ) -> ActionResult:
         if self.paused_run_id:
-            raise RunPendingError()
+            raise DraftPendingError()
         if mode == Mode.PRACTICE:
             raise PracticeActiveError()
         if mode == Mode.REPLAY:
@@ -434,7 +434,7 @@ class ReferenceController:
         game_id: str, spinrec_path: str, speed: int = SPEED_UNCAPPED,
     ) -> ActionResult:
         if self.paused_run_id:
-            raise RunPendingError()
+            raise DraftPendingError()
         if mode == Mode.PRACTICE:
             raise PracticeActiveError()
         if mode == Mode.REFERENCE:
