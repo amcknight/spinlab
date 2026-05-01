@@ -98,3 +98,25 @@ def test_delete_capture_session_cascades_to_recorded_segment_times(db):
         ("sess_1",),
     ).fetchone()
     assert rows[0] == 0
+
+
+def test_hard_delete_capture_run_cascades_to_sessions_and_times(db):
+    db.create_capture_session("sess_1", "run_1", 1, "/tmp/1.spinrec")
+    db.create_capture_session("sess_2", "run_1", 2, "/tmp/2.spinrec")
+    db.add_recorded_segment_time("sess_1", "seg_a", time_ms=100, deaths=0, clean_tail_ms=100)
+    db.hard_delete_capture_run("run_1")
+    assert db.list_capture_sessions_for_run("run_1") == []
+    rows = db.conn.execute("SELECT COUNT(*) FROM recorded_segment_times").fetchone()
+    assert rows[0] == 0
+
+
+def test_hard_delete_capture_run_removes_spinrec_files(tmp_path, db):
+    spinrec_a = tmp_path / "a.spinrec"
+    spinrec_b = tmp_path / "b.spinrec"
+    spinrec_a.write_bytes(b"x")
+    spinrec_b.write_bytes(b"y")
+    db.create_capture_session("sess_1", "run_1", 1, str(spinrec_a))
+    db.create_capture_session("sess_2", "run_1", 2, str(spinrec_b))
+    db.hard_delete_capture_run("run_1")
+    assert not spinrec_a.exists()
+    assert not spinrec_b.exists()

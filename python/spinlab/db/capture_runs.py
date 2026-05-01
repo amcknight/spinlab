@@ -91,7 +91,17 @@ class CaptureRunsMixin:
         self.conn.commit()
 
     def hard_delete_capture_run(self, run_id: str) -> None:
-        """Hard delete: remove run, segments, variants, model_state, attempts."""
+        """Hard delete: remove run, segments, model_state, attempts, sessions, recorded times, and spinrec files."""
+        from pathlib import Path
+
+        # Collect spinrec paths before deleting
+        session_paths = [
+            r[0] for r in self.conn.execute(
+                "SELECT spinrec_path FROM capture_sessions WHERE capture_run_id = ?",
+                (run_id,),
+            ).fetchall()
+        ]
+
         seg_ids = [
             r[0] for r in self.conn.execute(
                 "SELECT id FROM segments WHERE reference_id = ?", (run_id,)
@@ -99,7 +109,6 @@ class CaptureRunsMixin:
         ]
         if seg_ids:
             placeholders = ",".join("?" * len(seg_ids))
-            # segment_variants table removed in Task 7 — cascade handled by FK or not applicable
             self.conn.execute(
                 f"DELETE FROM model_state WHERE segment_id IN ({placeholders})",
                 seg_ids,
@@ -111,8 +120,16 @@ class CaptureRunsMixin:
             self.conn.execute(
                 "DELETE FROM segments WHERE reference_id = ?", (run_id,),
             )
+        # capture_sessions and recorded_segment_times cascade via FK ON DELETE CASCADE
         self.conn.execute("DELETE FROM capture_runs WHERE id = ?", (run_id,))
         self.conn.commit()
+
+        # Remove spinrec files from disk
+        for path_str in session_paths:
+            try:
+                Path(path_str).unlink(missing_ok=True)
+            except OSError:
+                pass  # File may be locked or already gone — best-effort cleanup
 
     def get_segments_by_reference(self, reference_id: str) -> list[ReferenceSegmentRow]:
         # state_path is always NULL until Task 8 rewrites this to join
