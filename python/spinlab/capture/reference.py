@@ -162,8 +162,27 @@ class ReferenceController:
         sess_id = self.recorder.current_capture_session_id
         run_id = self.recorder.capture_run_id
         if sess_id:
+            sess_row = self.db.get_capture_session(sess_id)
+            seg_count = self.db.conn.execute(
+                "SELECT COUNT(*) FROM segments WHERE capture_session_id = ?",
+                (sess_id,),
+            ).fetchone()[0]
             self.db.end_capture_session(sess_id, end_reason=end_reason)
-            logger.info("session: ended sess=%s reason=%s", sess_id, end_reason)
+            # Compute duration from started_at→now using the row we just fetched.
+            from datetime import UTC, datetime
+            duration_s: float | None = None
+            if sess_row and sess_row.get("started_at"):
+                try:
+                    started = datetime.fromisoformat(sess_row["started_at"])
+                    duration_s = (datetime.now(UTC) - started).total_seconds()
+                except ValueError:
+                    duration_s = None
+            ordinal = sess_row["ordinal"] if sess_row else "?"
+            dur_str = f"{duration_s:.1f}" if duration_s is not None else "?"
+            logger.info(
+                "session: ended sess=%s ordinal=%s duration_s=%s segments=%d reason=%s",
+                sess_id, ordinal, dur_str, seg_count, end_reason,
+            )
         # Surface run as paused (only if we had a run and it's still draft=1)
         if run_id:
             row = self.db.conn.execute(
@@ -402,8 +421,8 @@ class ReferenceController:
             raise SessionDeleteAfterFinalizeError()
         try:
             Path(sess["spinrec_path"]).unlink(missing_ok=True)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning("Failed to unlink spinrec %s: %s", sess["spinrec_path"], exc)
         self.db.delete_capture_session(session_id)
         logger.info("session: deleted sess=%s from run=%s", session_id, run_id)
         return ActionResult(status=Status.OK)

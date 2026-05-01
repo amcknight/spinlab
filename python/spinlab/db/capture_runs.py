@@ -1,8 +1,11 @@
 """Capture run (reference) queries."""
 
+import logging
 import sqlite3
 from datetime import UTC, datetime
 from typing import TypedDict
+
+logger = logging.getLogger(__name__)
 
 
 class CaptureRunRow(TypedDict):
@@ -129,8 +132,8 @@ class CaptureRunsMixin:
         for path_str in session_paths:
             try:
                 Path(path_str).unlink(missing_ok=True)
-            except OSError:
-                pass  # File may be locked or already gone — best-effort cleanup
+            except OSError as exc:
+                logger.warning("Failed to unlink spinrec %s: %s", path_str, exc)
 
     def get_segments_by_reference(self, reference_id: str) -> list[ReferenceSegmentRow]:
         # state_path is always NULL until Task 8 rewrites this to join

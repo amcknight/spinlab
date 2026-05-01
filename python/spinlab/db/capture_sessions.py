@@ -4,9 +4,12 @@ Note on naming: `capture_sessions` are recording sessions within a multi-session
 reference run. They are distinct from `sessions` (practice sessions) and from
 `attempts.session_id` (polymorphic parent grouping). All three exist; read carefully.
 """
+import logging
 import sqlite3
 from datetime import UTC, datetime
 from typing import TypedDict
+
+logger = logging.getLogger(__name__)
 
 
 class CaptureSessionRow(TypedDict):
@@ -101,6 +104,7 @@ class CaptureSessionsMixin:
         - Hard-deletes any older drafts for the same game (defensive — there
           should only be one paused run per game; if there are more, the
           oldest were stranded and are not recoverable into a coherent state).
+          Each discard emits a warning so the loss is visible.
         - Marks any orphaned open sessions for the recovered run as crashed.
 
         Returns the recovered run id, or None if no draft exists.
@@ -117,9 +121,20 @@ class CaptureSessionsMixin:
             (game_id,),
         ).fetchall()
         if not rows:
+            logger.info("recovery: no paused run for game=%s", game_id)
             return None
         recovered_id = rows[0][0]
+        discarded = 0
         for row in rows[1:]:
+            logger.warning(
+                "recovery: discarding stranded draft capture_run=%s for game=%s "
+                "(kept newer draft=%s)", row[0], game_id, recovered_id,
+            )
             self.hard_delete_capture_run(row[0])
-        self.mark_orphan_capture_sessions_crashed(recovered_id)
+            discarded += 1
+        crashed = self.mark_orphan_capture_sessions_crashed(recovered_id)
+        logger.info(
+            "recovery: kept_run=%s discarded_drafts=%d crashed_sessions=%d",
+            recovered_id, discarded, crashed,
+        )
         return recovered_id

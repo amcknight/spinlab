@@ -206,6 +206,69 @@ async def test_save_and_finish_is_atomic_rolls_back_on_failure(started_session, 
 
 # --- Helpers ---
 
+def test_recovery_logs_warning_when_discarding_stranded_drafts(db, caplog):
+    """Two paused drafts for the same game — recovery keeps the newest and warns
+    about the discarded one. No silent data loss."""
+    import logging
+    from datetime import UTC, datetime, timedelta
+
+    db.upsert_game("smw", "SMW", "any%")
+    older = "older_run"
+    newer = "newer_run"
+    db.create_capture_run(older, "smw", "Older", draft=True)
+    db.create_capture_run(newer, "smw", "Newer", draft=True)
+    # Force created_at ordering
+    db.conn.execute(
+        "UPDATE capture_runs SET created_at = ? WHERE id = ?",
+        ((datetime.now(UTC) - timedelta(hours=1)).isoformat(), older),
+    )
+    db.conn.commit()
+
+    with caplog.at_level(logging.WARNING, logger="spinlab.db.capture_sessions"):
+        recovered = db.recover_paused_capture_run("smw")
+
+    assert recovered == newer
+    discard_warnings = [r for r in caplog.records if "discarding stranded draft" in r.getMessage().lower()]
+    assert len(discard_warnings) == 1
+    assert older in discard_warnings[0].getMessage()
+
+
+def test_session_end_log_includes_ordinal_duration_segments(db, caplog):
+    """When a capture session ends, log line includes ordinal, duration, and
+    segment count to aid post-hoc debugging."""
+    import logging
+    from spinlab.capture.reference import ReferenceController
+    from tests.conftest import FakeTcpManager
+
+    db.upsert_game("smw", "SMW", "any%")
+    db.create_capture_run("run_x", "smw", "X", draft=True)
+    db.create_capture_session("sess_x", "run_x", 3, "/tmp/x.spinrec")
+    # Add one segment so segment count > 0
+    db.conn.execute(
+        "INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal, "
+        "end_type, end_ordinal, capture_session_id, reference_id, created_at, updated_at) "
+        "VALUES ('seg1', 'smw', 1, 'entrance', 0, 'goal', 0, 'sess_x', 'run_x', "
+        "datetime('now'), datetime('now'))"
+    )
+    db.conn.commit()
+
+    ctl = ReferenceController(db, FakeTcpManager(connected=False))
+    ctl.recorder.capture_run_id = "run_x"
+    ctl.recorder.current_capture_session_id = "sess_x"
+
+    with caplog.at_level(logging.INFO, logger="spinlab.capture.reference"):
+        ctl._end_current_session(end_reason="stopped")
+
+    msgs = [r.getMessage() for r in caplog.records]
+    end_msgs = [m for m in msgs if m.startswith("session: ended")]
+    assert end_msgs, f"no session-end log; got: {msgs}"
+    msg = end_msgs[0]
+    assert "ordinal=3" in msg
+    assert "segments=1" in msg
+    assert "reason=stopped" in msg
+    assert "duration_s=" in msg
+
+
 def _make_minimal_segment(db, run_id, sess_id, seg_id):
     """Insert a minimal valid segment row for FK referential integrity."""
     from spinlab.models import EndpointType, Segment, Waypoint
