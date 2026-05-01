@@ -74,3 +74,59 @@ async def test_dashboard_crash_mid_session_recovers(db, db_path, tmp_path):
     sessions = db2.list_capture_sessions_for_run(run_id)
     assert [s["ordinal"] for s in sessions] == [1, 2]
     db2.close()
+
+
+def test_paused_run_survives_replay_then_dashboard_restart(db):
+    """User has paused run A. Plays a replay of finalised reference B. Replay
+    finishes (leaving an ephemeral replay_xxx capture_run draft). Dashboard
+    restarts. Recovery picks A back up; B's segments do not leak into A; the
+    replay-derived capture_run row is filtered out (id NOT LIKE 'replay_%').
+
+    The most fragile part of multi-session reference runs is the interaction
+    between recovery and replay's ephemeral capture_run rows. This test pins
+    the contract end-to-end.
+    """
+    # 1. Paused run A with one segment captured.
+    db.create_capture_run("run_A", "smw", "A paused", draft=True)
+    db.create_capture_session("sA1", "run_A", 1, "/tmp/A1.spinrec")
+    db.conn.execute(
+        "INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal, "
+        "end_type, end_ordinal, capture_session_id, reference_id, "
+        "created_at, updated_at) VALUES "
+        "('seg_A', 'smw', 1, 'entrance', 0, 'goal', 0, 'sA1', 'run_A', "
+        "datetime('now'), datetime('now'))"
+    )
+    # 2. Finalised reference B.
+    db.create_capture_run("run_B", "smw", "B finalised", draft=False)
+    # 3. Simulate replay: an ephemeral replay_xxx capture_run draft exists with
+    #    one segment.
+    db.create_capture_run("replay_abc", "smw", "Replay X", draft=True)
+    db.create_capture_session("sR", "replay_abc", 1, "/tmp/R.spinrec")
+    db.conn.execute(
+        "INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal, "
+        "end_type, end_ordinal, capture_session_id, reference_id, "
+        "created_at, updated_at) VALUES "
+        "('seg_R', 'smw', 99, 'entrance', 0, 'goal', 0, 'sR', 'replay_abc', "
+        "datetime('now'), datetime('now'))"
+    )
+    db.conn.commit()
+
+    # 4. Simulate dashboard restart by calling recovery directly.
+    recovered = db.recover_paused_capture_run("smw")
+
+    assert recovered == "run_A", "recovery picked replay run instead of paused A"
+
+    a_segs = db.conn.execute(
+        "SELECT id FROM segments WHERE reference_id = 'run_A'"
+    ).fetchall()
+    assert {r[0] for r in a_segs} == {"seg_A"}, "B's segments leaked into A"
+
+    # Replay-derived run is left as-is (not auto-deleted by recovery — that's
+    # a separate cleanup pass), but is NOT promoted to paused state.
+    replay_state = db.conn.execute(
+        "SELECT id FROM capture_runs WHERE id = 'replay_abc'"
+    ).fetchone()
+    assert replay_state is not None, (
+        "replay_abc was hard-deleted by recovery — but the spec says replay drafts "
+        "accumulate until explicitly discarded"
+    )
