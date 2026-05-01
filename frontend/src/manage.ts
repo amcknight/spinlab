@@ -123,6 +123,7 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
       ? '<span class="state-ok">✅</span>'
       : '<button class="btn-fill-gap" data-id="' + s.id + '">❌</button>';
     tr.innerHTML =
+      '<td>' + (s.session_ordinal ?? '—') + '</td>' +
       '<td><input class="segment-name-input" value="' +
       (s.description || "") +
       '" ' +

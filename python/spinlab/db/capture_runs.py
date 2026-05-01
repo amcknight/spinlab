@@ -30,6 +30,7 @@ class ReferenceSegmentRow(TypedDict):
     ordinal: int | None
     reference_id: str | None
     capture_session_id: str | None
+    session_ordinal: int | None
     state_path: str | None
 
 
@@ -136,15 +137,18 @@ class CaptureRunsMixin:
                 logger.warning("Failed to unlink spinrec %s: %s", path_str, exc)
 
     def get_segments_by_reference(self, reference_id: str) -> list[ReferenceSegmentRow]:
-        # state_path is always NULL until Task 8 rewrites this to join
+        # state_path is always NULL until a future task rewrites this to join
         # waypoint_save_states via start_waypoint_id.
         cur = self.conn.execute(
-            """SELECT id, game_id, level_number, start_type, start_ordinal,
-                      end_type, end_ordinal, description, active, ordinal,
-                      reference_id, capture_session_id,
+            """SELECT s.id, s.game_id, s.level_number, s.start_type, s.start_ordinal,
+                      s.end_type, s.end_ordinal, s.description, s.active, s.ordinal,
+                      s.reference_id, s.capture_session_id,
+                      cs.ordinal AS session_ordinal,
                       NULL AS state_path
-               FROM segments WHERE reference_id = ? AND active = 1
-               ORDER BY ordinal""",
+               FROM segments s
+               LEFT JOIN capture_sessions cs ON s.capture_session_id = cs.id
+               WHERE s.reference_id = ? AND s.active = 1
+               ORDER BY s.ordinal""",
             (reference_id,),
         )
         actual_cols = [desc[0] for desc in cur.description]

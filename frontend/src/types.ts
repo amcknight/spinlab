@@ -205,6 +205,7 @@ export interface ReferenceSegment {
   reference_id: string | null;
   state_path: string | null;
   capture_session_id?: string | null;
+  session_ordinal: number | null;
 }
 
 export interface Reference {

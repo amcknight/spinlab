@@ -287,6 +287,27 @@ def test_list_capture_sessions_includes_segment_count(db):
     assert counts == {"s1": 2, "s2": 1}
 
 
+def test_get_segments_by_reference_includes_session_ordinal(db):
+    db.upsert_game("smw", "SMW", "any%")
+    db.create_capture_run("run_z", "smw", "Z", draft=True)
+    db.create_capture_session("s1", "run_z", 1, "/tmp/1.spinrec")
+    db.create_capture_session("s2", "run_z", 2, "/tmp/2.spinrec")
+    db.conn.execute(
+        "INSERT INTO segments (id, game_id, level_number, start_type, "
+        "start_ordinal, end_type, end_ordinal, capture_session_id, "
+        "reference_id, created_at, updated_at) VALUES "
+        "('a', 'smw', 1, 'entrance', 0, 'goal', 0, 's1', 'run_z', "
+        "datetime('now'), datetime('now')), "
+        "('b', 'smw', 1, 'entrance', 0, 'goal', 0, 's2', 'run_z', "
+        "datetime('now'), datetime('now'))"
+    )
+    db.conn.commit()
+    segs = db.get_segments_by_reference("run_z")
+    by_id = {s["id"]: s for s in segs}
+    assert by_id["a"]["session_ordinal"] == 1
+    assert by_id["b"]["session_ordinal"] == 2
+
+
 # --- Helpers ---
 
 def _make_minimal_segment(db, run_id, sess_id, seg_id):
