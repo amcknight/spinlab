@@ -299,6 +299,8 @@ def test_get_segments_by_reference_includes_session_ordinal(db):
         "('a', 'smw', 1, 'entrance', 0, 'goal', 0, 's1', 'run_z', "
         "datetime('now'), datetime('now')), "
         "('b', 'smw', 1, 'entrance', 0, 'goal', 0, 's2', 'run_z', "
+        "datetime('now'), datetime('now')), "
+        "('c', 'smw', 1, 'entrance', 0, 'goal', 0, NULL, 'run_z', "
         "datetime('now'), datetime('now'))"
     )
     db.conn.commit()
@@ -306,6 +308,7 @@ def test_get_segments_by_reference_includes_session_ordinal(db):
     by_id = {s["id"]: s for s in segs}
     assert by_id["a"]["session_ordinal"] == 1
     assert by_id["b"]["session_ordinal"] == 2
+    assert by_id["c"]["session_ordinal"] is None
 
 
 # --- Helpers ---
