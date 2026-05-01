@@ -22,6 +22,7 @@ from ..condition_registry import ConditionRegistry
 from ..errors import (
     AlreadyReplayingError,
     NoHotVariantError,
+    NoPausedRunError,
     NotConnectedError,
     NotInReferenceError,
     NotReplayingError,
@@ -233,7 +234,7 @@ class ReferenceController:
         self, mode: Mode, game_id: str, data_dir: Path,
     ) -> ActionResult:
         if not self.paused_run_id:
-            raise NotInReferenceError()
+            raise NoPausedRunError()
         if mode == Mode.PRACTICE:
             raise PracticeActiveError()
         if mode == Mode.REPLAY:
@@ -268,7 +269,7 @@ class ReferenceController:
 
     async def finalize_run(self, name: str, scheduler: "Scheduler | None" = None) -> ActionResult:
         if not self.paused_run_id:
-            raise NotInReferenceError()
+            raise NoPausedRunError()
         run_id = self.paused_run_id
         timing_rows = self.db.drain_recorded_segment_times_for_run(run_id)
         self.db.promote_draft(run_id, name)
@@ -315,7 +316,7 @@ class ReferenceController:
         self._end_current_session(end_reason="stopped")
         run_id = self.paused_run_id
         if not run_id:
-            raise NotInReferenceError()
+            raise NoPausedRunError()
 
         try:
             self.db.conn.execute("BEGIN IMMEDIATE")
@@ -400,7 +401,7 @@ class ReferenceController:
 
     async def discard_run(self) -> ActionResult:
         if not self.paused_run_id:
-            raise NotInReferenceError()
+            raise NoPausedRunError()
         run_id = self.paused_run_id
         self.db.hard_delete_capture_run(run_id)
         self.paused_run_id = None

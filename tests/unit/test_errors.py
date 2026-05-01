@@ -11,6 +11,7 @@ from spinlab.errors import (
     MissingSaveStatesError,
     NoDraftError,
     NoHotVariantError,
+    NoPausedRunError,
     NotConnectedError,
     NotInReferenceError,
     NotReplayingError,
@@ -28,6 +29,7 @@ ERROR_TABLE = [
     (AlreadyRunningError, 409, "already_running"),
     (AlreadyReplayingError, 409, "already_replaying"),
     (NotInReferenceError, 409, "not_in_reference"),
+    (NoPausedRunError, 409, "no_paused_run"),
     (NotReplayingError, 409, "not_replaying"),
     (NotRunningError, 409, "not_running"),
     (MissingSaveStatesError, 409, "missing_save_states"),
@@ -102,3 +104,11 @@ def test_handler_maps_no_draft_to_404():
     resp = client.get("/boom")
     assert resp.status_code == 404
     assert resp.json() == {"detail": "no_draft"}
+
+
+def test_no_paused_run_error_distinct_from_not_in_reference():
+    from spinlab.errors import NoPausedRunError, NotInReferenceError
+    assert NoPausedRunError is not NotInReferenceError
+    err = NoPausedRunError()
+    assert err.http_code == 409
+    assert err.detail == "no_paused_run"

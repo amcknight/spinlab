@@ -337,6 +337,17 @@ def test_finalize_rebuilds_scheduler_even_when_zero_segments(db):
     )
 
 
+def test_finalize_raises_no_paused_run_error_when_no_run(db):
+    from spinlab.capture.reference import ReferenceController
+    from spinlab.errors import NoPausedRunError
+    import asyncio
+    from tests.conftest import FakeTcpManager
+    ctl = ReferenceController(db, FakeTcpManager(connected=False))
+    ctl.paused_run_id = None
+    with pytest.raises(NoPausedRunError):
+        asyncio.run(ctl.finalize_run(name="x", scheduler=None))
+
+
 # --- Helpers ---
 
 def _make_minimal_segment(db, run_id, sess_id, seg_id):

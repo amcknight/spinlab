@@ -66,6 +66,12 @@ class NotInReferenceError(ActionError):
     detail = "not_in_reference"
 
 
+class NoPausedRunError(ActionError):
+    """No paused capture run exists for the requested operation."""
+    http_code = 409
+    detail = "no_paused_run"
+
+
 class NotReplayingError(ActionError):
     http_code = 409
     detail = "not_replaying"
