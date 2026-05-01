@@ -107,9 +107,11 @@ ALTER TABLE segments ADD COLUMN capture_session_id TEXT
 
 Segments deleted via session cascade. Note: `attempts` does not auto-cascade from `segments` today (deletion is explicit in `hard_delete_capture_run`); we keep that pattern. After finalize, when the user deletes an individual segment, attempts for that segment are removed in the existing `soft_delete_segment` flow (this is already its behavior).
 
-### Schema rename
+### No rename for `attempts.session_id`
 
-`attempts.session_id` → `attempts.capture_run_id`. The column has always stored `capture_run_id`; the name was misleading and now collides with the new `capture_session_id` concept. Greenfield, no migration.
+Originally proposed renaming `attempts.session_id` → `attempts.capture_run_id`, but that column is polymorphic: it stores a practice session id for practice attempts, a speed_run session id for speed_run attempts, and a capture_run_id only for reference attempts. The renamed name would be wrong for two of three cases. Leaving the column as-is.
+
+The "session" word now means three distinct things across the codebase (`sessions` table = practice sessions, `attempts.session_id` = polymorphic parent grouping, new `capture_sessions` = recording sessions within a capture run). Unfortunate but no SQL-level collision; we accept the verbal overload.
 
 ### Why a buffer table instead of provisional flag on `attempts`
 
@@ -211,7 +213,7 @@ These are touched because the new code paths flow through them, not as drive-by 
 4. **Fold `recorder.clear()` duplicate calls** in `stop_reference` ([reference.py:128-129](../../python/spinlab/capture/reference.py#L128-L129)) into one place.
 5. **Remove `enter_draft()` on the recorder.** With segments_count and segment_times no longer in-memory, the method has no data left to hand off.
 6. **Dissolve or simplify `DraftManager`.** With timing data persisted as we go and segment counts coming from the DB, what's left is "which run is the current paused run?" — one SQL query. Either move the recovery query directly to `ReferenceController` (preferred) or keep `DraftManager` as a thin façade. Decide during plan-writing based on what reads cleanest.
-7. **Rename `attempts.session_id` → `attempts.capture_run_id`.** Single-column rename, no migration.
+7. ~~Rename `attempts.session_id` → `attempts.capture_run_id`~~. Dropped — see Data Model section. Column is polymorphic across practice/speed_run/reference and the rename would be wrong for two of three sources.
 
 What is explicitly *not* refactored:
 
@@ -255,7 +257,7 @@ The recurring "in-memory portion lost" is the spinrec buffer in Lua. Per the des
 
 ## Risks
 
-1. **Session bookkeeping in `attempts`-related queries.** The `attempts.session_id` → `attempts.capture_run_id` rename touches every place that reads/writes attempts. Need to grep carefully and update tests. Mitigation: rename is mechanical, tests catch missed call sites.
+1. **Verbal overload of "session."** The codebase now has `sessions` (practice), `capture_sessions` (recording within a run), and `attempts.session_id` (polymorphic parent). Devs must read carefully. Mitigation: docstrings on the new mixin and on `Attempt.session_id` clarifying the polymorphism.
 2. **`one paused run per game` constraint silently masking a stale draft.** If a previous run got into draft=1 state and the user forgot, starting a new one fails with a confusing error. Mitigation: `DraftPendingError` UI message points the user at the manage page where they can finalize or discard.
 3. **Recovery picks the most recent draft and deletes others.** Inherits from today's `recover_draft`. Defensive but could surprise — if there are somehow two paused runs, one is silently destroyed. Low likelihood, low blast radius (only affects in-progress reference data, not finalized runs).
 4. **`Save & Finish Run` is a compound action.** If the stop-session step succeeds but finalize fails, the user is left in PAUSED state with an unexpected error. Mitigation: implement as a single transaction at the API layer; on partial failure, surface clearly so the user can manually retry finalize.
