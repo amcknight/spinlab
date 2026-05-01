@@ -36,6 +36,12 @@ class SessionDeleteAfterFinalizeError(ActionError):
     detail = "session_delete_after_finalize"
 
 
+class SessionInUseError(ActionError):
+    """Cannot delete a capture session while it is being recorded into."""
+    http_code = 409
+    detail = "session_in_use"
+
+
 class PracticeActiveError(ActionError):
     http_code = 409
     detail = "practice_active"

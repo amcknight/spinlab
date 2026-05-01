@@ -371,6 +371,25 @@ def test_replay_drafts_can_coexist_with_paused_run(db):
     db.create_capture_run("replay_xx", "smw", "Replay", draft=True)
 
 
+def test_delete_active_capture_session_raises_session_in_use(db):
+    """If the recorder is currently writing into the session, deletion must
+    raise SessionInUseError instead of leaving a dangling FK."""
+    from spinlab.capture.reference import ReferenceController
+    from spinlab.errors import SessionInUseError
+    import asyncio
+    from tests.conftest import FakeTcpManager
+    db.upsert_game("smw", "SMW", "any%")
+    db.create_capture_run("run_d", "smw", "D", draft=True)
+    db.create_capture_session("active_sess", "run_d", 1, "/tmp/d.spinrec")
+
+    ctl = ReferenceController(db, FakeTcpManager(connected=False))
+    ctl.recorder.capture_run_id = "run_d"
+    ctl.recorder.current_capture_session_id = "active_sess"
+
+    with pytest.raises(SessionInUseError):
+        asyncio.run(ctl.delete_capture_session("active_sess"))
+
+
 # --- Helpers ---
 
 def _make_minimal_segment(db, run_id, sess_id, seg_id):

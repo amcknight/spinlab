@@ -18,6 +18,7 @@ from spinlab.errors import (
     NotRunningError,
     PracticeActiveError,
     ReferenceActiveError,
+    SessionInUseError,
 )
 
 
@@ -35,6 +36,7 @@ ERROR_TABLE = [
     (MissingSaveStatesError, 409, "missing_save_states"),
     (NoDraftError, 404, "no_draft"),
     (NoHotVariantError, 404, "no_hot_variant"),
+    (SessionInUseError, 409, "session_in_use"),
 ]
 
 
@@ -112,3 +114,10 @@ def test_no_paused_run_error_distinct_from_not_in_reference():
     err = NoPausedRunError()
     assert err.http_code == 409
     assert err.detail == "no_paused_run"
+
+
+def test_session_in_use_error_shape():
+    from spinlab.errors import SessionInUseError
+    err = SessionInUseError()
+    assert err.http_code == 409
+    assert err.detail == "session_in_use"

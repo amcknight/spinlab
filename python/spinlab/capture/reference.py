@@ -30,6 +30,7 @@ from ..errors import (
     PracticeActiveError,
     ReferenceActiveError,
     SessionDeleteAfterFinalizeError,
+    SessionInUseError,
 )
 from ..models import (
     ActionResult,
@@ -409,7 +410,10 @@ class ReferenceController:
         return ActionResult(status=Status.OK)
 
     async def delete_capture_session(self, session_id: str) -> ActionResult:
-        """Delete a single capture session. Only allowed while run is paused."""
+        """Delete a single capture session. Only allowed while run is paused and
+        the session is not currently being recorded into."""
+        if self.recorder.current_capture_session_id == session_id:
+            raise SessionInUseError()
         sess = self.db.get_capture_session(session_id)
         if not sess:
             raise NotInReferenceError()
