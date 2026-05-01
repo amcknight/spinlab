@@ -40,6 +40,14 @@ def test_end_capture_session_sets_ended_at_and_reason(db):
     assert sess["end_reason"] == "stopped"
 
 
+def test_end_capture_session_is_idempotent(db):
+    db.create_capture_session("sess_1", "run_1", 1, "/tmp/x.spinrec")
+    db.end_capture_session("sess_1", end_reason="stopped")
+    db.end_capture_session("sess_1", end_reason="crashed")  # second call is a no-op
+    sess = db.get_capture_session("sess_1")
+    assert sess["end_reason"] == "stopped"
+
+
 def test_list_capture_sessions_for_run_orders_by_ordinal(db):
     db.create_capture_session("sess_a", "run_1", 2, "/tmp/a.spinrec")
     db.create_capture_session("sess_b", "run_1", 1, "/tmp/b.spinrec")
