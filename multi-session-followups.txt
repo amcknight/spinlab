@@ -17,6 +17,27 @@ Reference docs:
 
 Suggested order at the bottom (Wave 1 / 2 / 3).
 
+UPDATE 2026-05-01 — followups pass landed
+=========================================
+
+A cohesive correctness/dashboard/observability/hygiene cluster from this
+backlog was completed on branch followups-2026-05. See:
+  Spec: docs/superpowers/specs/2026-05-01-multi-session-followups-design.md
+  Plan: docs/superpowers/plans/2026-05-01-multi-session-followups.md
+
+Items completed in that pass: 1, 2, 4, 5, 8, 9, 10, 12, 15, 17, 24, 33, 34, 36
+plus the §2 scheduler-rebuild semantics (item 6 was answered: always rebuild
+after set_active_capture_run).
+
+Item 7 (paused_run_id / capture_run_id desync) was reviewed but not addressed
+this pass; left as a Wave 2 candidate. Item 11 (save_and_finish atomicity
+mixin Option A) and item 19 (real migrations) remain explicitly deferred.
+
+Open from this pass for the user:
+  - Manual empty-state UI verification (Task 7 of the plan).
+  - Decide on em-dash vs zero rendering for empty per-session segment counts
+    (current: shows "0"; alternative: "—" via `s.segment_count > 0 ? ... : "—"`).
+
 
 A. Direct deferred items
 ========================
