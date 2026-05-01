@@ -24,10 +24,10 @@ class NotConnectedError(ActionError):
     detail = "not_connected"
 
 
-class RunPendingError(ActionError):
-    """A reference run is already in progress or paused."""
+class DraftPendingError(ActionError):
+    """A draft reference run is pending save or discard."""
     http_code = 409
-    detail = "run_pending"
+    detail = "draft_pending"
 
 
 class SessionDeleteAfterFinalizeError(ActionError):
@@ -36,8 +36,9 @@ class SessionDeleteAfterFinalizeError(ActionError):
     detail = "session_delete_after_finalize"
 
 
-# legacy alias — keep old imports working until Task 14 fully migrates
-DraftPendingError = RunPendingError
+# Forward name — same semantics as DraftPendingError, kept for new code clarity.
+# Task 14 will migrate call sites to use RunPendingError directly.
+RunPendingError = DraftPendingError
 
 
 class PracticeActiveError(ActionError):
