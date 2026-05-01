@@ -160,6 +160,50 @@ async def test_disconnect_pauses_run(started_session, db):
     assert sessions[0]["end_reason"] == "disconnected"
 
 
+# --- Atomicity of save_and_finish_run ---
+
+@pytest.mark.asyncio
+async def test_save_and_finish_is_atomic_rolls_back_on_failure(started_session, db):
+    """save_and_finish_run rolls back if attempt seeding raises a DB error.
+
+    We inject a fault by adding a timing row that references a non-existent
+    segment_id. With PRAGMA foreign_keys=ON, the INSERT INTO attempts for that
+    row raises IntegrityError. The run must remain draft=1 and no attempts or
+    timing-row deletes must survive.
+
+    Choosing option B (explicit BEGIN IMMEDIATE with raw SQL) means all
+    mutations — drain, promote, set_active, seed — happen in one transaction.
+    A partial failure must leave the DB as if nothing happened.
+    """
+    import sqlite3
+
+    sess_id = started_session.recorder.current_capture_session_id
+    run_id = started_session.recorder.capture_run_id
+    # One valid segment + one timing row pointing at a non-existent segment
+    db.add_recorded_segment_time(sess_id, "seg_a", time_ms=1000, deaths=0, clean_tail_ms=1000)
+    _make_minimal_segment(db, run_id, sess_id, "seg_a")
+    # This timing row references "seg_ghost" which has no segments row → FK error
+    db.add_recorded_segment_time(sess_id, "seg_ghost", time_ms=2000, deaths=0, clean_tail_ms=2000)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        await started_session.save_and_finish_run(Mode.REFERENCE, name="Should Roll Back")
+
+    # Run must still be draft=1 (promotion was rolled back)
+    row = db.conn.execute("SELECT draft FROM capture_runs WHERE id = ?", (run_id,)).fetchone()
+    assert row is not None and row[0] == 1, "run must remain draft after rollback"
+    # No attempts persisted
+    attempt_count = db.conn.execute(
+        "SELECT COUNT(*) FROM attempts WHERE session_id = ?", (run_id,)
+    ).fetchone()[0]
+    assert attempt_count == 0, "no attempts should survive a rolled-back transaction"
+    # Timing rows must NOT have been deleted (drain was rolled back too)
+    timing_count = db.conn.execute(
+        "SELECT COUNT(*) FROM recorded_segment_times WHERE capture_session_id = ?",
+        (sess_id,),
+    ).fetchone()[0]
+    assert timing_count == 2, "timing rows must be intact after rollback"
+
+
 # --- Helpers ---
 
 def _make_minimal_segment(db, run_id, sess_id, seg_id):
@@ -177,3 +221,6 @@ def _make_minimal_segment(db, run_id, sess_id, seg_id):
         reference_id=run_id, capture_session_id=sess_id,
     )
     db.upsert_segment(seg)
+
+
+

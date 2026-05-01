@@ -269,20 +269,110 @@ class ReferenceController:
     async def save_and_finish_run(
         self, mode: Mode, name: str, scheduler: "Scheduler | None" = None,
     ) -> ActionResult:
-        """Combined Stop Session + Finalize, atomic. Single-session ergonomics."""
+        """Combined Stop Session + Finalize, atomic.
+
+        Atomicity is achieved with an explicit ``BEGIN IMMEDIATE`` / commit block
+        that inlines all mutations directly on ``db.conn``, bypassing the mixin
+        methods that each call ``conn.commit()`` internally. Calling a mixin's
+        commit() inside an outer BEGIN would commit the partial work done up to
+        that point, breaking atomicity.
+
+        Session end (``_end_current_session``) happens *before* the atomic block
+        because it is independently safe: the session row is stamped with
+        ``ended_at`` regardless of whether finalization later succeeds, and a
+        failed finalization leaves the run in PAUSED state where the user can
+        retry or discard.
+
+        The critical atomic unit is: drain timing rows → promote draft → set
+        active → seed attempts. If any step raises, ``conn.rollback()`` undoes
+        all of them. The spinrec file and recorder state are unaffected (the TCP
+        stop was already sent, a non-transactional side-effect).
+        """
         if mode != Mode.REFERENCE:
             raise NotInReferenceError()
         if self.tcp.is_connected:
             await self.tcp.send_command(ReferenceStopCmd())
-        with self.db.transaction():
-            self._end_current_session(end_reason="stopped")
-            run_id = self.paused_run_id
-            if not run_id:
-                raise NotInReferenceError()
-            timing_rows = self.db.drain_recorded_segment_times_for_run(run_id)
-            self.db.promote_draft(run_id, name)
-            self.db.set_active_capture_run(run_id)
-            seeded = _seed_reference_attempts(self.db, run_id, timing_rows)
+
+        # End session first (independently safe — leaves run in PAUSED state)
+        self._end_current_session(end_reason="stopped")
+        run_id = self.paused_run_id
+        if not run_id:
+            raise NotInReferenceError()
+
+        try:
+            self.db.conn.execute("BEGIN IMMEDIATE")
+            # Drain timing rows and delete them inside this transaction
+            rows = self.db.conn.execute(
+                "SELECT t.id, t.capture_session_id, t.segment_id, t.time_ms, "
+                "t.deaths, t.clean_tail_ms, t.recorded_at "
+                "FROM recorded_segment_times t "
+                "JOIN capture_sessions s ON t.capture_session_id = s.id "
+                "WHERE s.capture_run_id = ? ORDER BY t.id",
+                (run_id,),
+            ).fetchall()
+            timing_rows = [dict(r) for r in rows]
+            ids = [r["id"] for r in timing_rows]
+            if ids:
+                placeholders = ",".join("?" * len(ids))
+                self.db.conn.execute(
+                    f"DELETE FROM recorded_segment_times WHERE id IN ({placeholders})", ids,
+                )
+            # Promote draft → saved
+            self.db.conn.execute(
+                "UPDATE capture_runs SET draft = 0, name = ? WHERE id = ?",
+                (name, run_id),
+            )
+            # Set as active (deactivate all others for the same game first)
+            game_row = self.db.conn.execute(
+                "SELECT game_id FROM capture_runs WHERE id = ?", (run_id,)
+            ).fetchone()
+            if game_row:
+                self.db.conn.execute(
+                    "UPDATE capture_runs SET active = 0 WHERE game_id = ?",
+                    (game_row[0],),
+                )
+                self.db.conn.execute(
+                    "UPDATE capture_runs SET active = 1 WHERE id = ?", (run_id,)
+                )
+            # Seed reference attempts — all inserts are inside the open transaction
+            now = _dt.now(UTC)
+            seeded = 0
+            for row in timing_rows:
+                attempt = Attempt(
+                    segment_id=row["segment_id"],
+                    session_id=run_id,
+                    completed=True,
+                    time_ms=row["time_ms"],
+                    deaths=row["deaths"],
+                    clean_tail_ms=row["clean_tail_ms"],
+                    source=AttemptSource.REFERENCE,
+                    created_at=now,
+                )
+                self.db.conn.execute(
+                    """INSERT INTO attempts
+                       (segment_id, session_id, completed, time_ms,
+                        strat_version, source, deaths, clean_tail_ms,
+                        observed_start_conditions, observed_end_conditions, invalidated,
+                        chosen_allocator, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (attempt.segment_id, attempt.session_id, int(attempt.completed),
+                     attempt.time_ms,
+                     attempt.strat_version, attempt.source,
+                     attempt.deaths, attempt.clean_tail_ms,
+                     attempt.observed_start_conditions, attempt.observed_end_conditions,
+                     int(attempt.invalidated),
+                     attempt.chosen_allocator,
+                     attempt.created_at.isoformat()),
+                )
+                seeded += 1
+                logger.info("seed: segment=%s time=%dms deaths=%d clean_tail=%dms",
+                             row["segment_id"], row["time_ms"], row["deaths"],
+                             row["clean_tail_ms"])
+            self.db.conn.commit()
+        except Exception:
+            self.db.conn.rollback()
+            raise
+
         if seeded and scheduler:
             scheduler.rebuild_all_states()
         self.paused_run_id = None
