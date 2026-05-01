@@ -63,16 +63,42 @@ def create_reference(body: dict, session: SessionManager = Depends(get_session),
     return {"id": run_id, "name": name}
 
 
-@router.post("/references/draft/save")
-async def draft_save(req: Request, session: SessionManager = Depends(get_session)):
+@router.post("/reference/finalize")
+async def reference_finalize(req: Request, session: SessionManager = Depends(get_session)):
     body = await req.json()
     name = body.get("name", "Untitled")
-    return (await session.save_draft(name)).to_response()
+    return (await session.finalize_run(name)).to_response()
 
 
-@router.post("/references/draft/discard")
-async def draft_discard(session: SessionManager = Depends(get_session)):
-    return (await session.discard_draft()).to_response()
+@router.post("/reference/save_and_finish")
+async def reference_save_and_finish(req: Request, session: SessionManager = Depends(get_session)):
+    body = await req.json()
+    name = body.get("name", "Untitled")
+    return (await session.save_and_finish_run(name)).to_response()
+
+
+@router.post("/reference/discard_run")
+async def reference_discard_run(session: SessionManager = Depends(get_session)):
+    return (await session.discard_run()).to_response()
+
+
+@router.post("/reference/resume")
+async def reference_resume(session: SessionManager = Depends(get_session)):
+    return (await session.resume_reference()).to_response()
+
+
+@router.delete("/capture_sessions/{session_id}")
+async def delete_capture_session(session_id: str, session: SessionManager = Depends(get_session)):
+    return (await session.delete_capture_session(session_id)).to_response()
+
+
+@router.get("/capture_sessions")
+def list_capture_sessions(
+    run_id: str,
+    session: SessionManager = Depends(get_session),
+    db: Database = Depends(get_db),
+):
+    return {"sessions": db.list_capture_sessions_for_run(run_id)}
 
 
 @router.get("/references/{ref_id}/spinrec")

@@ -85,24 +85,81 @@ class TestSegmentEditEndpoints:
         assert db.get_all_segments_with_model("test_game") == []
 
 
-class TestDraftEndpoints:
-    def test_save_draft(self, client):
-        # Inject draft state
-        client.app.state.session.draft.run_id = "live_abc"
-        client.app.state.session.draft.segments_count = 5
-        client.app.state.session.save_draft = AsyncMock(return_value=ActionResult(status=Status.OK))
+class TestFinalizeAndDiscardEndpoints:
+    def test_finalize(self, client):
+        client.app.state.session.finalize_run = AsyncMock(return_value=ActionResult(status=Status.OK))
 
-        resp = client.post("/api/references/draft/save", json={"name": "My Run"})
+        resp = client.post("/api/reference/finalize", json={"name": "My Run"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        client.app.state.session.finalize_run.assert_called_once_with("My Run")
+
+    def test_finalize_default_name(self, client):
+        client.app.state.session.finalize_run = AsyncMock(return_value=ActionResult(status=Status.OK))
+
+        resp = client.post("/api/reference/finalize", json={})
+        assert resp.status_code == 200
+        client.app.state.session.finalize_run.assert_called_once_with("Untitled")
+
+    def test_discard_run(self, client):
+        client.app.state.session.discard_run = AsyncMock(return_value=ActionResult(status=Status.OK))
+
+        resp = client.post("/api/reference/discard_run")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
-    def test_discard_draft(self, client):
-        client.app.state.session.draft.run_id = "live_abc"
-        client.app.state.session.discard_draft = AsyncMock(return_value=ActionResult(status=Status.OK))
 
-        resp = client.post("/api/references/draft/discard")
+class TestSaveAndFinishEndpoint:
+    def test_save_and_finish(self, client):
+        client.app.state.session.save_and_finish_run = AsyncMock(
+            return_value=ActionResult(status=Status.OK)
+        )
+
+        resp = client.post("/api/reference/save_and_finish", json={"name": "My Run"})
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
+        client.app.state.session.save_and_finish_run.assert_called_once_with("My Run")
+
+    def test_save_and_finish_default_name(self, client):
+        client.app.state.session.save_and_finish_run = AsyncMock(
+            return_value=ActionResult(status=Status.OK)
+        )
+
+        resp = client.post("/api/reference/save_and_finish", json={})
+        assert resp.status_code == 200
+        client.app.state.session.save_and_finish_run.assert_called_once_with("Untitled")
+
+
+class TestResumeEndpoint:
+    def test_resume(self, client):
+        client.app.state.session.resume_reference = AsyncMock(
+            return_value=ActionResult(status=Status.OK)
+        )
+
+        resp = client.post("/api/reference/resume")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+
+class TestDeleteCaptureSession:
+    def test_delete_capture_session(self, client):
+        client.app.state.session.delete_capture_session = AsyncMock(
+            return_value=ActionResult(status=Status.OK)
+        )
+
+        resp = client.delete("/api/capture_sessions/sess_abc")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        client.app.state.session.delete_capture_session.assert_called_once_with("sess_abc")
+
+
+class TestListCaptureSessions:
+    def test_list_capture_sessions(self, client, db):
+        db.create_capture_run("run1", "test_game", "Run 1")
+
+        resp = client.get("/api/capture_sessions?run_id=run1")
+        assert resp.status_code == 200
+        assert "sessions" in resp.json()
 
 
 class TestSpinrecEndpoint:
