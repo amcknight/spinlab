@@ -17,7 +17,7 @@ ADDR_MIDWAY        = 0x13CE   -- midway checkpoint tape: 0->1 when touched
 ADDR_CP_ENTRANCE   = 0x1B403  -- ASM-style checkpoint entrance
 
 -- SPC I/O port values (read from ADDR_IO / 0x1DFB)
-IO_ORB     = 3   -- collected orb/dragon coin
-IO_GOAL    = 4   -- normal goal tape/gate
+IO_ORB     = 3   -- collected orb
+IO_GOAL    = 4   -- normal goal tape
 IO_KEY     = 7   -- collected secret exit key
-IO_FADEOUT = 8   -- screen fadeout (pipe/door exit)
+IO_FADEOUT = 8   -- screen fadeout
