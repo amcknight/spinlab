@@ -340,16 +340,21 @@ class SessionManager:
     async def _handle_replay_finished(self, event: ReplayFinishedEvent) -> None:
         self.replay_frame = 0
         self.replay_total = 0
+        # handle_replay_finished ends the session and leaves the run paused if
+        # segments were captured.  We must NOT call _clear_ref_and_idle here —
+        # that would wipe paused_run_id and prevent the user from finalizing.
         self.capture.handle_replay_finished()
-        self._clear_ref_and_idle()
+        self.mode = Mode.IDLE
         await self._notify_sse()
 
     async def _handle_replay_error(self, event: ReplayErrorEvent) -> None:
         logger.warning("replay_error: %s", event.message)
         self.replay_frame = 0
         self.replay_total = 0
+        # Same as _handle_replay_finished: preserve paused_run_id set by
+        # handle_replay_error when segments were captured before the error.
         self.capture.handle_replay_error()
-        self._clear_ref_and_idle()
+        self.mode = Mode.IDLE
         await self._notify_sse()
 
     async def _handle_attempt_invalidated(self, event: AttemptInvalidatedEvent) -> None:

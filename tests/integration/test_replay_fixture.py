@@ -138,10 +138,12 @@ class TestReplayFixture:
             f"Replay took {elapsed_s:.1f}s — expected under {REPLAY_TIMEOUT_S}s"
         )
 
-        # Save the draft (replay produces a draft capture run)
-        resp = _api(self.base_url, "post", "/api/references/draft/save",
+        # Finalize the paused replay run as a new reference.
+        # Replay-finished leaves the run paused (not hard-deleted) when segments
+        # were captured, so the user (or test) can call finalize or discard.
+        resp = _api(self.base_url, "post", "/api/reference/finalize",
                     json={"name": "Replay fixture test"})
-        assert resp.status_code == 200, f"draft save failed: {resp.text}"
+        assert resp.status_code == 200, f"finalize failed: {resp.text}"
 
         # Exactly 1 reference after saving the draft
         refs = _api(self.base_url, "get", "/api/references").json()["references"]

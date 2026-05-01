@@ -129,11 +129,12 @@ class TestStopReplay:
 
 
 class TestHandleReplayFinished:
-    async def test_hard_deletes_run_after_replay_finishes(self, controller, db):
-        """handle_replay_finished must always hard-delete the replay's capture_run.
+    async def test_pauses_run_after_replay_finishes(self, controller, db):
+        """handle_replay_finished leaves the run paused (draft=1, not deleted).
 
-        Without this, the draft row leaks into recover_paused_capture_run and can
-        silently destroy a real paused reference run on the next dashboard restart.
+        Replay-derived runs that complete are left paused so the user can finalize
+        or discard them. recover_paused_capture_run excludes replay_ IDs, so the
+        draft won't silently destroy a real paused reference run on dashboard restart.
         """
         await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
         run_id = controller.recorder.capture_run_id
@@ -141,47 +142,46 @@ class TestHandleReplayFinished:
         controller.handle_replay_finished()
 
         row = db.conn.execute(
-            "SELECT id FROM capture_runs WHERE id = ?", (run_id,)
+            "SELECT id, draft FROM capture_runs WHERE id = ?", (run_id,)
         ).fetchone()
-        assert row is None, "replay capture_run must be hard-deleted after replay finishes"
+        assert row is not None, "replay capture_run should remain in DB as paused"
+        assert row[1] == 1, "replay capture_run should still be draft=1"
+        assert controller.paused_run_id == run_id
 
-    async def test_replay_does_not_clobber_paused_reference_run(self, controller, db, tmp_path):
-        """After replay, a separately-paused reference run must survive recovery.
+    async def test_recovery_non_clobber_after_replay(self, controller, db, tmp_path):
+        """After replay, recover_paused_capture_run returns the real paused run.
 
-        The bug: handle_replay_finished left the replay's draft=1 capture_run in the
-        DB. On next startup, recover_paused_capture_run sees TWO drafts, picks the
-        newest (the replay run), hard-deletes the real one, and surfaces trash.
+        The replay run is left as draft=1, but its 'replay_' ID prefix causes
+        recover_paused_capture_run to skip it entirely. The real live_ paused run
+        is returned instead and is never deleted by the recovery logic.
 
-        This test inserts a real paused run directly, runs a replay, calls
-        handle_replay_finished, then verifies recover_paused_capture_run still
-        finds the real run (not None, not the replay's run).
-
-        Note: start_replay guards against a live paused_run_id, so we can't replay
-        while one is in-memory — instead we simulate the crash/restart scenario by
-        writing the real paused run directly to the DB before replay starts.
+        Note: start_replay guards against a live paused_run_id, so we simulate the
+        crash/restart scenario by writing the real run directly to the DB.
         """
         # Simulate a real paused run already in the DB (e.g. from a previous session)
-        real_run_id = "ref_real_run"
+        real_run_id = "live_real_run"
         db.create_capture_run(real_run_id, "g1", "My Real Run", draft=True)
 
         # Do a replay (paused_run_id is None so no guard fires)
         await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
         replay_run_id = controller.recorder.capture_run_id
+        assert replay_run_id.startswith("replay_")
         assert replay_run_id != real_run_id
 
         controller.handle_replay_finished()
 
-        # Replay run must be gone
+        # Replay run is still in DB as paused
         assert db.conn.execute(
             "SELECT id FROM capture_runs WHERE id = ?", (replay_run_id,)
-        ).fetchone() is None
-        # Recovery must find the original paused run, not None
+        ).fetchone() is not None
+        # Recovery must return the real live_ run, not the replay_ run
         recovered = db.recover_paused_capture_run("g1")
         assert recovered == real_run_id
 
 
 class TestHandleReplayError:
     async def test_no_segments_deletes_run(self, controller, db):
+        """Replay error with no segments captured: hard-delete the empty run."""
         await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
         run_id = controller.recorder.capture_run_id
         controller.handle_replay_error()
@@ -190,15 +190,37 @@ class TestHandleReplayError:
         ).fetchone()
         assert row is None
 
-    async def test_always_deletes_run_regardless_of_segments(self, controller, db):
-        """handle_replay_error hard-deletes even if segments were captured."""
+    async def test_keeps_run_when_segments_captured(self, controller, db):
+        """Replay error after capturing segments: leave as paused so user can decide.
+
+        A replay that partially succeeds (some segments before the error) is
+        preserved as a paused run. The user can finalize the partial result
+        or discard it. recover_paused_capture_run skips replay_ IDs, so this
+        won't interfere with real paused reference runs.
+        """
         await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
         run_id = controller.recorder.capture_run_id
+        # Simulate a segment row being captured under this run
+        seg = Segment(
+            id="seg_replay_err",
+            game_id="g1",
+            level_number=1,
+            start_type=EndpointType.ENTRANCE,
+            start_ordinal=0,
+            end_type=EndpointType.GOAL,
+            end_ordinal=0,
+            reference_id=run_id,
+        )
+        db.upsert_segment(seg)
+
         controller.handle_replay_error()
+
         row = db.conn.execute(
-            "SELECT id FROM capture_runs WHERE id = ?", (run_id,)
+            "SELECT id, draft FROM capture_runs WHERE id = ?", (run_id,)
         ).fetchone()
-        assert row is None
+        assert row is not None, "capture_run should remain when segments were captured"
+        assert row[1] == 1, "capture_run should still be draft=1"
+        assert controller.paused_run_id == run_id
 
 
 class TestHandleDisconnect:

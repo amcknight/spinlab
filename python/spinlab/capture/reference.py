@@ -447,14 +447,18 @@ class ReferenceController:
         if self.tcp.is_connected:
             await self.tcp.send_command(ReplayStopCmd())
         run_id = self.recorder.capture_run_id
-        # Replay-derived capture_runs are always ephemeral: end the session then
-        # hard-delete the run regardless of how many segments were captured.
-        # This prevents the draft row from leaking into recover_paused_capture_run
-        # and silently destroying real paused runs on the next dashboard restart.
+        seg_count = self.db.conn.execute(
+            "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
+            (run_id,),
+        ).fetchone()[0] if run_id else 0
         self._end_current_session(end_reason="stopped")
-        if run_id:
+        if run_id and seg_count == 0:
+            # Nothing captured — no value in keeping the run; delete it.
             self.db.hard_delete_capture_run(run_id)
             self.paused_run_id = None
+        # If segments were captured, the run stays paused so the user can finalize.
+        # recover_paused_capture_run excludes replay_ IDs, so this won't clobber
+        # real paused reference runs on the next dashboard restart.
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
 
     # ---------------------------------------------------------------- fill_gap (unchanged behaviour)
@@ -523,22 +527,24 @@ class ReferenceController:
         self.recorder.rec_path = event.path
 
     def handle_replay_finished(self) -> None:
-        run_id = self.recorder.capture_run_id
-        # Replay-derived runs are ephemeral: always hard-delete after replay ends.
-        # Leaving a draft row would cause recover_paused_capture_run to pick it up
-        # on next dashboard start and silently destroy any real paused reference run.
+        # End the session and leave the run paused — the user can finalize or discard.
+        # recover_paused_capture_run excludes replay_ IDs, so this draft won't clobber
+        # a real paused reference run on the next dashboard restart.
         self._end_current_session(end_reason="stopped")
-        if run_id:
-            self.db.hard_delete_capture_run(run_id)
-            self.paused_run_id = None
 
     def handle_replay_error(self) -> None:
         run_id = self.recorder.capture_run_id
-        # Same ephemeral cleanup as handle_replay_finished — always hard-delete.
+        seg_count = self.db.conn.execute(
+            "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
+            (run_id,),
+        ).fetchone()[0] if run_id else 0
         self._end_current_session(end_reason="replay_error")
-        if run_id:
+        if run_id and seg_count == 0:
+            # Errored with nothing captured — discard the empty run.
             self.db.hard_delete_capture_run(run_id)
             self.paused_run_id = None
+        # If segments were captured before the error, leave as paused so the user
+        # can decide whether to finalize or discard them.
 
     def handle_disconnect(self) -> None:
         """Treat as a clean session end. Run stays paused for resume."""
