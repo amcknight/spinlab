@@ -71,9 +71,20 @@ export interface TuningData {
   params: ParamDef[];
 }
 
-export interface DraftState {
+export interface CaptureSession {
+  id: string;
+  capture_run_id: string;
+  ordinal: number;
+  started_at: string;
+  ended_at: string | null;
+  spinrec_path: string;
+  end_reason: string | null;
+}
+
+export interface PausedRunState {
   run_id: string;
   segments_captured: number;
+  session_count: number;
 }
 
 export interface ReplayState {
@@ -154,7 +165,7 @@ export interface AppState {
   estimator: string | null;
   capture_run_id: string | null;
   replay: ReplayState | null;
-  draft: DraftState | null;
+  paused_run: PausedRunState | null;
   cold_fill: ColdFillState | null;
 }
 
@@ -192,6 +203,7 @@ export interface ReferenceSegment {
   ordinal: number | null;
   reference_id: string | null;
   state_path: string | null;
+  capture_session_id?: string | null;
 }
 
 export interface Reference {

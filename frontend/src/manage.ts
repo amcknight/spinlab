@@ -38,7 +38,7 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
     lastState != null &&
     (lastState.mode === "reference" || lastState.mode === "replay" ||
      lastState.mode === "cold_fill" || lastState.mode === "fill_gap");
-  const hasDraft = lastState?.draft != null;
+  const hasDraft = lastState?.paused_run != null;
 
   const noRefs = refs.length === 0;
   sel.disabled = busy || hasDraft;
@@ -48,10 +48,10 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
   (document.getElementById("btn-ref-delete") as HTMLButtonElement).disabled =
     busy || hasDraft || noRefs;
 
-  if (hasDraft && lastState?.draft) {
+  if (hasDraft && lastState?.paused_run) {
     draftPrompt.style.display = "";
     document.getElementById("draft-summary")!.textContent =
-      "\u2713 Captured " + lastState.draft.segments_captured + " segments";
+      "\u2713 Captured " + lastState.paused_run.segments_captured + " segments";
   } else {
     draftPrompt.style.display = "none";
   }
