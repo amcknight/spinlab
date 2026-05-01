@@ -22,7 +22,6 @@ local socket = require("socket.core")
 local TCP_PORT   = 15482
 local TCP_HOST   = "127.0.0.1"
 local JSONL_LOGGING = false  -- set true to enable passive_log.jsonl (debugging)
-local MAX_RECORDING_FRAMES = 360000  -- 100 minutes at 60fps
 local AUTO_ADVANCE_DEFAULT_MS = 2000
 -- Default delay between dying and reloading the cold save state in speed run mode.
 -- The cold save state is captured at level_start 0->1, which lands during the
@@ -1273,19 +1272,6 @@ local function on_input_polled()
     local input = emu.getInput(0)
     recording.buffer[#recording.buffer + 1] = encode_input(input)
     recording.frame_index = recording.frame_index + 1
-    if recording.frame_index >= MAX_RECORDING_FRAMES then
-      log("WARNING: Recording hit MAX_RECORDING_FRAMES (" .. MAX_RECORDING_FRAMES .. "), auto-stopping")
-      local path = recording.output_path
-      local count = #recording.buffer
-      if count > 0 and path then
-        flush_spinrec(path, game_id, recording.buffer)
-        send_event({event = "rec_saved", path = path, frame_count = count})
-      end
-      recording.active = false
-      recording.buffer = {}
-      recording.frame_index = 0
-      recording.output_path = nil
-    end
   elseif replay.active and replay.index <= replay.total then
     emu.setInput(decode_input(replay.frames[replay.index]))
     replay.index = replay.index + 1
