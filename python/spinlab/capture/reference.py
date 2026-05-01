@@ -169,14 +169,10 @@ class ReferenceController:
             ).fetchone()[0]
             self.db.end_capture_session(sess_id, end_reason=end_reason)
             # Compute duration from started_at→now using the row we just fetched.
-            from datetime import UTC, datetime
             duration_s: float | None = None
             if sess_row and sess_row.get("started_at"):
-                try:
-                    started = datetime.fromisoformat(sess_row["started_at"])
-                    duration_s = (datetime.now(UTC) - started).total_seconds()
-                except ValueError:
-                    duration_s = None
+                started = datetime.fromisoformat(sess_row["started_at"])
+                duration_s = (datetime.now(UTC) - started).total_seconds()
             ordinal = sess_row["ordinal"] if sess_row else "?"
             dur_str = f"{duration_s:.1f}" if duration_s is not None else "?"
             logger.info(

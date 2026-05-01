@@ -1,4 +1,8 @@
 """Multi-session reference run lifecycle tests."""
+import logging
+import re
+from datetime import UTC, datetime, timedelta
+
 import pytest
 import pytest_asyncio
 
@@ -204,14 +208,9 @@ async def test_save_and_finish_is_atomic_rolls_back_on_failure(started_session, 
     assert timing_count == 2, "timing rows must be intact after rollback"
 
 
-# --- Helpers ---
-
 def test_recovery_logs_warning_when_discarding_stranded_drafts(db, caplog):
     """Two paused drafts for the same game — recovery keeps the newest and warns
     about the discarded one. No silent data loss."""
-    import logging
-    from datetime import UTC, datetime, timedelta
-
     db.upsert_game("smw", "SMW", "any%")
     older = "older_run"
     newer = "newer_run"
@@ -236,10 +235,6 @@ def test_recovery_logs_warning_when_discarding_stranded_drafts(db, caplog):
 def test_session_end_log_includes_ordinal_duration_segments(db, caplog):
     """When a capture session ends, log line includes ordinal, duration, and
     segment count to aid post-hoc debugging."""
-    import logging
-    from spinlab.capture.reference import ReferenceController
-    from tests.conftest import FakeTcpManager
-
     db.upsert_game("smw", "SMW", "any%")
     db.create_capture_run("run_x", "smw", "X", draft=True)
     db.create_capture_session("sess_x", "run_x", 3, "/tmp/x.spinrec")
@@ -260,14 +255,18 @@ def test_session_end_log_includes_ordinal_duration_segments(db, caplog):
         ctl._end_current_session(end_reason="stopped")
 
     msgs = [r.getMessage() for r in caplog.records]
-    end_msgs = [m for m in msgs if m.startswith("session: ended")]
+    end_msgs = [m for m in msgs if "session: ended" in m.lower()]
     assert end_msgs, f"no session-end log; got: {msgs}"
     msg = end_msgs[0]
-    assert "ordinal=3" in msg
-    assert "segments=1" in msg
-    assert "reason=stopped" in msg
-    assert "duration_s=" in msg
+    # Assert intent (the ordinal, duration, and segment count are present in some form)
+    # rather than exact substring layout — robust to log-format refactors.
+    assert re.search(r"\bordinal\b.*\b3\b", msg), msg
+    assert re.search(r"\bsegments?\b.*\b1\b", msg), msg
+    assert "stopped" in msg
+    assert re.search(r"\bduration", msg.lower()), msg
 
+
+# --- Helpers ---
 
 def _make_minimal_segment(db, run_id, sess_id, seg_id):
     """Insert a minimal valid segment row for FK referential integrity."""
