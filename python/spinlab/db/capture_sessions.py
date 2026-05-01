@@ -89,3 +89,27 @@ class CaptureSessionsMixin:
             "DELETE FROM capture_sessions WHERE id = ?", (session_id,),
         )
         self.conn.commit()
+
+    def recover_paused_capture_run(self, game_id: str) -> str | None:
+        """Find the most recent draft (paused) capture_run for the game.
+
+        Side effects:
+        - Hard-deletes any older drafts for the same game (defensive — there
+          should only be one paused run per game; if there are more, the
+          oldest were stranded and are not recoverable into a coherent state).
+        - Marks any orphaned open sessions for the recovered run as crashed.
+
+        Returns the recovered run id, or None if no draft exists.
+        """
+        rows = self.conn.execute(
+            "SELECT id FROM capture_runs WHERE game_id = ? AND draft = 1 "
+            "ORDER BY created_at DESC",
+            (game_id,),
+        ).fetchall()
+        if not rows:
+            return None
+        recovered_id = rows[0][0]
+        for row in rows[1:]:
+            self.hard_delete_capture_run(row[0])
+        self.mark_orphan_capture_sessions_crashed(recovered_id)
+        return recovered_id

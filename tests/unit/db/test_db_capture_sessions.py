@@ -120,3 +120,32 @@ def test_hard_delete_capture_run_removes_spinrec_files(tmp_path, db):
     db.hard_delete_capture_run("run_1")
     assert not spinrec_a.exists()
     assert not spinrec_b.exists()
+
+
+def test_recover_paused_capture_run_finds_most_recent_draft(db):
+    # Three draft runs for same game; recover picks most recent and removes all older ones
+    import time
+    db.create_capture_run("run_old", "smw", "Old", draft=True)
+    time.sleep(0.01)  # ensure different created_at
+    db.create_capture_run("run_new", "smw", "New", draft=True)
+    found = db.recover_paused_capture_run("smw")
+    assert found == "run_new"
+    # All older drafts (run_1 from fixture and run_old) are gone; only run_new survives
+    rows = db.conn.execute("SELECT id FROM capture_runs").fetchall()
+    assert {r[0] for r in rows} == {"run_new"}
+
+
+def test_recover_paused_capture_run_returns_none_when_no_drafts(db):
+    # The fixture's run_1 is the only draft; remove it via finalize
+    db.promote_draft("run_1", "Finalized")
+    assert db.recover_paused_capture_run("smw") is None
+
+
+def test_recover_paused_capture_run_marks_orphan_sessions_crashed(db):
+    db.create_capture_session("sess_1", "run_1", 1, "/tmp/1.spinrec")
+    # session_2 is open (orphan)
+    db.create_capture_session("sess_2", "run_1", 2, "/tmp/2.spinrec")
+    db.end_capture_session("sess_1", end_reason="stopped")
+    db.recover_paused_capture_run("smw")
+    sess_2 = db.get_capture_session("sess_2")
+    assert sess_2["end_reason"] == "crashed"
