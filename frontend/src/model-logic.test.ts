@@ -77,7 +77,7 @@ describe("canStartPractice", () => {
     allocator_weights: null,
     estimator: null,
     capture_run_id: null,
-    draft: null,
+    paused_run: null,
     replay: null,
     cold_fill: null,
   };
@@ -170,7 +170,7 @@ test("canStartSpeedRun returns true when idle and connected", () => {
     allocator_weights: null,
     estimator: null,
     capture_run_id: null,
-    draft: null,
+    paused_run: null,
     replay: null,
     cold_fill: null,
   };
@@ -190,7 +190,7 @@ test("canStartSpeedRun returns false during practice", () => {
     allocator_weights: null,
     estimator: null,
     capture_run_id: null,
-    draft: null,
+    paused_run: null,
     replay: null,
     cold_fill: null,
   };

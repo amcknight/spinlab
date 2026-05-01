@@ -50,6 +50,16 @@ def mock_db():
     db.promote_draft = MagicMock()
     db.hard_delete_capture_run = MagicMock()
     db.segments_missing_cold = MagicMock(return_value=[])
+    db.drain_recorded_segment_times_for_run = MagicMock(return_value=[])
+    db.list_capture_sessions_for_run = MagicMock(return_value=[])
+    db.recover_paused_capture_run = MagicMock(return_value=None)
+    db.end_capture_session = MagicMock()
+    db.create_capture_session = MagicMock()
+    db.max_session_ordinal_for_run = MagicMock(return_value=0)
+    # conn mock for raw SQL queries (e.g. get_paused_state, finalize checks)
+    row_mock = MagicMock()
+    row_mock.__getitem__ = MagicMock(return_value=1)  # default: draft=1
+    db.conn.execute.return_value.fetchone.return_value = row_mock
     return db
 
 

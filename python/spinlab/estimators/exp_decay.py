@@ -14,7 +14,10 @@ import numpy as np
 from scipy.optimize import OptimizeWarning, curve_fit
 
 from spinlab.estimators import (
-    Estimator, EstimatorState, load_mature_states, register_estimator,
+    Estimator,
+    EstimatorState,
+    load_mature_states,
+    register_estimator,
 )
 from spinlab.models import AttemptRecord, Estimate, ModelOutput
 

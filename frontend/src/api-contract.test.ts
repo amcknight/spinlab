@@ -26,7 +26,7 @@ const IDLE_STATE: AppState = {
   allocator_weights: { greedy: 60, random: 20, round_robin: 20 },
   estimator: "kalman",
   capture_run_id: null,
-  draft: null,
+  paused_run: null,
   replay: null,
   cold_fill: null,
 };
@@ -83,7 +83,7 @@ const PRACTICE_STATE: AppState = {
   allocator_weights: { greedy: 60, random: 20, round_robin: 20 },
   estimator: "kalman",
   capture_run_id: null,
-  draft: null,
+  paused_run: null,
   replay: null,
   cold_fill: null,
 };

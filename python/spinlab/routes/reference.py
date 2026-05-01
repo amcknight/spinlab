@@ -1,6 +1,8 @@
 """Reference CRUD, drafts, and replay routes."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from spinlab.db import Database
@@ -22,15 +24,46 @@ async def reference_stop(session: SessionManager = Depends(get_session)):
     return (await session.stop_reference()).to_response()
 
 
+def _resolve_spinrec_path(
+    ref_id: str,
+    session: "SessionManager",
+    db: Database,
+    session_id: str | None = None,
+) -> str | None:
+    """Return the spinrec_path for a reference run.
+
+    Lookup strategy:
+    1. If session_id is given, use that session's spinrec_path directly.
+    2. Otherwise use the first session's spinrec_path (ordinal 1).
+    3. Fall back to the legacy ``{ref_id}.spinrec`` path for runs created before
+       multi-session support (i.e. runs with no capture_sessions rows).
+
+    Returns None if no path can be determined.
+    """
+    sessions = db.list_capture_sessions_for_run(ref_id)
+    if sessions:
+        if session_id:
+            target = next((s for s in sessions if s["id"] == session_id), None)
+            return target["spinrec_path"] if target else None
+        # Default: first session (lowest ordinal — list is already ordered by ordinal)
+        return sessions[0]["spinrec_path"]
+    # Legacy fallback: pre-multi-session runs wrote a single file named after the run
+    gid = session.game_id or "unknown"
+    legacy_path = session.data_dir / gid / "rec" / f"{ref_id}.spinrec"
+    return str(legacy_path.resolve())
+
+
 @router.post("/replay/start")
-async def replay_start(req: Request, session: SessionManager = Depends(get_session)):
+async def replay_start(req: Request, session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
     body = await req.json()
     ref_id = body.get("ref_id")
+    session_id = body.get("session_id")  # optional: replay a specific session
     speed = body.get("speed", SPEED_UNCAPPED)
     if not ref_id:
         raise HTTPException(status_code=400, detail="ref_id required")
-    gid = session.game_id or "unknown"
-    spinrec_path = str((session.data_dir / gid / "rec" / f"{ref_id}.spinrec").resolve())
+    spinrec_path = _resolve_spinrec_path(ref_id, session, db, session_id=session_id)
+    if not spinrec_path:
+        raise HTTPException(status_code=404, detail="spinrec_not_found")
     return (await session.start_replay(spinrec_path, speed=speed)).to_response()
 
 
@@ -48,8 +81,17 @@ def list_references(session: SessionManager = Depends(get_session), db: Database
     out: list[dict] = []
     for ref in refs:
         d: dict = dict(ref)
-        rec_path = session.data_dir / gid / "rec" / f"{d['id']}.spinrec"
-        d["has_spinrec"] = rec_path.is_file()
+        ref_id = d["id"]
+        sessions = db.list_capture_sessions_for_run(ref_id)
+        if sessions:
+            # has_spinrec = True if any session's file is present on disk
+            d["has_spinrec"] = any(
+                Path(s["spinrec_path"]).is_file() for s in sessions
+            )
+        else:
+            # Legacy fallback for pre-multi-session runs
+            legacy_path = session.data_dir / gid / "rec" / f"{ref_id}.spinrec"
+            d["has_spinrec"] = legacy_path.is_file()
         out.append(d)
     return {"references": out}
 
@@ -63,24 +105,49 @@ def create_reference(body: dict, session: SessionManager = Depends(get_session),
     return {"id": run_id, "name": name}
 
 
-@router.post("/references/draft/save")
-async def draft_save(req: Request, session: SessionManager = Depends(get_session)):
+@router.post("/reference/finalize")
+async def reference_finalize(req: Request, session: SessionManager = Depends(get_session)):
     body = await req.json()
     name = body.get("name", "Untitled")
-    return (await session.save_draft(name)).to_response()
+    return (await session.finalize_run(name)).to_response()
 
 
-@router.post("/references/draft/discard")
-async def draft_discard(session: SessionManager = Depends(get_session)):
-    return (await session.discard_draft()).to_response()
+@router.post("/reference/save_and_finish")
+async def reference_save_and_finish(req: Request, session: SessionManager = Depends(get_session)):
+    body = await req.json()
+    name = body.get("name", "Untitled")
+    return (await session.save_and_finish_run(name)).to_response()
+
+
+@router.post("/reference/discard_run")
+async def reference_discard_run(session: SessionManager = Depends(get_session)):
+    return (await session.discard_run()).to_response()
+
+
+@router.post("/reference/resume")
+async def reference_resume(session: SessionManager = Depends(get_session)):
+    return (await session.resume_reference()).to_response()
+
+
+@router.delete("/capture_sessions/{session_id}")
+async def delete_capture_session(session_id: str, session: SessionManager = Depends(get_session)):
+    return (await session.delete_capture_session(session_id)).to_response()
+
+
+@router.get("/capture_sessions")
+def list_capture_sessions(
+    run_id: str,
+    session: SessionManager = Depends(get_session),
+    db: Database = Depends(get_db),
+):
+    return {"sessions": db.list_capture_sessions_for_run(run_id)}
 
 
 @router.get("/references/{ref_id}/spinrec")
-def check_spinrec(ref_id: str, session: SessionManager = Depends(get_session)):
-    gid = session.game_id or "unknown"
-    rec_path = session.data_dir / gid / "rec" / f"{ref_id}.spinrec"
-    if rec_path.is_file():
-        return {"exists": True, "path": str(rec_path)}
+def check_spinrec(ref_id: str, session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
+    spinrec_path = _resolve_spinrec_path(ref_id, session, db)
+    if spinrec_path and Path(spinrec_path).is_file():
+        return {"exists": True, "path": spinrec_path}
     return {"exists": False}
 
 

@@ -50,12 +50,13 @@ class SegmentsMixin:
             """INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal,
                end_type, end_ordinal, start_waypoint_id, end_waypoint_id, is_primary,
                description, strat_version, active, ordinal,
-               reference_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               reference_id, capture_session_id, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  description=excluded.description,
                  ordinal=excluded.ordinal,
                  reference_id=excluded.reference_id,
+                 capture_session_id=excluded.capture_session_id,
                  active=excluded.active,
                  is_primary=excluded.is_primary,
                  updated_at=excluded.updated_at""",
@@ -63,7 +64,7 @@ class SegmentsMixin:
              seg.start_ordinal, seg.end_type, seg.end_ordinal,
              seg.start_waypoint_id, seg.end_waypoint_id, int(seg.is_primary),
              seg.description, seg.strat_version, int(seg.active),
-             seg.ordinal, seg.reference_id, now, now),
+             seg.ordinal, seg.reference_id, seg.capture_session_id, now, now),
         )
         self.conn.commit()
 

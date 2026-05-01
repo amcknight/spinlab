@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS segments (
   active INTEGER DEFAULT 1,
   ordinal INTEGER,
   reference_id TEXT REFERENCES capture_runs(id),
+  capture_session_id TEXT REFERENCES capture_sessions(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -113,9 +114,33 @@ CREATE TABLE IF NOT EXISTS capture_runs (
   draft INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS capture_sessions (
+  id TEXT PRIMARY KEY,
+  capture_run_id TEXT NOT NULL REFERENCES capture_runs(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  spinrec_path TEXT NOT NULL,
+  end_reason TEXT,
+  UNIQUE (capture_run_id, ordinal)
+);
+
+CREATE TABLE IF NOT EXISTS recorded_segment_times (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  capture_session_id TEXT NOT NULL REFERENCES capture_sessions(id) ON DELETE CASCADE,
+  segment_id TEXT NOT NULL,
+  time_ms INTEGER NOT NULL,
+  deaths INTEGER NOT NULL,
+  clean_tail_ms INTEGER NOT NULL,
+  recorded_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_attempts_segment ON attempts(segment_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_attempts_session ON attempts(session_id);
 CREATE INDEX IF NOT EXISTS idx_transitions_game ON transitions(game_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_capture_sessions_run ON capture_sessions(capture_run_id, ordinal);
+CREATE INDEX IF NOT EXISTS idx_recorded_segment_times_session ON recorded_segment_times(capture_session_id);
+CREATE INDEX IF NOT EXISTS idx_segments_capture_session ON segments(capture_session_id);
 """
 
 
@@ -166,7 +191,7 @@ class DatabaseCore:
             "segments": {"id", "game_id", "level_number", "start_type", "start_ordinal",
                          "end_type", "end_ordinal", "start_waypoint_id", "end_waypoint_id",
                          "is_primary", "description", "strat_version", "active", "ordinal",
-                         "reference_id", "created_at", "updated_at"},
+                         "reference_id", "capture_session_id", "created_at", "updated_at"},
             "waypoints": {"id", "game_id", "level_number", "endpoint_type",
                           "ordinal", "conditions_json"},
             "waypoint_save_states": {"waypoint_id", "variant_type", "state_path", "is_default"},
@@ -244,4 +269,5 @@ class DatabaseCore:
             start_waypoint_id=row["start_waypoint_id"] if "start_waypoint_id" in keys else None,
             end_waypoint_id=row["end_waypoint_id"] if "end_waypoint_id" in keys else None,
             is_primary=bool(row["is_primary"]) if "is_primary" in keys else True,
+            capture_session_id=row["capture_session_id"] if "capture_session_id" in keys else None,
         )

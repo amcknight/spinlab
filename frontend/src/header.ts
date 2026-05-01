@@ -27,9 +27,9 @@ export function updateHeader(data: AppState): void {
   if (!data.tcp_connected) {
     chip.classList.add("disconnected");
     label.textContent = "Disconnected";
-  } else if (data.draft) {
+  } else if (data.paused_run) {
     chip.classList.add("draft");
-    label.textContent = "Draft — " + data.draft.segments_captured + " segments";
+    label.textContent = "Draft — " + data.paused_run.segments_captured + " segments";
   } else if (data.mode === "reference") {
     chip.classList.add("recording");
     label.textContent = "Recording — " + (data.sections_captured || 0) + " segments";

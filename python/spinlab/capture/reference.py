@@ -1,28 +1,42 @@
 """ReferenceController — orchestrates reference recording and replay capture.
 
-Owns the start/stop lifecycle for both reference and replay modes, routes
-capture-related TCP events, and manages the transition into draft state.
+State model:
+- IDLE: no run loaded
+- RECORDING: a session is active, recorder is buffering events
+- PAUSED: a draft=1 capture_run exists but no active session
+
+Stop is non-destructive: it ends the current session and leaves the run paused.
+Resume creates a new session under the existing paused run. Finalize drains
+recorded_segment_times into attempts and sets draft=0.
 """
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
+from datetime import datetime as _dt
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..condition_registry import ConditionRegistry
 from ..errors import (
     AlreadyReplayingError,
-    DraftPendingError,
     NoHotVariantError,
     NotConnectedError,
     NotInReferenceError,
     NotReplayingError,
     PracticeActiveError,
     ReferenceActiveError,
+    RunPendingError,
+    SessionDeleteAfterFinalizeError,
 )
-from ..models import ActionResult, Mode, Status
+from ..models import (
+    ActionResult,
+    Attempt,
+    AttemptSource,
+    Mode,
+    Status,
+)
 from ..protocol import (
     SPEED_UNCAPPED,
     CheckpointEvent,
@@ -37,71 +51,148 @@ from ..protocol import (
     ReplayStopCmd,
     SpawnEvent,
 )
-from .draft import DraftManager
 from .recorder import SegmentRecorder
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from ..db import Database
+    from ..db.recorded_segment_times import RecordedSegmentTimeRow
+    from ..scheduler import Scheduler
     from ..tcp_manager import TcpManager
 
 logger = logging.getLogger(__name__)
 
 
+def _seed_reference_attempts(
+    db: "Database", capture_run_id: str, timing_rows: "Sequence[RecordedSegmentTimeRow]",
+) -> int:
+    """Insert seed attempts from drained recorded_segment_times rows. Returns count."""
+    if not timing_rows:
+        return 0
+    now = _dt.now(UTC)
+    count = 0
+    for row in timing_rows:
+        attempt = Attempt(
+            segment_id=row["segment_id"],
+            session_id=capture_run_id,
+            completed=True,
+            time_ms=row["time_ms"],
+            deaths=row["deaths"],
+            clean_tail_ms=row["clean_tail_ms"],
+            source=AttemptSource.REFERENCE,
+            created_at=now,
+        )
+        db.log_attempt(attempt)
+        count += 1
+        logger.info("seed: segment=%s time=%dms deaths=%d clean_tail=%dms",
+                     row["segment_id"], row["time_ms"], row["deaths"],
+                     row["clean_tail_ms"])
+    return count
+
+
 class ReferenceController:
-    """Manages reference/replay capture and fill-gap flows."""
+    """Manages reference/replay capture, sessions, and finalize/discard."""
 
     def __init__(self, db: "Database", tcp: "TcpManager") -> None:
         self.db = db
         self.tcp = tcp
         self.recorder = SegmentRecorder()
-        self.draft = DraftManager()
         self.fill_gap_segment_id: str | None = None
         self._fill_gap_waypoint_id: str | None = None
-        # Empty registry by default; set at startup via set_condition_registry.
         self.condition_registry: ConditionRegistry = ConditionRegistry()
 
+        # Paused-run state (set by recovery or by stopping a session)
+        self.paused_run_id: str | None = None
+
     def set_condition_registry(self, registry: ConditionRegistry) -> None:
-        """Replace the condition registry (called at startup with game config)."""
         self.condition_registry = registry
 
     @property
-    def sections_captured(self) -> int:
-        return self.recorder.segments_count
+    def has_paused_run(self) -> bool:
+        return self.paused_run_id is not None
 
     @property
-    def has_draft(self) -> bool:
-        return self.draft.has_draft
-
-    def get_draft_state(self) -> dict | None:
-        return self.draft.get_state()
+    def current_capture_session_id(self) -> str | None:
+        return self.recorder.current_capture_session_id
 
     @property
     def rec_path(self) -> str | None:
         return self.recorder.rec_path
 
+    def get_paused_state(self) -> dict | None:
+        """Snapshot of the paused run for state_builder. None if no paused run."""
+        if not self.paused_run_id:
+            return None
+        seg_count = self.db.conn.execute(
+            "SELECT COUNT(*) FROM segments WHERE reference_id = ? AND active = 1",
+            (self.paused_run_id,),
+        ).fetchone()[0]
+        sessions = self.db.list_capture_sessions_for_run(self.paused_run_id)
+        return {
+            "run_id": self.paused_run_id,
+            "segments_captured": seg_count,
+            "session_count": len(sessions),
+        }
+
     def clear_and_idle(self) -> None:
-        """Clear capture state. Caller sets mode to IDLE."""
+        """Clear all in-memory state. Caller sets mode to IDLE."""
         self.recorder.clear()
+        self.paused_run_id = None
+
+    # ---------------------------------------------------------------- helpers
 
     def _game_rec_dir(self, data_dir: Path, game_id: str) -> Path:
         d = data_dir / game_id / "rec"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def _enter_draft_from_capture(self) -> None:
-        """Transition captured segments into draft state."""
-        run_id, count = self.recorder.enter_draft()
-        logger.info("capture: entering draft — run=%s segments=%d", run_id, count)
-        self.draft.enter_draft(run_id, count)
+    def _new_session_spinrec_path(
+        self, data_dir: Path, game_id: str, run_id: str, ordinal: int,
+    ) -> str:
+        path = self._game_rec_dir(data_dir, game_id) / f"{run_id}__sess{ordinal:03d}.spinrec"
+        return str(path.resolve())
 
-    # --- Reference mode ---
+    def _end_current_session(self, end_reason: str) -> None:
+        """End the current capture session (if any). Run remains draft=1.
+
+        Called from: stop_reference, handle_disconnect, stop_replay,
+        handle_replay_finished, handle_replay_error.
+        """
+        sess_id = self.recorder.current_capture_session_id
+        run_id = self.recorder.capture_run_id
+        if sess_id:
+            self.db.end_capture_session(sess_id, end_reason=end_reason)
+            logger.info("session: ended sess=%s reason=%s", sess_id, end_reason)
+        # Surface run as paused (only if we had a run and it's still draft=1)
+        if run_id:
+            row = self.db.conn.execute(
+                "SELECT draft FROM capture_runs WHERE id = ?", (run_id,)
+            ).fetchone()
+            if row and row[0] == 1:
+                self.paused_run_id = run_id
+        self.recorder.clear()
+
+    def _create_new_session(self, run_id: str, data_dir: Path, game_id: str) -> tuple[str, str]:
+        """Create a new capture_session row + spinrec path. Returns (session_id, spinrec_path)."""
+        next_ord = self.db.max_session_ordinal_for_run(run_id) + 1
+        sess_id = f"sess_{uuid.uuid4().hex[:8]}"
+        spinrec_path = self._new_session_spinrec_path(data_dir, game_id, run_id, next_ord)
+        self.db.create_capture_session(
+            session_id=sess_id, capture_run_id=run_id,
+            ordinal=next_ord, spinrec_path=spinrec_path,
+        )
+        logger.info("session: created sess=%s run=%s ordinal=%d", sess_id, run_id, next_ord)
+        return sess_id, spinrec_path
+
+    # ---------------------------------------------------------------- start/resume
 
     async def start_reference(
         self, mode: Mode,
         game_id: str, data_dir: Path, run_name: str | None = None,
     ) -> ActionResult:
-        if self.draft.has_draft:
-            raise DraftPendingError()
+        if self.paused_run_id:
+            raise RunPendingError()
         if mode == Mode.PRACTICE:
             raise PracticeActiveError()
         if mode == Mode.REPLAY:
@@ -113,30 +204,218 @@ class ReferenceController:
         run_id = f"live_{uuid.uuid4().hex[:8]}"
         run_name = run_name or f"Live {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
         self.db.create_capture_run(run_id, game_id, run_name, draft=True)
+        sess_id, spinrec_path = self._create_new_session(run_id, data_dir, game_id)
+
         self.recorder.capture_run_id = run_id
-        rec_path = str((self._game_rec_dir(data_dir, game_id) / f"{run_id}.spinrec").resolve())
+        self.recorder.current_capture_session_id = sess_id
+        self.paused_run_id = None  # we're now actively recording
+
         logger.info("reference: started run=%s name=%r", run_id, run_name)
-        await self.tcp.send_command(ReferenceStartCmd(path=rec_path))
+        await self.tcp.send_command(ReferenceStartCmd(path=spinrec_path))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REFERENCE)
+
+    async def resume_reference(
+        self, mode: Mode, game_id: str, data_dir: Path,
+    ) -> ActionResult:
+        if not self.paused_run_id:
+            raise NotInReferenceError()
+        if mode == Mode.PRACTICE:
+            raise PracticeActiveError()
+        if mode == Mode.REPLAY:
+            raise AlreadyReplayingError()
+        if not self.tcp.is_connected:
+            raise NotConnectedError()
+
+        run_id = self.paused_run_id
+        sess_id, spinrec_path = self._create_new_session(run_id, data_dir, game_id)
+        self.recorder.capture_run_id = run_id
+        self.recorder.current_capture_session_id = sess_id
+        self.paused_run_id = None
+
+        logger.info("reference: resumed run=%s sess=%s", run_id, sess_id)
+        await self.tcp.send_command(ReferenceStartCmd(path=spinrec_path))
+        return ActionResult(status=Status.STARTED, new_mode=Mode.REFERENCE)
+
+    # ---------------------------------------------------------------- stop/finalize/discard
 
     async def stop_reference(self, mode: Mode) -> ActionResult:
         if mode != Mode.REFERENCE:
             raise NotInReferenceError()
         if self.tcp.is_connected:
             await self.tcp.send_command(ReferenceStopCmd())
-        logger.info("reference: stopped — %d segments captured", self.recorder.segments_count)
-        self._enter_draft_from_capture()
-        self.recorder.clear()
+        seg_count_in_run = self.db.conn.execute(
+            "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
+            (self.recorder.capture_run_id,),
+        ).fetchone()[0] if self.recorder.capture_run_id else 0
+        logger.info("reference: stopped — %d total segments in run", seg_count_in_run)
+        self._end_current_session(end_reason="stopped")
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
 
-    # --- Replay mode ---
+    async def finalize_run(self, name: str, scheduler: "Scheduler | None" = None) -> ActionResult:
+        if not self.paused_run_id:
+            raise NotInReferenceError()
+        run_id = self.paused_run_id
+        timing_rows = self.db.drain_recorded_segment_times_for_run(run_id)
+        self.db.promote_draft(run_id, name)
+        self.db.set_active_capture_run(run_id)
+        seeded = _seed_reference_attempts(self.db, run_id, timing_rows)
+        if seeded and scheduler:
+            scheduler.rebuild_all_states()
+        self.paused_run_id = None
+        logger.info("reference: finalized run=%s as %r (seeded %d attempts)",
+                     run_id, name, seeded)
+        return ActionResult(status=Status.OK)
+
+    async def save_and_finish_run(
+        self, mode: Mode, name: str, scheduler: "Scheduler | None" = None,
+    ) -> ActionResult:
+        """Combined Stop Session + Finalize, atomic.
+
+        Atomicity is achieved with an explicit ``BEGIN IMMEDIATE`` / commit block
+        that inlines all mutations directly on ``db.conn``, bypassing the mixin
+        methods that each call ``conn.commit()`` internally. Calling a mixin's
+        commit() inside an outer BEGIN would commit the partial work done up to
+        that point, breaking atomicity.
+
+        Session end (``_end_current_session``) happens *before* the atomic block
+        because it is independently safe: the session row is stamped with
+        ``ended_at`` regardless of whether finalization later succeeds, and a
+        failed finalization leaves the run in PAUSED state where the user can
+        retry or discard.
+
+        The critical atomic unit is: drain timing rows → promote draft → set
+        active → seed attempts. If any step raises, ``conn.rollback()`` undoes
+        all of them. The spinrec file and recorder state are unaffected (the TCP
+        stop was already sent, a non-transactional side-effect).
+        """
+        if mode != Mode.REFERENCE:
+            raise NotInReferenceError()
+        if self.tcp.is_connected:
+            await self.tcp.send_command(ReferenceStopCmd())
+
+        # End session first (independently safe — leaves run in PAUSED state)
+        self._end_current_session(end_reason="stopped")
+        run_id = self.paused_run_id
+        if not run_id:
+            raise NotInReferenceError()
+
+        try:
+            self.db.conn.execute("BEGIN IMMEDIATE")
+            # Drain timing rows and delete them inside this transaction
+            rows = self.db.conn.execute(
+                "SELECT t.id, t.capture_session_id, t.segment_id, t.time_ms, "
+                "t.deaths, t.clean_tail_ms, t.recorded_at "
+                "FROM recorded_segment_times t "
+                "JOIN capture_sessions s ON t.capture_session_id = s.id "
+                "WHERE s.capture_run_id = ? ORDER BY t.id",
+                (run_id,),
+            ).fetchall()
+            timing_rows = [dict(r) for r in rows]
+            ids = [r["id"] for r in timing_rows]
+            if ids:
+                placeholders = ",".join("?" * len(ids))
+                self.db.conn.execute(
+                    f"DELETE FROM recorded_segment_times WHERE id IN ({placeholders})", ids,
+                )
+            # Promote draft → saved
+            self.db.conn.execute(
+                "UPDATE capture_runs SET draft = 0, name = ? WHERE id = ?",
+                (name, run_id),
+            )
+            # Set as active (deactivate all others for the same game first)
+            game_row = self.db.conn.execute(
+                "SELECT game_id FROM capture_runs WHERE id = ?", (run_id,)
+            ).fetchone()
+            if game_row:
+                self.db.conn.execute(
+                    "UPDATE capture_runs SET active = 0 WHERE game_id = ?",
+                    (game_row[0],),
+                )
+                self.db.conn.execute(
+                    "UPDATE capture_runs SET active = 1 WHERE id = ?", (run_id,)
+                )
+            # Seed reference attempts — all inserts are inside the open transaction
+            now = _dt.now(UTC)
+            seeded = 0
+            for row in timing_rows:
+                attempt = Attempt(
+                    segment_id=row["segment_id"],
+                    session_id=run_id,
+                    completed=True,
+                    time_ms=row["time_ms"],
+                    deaths=row["deaths"],
+                    clean_tail_ms=row["clean_tail_ms"],
+                    source=AttemptSource.REFERENCE,
+                    created_at=now,
+                )
+                self.db.conn.execute(
+                    """INSERT INTO attempts
+                       (segment_id, session_id, completed, time_ms,
+                        strat_version, source, deaths, clean_tail_ms,
+                        observed_start_conditions, observed_end_conditions, invalidated,
+                        chosen_allocator, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (attempt.segment_id, attempt.session_id, int(attempt.completed),
+                     attempt.time_ms,
+                     attempt.strat_version, attempt.source,
+                     attempt.deaths, attempt.clean_tail_ms,
+                     attempt.observed_start_conditions, attempt.observed_end_conditions,
+                     int(attempt.invalidated),
+                     attempt.chosen_allocator,
+                     attempt.created_at.isoformat()),
+                )
+                seeded += 1
+                logger.info("seed: segment=%s time=%dms deaths=%d clean_tail=%dms",
+                             row["segment_id"], row["time_ms"], row["deaths"],
+                             row["clean_tail_ms"])
+            self.db.conn.commit()
+        except Exception:
+            self.db.conn.rollback()
+            raise
+
+        if seeded and scheduler:
+            scheduler.rebuild_all_states()
+        self.paused_run_id = None
+        logger.info("reference: save_and_finish run=%s as %r (seeded %d attempts)",
+                     run_id, name, seeded)
+        return ActionResult(status=Status.OK, new_mode=Mode.IDLE)
+
+    async def discard_run(self) -> ActionResult:
+        if not self.paused_run_id:
+            raise NotInReferenceError()
+        run_id = self.paused_run_id
+        self.db.hard_delete_capture_run(run_id)
+        self.paused_run_id = None
+        logger.info("reference: discarded run=%s", run_id)
+        return ActionResult(status=Status.OK)
+
+    async def delete_capture_session(self, session_id: str) -> ActionResult:
+        """Delete a single capture session. Only allowed while run is paused."""
+        sess = self.db.get_capture_session(session_id)
+        if not sess:
+            raise NotInReferenceError()
+        run_id = sess["capture_run_id"]
+        row = self.db.conn.execute(
+            "SELECT draft FROM capture_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        if not row or row[0] != 1:
+            raise SessionDeleteAfterFinalizeError()
+        try:
+            Path(sess["spinrec_path"]).unlink(missing_ok=True)
+        except OSError:
+            pass
+        self.db.delete_capture_session(session_id)
+        logger.info("session: deleted sess=%s from run=%s", session_id, run_id)
+        return ActionResult(status=Status.OK)
+
+    # ---------------------------------------------------------------- replay
 
     async def start_replay(
         self, mode: Mode,
         game_id: str, spinrec_path: str, speed: int = SPEED_UNCAPPED,
     ) -> ActionResult:
-        if self.draft.has_draft:
-            raise DraftPendingError()
+        if self.paused_run_id:
+            raise RunPendingError()
         if mode == Mode.PRACTICE:
             raise PracticeActiveError()
         if mode == Mode.REFERENCE:
@@ -146,11 +425,19 @@ class ReferenceController:
         if not self.tcp.is_connected:
             raise NotConnectedError()
 
+        # Replay creates its own ephemeral capture_run + session for capture machinery
         self.recorder.clear()
         run_id = f"replay_{uuid.uuid4().hex[:8]}"
         run_name = f"Replay {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
         self.db.create_capture_run(run_id, game_id, run_name, draft=True)
+        sess_id = f"sess_{uuid.uuid4().hex[:8]}"
+        self.db.create_capture_session(
+            session_id=sess_id, capture_run_id=run_id,
+            ordinal=1, spinrec_path=spinrec_path,
+        )
         self.recorder.capture_run_id = run_id
+        self.recorder.current_capture_session_id = sess_id
+
         await self.tcp.send_command(ReplayCmd(path=spinrec_path, speed=speed))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REPLAY)
 
@@ -159,22 +446,26 @@ class ReferenceController:
             raise NotReplayingError()
         if self.tcp.is_connected:
             await self.tcp.send_command(ReplayStopCmd())
-        if self.recorder.segments_count > 0:
-            self._enter_draft_from_capture()
-            self.recorder.clear()
-        else:
-            run_id = self.recorder.capture_run_id
-            self.recorder.clear()
-            if run_id:
-                self.db.hard_delete_capture_run(run_id)
+        run_id = self.recorder.capture_run_id
+        seg_count = self.db.conn.execute(
+            "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
+            (run_id,),
+        ).fetchone()[0] if run_id else 0
+        self._end_current_session(end_reason="stopped")
+        if run_id and seg_count == 0:
+            # Nothing captured — no value in keeping the run; delete it.
+            self.db.hard_delete_capture_run(run_id)
+            self.paused_run_id = None
+        # If segments were captured, the run stays paused so the user can finalize.
+        # recover_paused_capture_run excludes replay_ IDs, so this won't clobber
+        # real paused reference runs on the next dashboard restart.
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
 
-    # --- Fill-gap ---
+    # ---------------------------------------------------------------- fill_gap (unchanged behaviour)
 
     async def start_fill_gap(self, segment_id: str) -> ActionResult:
         if not self.tcp.is_connected:
             raise NotConnectedError()
-        # Look up the start waypoint for this segment and get its hot save state.
         row = self.db.conn.execute(
             "SELECT start_waypoint_id FROM segments WHERE id = ?", (segment_id,)
         ).fetchone()
@@ -189,7 +480,6 @@ class ReferenceController:
         return ActionResult(status=Status.STARTED, new_mode=Mode.FILL_GAP)
 
     def handle_fill_gap_spawn(self, event: SpawnEvent) -> bool:
-        """Returns True if cold save state was captured and mode should return to IDLE."""
         if not event.state_captured or not self.fill_gap_segment_id:
             return False
         waypoint_id = self._fill_gap_waypoint_id
@@ -205,7 +495,7 @@ class ReferenceController:
         self._fill_gap_waypoint_id = None
         return True
 
-    # --- Capture event routing ---
+    # ---------------------------------------------------------------- event routing
 
     def handle_entrance(self, event: LevelEntranceEvent) -> None:
         logger.info("capture: entrance level=%s", event.level)
@@ -229,8 +519,7 @@ class ReferenceController:
                                       self.condition_registry)
 
     def handle_exit(self, event: LevelExitEvent, game_id: str) -> None:
-        logger.info("capture: exit level=%s segments_so_far=%d",
-                     event.level, self.recorder.segments_count)
+        logger.info("capture: exit level=%s", event.level)
         self.recorder.handle_exit(event, game_id, self.db,
                                      self.condition_registry)
 
@@ -238,41 +527,34 @@ class ReferenceController:
         self.recorder.rec_path = event.path
 
     def handle_replay_finished(self) -> None:
-        self._enter_draft_from_capture()
-        self.recorder.clear()
+        # End the session and leave the run paused — the user can finalize or discard.
+        # recover_paused_capture_run excludes replay_ IDs, so this draft won't clobber
+        # a real paused reference run on the next dashboard restart.
+        self._end_current_session(end_reason="stopped")
 
     def handle_replay_error(self) -> None:
-        if self.recorder.segments_count > 0:
-            self._enter_draft_from_capture()
-            self.recorder.clear()
-        else:
-            run_id = self.recorder.capture_run_id
-            self.recorder.clear()
-            if run_id:
-                self.db.hard_delete_capture_run(run_id)
+        run_id = self.recorder.capture_run_id
+        seg_count = self.db.conn.execute(
+            "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
+            (run_id,),
+        ).fetchone()[0] if run_id else 0
+        self._end_current_session(end_reason="replay_error")
+        if run_id and seg_count == 0:
+            # Errored with nothing captured — discard the empty run.
+            self.db.hard_delete_capture_run(run_id)
+            self.paused_run_id = None
+        # If segments were captured before the error, leave as paused so the user
+        # can decide whether to finalize or discard them.
 
     def handle_disconnect(self) -> None:
-        """Handle TCP disconnect — enter draft if segments were captured."""
-        if self.recorder.segments_count > 0:
-            self._enter_draft_from_capture()
-            self.recorder.clear()
-        else:
-            run_id = self.recorder.capture_run_id
-            self.recorder.clear()
-            if run_id:
-                self.db.hard_delete_capture_run(run_id)
+        """Treat as a clean session end. Run stays paused for resume."""
+        self._end_current_session(end_reason="disconnected")
 
-    # --- Draft lifecycle ---
+    # ---------------------------------------------------------------- recovery
 
-    async def save_draft(self, name: str, scheduler=None) -> ActionResult:
-        return self.draft.save(
-            self.db, name,
-            segment_times=self.recorder.segment_times or None,
-            scheduler=scheduler,
-        )
-
-    async def discard_draft(self) -> ActionResult:
-        return self.draft.discard(self.db)
-
-    def recover_draft(self, game_id: str) -> None:
-        self.draft.recover(self.db, game_id)
+    def recover_paused_run(self, game_id: str) -> None:
+        """On game-load, find any paused run for this game and surface it."""
+        run_id = self.db.recover_paused_capture_run(game_id)
+        self.paused_run_id = run_id
+        if run_id:
+            logger.info("recovery: paused run loaded id=%s", run_id)

@@ -1,6 +1,6 @@
 import { segmentName, shortEndpoint, formatTime } from "./format";
 import { fetchJSON, postJSON } from "./api";
-import type { AppState, Reference, ReferenceSegment } from "./types";
+import type { AppState, CaptureSession, Reference, ReferenceSegment } from "./types";
 
 let lastState: AppState | null = null;
 
@@ -32,28 +32,48 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
   const sel = document.getElementById("ref-select") as HTMLSelectElement;
   const btnStart = document.getElementById("btn-ref-start") as HTMLButtonElement;
   const btnReplay = document.getElementById("btn-replay") as HTMLButtonElement;
-  const draftPrompt = document.getElementById("draft-prompt") as HTMLElement;
+  const pausedRunCard = document.getElementById("paused-run-card") as HTMLElement;
 
   const busy =
     lastState != null &&
     (lastState.mode === "reference" || lastState.mode === "replay" ||
      lastState.mode === "cold_fill" || lastState.mode === "fill_gap");
-  const hasDraft = lastState?.draft != null;
+  const pausedRun = lastState?.paused_run || null;
+  const recording = lastState?.mode === "reference";
 
   const noRefs = refs.length === 0;
-  sel.disabled = busy || hasDraft;
-  btnStart.disabled = busy || hasDraft || !lastState?.tcp_connected;
+  sel.disabled = busy || pausedRun != null;
+  btnStart.disabled = busy || pausedRun != null || !lastState?.tcp_connected;
   (document.getElementById("btn-ref-rename") as HTMLButtonElement).disabled =
-    busy || hasDraft || noRefs;
+    busy || pausedRun != null || noRefs;
   (document.getElementById("btn-ref-delete") as HTMLButtonElement).disabled =
-    busy || hasDraft || noRefs;
+    busy || pausedRun != null || noRefs;
 
-  if (hasDraft && lastState?.draft) {
-    draftPrompt.style.display = "";
-    document.getElementById("draft-summary")!.textContent =
-      "\u2713 Captured " + lastState.draft.segments_captured + " segments";
+  // Paused run card
+  if (pausedRun) {
+    pausedRunCard.style.display = "";
+    document.getElementById("paused-run-summary")!.textContent =
+      `${pausedRun.segments_captured} segments captured across ${pausedRun.session_count} sessions`;
+    renderSessionsList(pausedRun.run_id);
   } else {
-    draftPrompt.style.display = "none";
+    pausedRunCard.style.display = "none";
+  }
+
+  (document.getElementById("btn-resume") as HTMLButtonElement).disabled =
+    !pausedRun || recording || !lastState?.tcp_connected;
+  (document.getElementById("btn-save-and-finish") as HTMLButtonElement).disabled =
+    !pausedRun;
+  (document.getElementById("btn-discard-run") as HTMLButtonElement).disabled =
+    !pausedRun;
+
+  // Live recording indicator
+  const recIndicator = document.getElementById("recording-indicator") as HTMLElement;
+  if (recording) {
+    recIndicator.style.display = "";
+    document.getElementById("recording-seg-count")!.textContent =
+      String(lastState?.sections_captured ?? 0);
+  } else {
+    recIndicator.style.display = "none";
   }
 
   sel.innerHTML = "";
@@ -69,14 +89,14 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
   refs.forEach((r) => {
     const opt = document.createElement("option");
     opt.value = r.id;
-    opt.textContent = r.name + (r.active ? " \u25cf" : "");
+    opt.textContent = r.name + (r.active ? " ●" : "");
     if (r.active) opt.selected = true;
     sel.appendChild(opt);
   });
 
   const selectedRef = refs.find((r) => r.id === sel.value);
   btnReplay.disabled =
-    busy || hasDraft || !selectedRef?.has_spinrec || !lastState?.tcp_connected;
+    busy || pausedRun != null || !selectedRef?.has_spinrec || !lastState?.tcp_connected;
 
   const cfBanner = document.getElementById("cold-fill-banner") as HTMLElement | null;
   if (cfBanner) {
@@ -84,9 +104,9 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
       const cf = lastState.cold_fill;
       cfBanner.innerHTML =
         '<div class="cold-fill-status">' +
-        "<strong>Capturing cold starts</strong> \u2014 " +
+        "<strong>Capturing cold starts</strong> — " +
         "Die to continue (" + cf.current + "/" + cf.total + ")" +
-        (cf.segment_label ? " \u2014 " + cf.segment_label : "") +
+        (cf.segment_label ? " — " + cf.segment_label : "") +
         "</div>";
       cfBanner.style.display = "block";
     } else {
@@ -100,8 +120,8 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
     const tr = document.createElement("tr");
     const hasState = s.state_path != null;
     const stateCell = hasState
-      ? '<span class="state-ok">\u2705</span>'
-      : '<button class="btn-fill-gap" data-id="' + s.id + '">\u274c</button>';
+      ? '<span class="state-ok">✅</span>'
+      : '<button class="btn-fill-gap" data-id="' + s.id + '">❌</button>';
     tr.innerHTML =
       '<td><input class="segment-name-input" value="' +
       (s.description || "") +
@@ -111,13 +131,40 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
       "<td>" + s.level_number + "</td>" +
       "<td>" +
       shortEndpoint(s.start_type, s.start_ordinal) +
-      " \u2192 " +
+      " → " +
       shortEndpoint(s.end_type, s.end_ordinal) +
       "</td>" +
       "<td>" + stateCell + "</td>" +
-      '<td><button class="btn-x" data-id="' + s.id + '">\u2715</button></td>';
+      '<td><button class="btn-x" data-id="' + s.id + '">✕</button></td>';
     body.appendChild(tr);
   });
+}
+
+async function renderSessionsList(runId: string): Promise<void> {
+  const data = await fetchJSON<{ sessions: CaptureSession[] }>(
+    `/api/capture_sessions?run_id=${encodeURIComponent(runId)}`,
+  );
+  const body = document.getElementById("sessions-body")!;
+  body.innerHTML = "";
+  (data?.sessions || []).forEach((s) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td>${s.ordinal}</td>` +
+      `<td>${s.started_at}</td>` +
+      `<td>${s.ended_at || "(open)"}</td>` +
+      `<td>${s.end_reason || ""}</td>` +
+      `<td>&#8212;</td>` +
+      `<td><button data-sess-id="${s.id}" class="btn-del-sess btn-sm btn-danger-sm">Delete</button></td>`;
+    body.appendChild(tr);
+  });
+  body.querySelectorAll(".btn-del-sess").forEach((btn) =>
+    btn.addEventListener("click", async (e) => {
+      const sid = (e.currentTarget as HTMLElement).getAttribute("data-sess-id")!;
+      if (!confirm("Delete this session and its segments?")) return;
+      await fetch(`/api/capture_sessions/${sid}`, { method: "DELETE" });
+      await fetchManage();
+    }),
+  );
 }
 
 export function updateManageState(data: AppState): void {
@@ -145,7 +192,7 @@ export function initManageTab(): void {
       const id = target.dataset.id;
       const data = await postJSON<{ status?: string }>("/api/segments/" + id + "/fill-gap");
       if (data?.status === "started") {
-        target.textContent = "\u23f3";
+        target.textContent = "⏳";
         (target as HTMLButtonElement).disabled = true;
       }
       return;
@@ -169,7 +216,7 @@ export function initManageTab(): void {
     const sel = document.getElementById("ref-select") as HTMLSelectElement;
     const name = prompt(
       "New name:",
-      sel.options[sel.selectedIndex]?.text.replace(" \u25cf", ""),
+      sel.options[sel.selectedIndex]?.text.replace(" ●", ""),
     );
     if (!name) return;
     await fetchJSON("/api/references/" + sel.value, {
@@ -197,22 +244,31 @@ export function initManageTab(): void {
     await postJSON("/api/replay/start", { ref_id: sel.value });
   });
 
-  document.getElementById("btn-draft-save")!.addEventListener("click", async () => {
-    const input = document.getElementById("draft-name") as HTMLInputElement;
-    const name = input.value.trim();
-    if (!name) {
-      input.focus();
-      return;
-    }
-    await postJSON("/api/references/draft/save", { name });
-    input.value = "";
-    fetchManage();
+  document.getElementById("btn-resume")?.addEventListener("click", async () => {
+    await fetch("/api/reference/resume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
   });
 
-  document.getElementById("btn-draft-discard")!.addEventListener("click", async () => {
-    if (!confirm("Discard this capture? This cannot be undone.")) return;
-    await postJSON("/api/references/draft/discard");
-    fetchManage();
+  document.getElementById("btn-save-and-finish")?.addEventListener("click", async () => {
+    const nameInput = document.getElementById("finalize-name") as HTMLInputElement;
+    const name = nameInput?.value?.trim() || "Untitled";
+    await fetch("/api/reference/save_and_finish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+  });
+
+  document.getElementById("btn-discard-run")?.addEventListener("click", async () => {
+    if (!confirm("Discard this run? All sessions and segments will be deleted.")) return;
+    await fetch("/api/reference/discard_run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
   });
 
   document.getElementById("btn-reset")!.addEventListener("click", async () => {

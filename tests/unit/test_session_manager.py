@@ -69,7 +69,7 @@ class TestEventRouting:
         await sm.route_event({"event": "level_entrance", "level": 1, "room": 0})
         await sm.route_event({"event": "level_exit", "level": 1, "room": 0, "goal": "normal"})
         assert sm.ref_capture.pending_start is None
-        assert sm.ref_capture.segments_count == 0
+        assert mock_db.upsert_segment.call_count == 0
 
 
 class TestModeGuards:
@@ -116,7 +116,7 @@ class TestReferenceCapture:
             "event": "level_exit", "level": 105, "room": 0,
             "goal": "normal", "elapsed_ms": 5000,
         })
-        assert sm.ref_capture.segments_count == 1
+        assert mock_db.upsert_segment.call_count == 1
 
     async def test_exit_pairs_across_rooms(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
@@ -132,7 +132,7 @@ class TestReferenceCapture:
             "event": "level_exit", "level": 105, "room": 5,
             "goal": "normal", "elapsed_ms": 8000,
         })
-        assert sm.ref_capture.segments_count == 1
+        assert mock_db.upsert_segment.call_count == 1
         seg = mock_db.upsert_segment.call_args[0][0]
         assert seg.level_number == 105
 
@@ -143,7 +143,7 @@ class TestReferenceCapture:
 
         await sm.route_event({"event": "level_entrance", "level": 105, "room": 0})
         await sm.route_event({"event": "level_exit", "level": 105, "room": 0, "goal": "abort"})
-        assert sm.ref_capture.segments_count == 0
+        assert mock_db.upsert_segment.call_count == 0
 
     async def test_checkpoint_creates_segment(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
@@ -160,7 +160,7 @@ class TestReferenceCapture:
             "timestamp_ms": 5000, "state_path": "/states/105_cp1_hot.mss",
         })
 
-        assert sm.ref_capture.segments_count == 1
+        assert mock_db.upsert_segment.call_count == 1
         seg = mock_db.upsert_segment.call_args[0][0]
         assert seg.start_type == "entrance"
         assert seg.end_type == "checkpoint"
@@ -186,7 +186,7 @@ class TestReferenceCapture:
             "goal": "normal", "elapsed_ms": 10000,
         })
 
-        assert sm.ref_capture.segments_count == 2
+        assert mock_db.upsert_segment.call_count == 2
         seg2 = mock_db.upsert_segment.call_args_list[1][0][0]
         assert seg2.start_type == "checkpoint"
         assert seg2.end_type == "goal"
@@ -251,8 +251,8 @@ class TestColdFill:
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
 
-        # Set up draft
-        sm.capture.draft.enter_draft("run1", 3)
+        # Set up paused run
+        sm.capture.paused_run_id = "run1"
 
         # Mock: 2 segments missing cold
         mock_db.segments_missing_cold = MagicMock(return_value=[
@@ -264,17 +264,17 @@ class TestColdFill:
              "end_type": "goal", "end_ordinal": 0, "description": ""},
         ])
 
-        result = await sm.save_draft("Test")
+        result = await sm.finalize_run("Test")
         assert result.status == Status.OK
         assert sm.mode == Mode.COLD_FILL
 
     async def test_save_draft_no_gaps_stays_idle(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
-        sm.capture.draft.enter_draft("run1", 3)
+        sm.capture.paused_run_id = "run1"
         mock_db.segments_missing_cold = MagicMock(return_value=[])
 
-        result = await sm.save_draft("Test")
+        result = await sm.finalize_run("Test")
         assert result.status == Status.OK
         assert sm.mode == Mode.IDLE
 
@@ -425,7 +425,7 @@ class TestPracticeLifecycle:
     async def test_start_practice_blocked_by_draft(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
-        sm.capture.draft.run_id = "fake_draft_run"
+        sm.capture.paused_run_id = "fake_paused_run"
         with pytest.raises(DraftPendingError):
             await sm.start_practice()
 
@@ -490,7 +490,7 @@ class TestSpeedRunLifecycle:
     async def test_start_blocked_by_draft(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
-        sm.capture.draft.run_id = "fake_draft_run"
+        sm.capture.paused_run_id = "fake_paused_run"
         with pytest.raises(DraftPendingError):
             await sm.start_speed_run()
 

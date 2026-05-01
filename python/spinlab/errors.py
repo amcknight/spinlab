@@ -25,8 +25,20 @@ class NotConnectedError(ActionError):
 
 
 class DraftPendingError(ActionError):
+    """A draft reference run is pending save or discard."""
     http_code = 409
     detail = "draft_pending"
+
+
+class SessionDeleteAfterFinalizeError(ActionError):
+    """Cannot delete a capture session after the run has been finalized."""
+    http_code = 409
+    detail = "session_delete_after_finalize"
+
+
+# Forward name — same semantics as DraftPendingError, kept for new code clarity.
+# Task 14 will migrate call sites to use RunPendingError directly.
+RunPendingError = DraftPendingError
 
 
 class PracticeActiveError(ActionError):
