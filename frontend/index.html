@@ -124,14 +124,28 @@
         </div>
       </div>
 
-      <!-- Draft save/discard prompt (hidden by default) -->
-      <div id="draft-prompt" class="manage-section draft-prompt" style="display:none">
-        <p id="draft-summary"></p>
-        <input id="draft-name" type="text" placeholder="Name this run..." autocomplete="off">
-        <div class="draft-actions">
-          <button id="btn-draft-save" class="btn-primary">Save</button>
-          <button id="btn-draft-discard" class="btn-danger">Discard</button>
+      <!-- Live recording indicator (shown while mode == "reference") -->
+      <div id="recording-indicator" class="manage-section" style="display:none">
+        <p>Recording &mdash; <span id="recording-seg-count">0</span> segments captured this run</p>
+      </div>
+
+      <!-- Paused run card (replaces old draft prompt) -->
+      <div id="paused-run-card" class="manage-section paused-run-card" style="display:none">
+        <h3>Run paused</h3>
+        <p id="paused-run-summary"></p>
+        <input id="finalize-name" type="text" placeholder="Name this run...">
+        <div class="paused-run-actions">
+          <button id="btn-save-and-finish" class="btn-primary">Save &amp; Finish Run</button>
+          <button id="btn-resume" class="btn-primary">Resume</button>
+          <button id="btn-discard-run" class="btn-danger">Discard</button>
         </div>
+        <details>
+          <summary>Sessions</summary>
+          <table id="sessions-table">
+            <thead><tr><th>#</th><th>Started</th><th>Ended</th><th>Reason</th><th>Segs</th><th></th></tr></thead>
+            <tbody id="sessions-body"></tbody>
+          </table>
+        </details>
       </div>
 
       <!-- Segments table -->

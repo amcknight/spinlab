@@ -27,6 +27,14 @@ class StateBuilder:
 
     def build(self, session: "SessionManager") -> dict:
         """Full state snapshot — replaces SessionManager.get_state()."""
+        sections_captured: int | None = None
+        if session.capture.recorder.capture_run_id:
+            row = self.db.conn.execute(
+                "SELECT COUNT(*) FROM segments WHERE reference_id = ? AND active = 1",
+                (session.capture.recorder.capture_run_id,),
+            ).fetchone()
+            sections_captured = row[0]
+
         base = {
             "mode": session.mode.value,
             "tcp_connected": session.tcp.is_connected,
@@ -35,7 +43,7 @@ class StateBuilder:
             "current_segment": None,
             "recent": [],
             "session": None,
-            "sections_captured": None,
+            "sections_captured": sections_captured,
             "allocator_weights": None,
             "estimator": None,
         }

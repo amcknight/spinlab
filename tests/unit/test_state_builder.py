@@ -90,6 +90,51 @@ class TestColdFillBranch:
         assert "cold_fill" not in state
 
 
+class TestSectionsCaptured:
+    def test_sections_captured_none_when_idle(self, practice_db, mock_tcp):
+        """sections_captured is None when no active recording session."""
+        sm = _make_sm(practice_db, mock_tcp)
+        sm.game_id = "g"
+        sm.game_name = "Game"
+        # No capture_run_id set → None
+        state = sm.get_state()
+        assert state["sections_captured"] is None
+
+    def test_sections_captured_count_when_recording(self, practice_db, mock_tcp):
+        """sections_captured reflects DB segment count for the active capture run."""
+        from spinlab.models import Mode
+
+        sm = _make_sm(practice_db, mock_tcp)
+        sm.game_id = "g"
+        sm.game_name = "Game"
+        sm.mode = Mode.REFERENCE
+
+        # Create a draft capture_run and associate it with the recorder
+        run_id = "run-test-count"
+        practice_db.create_capture_run(run_id, "g", "Test", draft=True)
+
+        # Add a segment linked to this run
+        from spinlab.models import Segment, Waypoint
+        wp_s = Waypoint.make("g", 2, "entrance", 0, {})
+        wp_e = Waypoint.make("g", 2, "goal", 0, {})
+        practice_db.upsert_waypoint(wp_s)
+        practice_db.upsert_waypoint(wp_e)
+        seg = Segment(
+            id=Segment.make_id("g", 2, "entrance", 0, "goal", 0, wp_s.id, wp_e.id),
+            game_id="g", level_number=2,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0,
+            start_waypoint_id=wp_s.id, end_waypoint_id=wp_e.id,
+            ordinal=1,
+            reference_id=run_id,
+        )
+        practice_db.upsert_segment(seg)
+
+        sm.capture.recorder.capture_run_id = run_id
+        state = sm.get_state()
+        assert state["sections_captured"] == 1
+
+
 class TestDraftBranch:
     def test_paused_run_state_included_when_active(self, practice_db, mock_tcp):
         sm = _make_sm(practice_db, mock_tcp)
