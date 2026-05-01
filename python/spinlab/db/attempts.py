@@ -102,6 +102,8 @@ class AttemptsMixin:
         """Last N attempts joined with segment info, most recent first.
 
         If session_id is given, only return attempts from that session.
+        Note: ``session_id`` is matched against ``attempts.parent_id``, which
+        is polymorphic (practice session id, capture run id, or speed-run id).
         """
         where = "s.game_id = ?"
         params: list = [game_id]
@@ -158,6 +160,9 @@ class AttemptsMixin:
         self.conn.commit()
 
     def get_last_practice_attempt(self, session_id: str) -> int | None:
+        """Most recent attempt id for a given parent (practice session today,
+        but ``parent_id`` is polymorphic; the only caller is the practice-mode
+        invalidate flow)."""
         row = self.conn.execute(
             "SELECT id FROM attempts WHERE parent_id = ? "
             "ORDER BY id DESC LIMIT 1",

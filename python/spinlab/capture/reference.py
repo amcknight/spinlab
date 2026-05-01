@@ -393,6 +393,7 @@ class ReferenceController:
             self.db.conn.rollback()
             raise
 
+        # Always rebuild — see finalize_run for rationale.
         if scheduler:
             scheduler.rebuild_all_states()
         self.paused_run_id = None
