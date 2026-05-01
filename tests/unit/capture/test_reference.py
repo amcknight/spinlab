@@ -128,8 +128,70 @@ class TestStopReplay:
         assert row is None, "capture_run should have been hard-deleted"
 
 
+class TestHandleReplayFinished:
+    async def test_hard_deletes_run_after_replay_finishes(self, controller, db):
+        """handle_replay_finished must always hard-delete the replay's capture_run.
+
+        Without this, the draft row leaks into recover_paused_capture_run and can
+        silently destroy a real paused reference run on the next dashboard restart.
+        """
+        await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
+        run_id = controller.recorder.capture_run_id
+
+        controller.handle_replay_finished()
+
+        row = db.conn.execute(
+            "SELECT id FROM capture_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        assert row is None, "replay capture_run must be hard-deleted after replay finishes"
+
+    async def test_replay_does_not_clobber_paused_reference_run(self, controller, db, tmp_path):
+        """After replay, a separately-paused reference run must survive recovery.
+
+        The bug: handle_replay_finished left the replay's draft=1 capture_run in the
+        DB. On next startup, recover_paused_capture_run sees TWO drafts, picks the
+        newest (the replay run), hard-deletes the real one, and surfaces trash.
+
+        This test inserts a real paused run directly, runs a replay, calls
+        handle_replay_finished, then verifies recover_paused_capture_run still
+        finds the real run (not None, not the replay's run).
+
+        Note: start_replay guards against a live paused_run_id, so we can't replay
+        while one is in-memory — instead we simulate the crash/restart scenario by
+        writing the real paused run directly to the DB before replay starts.
+        """
+        # Simulate a real paused run already in the DB (e.g. from a previous session)
+        real_run_id = "ref_real_run"
+        db.create_capture_run(real_run_id, "g1", "My Real Run", draft=True)
+
+        # Do a replay (paused_run_id is None so no guard fires)
+        await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
+        replay_run_id = controller.recorder.capture_run_id
+        assert replay_run_id != real_run_id
+
+        controller.handle_replay_finished()
+
+        # Replay run must be gone
+        assert db.conn.execute(
+            "SELECT id FROM capture_runs WHERE id = ?", (replay_run_id,)
+        ).fetchone() is None
+        # Recovery must find the original paused run, not None
+        recovered = db.recover_paused_capture_run("g1")
+        assert recovered == real_run_id
+
+
 class TestHandleReplayError:
     async def test_no_segments_deletes_run(self, controller, db):
+        await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
+        run_id = controller.recorder.capture_run_id
+        controller.handle_replay_error()
+        row = db.conn.execute(
+            "SELECT id FROM capture_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        assert row is None
+
+    async def test_always_deletes_run_regardless_of_segments(self, controller, db):
+        """handle_replay_error hard-deletes even if segments were captured."""
         await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
         run_id = controller.recorder.capture_run_id
         controller.handle_replay_error()

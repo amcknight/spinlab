@@ -357,16 +357,14 @@ class ReferenceController:
         if self.tcp.is_connected:
             await self.tcp.send_command(ReplayStopCmd())
         run_id = self.recorder.capture_run_id
-        seg_count = self.db.conn.execute(
-            "SELECT COUNT(*) FROM segments WHERE reference_id = ?", (run_id,),
-        ).fetchone()[0] if run_id else 0
-        if seg_count > 0:
-            self._end_current_session(end_reason="stopped")
-        else:
-            self._end_current_session(end_reason="stopped")
-            if run_id:
-                self.db.hard_delete_capture_run(run_id)
-                self.paused_run_id = None
+        # Replay-derived capture_runs are always ephemeral: end the session then
+        # hard-delete the run regardless of how many segments were captured.
+        # This prevents the draft row from leaking into recover_paused_capture_run
+        # and silently destroying real paused runs on the next dashboard restart.
+        self._end_current_session(end_reason="stopped")
+        if run_id:
+            self.db.hard_delete_capture_run(run_id)
+            self.paused_run_id = None
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
 
     # ---------------------------------------------------------------- fill_gap (unchanged behaviour)
@@ -435,15 +433,20 @@ class ReferenceController:
         self.recorder.rec_path = event.path
 
     def handle_replay_finished(self) -> None:
+        run_id = self.recorder.capture_run_id
+        # Replay-derived runs are ephemeral: always hard-delete after replay ends.
+        # Leaving a draft row would cause recover_paused_capture_run to pick it up
+        # on next dashboard start and silently destroy any real paused reference run.
         self._end_current_session(end_reason="stopped")
+        if run_id:
+            self.db.hard_delete_capture_run(run_id)
+            self.paused_run_id = None
 
     def handle_replay_error(self) -> None:
         run_id = self.recorder.capture_run_id
-        seg_count = self.db.conn.execute(
-            "SELECT COUNT(*) FROM segments WHERE reference_id = ?", (run_id,),
-        ).fetchone()[0] if run_id else 0
+        # Same ephemeral cleanup as handle_replay_finished — always hard-delete.
         self._end_current_session(end_reason="replay_error")
-        if seg_count == 0 and run_id:
+        if run_id:
             self.db.hard_delete_capture_run(run_id)
             self.paused_run_id = None
 
