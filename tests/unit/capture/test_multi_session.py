@@ -214,6 +214,11 @@ def test_recovery_logs_warning_when_discarding_stranded_drafts(db, caplog):
     db.upsert_game("smw", "SMW", "any%")
     older = "older_run"
     newer = "newer_run"
+    # Bypass the unique-paused-run-per-game index to construct the stranded-drafts
+    # scenario the recovery code defends against. Production code can't reach this
+    # state (the index prevents it), but raw SQL can — and we still want to verify
+    # recovery handles the edge case gracefully if it ever does.
+    db.conn.execute("DROP INDEX IF EXISTS idx_one_paused_run_per_game")
     db.create_capture_run(older, "smw", "Older", draft=True)
     db.create_capture_run(newer, "smw", "Newer", draft=True)
     # Force created_at ordering
@@ -346,6 +351,24 @@ def test_finalize_raises_no_paused_run_error_when_no_run(db):
     ctl.paused_run_id = None
     with pytest.raises(NoPausedRunError):
         asyncio.run(ctl.finalize_run(name="x", scheduler=None))
+
+
+def test_two_paused_drafts_for_same_game_violate_unique_index(db):
+    """Belt-and-suspenders constraint: at most one non-replay draft per game."""
+    import sqlite3
+    db.upsert_game("smw", "SMW", "any%")
+    db.create_capture_run("run_1", "smw", "1", draft=True)
+    with pytest.raises(sqlite3.IntegrityError):
+        db.create_capture_run("run_2", "smw", "2", draft=True)
+
+
+def test_replay_drafts_can_coexist_with_paused_run(db):
+    """The unique index excludes replay_% IDs, so a replay draft does NOT
+    collide with a real paused run."""
+    db.upsert_game("smw", "SMW", "any%")
+    db.create_capture_run("run_real", "smw", "Real", draft=True)
+    # Should not raise:
+    db.create_capture_run("replay_xx", "smw", "Replay", draft=True)
 
 
 # --- Helpers ---

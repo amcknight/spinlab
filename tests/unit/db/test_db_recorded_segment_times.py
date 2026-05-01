@@ -32,7 +32,10 @@ def test_add_and_drain_recorded_segment_times(db):
 
 
 def test_drain_only_pulls_from_specified_run(db):
-    db.create_capture_run("run_other", "smw", "Other", draft=True)
+    # Non-draft so it doesn't collide with run_1 under the
+    # one-paused-run-per-game unique index. Drain filters by run_id and
+    # doesn't care about draft state.
+    db.create_capture_run("run_other", "smw", "Other", draft=False)
     db.create_capture_session("sess_other", "run_other", 1, "/tmp/o.spinrec")
     db.add_recorded_segment_time("sess_1", "seg_x", time_ms=100, deaths=0, clean_tail_ms=100)
     db.add_recorded_segment_time("sess_other", "seg_y", time_ms=200, deaths=0, clean_tail_ms=200)

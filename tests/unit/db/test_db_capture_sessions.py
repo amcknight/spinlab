@@ -125,6 +125,11 @@ def test_hard_delete_capture_run_removes_spinrec_files(tmp_path, db):
 def test_recover_paused_capture_run_finds_most_recent_draft(db):
     # Three draft runs for same game; recover picks most recent and removes all older ones
     import time
+    # Bypass the unique-paused-run-per-game index to construct the multi-draft
+    # scenario the recovery code defends against. Production code can't reach this
+    # state (the index prevents it), but raw SQL can — and we still want to verify
+    # recovery handles the edge case gracefully if it ever does.
+    db.conn.execute("DROP INDEX IF EXISTS idx_one_paused_run_per_game")
     db.create_capture_run("run_old", "smw", "Old", draft=True)
     time.sleep(0.01)  # ensure different created_at
     db.create_capture_run("run_new", "smw", "New", draft=True)

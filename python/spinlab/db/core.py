@@ -141,6 +141,9 @@ CREATE INDEX IF NOT EXISTS idx_transitions_game ON transitions(game_id, created_
 CREATE INDEX IF NOT EXISTS idx_capture_sessions_run ON capture_sessions(capture_run_id, ordinal);
 CREATE INDEX IF NOT EXISTS idx_recorded_segment_times_session ON recorded_segment_times(capture_session_id);
 CREATE INDEX IF NOT EXISTS idx_segments_capture_session ON segments(capture_session_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_paused_run_per_game
+  ON capture_runs(game_id)
+  WHERE draft = 1 AND id NOT LIKE 'replay_%';
 """
 
 
