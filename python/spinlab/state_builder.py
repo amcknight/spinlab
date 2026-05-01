@@ -35,7 +35,7 @@ class StateBuilder:
             "current_segment": None,
             "recent": [],
             "session": None,
-            "sections_captured": session.capture.sections_captured,
+            "sections_captured": None,
             "allocator_weights": None,
             "estimator": None,
         }
@@ -62,9 +62,9 @@ class StateBuilder:
                 "total": session.replay_total,
             }
 
-        draft_state = session.capture.get_draft_state()
-        if draft_state:
-            base["draft"] = draft_state
+        paused_run = session.capture.get_paused_state()
+        if paused_run:
+            base["paused_run"] = paused_run
 
         if session.mode == Mode.COLD_FILL:
             cf_state = session.cold_fill.get_state()

@@ -151,10 +151,6 @@ class SessionManager:
         return self.capture.recorder
 
     @property
-    def draft(self):
-        return self.capture.draft
-
-    @property
     def fill_gap_segment_id(self):
         return self.capture.fill_gap_segment_id
 
@@ -206,7 +202,7 @@ class SessionManager:
         self.game_name = game_name
         self.scheduler = None
         self.mode = Mode.IDLE
-        self.capture.recover_draft(game_id)
+        self.capture.recover_paused_run(game_id)
         await self._notify_sse()
 
     # --- SSE (delegate to broadcaster) ---
@@ -405,9 +401,9 @@ class SessionManager:
             await self.capture.start_fill_gap(segment_id)
         )
 
-    async def save_draft(self, name: str) -> ActionResult:
+    async def finalize_run(self, name: str) -> ActionResult:
         scheduler = self.get_scheduler() if self.game_id else None
-        result = await self.capture.save_draft(name, scheduler=scheduler)
+        result = await self.capture.finalize_run(name, scheduler=scheduler)
         if result.status == Status.OK and self.game_id and self.tcp.is_connected:
             cf_result = await self.cold_fill.start(self.game_id)
             if cf_result.new_mode == Mode.COLD_FILL:
@@ -415,15 +411,39 @@ class SessionManager:
         await self._notify_sse()
         return result
 
-    async def discard_draft(self) -> ActionResult:
-        result = await self.capture.discard_draft()
+    async def save_and_finish_run(self, name: str) -> ActionResult:
+        scheduler = self.get_scheduler() if self.game_id else None
+        result = await self.capture.save_and_finish_run(self.mode, name, scheduler=scheduler)
+        if result.new_mode is not None:
+            self.mode = result.new_mode
+        if result.status == Status.OK and self.game_id and self.tcp.is_connected:
+            cf_result = await self.cold_fill.start(self.game_id)
+            if cf_result.new_mode == Mode.COLD_FILL:
+                self.mode = Mode.COLD_FILL
+        await self._notify_sse()
+        return result
+
+    async def discard_run(self) -> ActionResult:
+        result = await self.capture.discard_run()
+        await self._notify_sse()
+        return result
+
+    async def resume_reference(self) -> ActionResult:
+        return await self._apply_result(
+            await self.capture.resume_reference(
+                self.mode, self.require_game(), self.data_dir,
+            )
+        )
+
+    async def delete_capture_session(self, session_id: str) -> ActionResult:
+        result = await self.capture.delete_capture_session(session_id)
         await self._notify_sse()
         return result
 
     # --- Practice mode ---
 
     async def start_practice(self) -> ActionResult:
-        if self.capture.has_draft:
+        if self.capture.has_paused_run:
             raise DraftPendingError()
         if self.practice_session and self.practice_session.is_running:
             raise AlreadyRunningError()
@@ -469,7 +489,7 @@ class SessionManager:
     # --- Speed Run mode ---
 
     async def start_speed_run(self) -> ActionResult:
-        if self.capture.has_draft:
+        if self.capture.has_paused_run:
             raise DraftPendingError()
         if self.speed_run_session and self.speed_run_session.is_running:
             raise AlreadyRunningError()

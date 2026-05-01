@@ -91,13 +91,15 @@ class TestColdFillBranch:
 
 
 class TestDraftBranch:
-    def test_draft_state_included_when_active(self, practice_db, mock_tcp):
+    def test_paused_run_state_included_when_active(self, practice_db, mock_tcp):
         sm = _make_sm(practice_db, mock_tcp)
         sm.game_id = "g"
         sm.game_name = "Game"
 
-        sm.capture.draft.enter_draft("run-xyz", 7)
+        # Create a capture run in the DB and set as paused
+        practice_db.create_capture_run("run-xyz", "g", "Test Run", draft=True)
+        sm.capture.paused_run_id = "run-xyz"
 
         state = sm.get_state()
-        assert state["draft"]["run_id"] == "run-xyz"
-        assert state["draft"]["segments_captured"] == 7
+        assert state["paused_run"]["run_id"] == "run-xyz"
+        assert state["paused_run"]["segments_captured"] == 0

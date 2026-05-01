@@ -95,8 +95,8 @@ class TestColdFillIntegration:
         # Set up and save draft — capture run must exist before segments (FK)
         db.create_capture_run("run1", "g1", "Test Run", draft=True)
         segs, wp_cp1, wp_cp2 = _create_segments_with_hot_only(db)
-        sm.capture.draft.enter_draft("run1", 3)
-        result = await sm.save_draft("Test Run")
+        sm.capture.paused_run_id = "run1"
+        result = await sm.finalize_run("Test Run")
 
         assert result.status == Status.OK
         assert sm.mode == Mode.COLD_FILL
