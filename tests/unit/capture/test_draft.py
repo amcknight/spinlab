@@ -6,7 +6,11 @@ from spinlab.db import Database
 from spinlab.errors import DraftPendingError, NoDraftError
 from spinlab.models import Mode, Segment, Status, Waypoint
 from spinlab.session_manager import SessionManager
-from spinlab.capture import DraftManager, RecordedSegmentTime
+from spinlab.capture.draft import DraftManager
+try:
+    from spinlab.capture.recorder import RecordedSegmentTime  # type: ignore[attr-defined]
+except ImportError:
+    RecordedSegmentTime = None  # type: ignore[assignment,misc]  # removed in Task 9
 from spinlab.capture.draft import _seed_reference_attempts as seed_reference_attempts
 
 
