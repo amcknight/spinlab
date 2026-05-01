@@ -24,9 +24,20 @@ class NotConnectedError(ActionError):
     detail = "not_connected"
 
 
-class DraftPendingError(ActionError):
+class RunPendingError(ActionError):
+    """A reference run is already in progress or paused."""
     http_code = 409
-    detail = "draft_pending"
+    detail = "run_pending"
+
+
+class SessionDeleteAfterFinalizeError(ActionError):
+    """Cannot delete a capture session after the run has been finalized."""
+    http_code = 409
+    detail = "session_delete_after_finalize"
+
+
+# legacy alias — keep old imports working until Task 14 fully migrates
+DraftPendingError = RunPendingError
 
 
 class PracticeActiveError(ActionError):
