@@ -96,15 +96,6 @@ def list_references(session: SessionManager = Depends(get_session), db: Database
     return {"references": out}
 
 
-@router.post("/references")
-def create_reference(body: dict, session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
-    import uuid
-    run_id = f"ref_{uuid.uuid4().hex[:8]}"
-    name = body.get("name", "Untitled")
-    db.create_capture_run(run_id, session.require_game(), name)
-    return {"id": run_id, "name": name}
-
-
 @router.post("/reference/finalize")
 async def reference_finalize(req: Request, session: SessionManager = Depends(get_session)):
     body = await req.json()

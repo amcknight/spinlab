@@ -1,9 +1,9 @@
 """Tests for .poke scenario file parser."""
 
 import json
+
 import pytest
 from tests.integration.poke_parser import parse_poke
-
 
 SIMPLE_SCENARIO = """\
 # entrance_goal.poke — Level entrance then normal goal

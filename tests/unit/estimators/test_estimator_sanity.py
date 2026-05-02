@@ -13,13 +13,15 @@ from spinlab.estimators import Estimator, get_estimator, list_estimators
 # Force registration of all estimators at import time
 from spinlab.estimators.kalman import KalmanEstimator  # noqa: F401
 from spinlab.estimators.rolling_mean import RollingMeanEstimator  # noqa: F401
+
 try:
     from spinlab.estimators.exp_decay import ExpDecayEstimator  # noqa: F401
 except ImportError:
     pass
 
-from spinlab.models import AttemptRecord, Estimate, ModelOutput
 from tests.factories import make_attempt_record, make_incomplete
+
+from spinlab.models import AttemptRecord, Estimate, ModelOutput
 
 ALL_ESTIMATOR_NAMES = list_estimators()
 
@@ -309,9 +311,10 @@ class TestAllIncomplete:
 
 class TestEstimatorStateDeserialize:
     def test_kalman_round_trip(self):
+        import json
+
         from spinlab.estimators import EstimatorState
         from spinlab.estimators.kalman import KalmanState
-        import json
         original = KalmanState(mu=12.0, d=-0.5, n_completed=5, n_attempts=8)
         json_str = json.dumps(original.to_dict())
         restored = EstimatorState.deserialize("kalman", json_str)
@@ -320,9 +323,10 @@ class TestEstimatorStateDeserialize:
         assert restored.n_completed == 5
 
     def test_rolling_mean_round_trip(self):
+        import json
+
         from spinlab.estimators import EstimatorState
         from spinlab.estimators.rolling_mean import RollingMeanState
-        import json
         original = RollingMeanState(n_completed=10, n_attempts=15)
         json_str = json.dumps(original.to_dict())
         restored = EstimatorState.deserialize("rolling_mean", json_str)
@@ -335,7 +339,8 @@ class TestEstimatorStateDeserialize:
             EstimatorState.deserialize("nonexistent", "{}")
 
     def test_malformed_json_raises(self):
-        from spinlab.estimators import EstimatorState
         import json
+
+        from spinlab.estimators import EstimatorState
         with pytest.raises(json.JSONDecodeError):
             EstimatorState.deserialize("kalman", "{bad json")

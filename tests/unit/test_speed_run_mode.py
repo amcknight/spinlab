@@ -1,12 +1,11 @@
 """Tests for Speed Run mode enum and transitions."""
 import asyncio
-import os
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+
 from spinlab.db import Database
-from spinlab.models import Mode, Segment, Waypoint, WaypointSaveState, Attempt, transition_mode
+from spinlab.models import Mode, Segment, Waypoint, WaypointSaveState, transition_mode
 
 
 def test_speed_run_mode_exists():
@@ -27,9 +26,13 @@ def test_speed_run_to_practice_illegal():
 
 
 from spinlab.protocol import (
-    SpeedRunLoadCmd, SpeedRunStopCmd,
-    SpeedRunCheckpointEvent, SpeedRunDeathEvent, SpeedRunCompleteEvent,
-    parse_event, serialize_command,
+    SpeedRunCheckpointEvent,
+    SpeedRunCompleteEvent,
+    SpeedRunDeathEvent,
+    SpeedRunLoadCmd,
+    SpeedRunStopCmd,
+    parse_event,
+    serialize_command,
 )
 
 
@@ -328,8 +331,8 @@ async def test_speed_run_stops_after_last_level(sr_db):
     assert result3 is False
 
 
+from spinlab.models import Status
 from spinlab.session_manager import SessionManager
-from spinlab.models import Mode, ActionResult, Status
 
 
 @pytest.fixture

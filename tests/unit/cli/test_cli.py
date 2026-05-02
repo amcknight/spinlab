@@ -1,5 +1,6 @@
 """Tests for CLI dispatch."""
 import pytest
+
 from spinlab.cli import main
 
 

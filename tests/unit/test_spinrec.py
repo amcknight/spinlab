@@ -1,7 +1,9 @@
 """Tests for .spinrec binary format."""
 import struct
+
 import pytest
-from spinlab.spinrec import read_spinrec, write_spinrec, SpinrecHeader, MAGIC, VERSION
+
+from spinlab.spinrec import MAGIC, VERSION, read_spinrec, write_spinrec
 
 
 def make_spinrec(game_id: str = "abcdef0123456789", frames: list[int] | None = None) -> bytes:

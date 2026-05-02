@@ -1,5 +1,4 @@
 """Regression test: stale estimator name in DB should not crash Scheduler."""
-import pytest
 from spinlab.db import Database
 from spinlab.scheduler import Scheduler
 

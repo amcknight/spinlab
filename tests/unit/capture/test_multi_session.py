@@ -5,13 +5,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
+from tests.conftest import FakeTcpManager
 
 from spinlab.capture import ReferenceController
 from spinlab.db import Database
 from spinlab.errors import DraftPendingError, SessionDeleteAfterFinalizeError
 from spinlab.models import Mode, Status
-
-from tests.conftest import FakeTcpManager
 
 
 @pytest.fixture
@@ -319,9 +318,11 @@ def test_get_segments_by_reference_includes_session_ordinal(db):
 def test_finalize_rebuilds_scheduler_even_when_zero_segments(db):
     """Activating a reference invalidates scheduler state regardless of how many
     new attempts were seeded. Rebuild must fire."""
-    from spinlab.capture.reference import ReferenceController
-    from tests.conftest import FakeTcpManager
     import asyncio
+
+    from tests.conftest import FakeTcpManager
+
+    from spinlab.capture.reference import ReferenceController
 
     db.upsert_game("smw", "SMW", "any%")
     db.create_capture_run("run_e", "smw", "Empty", draft=True)
@@ -343,10 +344,12 @@ def test_finalize_rebuilds_scheduler_even_when_zero_segments(db):
 
 
 def test_finalize_raises_no_paused_run_error_when_no_run(db):
+    import asyncio
+
+    from tests.conftest import FakeTcpManager
+
     from spinlab.capture.reference import ReferenceController
     from spinlab.errors import NoPausedRunError
-    import asyncio
-    from tests.conftest import FakeTcpManager
     ctl = ReferenceController(db, FakeTcpManager(connected=False))
     ctl.paused_run_id = None
     with pytest.raises(NoPausedRunError):
@@ -374,10 +377,12 @@ def test_replay_drafts_can_coexist_with_paused_run(db):
 def test_delete_active_capture_session_raises_session_in_use(db):
     """If the recorder is currently writing into the session, deletion must
     raise SessionInUseError instead of leaving a dangling FK."""
+    import asyncio
+
+    from tests.conftest import FakeTcpManager
+
     from spinlab.capture.reference import ReferenceController
     from spinlab.errors import SessionInUseError
-    import asyncio
-    from tests.conftest import FakeTcpManager
     db.upsert_game("smw", "SMW", "any%")
     db.create_capture_run("run_d", "smw", "D", draft=True)
     db.create_capture_session("active_sess", "run_d", 1, "/tmp/d.spinrec")

@@ -1,8 +1,9 @@
 """Tests for the Kalman estimator (new multi-model interface)."""
 import pytest
-from spinlab.estimators.kalman import KalmanEstimator, KalmanState
-from spinlab.models import AttemptRecord, Estimate, ModelOutput
 from tests.factories import make_attempt_record, make_incomplete
+
+from spinlab.estimators.kalman import KalmanEstimator, KalmanState
+from spinlab.models import AttemptRecord, ModelOutput
 
 
 class TestKalmanProcessAttempt:
@@ -176,6 +177,7 @@ class TestKalmanGetPriors:
 
     def test_population_priors_from_mature_states(self, tmp_path):
         import json
+
         from spinlab.db import Database
         from spinlab.models import Segment
         db = Database(str(tmp_path / "test.db"))

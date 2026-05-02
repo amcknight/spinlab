@@ -1,10 +1,11 @@
 # tests/test_estimator_params.py
 """Tests for estimator tunable params system."""
-from spinlab.estimators import ParamDef, Estimator, get_estimator, list_estimators
+from spinlab.estimators import ParamDef, get_estimator, list_estimators
 
 # Force registration
 from spinlab.estimators.kalman import KalmanEstimator  # noqa: F401
 from spinlab.estimators.rolling_mean import RollingMeanEstimator  # noqa: F401
+
 try:
     from spinlab.estimators.exp_decay import ExpDecayEstimator  # noqa: F401
 except ImportError:
@@ -48,8 +49,6 @@ class TestDeclaredParamsABC:
                 assert isinstance(p, ParamDef)
 
 
-from spinlab.estimators.kalman import KalmanEstimator, KalmanState
-from spinlab.models import AttemptRecord
 from tests.factories import make_attempt_record
 
 
@@ -110,6 +109,7 @@ class TestSchedulerParamsWiring:
     def test_rebuild_all_states_passes_params(self, tmp_path):
         """Scheduler.rebuild_all_states should load and pass estimator params."""
         import json
+
         from spinlab.db import Database
         from spinlab.models import Attempt, Segment
         from spinlab.scheduler import Scheduler
@@ -148,9 +148,10 @@ class TestSchedulerParamsWiring:
 
 class TestEstimatorParamsAPI:
     def test_get_estimator_params_returns_schema(self, tmp_path):
-        from spinlab.db import Database
-        from spinlab.dashboard import create_app
         from starlette.testclient import TestClient
+
+        from spinlab.dashboard import create_app
+        from spinlab.db import Database
 
         db = Database(str(tmp_path / "test.db"))
         db.upsert_game("g1", "TestGame", "any%")
@@ -168,9 +169,10 @@ class TestEstimatorParamsAPI:
         assert isinstance(data["params"], list)
 
     def test_post_estimator_params_saves(self, tmp_path):
-        from spinlab.db import Database
-        from spinlab.dashboard import create_app
         from starlette.testclient import TestClient
+
+        from spinlab.dashboard import create_app
+        from spinlab.db import Database
 
         db = Database(str(tmp_path / "test.db"))
         db.upsert_game("g1", "TestGame", "any%")

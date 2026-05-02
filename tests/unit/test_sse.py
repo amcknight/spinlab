@@ -1,8 +1,6 @@
 """Tests for SSE broadcaster."""
 import asyncio
 
-import pytest
-
 from spinlab.sse import SSEBroadcaster
 
 

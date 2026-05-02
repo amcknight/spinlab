@@ -2,7 +2,6 @@
 from pathlib import Path
 
 import yaml
-import pytest
 
 from spinlab.cli import main
 

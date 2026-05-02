@@ -1,12 +1,11 @@
 """Integration test: full cold-fill cycle with real DB."""
 from unittest.mock import AsyncMock, MagicMock
 
-from spinlab.protocol import ColdFillLoadCmd
-
 import pytest
 
 from spinlab.db import Database
-from spinlab.models import Mode, Segment, Waypoint, WaypointSaveState, Status
+from spinlab.models import Mode, Segment, Status, Waypoint, WaypointSaveState
+from spinlab.protocol import ColdFillLoadCmd
 from spinlab.session_manager import SessionManager
 
 

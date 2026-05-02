@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from spinlab import session_manager as session_manager_module
 from spinlab.errors import (
     AlreadyRunningError,
     DraftPendingError,
@@ -16,9 +17,8 @@ from spinlab.errors import (
     NotConnectedError,
     NotRunningError,
 )
-from spinlab.models import ActionResult, Mode, Status
+from spinlab.models import Mode, Status
 from spinlab.session_manager import SessionManager
-from spinlab import session_manager as session_manager_module
 
 
 def make_sm(mock_db, mock_tcp, **kwargs):
@@ -68,7 +68,7 @@ class TestEventRouting:
 
         await sm.route_event({"event": "level_entrance", "level": 1, "room": 0})
         await sm.route_event({"event": "level_exit", "level": 1, "room": 0, "goal": "normal"})
-        assert sm.ref_capture.pending_start is None
+        assert sm.capture.recorder.pending_start is None
         assert mock_db.upsert_segment.call_count == 0
 
 
@@ -93,20 +93,20 @@ class TestReferenceCapture:
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
-        sm.ref_capture.capture_run_id = "run1"
+        sm.capture.recorder.capture_run_id = "run1"
 
         await sm.route_event({
             "event": "level_entrance", "level": 105, "room": 0,
             "state_path": "/path/to/state.mss",
         })
-        assert sm.ref_capture.pending_start is not None
-        assert sm.ref_capture.pending_start.level_num == 105
+        assert sm.capture.recorder.pending_start is not None
+        assert sm.capture.recorder.pending_start.level_num == 105
 
     async def test_exit_pairs_with_entrance(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
-        sm.ref_capture.capture_run_id = "run1"
+        sm.capture.recorder.capture_run_id = "run1"
 
         await sm.route_event({
             "event": "level_entrance", "level": 105, "room": 0,
@@ -122,7 +122,7 @@ class TestReferenceCapture:
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
-        sm.ref_capture.capture_run_id = "run1"
+        sm.capture.recorder.capture_run_id = "run1"
 
         await sm.route_event({
             "event": "level_entrance", "level": 105, "room": 0,
@@ -165,7 +165,7 @@ class TestReferenceCapture:
         assert seg.start_type == "entrance"
         assert seg.end_type == "checkpoint"
         assert seg.end_ordinal == 1
-        assert sm.ref_capture.pending_start.type == "checkpoint"
+        assert sm.capture.recorder.pending_start.type == "checkpoint"
 
     async def test_checkpoint_then_exit_creates_two_segments(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
@@ -196,27 +196,27 @@ class TestReferenceCapture:
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
         await sm.route_event({"event": "death"})
-        assert sm.ref_capture.died is True
+        assert sm.capture.recorder.died is True
 
     async def test_entrance_clears_ref_died(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
-        sm.ref_capture.capture_run_id = "run1"
-        sm.ref_capture.died = True
+        sm.capture.recorder.capture_run_id = "run1"
+        sm.capture.recorder.died = True
 
         await sm.route_event({
             "event": "level_entrance", "level": 105, "room": 0,
             "state_path": "/states/105.mss",
         })
-        assert sm.ref_capture.died is False
+        assert sm.capture.recorder.died is False
 
 
 class TestFillGap:
     async def test_fill_gap_loads_hot_and_captures_cold(self, practice_db, mock_tcp):
         sm = make_sm(practice_db, mock_tcp)
         sm.game_id = "g"
-        sm.ref_capture.capture_run_id = "run1"
+        sm.capture.recorder.capture_run_id = "run1"
 
         seg_id = practice_db._test_seg_id
 
@@ -242,7 +242,7 @@ class TestFillGap:
         cold = practice_db.get_save_state(seg_row[0], "cold")
         assert cold is not None
         assert cold.state_path == "/cold.mss"
-        assert sm.fill_gap_segment_id is None
+        assert sm.capture.fill_gap_segment_id is None
         assert sm.mode == Mode.IDLE
 
 

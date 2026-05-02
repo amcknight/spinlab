@@ -1,6 +1,5 @@
 """Tests for file-based logging setup."""
 import logging
-from pathlib import Path
 
 from spinlab.cli import _setup_file_logging
 
@@ -48,7 +47,7 @@ def test_log_format_is_compact(tmp_path):
         handler.flush()
 
     content = log_path.read_text(encoding="utf-8")
-    line = [l for l in content.splitlines() if "hello compact" in l][-1]
+    line = [ln for ln in content.splitlines() if "hello compact" in ln][-1]
     # No year prefix (e.g. "2026-")
     assert not line[:5].endswith("-"), f"Expected no year in: {line}"
     # No milliseconds (no comma followed by digits before INFO)

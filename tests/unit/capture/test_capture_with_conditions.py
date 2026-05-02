@@ -1,6 +1,6 @@
-from spinlab.db import Database
 from spinlab.capture import SegmentRecorder
-from spinlab.condition_registry import ConditionRegistry, ConditionDef, Scope
+from spinlab.condition_registry import ConditionDef, ConditionRegistry, Scope
+from spinlab.db import Database
 from spinlab.protocol import LevelEntranceEvent, LevelExitEvent
 
 

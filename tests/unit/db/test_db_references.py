@@ -1,5 +1,6 @@
 """Tests for capture_run and segment reference management."""
 import pytest
+
 from spinlab.db import Database
 from spinlab.models import Segment
 
@@ -171,3 +172,31 @@ class TestHardDelete:
         assert tmp_db.conn.execute(f"SELECT COUNT(*) FROM segments WHERE id='{seg_id}'").fetchone()[0] == 0
         assert tmp_db.conn.execute(f"SELECT COUNT(*) FROM model_state WHERE segment_id='{seg_id}'").fetchone()[0] == 0
         assert tmp_db.conn.execute(f"SELECT COUNT(*) FROM attempts WHERE segment_id='{seg_id}'").fetchone()[0] == 0
+
+    def test_hard_delete_raises_when_spinrec_unlink_fails(self, tmp_db, monkeypatch):
+        """Spinrec file delete failures must surface, not silently leak orphans."""
+        import pathlib
+
+        tmp_db.upsert_game("g1", "Game", "any%")
+        tmp_db.create_capture_run("r1", "g1", "Draft", draft=True)
+        # Create a capture session pointing to a spinrec path that won't unlink.
+        tmp_db.conn.execute(
+            "INSERT INTO capture_sessions "
+            "(id, capture_run_id, ordinal, started_at, ended_at, spinrec_path) "
+            "VALUES ('s1', 'r1', 0, '2026-01-01', '2026-01-01', '/nope/locked.spinrec')"
+        )
+        tmp_db.conn.commit()
+
+        def boom(self, missing_ok=False):
+            raise OSError("file in use")
+
+        monkeypatch.setattr(pathlib.Path, "unlink", boom)
+
+        with pytest.raises(OSError, match="locked.spinrec"):
+            tmp_db.hard_delete_capture_run("r1")
+
+        # DB delete already committed before the unlink loop — that's the
+        # contract: rows are gone, but the user is told about the orphan.
+        assert tmp_db.conn.execute(
+            "SELECT COUNT(*) FROM capture_runs WHERE id='r1'"
+        ).fetchone()[0] == 0

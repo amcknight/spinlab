@@ -198,14 +198,7 @@ class PracticeSession:
             source=AttemptSource.PRACTICE,
             chosen_allocator=self._last_allocator,
         )
-        self.db.log_attempt(attempt)
-        self.scheduler.process_attempt(
-            result.segment_id,
-            time_ms=result.time_ms or 0,
-            completed=result.completed,
-            deaths=result.deaths,
-            clean_tail_ms=result.clean_tail_ms,
-        )
+        self.scheduler.record_attempt(attempt)
         self.segments_attempted += 1
         if result.completed:
             self.segments_completed += 1

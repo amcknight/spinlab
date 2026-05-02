@@ -15,9 +15,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class SegmentWithModel:
-    """Segment metadata combined with all estimator outputs."""
+    """Segment metadata combined with all estimator outputs.
+
+    Frozen: this dataclass is fully populated by ``load_all`` and then read by
+    allocators/estimators/scheduler. Nothing should mutate it post-construction
+    — freezing makes that an enforced invariant rather than a convention.
+    """
 
     segment_id: str
     game_id: str

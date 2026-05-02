@@ -144,20 +144,6 @@ class SessionManager:
     def game_name(self, value: str | None) -> None:
         self.state.game_name = value
 
-    # --- Backward-compatible properties for tests and dashboard ---
-
-    @property
-    def ref_capture(self):
-        return self.capture.recorder
-
-    @property
-    def fill_gap_segment_id(self):
-        return self.capture.fill_gap_segment_id
-
-    @fill_gap_segment_id.setter
-    def fill_gap_segment_id(self, value):
-        self.capture.fill_gap_segment_id = value
-
     @property
     def current_session_id(self) -> str | None:
         """Session ID for the active practice or speed run, if any."""
@@ -214,9 +200,15 @@ class SessionManager:
         self.sse.unsubscribe(queue)
 
     async def _notify_sse(self) -> None:
+        """Push current state to SSE subscribers. Errors are swallowed so an
+        unrelated SSE/state-builder failure cannot fail the action that
+        triggered the broadcast — subscribers self-heal on the next event."""
         if not self.sse.has_subscribers:
             return
-        await self.sse.broadcast(self.get_state())
+        try:
+            await self.sse.broadcast(self.get_state())
+        except Exception:
+            logger.exception("SSE broadcast failed; subscribers will sync on next event")
 
     # --- Event routing ---
 

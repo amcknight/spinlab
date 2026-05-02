@@ -4,11 +4,13 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Self, TypeVar
 
 if TYPE_CHECKING:
     from spinlab.db import Database
     from spinlab.models import AttemptRecord, ModelOutput
+
+S = TypeVar("S", bound="EstimatorState")
 
 
 @dataclass
@@ -62,14 +64,14 @@ class EstimatorState(ABC):
 
     @classmethod
     @abstractmethod
-    def from_dict(cls, d: dict) -> "EstimatorState":
+    def from_dict(cls, d: dict) -> Self:
         ...
 
 
 def load_mature_states(
     db: "Database", game_id: str, estimator_name: str,
-    state_cls: type["EstimatorState"], maturity_threshold: int,
-) -> list["EstimatorState"]:
+    state_cls: type[S], maturity_threshold: int,
+) -> list[S]:
     """Load this estimator's saved states for a game and return mature ones.
 
     Mature = at least ``maturity_threshold`` completions, i.e. enough data to
@@ -77,7 +79,7 @@ def load_mature_states(
     to compute their priors; both used to roll their own copy of this loop.
     """
     rows = db.load_all_model_states(game_id)
-    states: list[EstimatorState] = []
+    states: list[S] = []
     for r in rows:
         if r["estimator"] != estimator_name or not r["state_json"]:
             continue

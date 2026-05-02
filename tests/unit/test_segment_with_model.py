@@ -1,6 +1,8 @@
 """Tests for SegmentWithModel.load_all factory classmethod."""
 import json
+
 import pytest
+
 from spinlab.allocators import SegmentWithModel
 from spinlab.db import Database
 from spinlab.models import Segment, Waypoint, WaypointSaveState
@@ -65,7 +67,7 @@ class TestLoadAll:
 
     def test_with_model_state(self, db_with_segments):
         """Segments with saved model outputs get them populated."""
-        from spinlab.models import ModelOutput, Estimate
+        from spinlab.models import Estimate, ModelOutput
         # Get the first segment id from DB
         rows = db_with_segments.get_all_segments_with_model("g1")
         seg_id = rows[0]["id"]

@@ -10,14 +10,11 @@ No Mesen, no real TCP, no Playwright — pure Python integration of
 ReferenceController against a real on-disk SQLite file.
 """
 import pytest
-import pytest_asyncio
-from pathlib import Path
+from tests.conftest import FakeTcpManager
 
 from spinlab.capture import ReferenceController
 from spinlab.db import Database
 from spinlab.models import Mode
-
-from tests.conftest import FakeTcpManager
 
 # This test does not need Mesen — override the module-wide emulator mark set
 # by tests/integration/conftest.py so it runs in the default fast suite.

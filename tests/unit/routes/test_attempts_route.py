@@ -5,7 +5,6 @@ from fastapi.testclient import TestClient
 from spinlab.db import Database
 from spinlab.models import Attempt, AttemptSource
 
-
 GAME_ID = "g"
 
 
@@ -30,8 +29,9 @@ def db(tmp_path):
 
 @pytest.fixture
 def client(db):
-    from spinlab.dashboard import create_app
     from conftest import make_test_config
+
+    from spinlab.dashboard import create_app
     app = create_app(db=db, config=make_test_config())
     app.state.session.game_id = GAME_ID
     app.state.session.game_name = "Game"

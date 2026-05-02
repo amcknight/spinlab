@@ -6,8 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from spinlab.db import Database
-from spinlab.models import Segment, Attempt
-from spinlab.romid import rom_checksum, game_name_from_filename
+from spinlab.models import Attempt, Segment
+from spinlab.romid import game_name_from_filename, rom_checksum
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -42,8 +42,9 @@ def test_game_name_strips_extension():
 @pytest.fixture
 def app_with_rom_dir(tmp_path):
     """Dashboard app with rom_dir pointing to test fixtures."""
-    from spinlab.dashboard import create_app
     from conftest import make_test_config
+
+    from spinlab.dashboard import create_app
 
     db = Database(tmp_path / "test.db")
     app = create_app(db=db, config=make_test_config(rom_dir=FIXTURES))

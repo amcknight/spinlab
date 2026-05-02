@@ -1,10 +1,9 @@
 """Tests for reference and segment management API endpoints."""
-import json
-import pytest
-from pathlib import Path
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi.testclient import TestClient
+
 from spinlab.db import Database
 from spinlab.models import ActionResult, Segment, Status
 
@@ -18,8 +17,9 @@ def db(tmp_path):
 
 @pytest.fixture
 def client(db, tmp_path):
-    from spinlab.dashboard import create_app
     from conftest import make_test_config
+
+    from spinlab.dashboard import create_app
     app = create_app(db=db, config=make_test_config())
     app.state.session.game_id = "test_game"
     app.state.session.game_name = "Test Game"
@@ -32,11 +32,6 @@ class TestReferenceEndpoints:
         resp = client.get("/api/references")
         assert resp.status_code == 200
         assert len(resp.json()["references"]) == 1
-
-    def test_create_reference(self, client):
-        resp = client.post("/api/references", json={"name": "New Run"})
-        assert resp.status_code == 200
-        assert resp.json()["name"] == "New Run"
 
     def test_rename_reference(self, client, db):
         db.create_capture_run("ref1", "test_game", "Old")

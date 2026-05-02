@@ -1,11 +1,8 @@
 """Capture run (reference) queries."""
 
-import logging
 import sqlite3
 from datetime import UTC, datetime
 from typing import TypedDict
-
-logger = logging.getLogger(__name__)
 
 
 class CaptureRunRow(TypedDict):
@@ -129,12 +126,20 @@ class CaptureRunsMixin:
         self.conn.execute("DELETE FROM capture_runs WHERE id = ?", (run_id,))
         self.conn.commit()
 
-        # Remove spinrec files from disk
+        # Remove spinrec files from disk. Collect failures and raise at the end
+        # so the caller learns about orphans instead of silently leaking files.
+        unlink_failures: list[tuple[str, OSError]] = []
         for path_str in session_paths:
             try:
                 Path(path_str).unlink(missing_ok=True)
             except OSError as exc:
-                logger.warning("Failed to unlink spinrec %s: %s", path_str, exc)
+                unlink_failures.append((path_str, exc))
+        if unlink_failures:
+            paths = ", ".join(p for p, _ in unlink_failures)
+            raise OSError(
+                f"hard_delete_capture_run({run_id}) committed DB delete but failed to "
+                f"unlink {len(unlink_failures)} spinrec file(s): {paths}"
+            ) from unlink_failures[0][1]
 
     def get_segments_by_reference(self, reference_id: str) -> list[ReferenceSegmentRow]:
         # state_path is always NULL until a future task rewrites this to join

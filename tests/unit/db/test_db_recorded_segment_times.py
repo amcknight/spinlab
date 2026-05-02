@@ -1,5 +1,6 @@
 """Tests for RecordedSegmentTimesMixin."""
 import pytest
+
 from spinlab.db import Database
 
 

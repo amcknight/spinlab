@@ -1,12 +1,11 @@
 """Tests for MixAllocator weighted dispatch."""
-import pytest
 from unittest.mock import MagicMock
-from spinlab.allocators import SegmentWithModel
+
+from tests.factories import make_segment_with_model
+
 from spinlab.allocators.greedy import GreedyAllocator
 from spinlab.allocators.random import RandomAllocator
 from spinlab.allocators.round_robin import RoundRobinAllocator
-from spinlab.models import Estimate, ModelOutput
-from tests.factories import make_segment_with_model
 
 
 class TestMixAllocator:

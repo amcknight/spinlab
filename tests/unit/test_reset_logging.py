@@ -1,8 +1,8 @@
 """Test that POST /api/reset logs the action."""
-import logging
+
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 
 
 @pytest.mark.asyncio

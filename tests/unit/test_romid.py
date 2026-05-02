@@ -1,7 +1,6 @@
 """Tests for ROM identity utilities."""
-from pathlib import Path
 
-from spinlab.romid import rom_checksum, game_name_from_filename
+from spinlab.romid import game_name_from_filename, rom_checksum
 
 
 def test_rom_checksum_deterministic(tmp_path):

@@ -1,9 +1,6 @@
 # tests/test_session_manager_conditions.py
 """Tests for condition registry loading and TCP push wired into SessionManager."""
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, call
 
-import pytest
 
 from spinlab.protocol import SetConditionsCmd, SetInvalidateComboCmd
 from spinlab.session_manager import SessionManager
@@ -46,7 +43,7 @@ class TestInstallConditionRegistry:
         orig_load = sm_mod  # just need the reference
 
         # Use a direct call with the tmp games_root via monkeypatching the helper.
-        from spinlab.condition_registry import load_registry_for_game, ConditionRegistry
+        from spinlab.condition_registry import load_registry_for_game
         registry = load_registry_for_game("abc123", games_root=tmp_path / "games")
         sm.capture.set_condition_registry(registry)
 

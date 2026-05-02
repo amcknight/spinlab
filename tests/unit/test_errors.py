@@ -21,7 +21,6 @@ from spinlab.errors import (
     SessionInUseError,
 )
 
-
 ERROR_TABLE = [
     (NotConnectedError, 503, "not_connected"),
     (DraftPendingError, 409, "draft_pending"),

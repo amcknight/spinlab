@@ -1,9 +1,13 @@
 """Tests for the async practice loop."""
 import asyncio
-import pytest
+import json
 from unittest.mock import AsyncMock, MagicMock
 
-from spinlab.models import Segment, Waypoint
+import pytest
+from tests.conftest import make_seg_with_state
+
+from spinlab.db import Database
+from spinlab.models import Attempt, AttemptSource, Segment, SegmentCommand, Waypoint
 from spinlab.practice import PracticeSession
 from spinlab.protocol import AttemptResultEvent, PracticeLoadCmd
 from spinlab.scheduler import Scheduler
@@ -176,6 +180,77 @@ async def test_practice_session_passes_death_penalty_ms(practice_db):
     cmd = mock_tcp.send_command.call_args[0][0]
     assert isinstance(cmd, PracticeLoadCmd)
     assert cmd.death_penalty_ms == 2500
+
+
+def test_record_attempt_persists_and_updates_model_in_lockstep(practice_db):
+    """`Scheduler.record_attempt` is the single canonical entry point for a
+    finished attempt. It must (a) persist the attempt row, (b) update the model
+    state, and (c) produce the same model output as a direct
+    `process_attempt` call on a fresh DB — i.e., callers should never see a
+    different result by going through the bundled path."""
+    seg_id = practice_db._test_seg_id
+    sched = Scheduler(practice_db, "g")
+
+    attempt = Attempt(
+        segment_id=seg_id, parent_id="sess1", completed=True, time_ms=10000,
+        source=AttemptSource.PRACTICE,
+    )
+    sched.record_attempt(attempt)
+
+    # (a) attempt persisted
+    rows = practice_db.get_segment_attempts(seg_id)
+    assert len(rows) == 1
+    assert rows[0]["time_ms"] == 10000
+    assert rows[0]["completed"] == 1
+
+    # (b) model state updated
+    row = practice_db.load_model_state(seg_id, "rolling_mean")
+    assert row is not None
+    output_via_record = json.loads(row["output_json"])
+
+    # (c) same output as direct process_attempt on a clean DB
+    other_db = Database(practice_db.db_path.parent / "other.db")
+    other_db.upsert_game("g", "Game", "any%")
+    other_seg = make_seg_with_state(
+        other_db, "g", 1, "entrance", "goal", practice_db._test_state_file,
+    )
+    other_sched = Scheduler(other_db, "g")
+    other_sched.process_attempt(other_seg.id, time_ms=10000, completed=True)
+    output_via_direct = json.loads(
+        other_db.load_model_state(other_seg.id, "rolling_mean")["output_json"]
+    )
+    assert output_via_record == output_via_direct
+
+
+def test_process_result_does_not_double_count_attempts(practice_db):
+    """Regression: log_attempt was called before scheduler.process_attempt, so
+    the scheduler's `db.get_segment_attempts` already contained the new attempt
+    AND `all_attempts + [new_attempt]` appended a second copy. Estimators that
+    consume `all_attempts_with_new` in `model_output` (rolling_mean, exp_decay)
+    saw the most recent attempt twice and produced biased estimates."""
+    seg_id = practice_db._test_seg_id
+    tcp = AsyncMock()
+    tcp.is_connected = True
+    ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
+
+    cmd = SegmentCommand(
+        id=seg_id, state_path="x", description="x",
+        end_type="goal", expected_time_ms=None,
+    )
+    ps._process_result(
+        AttemptResultEvent(segment_id=seg_id, completed=True, time_ms=10000), cmd,
+    )
+    ps._process_result(
+        AttemptResultEvent(segment_id=seg_id, completed=True, time_ms=20000), cmd,
+    )
+
+    # rolling_mean's expected_ms is the mean of completed times. With two
+    # attempts of 10s and 20s the correct mean is 15000ms; double-counting the
+    # most recent attempt produces (10000 + 20000 + 20000) / 3 = 16666.67ms.
+    row = practice_db.load_model_state(seg_id, "rolling_mean")
+    assert row is not None
+    output = json.loads(row["output_json"])
+    assert output["total"]["expected_ms"] == pytest.approx(15000.0, abs=0.01)
 
 
 def test_current_expected_times_reflects_model_updates(practice_db):

@@ -1,5 +1,4 @@
 """Meta-test: verify the fake_tcp fixture behavior."""
-import pytest
 
 from spinlab.protocol import ReferenceStartCmd
 

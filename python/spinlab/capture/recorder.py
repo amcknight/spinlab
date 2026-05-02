@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from ..models import EndpointType
 from ..protocol import (
     CheckpointEvent,
     LevelEntranceEvent,
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PendingStart:
     """Buffered start-of-segment state for pairing with the next endpoint."""
-    type: str              # "entrance" or "checkpoint"
+    type: EndpointType     # ENTRANCE or CHECKPOINT
     ordinal: int
     state_path: str | None
     timestamp_ms: int
@@ -69,7 +70,7 @@ class SegmentRecorder:
                         self.pending_start)
             return
         self.pending_start = PendingStart(
-            type="entrance", ordinal=0,
+            type=EndpointType.ENTRANCE, ordinal=0,
             state_path=event.state_path, timestamp_ms=event.timestamp_ms,
             level_num=event.level, raw_conditions=event.conditions,
         )
@@ -171,7 +172,7 @@ class SegmentRecorder:
             level, event.conditions, registry,
             end_timestamp_ms=event.timestamp_ms)
         self.pending_start = PendingStart(
-            type="checkpoint", ordinal=cp_ordinal,
+            type=EndpointType.CHECKPOINT, ordinal=cp_ordinal,
             state_path=event.state_path, timestamp_ms=event.timestamp_ms,
             level_num=level, raw_conditions=event.conditions,
         )

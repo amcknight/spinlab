@@ -1,8 +1,8 @@
 """Additional practice.py coverage — run_loop lifecycle, callbacks, edge cases."""
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from spinlab.practice import PracticeSession
 from spinlab.protocol import AttemptResultEvent, PracticeLoadCmd, PracticeStopCmd

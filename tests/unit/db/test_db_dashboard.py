@@ -1,7 +1,8 @@
 """Tests for dashboard-specific DB queries."""
 import pytest
+
 from spinlab.db import Database
-from spinlab.models import Segment, Attempt
+from spinlab.models import Attempt, Segment
 
 
 @pytest.fixture

@@ -1,12 +1,14 @@
 # tests/test_exp_decay.py
 """Tests for Exp Decay estimator."""
 import math
+
 import pytest
 
 np = pytest.importorskip("numpy")
-from spinlab.estimators.exp_decay import ExpDecayEstimator, ExpDecayState
-from spinlab.models import AttemptRecord, Estimate, ModelOutput
 from tests.factories import make_attempt_record, make_incomplete
+
+from spinlab.estimators.exp_decay import ExpDecayEstimator, ExpDecayState
+from spinlab.models import AttemptRecord, ModelOutput
 
 
 def _synthetic_exp_attempts(
@@ -99,9 +101,10 @@ class TestExpDecayPriors:
         assert state.amplitude == pytest.approx(5000.0, abs=20.0)
 
     def test_get_priors_averages_mature_states(self, tmp_path):
-        from spinlab.db import Database
-        from spinlab.models import Segment, Waypoint, WaypointSaveState
         import json
+
+        from spinlab.db import Database
+        from spinlab.models import Segment, Waypoint
 
         db = Database(str(tmp_path / "p.db"))
         db.upsert_game("g1", "Game", "any%")
@@ -135,9 +138,10 @@ class TestExpDecayPriors:
         assert priors["total_amplitude"] == pytest.approx(6000.0)
 
     def test_get_priors_skips_immature_states(self, tmp_path):
+        import json
+
         from spinlab.db import Database
         from spinlab.models import Segment, Waypoint
-        import json
 
         db = Database(str(tmp_path / "p2.db"))
         db.upsert_game("g1", "Game", "any%")

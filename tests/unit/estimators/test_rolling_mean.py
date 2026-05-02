@@ -1,9 +1,10 @@
 # tests/test_rolling_mean.py
 """Tests for Rolling Mean estimator."""
 import pytest
-from spinlab.estimators.rolling_mean import RollingMeanEstimator, RollingMeanState
-from spinlab.models import AttemptRecord, Estimate, ModelOutput
 from tests.factories import make_attempt_record, make_incomplete
+
+from spinlab.estimators.rolling_mean import RollingMeanEstimator
+from spinlab.models import AttemptRecord
 
 
 class TestRollingMeanProcessAttempt:

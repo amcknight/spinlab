@@ -92,7 +92,7 @@ def test_get_default_save_state_falls_back_to_any():
     assert got.variant_type == "cold"
 
 
-from spinlab.models import Segment, WaypointSaveState as _WSS  # noqa: F811
+from spinlab.models import Segment  # noqa: F811
 
 
 def _make_seg_with_waypoints(db, game_id, level, start_type, start_ord,

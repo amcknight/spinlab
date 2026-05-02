@@ -6,14 +6,13 @@ instead of mock cursor chains.
 """
 from unittest.mock import AsyncMock, MagicMock
 
-from spinlab.protocol import ColdFillLoadCmd, SpawnEvent
-
 import pytest
 
 from spinlab.capture import ColdFillController
 from spinlab.db import Database
 from spinlab.errors import NotConnectedError
 from spinlab.models import Mode, Segment, Status, Waypoint, WaypointSaveState
+from spinlab.protocol import ColdFillLoadCmd, SpawnEvent
 
 
 @pytest.fixture

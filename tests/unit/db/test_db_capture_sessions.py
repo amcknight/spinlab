@@ -1,5 +1,6 @@
 """Tests for CaptureSessionsMixin."""
 import pytest
+
 from spinlab.db import Database
 
 

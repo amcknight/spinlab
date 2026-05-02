@@ -24,7 +24,6 @@ from spinlab.protocol import (
     ReferenceStartCmd,
     ReferenceStopCmd,
     ReplayCmd,
-    ReplayStopCmd,
 )
 
 
@@ -288,3 +287,141 @@ class TestStartFillGap:
         fill_cmds = [c for c in fake_tcp.sent_commands if isinstance(c, FillGapLoadCmd)]
         assert len(fill_cmds) == 1
         assert fill_cmds[0].state_path == str(state_file)
+
+
+class TestRunStateInvariant:
+    """`paused_run_id` and `recorder.capture_run_id` must never both be set.
+
+    These tests exercise the assertion directly and then verify each public
+    transition (start, stop, resume, finalize, discard, recover) leaves the
+    controller in a self-consistent state.
+    """
+
+    def test_invariant_raises_when_both_set(self, controller):
+        # Bypass the safe transitions to force the bad state.
+        controller.paused_run_id = "p"
+        controller.recorder.capture_run_id = "r"
+        with pytest.raises(AssertionError, match="invariant violated"):
+            controller._assert_run_state_invariant()
+
+    def test_invariant_holds_when_idle(self, controller):
+        controller._assert_run_state_invariant()
+        assert controller.active_run_id is None
+        assert not controller.is_recording
+        assert not controller.has_paused_run
+
+    async def test_invariant_holds_through_start_stop_resume_finalize(
+        self, controller, tmp_path, db,
+    ):
+        # IDLE → RECORDING
+        await controller.start_reference(Mode.IDLE, "g1", tmp_path, run_name="t")
+        controller._assert_run_state_invariant()
+        assert controller.is_recording
+        assert not controller.has_paused_run
+        run_id = controller.active_run_id
+        assert run_id is not None
+
+        # RECORDING → PAUSED (via stop)
+        await controller.stop_reference(Mode.REFERENCE)
+        controller._assert_run_state_invariant()
+        assert not controller.is_recording
+        assert controller.has_paused_run
+        assert controller.active_run_id == run_id
+
+        # PAUSED → RECORDING (via resume)
+        await controller.resume_reference(Mode.IDLE, "g1", tmp_path)
+        controller._assert_run_state_invariant()
+        assert controller.is_recording
+        assert not controller.has_paused_run
+        assert controller.active_run_id == run_id
+
+        # RECORDING → PAUSED (via stop again)
+        await controller.stop_reference(Mode.REFERENCE)
+        controller._assert_run_state_invariant()
+
+        # PAUSED → IDLE (via finalize)
+        await controller.finalize_run("My Run")
+        controller._assert_run_state_invariant()
+        assert controller.active_run_id is None
+        assert not controller.is_recording
+        assert not controller.has_paused_run
+
+    async def test_discard_lands_idle(self, controller, tmp_path):
+        await controller.start_reference(Mode.IDLE, "g1", tmp_path)
+        await controller.stop_reference(Mode.REFERENCE)
+        await controller.discard_run()
+        controller._assert_run_state_invariant()
+        assert controller.active_run_id is None
+
+    async def test_recover_paused_run_enters_paused(self, controller, db):
+        # Seed a draft capture_run directly in the DB to simulate restart.
+        db.create_capture_run("live_xyz", "g1", "Old draft", draft=True)
+        controller.recover_paused_run("g1")
+        controller._assert_run_state_invariant()
+        assert controller.has_paused_run
+        assert controller.active_run_id == "live_xyz"
+        assert not controller.is_recording
+
+    async def test_clear_and_idle_resets_from_recording(self, controller, tmp_path):
+        await controller.start_reference(Mode.IDLE, "g1", tmp_path)
+        controller.clear_and_idle()
+        controller._assert_run_state_invariant()
+        assert controller.active_run_id is None
+
+
+class TestSaveAndFinishAtomicity:
+    """save_and_finish_run must be all-or-nothing, INCLUDING the session-end.
+
+    Previous behavior: _end_current_session committed `ended_at` outside the
+    atomic block, so a finalize that later raised left the session marked
+    ended even though the run was still in draft. The fix folds the session-
+    end into the same transaction. This test forces a rollback partway and
+    verifies session.ended_at is still NULL afterward.
+    """
+
+    async def test_failure_inside_atomic_block_rolls_back_session_end(
+        self, controller, tmp_path, db, monkeypatch,
+    ):
+        await controller.start_reference(Mode.IDLE, "g1", tmp_path)
+        sess_id = controller.recorder.current_capture_session_id
+        run_id = controller.recorder.capture_run_id
+        assert sess_id is not None and run_id is not None
+
+        # sqlite3.Connection.execute is C-level read-only, so we wrap the
+        # whole conn in a proxy that intercepts a specific SQL pattern and
+        # raises mid-transaction.
+        real_conn = db.conn
+
+        class FailingConn:
+            def execute(self, sql, *args, **kwargs):
+                if "UPDATE capture_runs SET draft" in sql:
+                    raise RuntimeError("simulated finalize failure")
+                return real_conn.execute(sql, *args, **kwargs)
+
+            def __getattr__(self, name):
+                return getattr(real_conn, name)
+
+        monkeypatch.setattr(db, "conn", FailingConn())
+
+        with pytest.raises(RuntimeError, match="simulated finalize failure"):
+            await controller.save_and_finish_run(Mode.REFERENCE, "MyRun")
+
+        monkeypatch.undo()  # restore normal db.conn for assertions
+
+        # Session must NOT be marked ended — that's the audit #11 invariant.
+        sess_row = db.conn.execute(
+            "SELECT ended_at FROM capture_sessions WHERE id = ?", (sess_id,),
+        ).fetchone()
+        assert sess_row is not None and sess_row[0] is None
+
+        # Run still in draft, name unchanged.
+        run_row = db.conn.execute(
+            "SELECT draft, name FROM capture_runs WHERE id = ?", (run_id,),
+        ).fetchone()
+        assert run_row is not None
+        assert run_row[0] == 1
+        assert run_row[1] != "MyRun"
+
+        # Recorder still pointing at the live session — user can retry.
+        assert controller.recorder.capture_run_id == run_id
+        assert controller.recorder.current_capture_session_id == sess_id

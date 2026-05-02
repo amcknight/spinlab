@@ -1,6 +1,9 @@
-import pytest
 from pathlib import Path
-from spinlab.condition_registry import ConditionRegistry, ConditionDef, Scope
+
+import pytest
+
+from spinlab.condition_registry import ConditionDef, ConditionRegistry, Scope
+
 
 def test_loads_single_game_scoped_condition(tmp_path: Path):
     yaml_path = tmp_path / "conditions.yaml"

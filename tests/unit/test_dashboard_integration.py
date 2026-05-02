@@ -5,13 +5,12 @@ The seeded DB is the primary fixture; lightweight fixtures for error-state tests
 """
 import asyncio
 import json
+
 import pytest
-from pathlib import Path
-
 from fastapi.testclient import TestClient
-from spinlab.db import Database
-from spinlab.models import Mode, Segment, Attempt
 
+from spinlab.db import Database
+from spinlab.models import Attempt, Mode, Segment
 
 # -- fixtures ----------------------------------------------------------------
 
@@ -97,8 +96,9 @@ def seeded_db(tmp_path):
 
 @pytest.fixture
 def client(seeded_db):
-    from spinlab.dashboard import create_app
     from conftest import make_test_config
+
+    from spinlab.dashboard import create_app
     app = create_app(db=seeded_db, config=make_test_config())
     app.state.session.game_id = GAME_ID
     app.state.session.game_name = "SMW Kaizo"
@@ -108,11 +108,12 @@ def client(seeded_db):
 @pytest.fixture
 def active_client(seeded_db):
     """Client with a simulated active practice session."""
-    from spinlab.dashboard import create_app
-    from spinlab.practice import PracticeSession
     from unittest.mock import AsyncMock
 
     from conftest import make_test_config
+
+    from spinlab.dashboard import create_app
+    from spinlab.practice import PracticeSession
     app = create_app(db=seeded_db, config=make_test_config())
     app.state.session.game_id = GAME_ID
     app.state.session.game_name = "SMW Kaizo"
@@ -133,8 +134,9 @@ def active_client(seeded_db):
 @pytest.fixture
 def bare_client(tmp_path):
     """Client with minimal DB and no game loaded — for error-state tests."""
-    from spinlab.dashboard import create_app
     from conftest import make_test_config
+
+    from spinlab.dashboard import create_app
     db = Database(tmp_path / "test.db")
     db.upsert_game("test_game", "Test Game", "any%")
     app = create_app(db=db, config=make_test_config())
@@ -146,8 +148,9 @@ def bare_client(tmp_path):
 @pytest.fixture
 def no_game_client(tmp_path):
     """Client with no game context set."""
-    from spinlab.dashboard import create_app
     from conftest import make_test_config
+
+    from spinlab.dashboard import create_app
     db = Database(tmp_path / "test.db")
     db.upsert_game("test_game", "Test Game", "any%")
     app = create_app(db=db, config=make_test_config())
@@ -362,9 +365,10 @@ def test_practice_stop_clears_stale_mode(bare_client):
 
 def test_fresh_db_reference_start_creates_game(tmp_path):
     from unittest.mock import AsyncMock, PropertyMock, patch
-    from spinlab.dashboard import create_app
 
     from conftest import make_test_config
+
+    from spinlab.dashboard import create_app
     fresh_db = Database(tmp_path / "fresh.db")
     app = create_app(db=fresh_db, config=make_test_config())
     _sync_switch(app, "test_game", "Test Game")
@@ -460,8 +464,9 @@ class TestRomsEndpoint:
         (rom_dir / "Game B.sfc").write_bytes(b"\x00")
         (rom_dir / "readme.txt").write_text("not a rom")
 
-        from spinlab.dashboard import create_app
         from conftest import make_test_config
+
+        from spinlab.dashboard import create_app
         db = Database(tmp_path / "test.db")
         app = create_app(db=db, config=make_test_config(rom_dir=rom_dir))
         client = TestClient(app)

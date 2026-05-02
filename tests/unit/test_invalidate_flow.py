@@ -1,8 +1,6 @@
 # tests/test_invalidate_flow.py
 """Tests for the attempt invalidation flow: Lua combo → Python event handler."""
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
+from unittest.mock import MagicMock
 
 from spinlab.protocol import SetInvalidateComboCmd
 from spinlab.session_manager import SessionManager

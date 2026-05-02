@@ -5,7 +5,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
-from spinlab.estimators import list_estimators, get_estimator
+from spinlab.db import Database
+from spinlab.estimators import get_estimator, list_estimators
+from spinlab.models import Segment, Waypoint, WaypointSaveState
 
 
 def make_test_config(**overrides) -> AppConfig:
@@ -103,10 +105,6 @@ class FakeTcpManager:
 def fake_tcp():
     """Fresh FakeTcpManager per test, starts connected."""
     return FakeTcpManager(connected=True)
-
-
-from spinlab.db import Database
-from spinlab.models import Segment, Waypoint, WaypointSaveState
 
 
 def make_seg_with_state(db, game_id, level, start_type, end_type,

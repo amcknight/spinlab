@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from spinlab.models import Attempt, AttemptRecord, Estimate, ModelOutput, Segment
 from spinlab.allocators import SegmentWithModel
+from spinlab.models import Attempt, AttemptRecord, Estimate, ModelOutput, Segment
 
 if TYPE_CHECKING:
     from spinlab.db import Database

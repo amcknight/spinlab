@@ -84,8 +84,9 @@ class TestModelOutput:
 
 
 import json
+
 from spinlab.db import Database
-from spinlab.models import Attempt, AttemptRecord, Estimate, ModelOutput, Segment
+from spinlab.models import Attempt, Segment
 
 
 class TestDBMultiModel:

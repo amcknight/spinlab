@@ -1,9 +1,8 @@
 """Tests for allocator implementations."""
-import pytest
+from tests.factories import make_segment_with_model
+
 from spinlab.allocators import SegmentWithModel
 from spinlab.allocators.greedy import GreedyAllocator
-from spinlab.models import Estimate, ModelOutput
-from tests.factories import make_segment_with_model
 
 
 class TestGreedyAllocator:

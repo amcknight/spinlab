@@ -26,19 +26,31 @@ class StateBuilder:
         self.db = db
 
     def build(self, session: "SessionManager") -> dict:
-        """Full state snapshot — replaces SessionManager.get_state()."""
+        """Full state snapshot — replaces SessionManager.get_state().
+
+        Snapshot pattern: read volatile fields (mode, capture phase, active
+        run id) into locals once at the top, then use those locals throughout.
+        Without this, a mode/run transition concurrent with build() would
+        produce a snapshot where (e.g.) ``mode == REFERENCE`` but
+        ``capture_run_id`` is None — incoherent to the consumer.
+        """
+        mode = session.mode
+        is_recording = session.capture.is_recording
+        active_run_id = session.capture.active_run_id
+        game_id = session.game_id
+
         sections_captured: int | None = None
-        if session.capture.recorder.capture_run_id:
+        if is_recording:
             row = self.db.conn.execute(
                 "SELECT COUNT(*) FROM segments WHERE reference_id = ? AND active = 1",
-                (session.capture.recorder.capture_run_id,),
+                (active_run_id,),
             ).fetchone()
             sections_captured = row[0]
 
         base = {
-            "mode": session.mode.value,
+            "mode": mode.value,
             "tcp_connected": session.tcp.is_connected,
-            "game_id": session.game_id,
+            "game_id": game_id,
             "game_name": session.game_name,
             "current_segment": None,
             "recent": [],
@@ -48,22 +60,22 @@ class StateBuilder:
             "estimator": None,
         }
 
-        if session.game_id is None:
+        if game_id is None:
             return base
 
         sched = session.get_scheduler()
         base["allocator_weights"] = sched.all_weights
         base["estimator"] = sched.estimator.name
 
-        if session.mode == Mode.PRACTICE and session.practice_session:
+        if mode == Mode.PRACTICE and session.practice_session:
             self._build_practice_state(base, session, sched)
 
-        if session.mode == Mode.SPEED_RUN and session.speed_run_session:
+        if mode == Mode.SPEED_RUN and session.speed_run_session:
             self._build_speed_run_state(base, session)
 
-        if session.mode in (Mode.REFERENCE, Mode.REPLAY):
-            base["capture_run_id"] = session.capture.recorder.capture_run_id
-        if session.mode == Mode.REPLAY:
+        if mode in (Mode.REFERENCE, Mode.REPLAY):
+            base["capture_run_id"] = active_run_id
+        if mode == Mode.REPLAY:
             base["replay"] = {
                 "rec_path": session.capture.rec_path,
                 "frame": session.replay_frame,
@@ -74,13 +86,13 @@ class StateBuilder:
         if paused_run:
             base["paused_run"] = paused_run
 
-        if session.mode == Mode.COLD_FILL:
+        if mode == Mode.COLD_FILL:
             cf_state = session.cold_fill.get_state()
             if cf_state:
                 base["cold_fill"] = cf_state
 
         base["recent"] = self.db.get_recent_attempts(
-            session.game_id, limit=RECENT_ATTEMPTS_DB_LIMIT,
+            game_id, limit=RECENT_ATTEMPTS_DB_LIMIT,
             session_id=session.current_session_id,
         )
         return base

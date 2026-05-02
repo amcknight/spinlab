@@ -12,7 +12,6 @@ from pathlib import Path
 
 import pytest
 import requests
-
 from tests.integration.conftest import LOVE_YOURSELF_GAME_ID, skip_no_love_yourself
 
 pytestmark = [pytest.mark.emulator, skip_no_love_yourself]

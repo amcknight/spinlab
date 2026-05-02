@@ -21,7 +21,6 @@ Diagnostics:
 from __future__ import annotations
 
 import asyncio
-
 import json
 import logging
 import os
@@ -37,9 +36,9 @@ import pytest_asyncio
 import requests as http_requests
 import uvicorn
 import yaml
+from tests.integration.poke_parser import parse_poke_file
 
 from spinlab.tcp_manager import TcpManager
-from tests.integration.poke_parser import parse_poke_file
 
 # Resolve project paths
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -449,10 +448,11 @@ async def fake_dashboard_server():
 
     Yields (base_url, db, session).
     """
+    from tests.conftest import FakeTcpManager
+
     from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeConfig
     from spinlab.dashboard import create_app
     from spinlab.db import Database
-    from tests.conftest import FakeTcpManager
 
     tmp = tempfile.mkdtemp(prefix="spinlab_fake_")
     tmp_path = Path(tmp)

@@ -1,10 +1,10 @@
 """Tests for Vite subprocess management."""
 import socket
-import pytest
-from unittest.mock import patch, MagicMock
-from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from spinlab.vite import wait_for_port, spawn_vite, ViteStartupError
+import pytest
+
+from spinlab.vite import ViteStartupError, spawn_vite, wait_for_port
 
 
 def test_wait_for_port_succeeds_when_listening():

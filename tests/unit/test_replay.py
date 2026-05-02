@@ -65,7 +65,7 @@ class TestReplayEvents:
         sm.game_id = "abcdef0123456789"
         sm.game_name = "Test Game"
         sm.mode = Mode.REPLAY
-        sm.ref_capture.capture_run_id = "replay_test123"
+        sm.capture.recorder.capture_run_id = "replay_test123"
 
         await sm.route_event({
             "event": "level_entrance",
@@ -74,4 +74,4 @@ class TestReplayEvents:
             "session": "passive", "state_path": "/data/test.mss",
             "source": "replay",
         })
-        assert sm.ref_capture.pending_start is not None
+        assert sm.capture.recorder.pending_start is not None

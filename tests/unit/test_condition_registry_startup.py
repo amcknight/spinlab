@@ -1,5 +1,6 @@
 from pathlib import Path
-from spinlab.condition_registry import ConditionRegistry, load_registry_for_game
+
+from spinlab.condition_registry import load_registry_for_game
 
 
 def test_loads_registry_from_games_directory(tmp_path: Path):

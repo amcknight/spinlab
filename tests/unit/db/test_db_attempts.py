@@ -1,5 +1,4 @@
 """Tests for db/attempts.py query methods."""
-from datetime import UTC, datetime
 
 import pytest
 

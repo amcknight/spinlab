@@ -1,6 +1,6 @@
 """Tests for TcpManager async TCP client."""
-import asyncio
 import json
+
 import pytest
 
 from spinlab.tcp_manager import TcpManager

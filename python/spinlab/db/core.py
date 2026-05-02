@@ -159,7 +159,13 @@ class DatabaseCore:
         self._init_schema()
 
     def _init_schema(self) -> None:
-        # Drop stale tables whose schema has changed (no data worth migrating yet)
+        # STOP: this routine drops any table whose columns drift from
+        # _expected_columns(). That is fine while the DB is recreatable, but
+        # once you change the schema for a table that holds data a user would
+        # not want to lose (reference runs, attempts that took real time to
+        # accumulate), DO NOT add the table here — switch to a forward-only
+        # migration log instead. See docs/superpowers/specs/2026-05-01-multi-
+        # session-followups-design.md item #19 for the trigger and approach.
         stale_tables = ["splits", "segment_variants"]  # legacy tables dropped unconditionally
         for table in ["model_state", "attempts", "segments", "waypoints", "waypoint_save_states"]:
             cols = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -172,16 +178,6 @@ class DatabaseCore:
             )
         self.conn.executescript(SCHEMA)
         self.conn.commit()
-        # Retain existing ALTER TABLE migration attempts below (capture_runs.draft etc.)
-        for migration in [
-            "ALTER TABLE capture_runs ADD COLUMN draft INTEGER DEFAULT 0",
-            "ALTER TABLE attempts ADD COLUMN chosen_allocator TEXT",
-        ]:
-            try:
-                self.conn.execute(migration)
-                self.conn.commit()
-            except sqlite3.OperationalError:
-                pass
 
     @staticmethod
     def _expected_columns(table: str) -> set[str]:

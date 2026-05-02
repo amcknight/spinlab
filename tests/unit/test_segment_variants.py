@@ -1,5 +1,6 @@
 """Tests for waypoint_save_states DB operations (formerly segment_variants)."""
 import pytest
+
 from spinlab.db import Database
 from spinlab.models import Segment, Waypoint, WaypointSaveState
 

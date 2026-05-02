@@ -104,7 +104,11 @@ class ReferenceController:
         self._fill_gap_waypoint_id: str | None = None
         self.condition_registry: ConditionRegistry = ConditionRegistry()
 
-        # Paused-run state (set by recovery or by stopping a session)
+        # `paused_run_id` and `recorder.capture_run_id` form a mutually
+        # exclusive pair: at most one is set at any time, encoding the run
+        # phase (idle / recording / paused). Mutate ONLY through
+        # `_enter_recording` / `_enter_paused` / `_enter_idle`, which assert
+        # the invariant after each transition.
         self.paused_run_id: str | None = None
 
     def set_condition_registry(self, registry: ConditionRegistry) -> None:
@@ -115,12 +119,62 @@ class ReferenceController:
         return self.paused_run_id is not None
 
     @property
+    def is_recording(self) -> bool:
+        return self.recorder.capture_run_id is not None
+
+    @property
+    def active_run_id(self) -> str | None:
+        """Run id of the currently recording OR paused run; None when idle.
+
+        Single read API for callers that don't need to distinguish phases —
+        e.g., StateBuilder building snapshots, queries that just need 'the
+        run we're working on right now'.
+        """
+        return self.recorder.capture_run_id or self.paused_run_id
+
+    @property
     def current_capture_session_id(self) -> str | None:
         return self.recorder.current_capture_session_id
 
     @property
     def rec_path(self) -> str | None:
         return self.recorder.rec_path
+
+    # --- Run-phase transitions ----------------------------------------------
+    # These three methods are the only places that mutate the
+    # paused_run_id / recorder.capture_run_id pair. Everywhere else reads
+    # but does not write. Keep it that way.
+
+    def _assert_run_state_invariant(self) -> None:
+        if self.paused_run_id and self.recorder.capture_run_id:
+            raise AssertionError(
+                f"ReferenceController invariant violated: paused_run_id="
+                f"{self.paused_run_id!r} and recorder.capture_run_id="
+                f"{self.recorder.capture_run_id!r} are both set."
+            )
+
+    def _enter_recording(self, run_id: str, session_id: str) -> None:
+        """Transition to RECORDING phase: arm the recorder, clear paused state."""
+        self.paused_run_id = None
+        self.recorder.capture_run_id = run_id
+        self.recorder.current_capture_session_id = session_id
+        self._assert_run_state_invariant()
+
+    def _enter_paused(self, run_id: str) -> None:
+        """Transition to PAUSED phase: clear recorder first, then surface the run.
+
+        Order matters: clearing the recorder before assigning paused_run_id
+        prevents a window where both fields are set.
+        """
+        self.recorder.clear()
+        self.paused_run_id = run_id
+        self._assert_run_state_invariant()
+
+    def _enter_idle(self) -> None:
+        """Transition to IDLE phase: clear all run state."""
+        self.recorder.clear()
+        self.paused_run_id = None
+        self._assert_run_state_invariant()
 
     def get_paused_state(self) -> dict | None:
         """Snapshot of the paused run for state_builder. None if no paused run."""
@@ -139,8 +193,7 @@ class ReferenceController:
 
     def clear_and_idle(self) -> None:
         """Clear all in-memory state. Caller sets mode to IDLE."""
-        self.recorder.clear()
-        self.paused_run_id = None
+        self._enter_idle()
 
     # ---------------------------------------------------------------- helpers
 
@@ -181,14 +234,19 @@ class ReferenceController:
                 "session: ended sess=%s ordinal=%s duration_s=%s segments=%d reason=%s",
                 sess_id, ordinal, dur_str, seg_count, end_reason,
             )
-        # Surface run as paused (only if we had a run and it's still draft=1)
+        # If we had a run and it's still draft=1, surface it as paused;
+        # otherwise drop to idle. _enter_paused / _enter_idle clear the
+        # recorder atomically.
+        should_pause = False
         if run_id:
             row = self.db.conn.execute(
                 "SELECT draft FROM capture_runs WHERE id = ?", (run_id,)
             ).fetchone()
-            if row and row[0] == 1:
-                self.paused_run_id = run_id
-        self.recorder.clear()
+            should_pause = bool(row and row[0] == 1)
+        if should_pause and run_id:
+            self._enter_paused(run_id)
+        else:
+            self._enter_idle()
 
     def _create_new_session(self, run_id: str, data_dir: Path, game_id: str) -> tuple[str, str]:
         """Create a new capture_session row + spinrec path. Returns (session_id, spinrec_path)."""
@@ -217,15 +275,13 @@ class ReferenceController:
         if not self.tcp.is_connected:
             raise NotConnectedError()
 
-        self.recorder.clear()
+        self._enter_idle()
         run_id = f"live_{uuid.uuid4().hex[:8]}"
         run_name = run_name or f"Live {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
         self.db.create_capture_run(run_id, game_id, run_name, draft=True)
         sess_id, spinrec_path = self._create_new_session(run_id, data_dir, game_id)
 
-        self.recorder.capture_run_id = run_id
-        self.recorder.current_capture_session_id = sess_id
-        self.paused_run_id = None  # we're now actively recording
+        self._enter_recording(run_id, sess_id)
 
         logger.info("reference: started run=%s name=%r", run_id, run_name)
         await self.tcp.send_command(ReferenceStartCmd(path=spinrec_path))
@@ -245,9 +301,7 @@ class ReferenceController:
 
         run_id = self.paused_run_id
         sess_id, spinrec_path = self._create_new_session(run_id, data_dir, game_id)
-        self.recorder.capture_run_id = run_id
-        self.recorder.current_capture_session_id = sess_id
-        self.paused_run_id = None
+        self._enter_recording(run_id, sess_id)
 
         logger.info("reference: resumed run=%s sess=%s", run_id, sess_id)
         await self.tcp.send_command(ReferenceStartCmd(path=spinrec_path))
@@ -281,7 +335,7 @@ class ReferenceController:
         # this finalize added new attempts.
         if scheduler:
             scheduler.rebuild_all_states()
-        self.paused_run_id = None
+        self._enter_idle()
         logger.info("reference: finalized run=%s as %r (seeded %d attempts)",
                      run_id, name, seeded)
         return ActionResult(status=Status.OK)
@@ -297,30 +351,44 @@ class ReferenceController:
         commit() inside an outer BEGIN would commit the partial work done up to
         that point, breaking atomicity.
 
-        Session end (``_end_current_session``) happens *before* the atomic block
-        because it is independently safe: the session row is stamped with
-        ``ended_at`` regardless of whether finalization later succeeds, and a
-        failed finalization leaves the run in PAUSED state where the user can
-        retry or discard.
+        The atomic unit is: end capture session → drain timing rows → promote
+        draft → set active → seed attempts. If any step raises, ``rollback()``
+        undoes all of them — including the session-end. That matters because a
+        previous version stamped the session ``ended_at`` outside the
+        transaction; a finalize that later failed left the user with a session
+        marked ended but a run still in draft (the audit's #11 concern). With
+        the session-end now inside the block, either the whole finish succeeds
+        or every state is left exactly as it was.
 
-        The critical atomic unit is: drain timing rows → promote draft → set
-        active → seed attempts. If any step raises, ``conn.rollback()`` undoes
-        all of them. The spinrec file and recorder state are unaffected (the TCP
-        stop was already sent, a non-transactional side-effect).
+        TCP send and recorder state are unchanged regardless — the stop command
+        was already sent (non-transactional side effect), and recorder is
+        cleared after a successful commit via ``_enter_idle``.
         """
         if mode != Mode.REFERENCE:
             raise NotInReferenceError()
         if self.tcp.is_connected:
             await self.tcp.send_command(ReferenceStopCmd())
 
-        # End session first (independently safe — leaves run in PAUSED state)
-        self._end_current_session(end_reason="stopped")
-        run_id = self.paused_run_id
+        # Snapshot recorder state for the atomic block; do NOT clear it yet —
+        # if the transaction rolls back we want the recorder still pointing at
+        # the live session so the user can retry.
+        sess_id = self.recorder.current_capture_session_id
+        run_id = self.recorder.capture_run_id
         if not run_id:
             raise NoPausedRunError()
 
         try:
             self.db.conn.execute("BEGIN IMMEDIATE")
+
+            # End the capture session inside the transaction (was previously
+            # committed separately via _end_current_session, breaking atomicity).
+            if sess_id:
+                self.db.conn.execute(
+                    "UPDATE capture_sessions SET ended_at = ?, end_reason = ? "
+                    "WHERE id = ? AND ended_at IS NULL",
+                    (_dt.now(UTC).isoformat(), "stopped", sess_id),
+                )
+
             # Drain timing rows and delete them inside this transaction
             rows = self.db.conn.execute(
                 "SELECT t.id, t.capture_session_id, t.segment_id, t.time_ms, "
@@ -396,7 +464,7 @@ class ReferenceController:
         # Always rebuild — see finalize_run for rationale.
         if scheduler:
             scheduler.rebuild_all_states()
-        self.paused_run_id = None
+        self._enter_idle()
         logger.info("reference: save_and_finish run=%s as %r (seeded %d attempts)",
                      run_id, name, seeded)
         return ActionResult(status=Status.OK, new_mode=Mode.IDLE)
@@ -406,7 +474,7 @@ class ReferenceController:
             raise NoPausedRunError()
         run_id = self.paused_run_id
         self.db.hard_delete_capture_run(run_id)
-        self.paused_run_id = None
+        self._enter_idle()
         logger.info("reference: discarded run=%s", run_id)
         return ActionResult(status=Status.OK)
 
@@ -450,7 +518,7 @@ class ReferenceController:
             raise NotConnectedError()
 
         # Replay creates its own ephemeral capture_run + session for capture machinery
-        self.recorder.clear()
+        self._enter_idle()
         run_id = f"replay_{uuid.uuid4().hex[:8]}"
         run_name = f"Replay {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
         self.db.create_capture_run(run_id, game_id, run_name, draft=True)
@@ -459,8 +527,7 @@ class ReferenceController:
             session_id=sess_id, capture_run_id=run_id,
             ordinal=1, spinrec_path=spinrec_path,
         )
-        self.recorder.capture_run_id = run_id
-        self.recorder.current_capture_session_id = sess_id
+        self._enter_recording(run_id, sess_id)
 
         await self.tcp.send_command(ReplayCmd(path=spinrec_path, speed=speed))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REPLAY)
@@ -479,7 +546,7 @@ class ReferenceController:
         if run_id and seg_count == 0:
             # Nothing captured — no value in keeping the run; delete it.
             self.db.hard_delete_capture_run(run_id)
-            self.paused_run_id = None
+            self._enter_idle()
         # If segments were captured, the run stays paused so the user can finalize.
         # recover_paused_capture_run excludes replay_ IDs, so this won't clobber
         # real paused reference runs on the next dashboard restart.
@@ -504,7 +571,7 @@ class ReferenceController:
         return ActionResult(status=Status.STARTED, new_mode=Mode.FILL_GAP)
 
     def handle_fill_gap_spawn(self, event: SpawnEvent) -> bool:
-        if not event.state_captured or not self.fill_gap_segment_id:
+        if not event.state_captured or not event.state_path or not self.fill_gap_segment_id:
             return False
         waypoint_id = self._fill_gap_waypoint_id
         if waypoint_id:
@@ -566,7 +633,7 @@ class ReferenceController:
         if run_id and seg_count == 0:
             # Errored with nothing captured — discard the empty run.
             self.db.hard_delete_capture_run(run_id)
-            self.paused_run_id = None
+            self._enter_idle()
         # If segments were captured before the error, leave as paused so the user
         # can decide whether to finalize or discard them.
 
@@ -579,6 +646,6 @@ class ReferenceController:
     def recover_paused_run(self, game_id: str) -> None:
         """On game-load, find any paused run for this game and surface it."""
         run_id = self.db.recover_paused_capture_run(game_id)
-        self.paused_run_id = run_id
         if run_id:
+            self._enter_paused(run_id)
             logger.info("recovery: paused run loaded id=%s", run_id)

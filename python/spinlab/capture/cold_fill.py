@@ -48,11 +48,8 @@ class ColdFillController:
         seg = self.queue[0]
         self.current = seg["segment_id"]
         current_num = self.total - len(self.queue) + 1
-        row = self.db.conn.execute(
-            "SELECT start_waypoint_id FROM segments WHERE id = ?",
-            (seg["segment_id"],),
-        ).fetchone()
-        self.cold_waypoint_id = row[0] if row else None
+        segment_row = self.db.get_segment_by_id(seg["segment_id"])
+        self.cold_waypoint_id = segment_row.start_waypoint_id if segment_row else None
         logger.info("cold_fill: loading %d/%d — segment=%s state=%s",
                      current_num, self.total, seg["segment_id"], seg["hot_state_path"])
         await self.tcp.send_command(ColdFillLoadCmd(
@@ -66,7 +63,7 @@ class ColdFillController:
         if not self.current:
             logger.warning("cold_fill: spawn received but no current segment")
             return False
-        if not event.state_captured:
+        if not event.state_captured or not event.state_path:
             logger.info("cold_fill: spawn without state_captured — ignoring (state_path=%s)",
                         event.state_path)
             return False

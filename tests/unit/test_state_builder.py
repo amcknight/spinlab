@@ -4,11 +4,10 @@ test_dashboard_integration.py (which covers the practice branch).
 Uses real SessionManager + real DB instead of mocking SessionManager
 attributes, so tests break if the SM interface changes.
 """
-import pytest
 
 from spinlab.models import Mode
 from spinlab.session_manager import SessionManager
-from spinlab.speed_run import LevelPlan, SpeedRunSession
+from spinlab.speed_run import SpeedRunSession
 
 
 def _make_sm(db, tcp):

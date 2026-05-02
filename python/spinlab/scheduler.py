@@ -16,7 +16,7 @@ from spinlab.allocators import Allocator, SegmentWithModel, get_allocator, list_
 from spinlab.allocators.mix import MixAllocator
 from spinlab.db.attempts import AttemptRow
 from spinlab.estimators import EstimatorState, get_estimator, list_estimators
-from spinlab.models import AttemptRecord
+from spinlab.models import Attempt, AttemptRecord
 
 if TYPE_CHECKING:
     from spinlab.db import Database
@@ -111,6 +111,29 @@ class Scheduler:
         if segment_id is None:
             return None
         return next((s for s in practicable if s.segment_id == segment_id), None)
+
+    def record_attempt(self, attempt: Attempt) -> None:
+        """Canonical entry point for a finished practice/replay attempt.
+
+        Runs every registered estimator on the attempt and then persists the
+        attempt row. Order matters: ``process_attempt`` expects the new attempt
+        is NOT yet in the attempts table so it can append it itself; logging
+        first would make estimators see it twice (see the regression covered
+        by ``tests/unit/test_practice.py::test_process_result_does_not_double_count_attempts``).
+
+        Not strictly atomic — the underlying DB methods auto-commit per call —
+        but the only failure mode of practical concern (``log_attempt`` raising
+        after model state was updated) is rare and self-heals on the next
+        ``rebuild_all_states`` since attempts are the source of truth.
+        """
+        self.process_attempt(
+            attempt.segment_id,
+            time_ms=attempt.time_ms or 0,
+            completed=attempt.completed,
+            deaths=attempt.deaths,
+            clean_tail_ms=attempt.clean_tail_ms,
+        )
+        self.db.log_attempt(attempt)
 
     def process_attempt(
         self, segment_id: str, time_ms: int, completed: bool,

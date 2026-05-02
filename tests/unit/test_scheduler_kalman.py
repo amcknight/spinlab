@@ -1,6 +1,8 @@
 """Tests for the scheduler coordinator (multi-model)."""
 import json
+
 import pytest
+
 from spinlab.db import Database
 from spinlab.estimators import list_estimators
 from spinlab.models import ModelOutput, Segment, Waypoint, WaypointSaveState

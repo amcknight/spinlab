@@ -1,8 +1,9 @@
 import pytest
+
 from spinlab.capture import SegmentRecorder
 from spinlab.condition_registry import ConditionRegistry
 from spinlab.db import Database
-from spinlab.protocol import LevelEntranceEvent, LevelExitEvent, CheckpointEvent
+from spinlab.protocol import CheckpointEvent, LevelEntranceEvent, LevelExitEvent
 
 
 @pytest.fixture
@@ -160,11 +161,15 @@ def test_handle_spawn_event_propagates_timestamp_ms(db, registry):
     """ReferenceController.handle_spawn must pass event.timestamp_ms through to
     the recorder's _last_spawn_ms, otherwise clean_tail_ms is always == time_ms
     for any segment with deaths. Regression test for the multi-session work."""
+    from tests.conftest import FakeTcpManager
+
     from spinlab.capture.reference import ReferenceController
     from spinlab.protocol import (
-        LevelEntranceEvent, LevelExitEvent, SpawnEvent, DeathEvent,
+        DeathEvent,
+        LevelEntranceEvent,
+        LevelExitEvent,
+        SpawnEvent,
     )
-    from tests.conftest import FakeTcpManager
     # The module-level `db` fixture already pre-creates game="g1", run="run1",
     # session="sess1" — reuse those rather than building a parallel fixture.
     ctl = ReferenceController(db, FakeTcpManager(connected=False))
