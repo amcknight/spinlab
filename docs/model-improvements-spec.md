@@ -2,6 +2,8 @@
 
 Produced from 2026-04-01 design review.
 
+**Status as of 2026-05-01:** Phase 1 (mechanical) is largely landed: nullable `ModelOutput` fields, dashboard `None` handling, Exp Decay no-fallback, Rolling Mean trend with 2-3 attempts. Phase 1 item #4 had partial test coverage. Phases 2-4 are open and tracked in `docs/BACKLOG.md`.
+
 ## Principles
 
 1. **No silent fallbacks.** If a model can't compute a value, return `None`. Never substitute another model's answer or a fake 0.0.
@@ -91,7 +93,7 @@ A VoI allocator ideally wants `E[time | N more attempts]`, not just `E[time | 1 
 
 6. **New outputs:** `uncertainty_ms = sqrt(P_mm) * 1000`, `trend_uncertainty_ms = sqrt(P_dd) * 1000`. These already exist in the state — just expose them.
 
-### Rolling Stats (Model A)
+### Rolling Mean
 
 **Current state:** Simplest model. Mean of all times, first-half vs second-half trend, min observed for floor.
 
@@ -109,7 +111,7 @@ A VoI allocator ideally wants `E[time | N more attempts]`, not just `E[time | 1 
 
 6. **`uncertainty_ms`:** Could compute `std(recent_window) / sqrt(n_recent)` as a standard error. Better than None. Or leave as None — this model doesn't claim statistical rigor.
 
-### Exp Decay (Model B)
+### Exp Decay
 
 **Current state:** Fits `time(n) = A * exp(-rate * n) + asymptote` via scipy curve_fit. Two fits (total times, clean tails).
 
@@ -132,16 +134,6 @@ A VoI allocator ideally wants `E[time | N more attempts]`, not just `E[time | 1 
 - Model table shows `None` as "--" or "..." instead of "0.0"
 - Trend arrow logic: `None` trend = no arrow (gray dash)
 - Consider showing uncertainty inline (e.g., "10.2s +/- 1.3s") when available
-
-## Bug Fixes (from this testing session)
-
-Tracked separately from model improvements:
-
-1. **`_expected_columns` for attempts was wrong** — missing `id`, `goal_matched`, `rating`. Caused attempts table to be dropped and recreated on every restart. **Fixed 2026-04-01.**
-2. **Overlay character regression** — `>` changed to Unicode arrow which Lua can't render. **Fixed 2026-04-01.**
-3. **Greedy allocator stuck on first segment** — symptom of model_state save failure (stale composite PK). **Fixed 2026-04-01** via stale table detection.
-
----
 
 ## Implementation Order
 

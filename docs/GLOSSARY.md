@@ -20,7 +20,14 @@ Quick reference for domain terms used across specs, architecture docs, and code.
 
 - **Hot variant** — save state captured at the exact frame a checkpoint is hit.
 - **Cold variant** — save state captured on first respawn from a checkpoint (post-death-animation).
-- **StartPoint** — (deprecated term, replaced by Waypoint) — a waypoint that a save state loads you into.
+
+## Reference Capture
+
+- **Capture run** (`capture_runs` row) — one reference recording (live or replay). `draft=1` until finalized; `active=1` for the currently selected reference per game. Spans 1..N capture sessions.
+- **Capture session** (`capture_sessions` row) — one continuous recording window inside a capture run. Has its own `.spinrec` file and an `ordinal` within the run. Stopping a reference ends the session and leaves the run paused; resuming opens a new session.
+- **Paused run** — a `draft=1` capture run with no active session. State lives in memory as `ReferenceController.paused_run_id`. Survives restart via `recover_paused_capture_run`.
+- **Recorded segment time** (`recorded_segment_times` row) — per-segment timing buffered during a capture session. Drained into seed `attempts` at finalize.
+- **Seed attempt** — an `attempts` row with `source='reference'` created from a `recorded_segment_times` row at finalize. Its `parent_id` is the `capture_run_id`.
 
 ## Time Series
 
@@ -32,6 +39,10 @@ Quick reference for domain terms used across specs, architecture docs, and code.
 - **is_primary** — per-segment flag. Practice loop serves only primary segments. Auto-True for the first segment in a geography.
 - **active** — per-segment flag. Inactive segments are excluded everywhere, including capture matching.
 - **invalidated** — per-attempt flag. Invalidated attempts are preserved but excluded from estimators. Set by in-emulator hotkey or dashboard delete.
+
+## Polymorphic Identifiers
+
+- **`attempts.parent_id`** — references a practice session id when `source='practice'`, and a capture_run id when `source='reference'`. The single column expresses "the parent context this attempt belongs to."
 
 ## AHK Shortcuts (see `scripts/spinlab.ahk`)
 
