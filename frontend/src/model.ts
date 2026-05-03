@@ -69,7 +69,6 @@ function updateModel(data: ModelData): void {
 
 function showSegmentDetail(segmentId: string): void {
   _currentSegmentId = segmentId;
-  // Hide model content
   (document.getElementById("model-table") as HTMLElement).style.display = "none";
   (document.querySelector(".model-header") as HTMLElement).style.display = "none";
   (document.getElementById("tuning-panel") as HTMLElement).style.display = "none";
@@ -78,7 +77,6 @@ function showSegmentDetail(segmentId: string): void {
   practiceCard.dataset.wasVisible = practiceCard.style.display;
   practiceCard.style.display = "none";
 
-  // Show detail
   const detail = document.getElementById("segment-detail") as HTMLElement;
   detail.style.display = "";
   renderSegmentDetail(detail, segmentId, hideSegmentDetail);
@@ -88,7 +86,6 @@ function hideSegmentDetail(): void {
   _currentSegmentId = null;
   destroySegmentDetail();
 
-  // Restore model content
   (document.getElementById("model-table") as HTMLElement).style.display = "";
   (document.querySelector(".model-header") as HTMLElement).style.display = "";
   (document.getElementById("tuning-panel") as HTMLElement).style.display = "";
@@ -96,10 +93,8 @@ function hideSegmentDetail(): void {
   const practiceCard = document.getElementById("practice-card") as HTMLElement;
   practiceCard.style.display = practiceCard.dataset.wasVisible || "none";
 
-  // Hide detail
   (document.getElementById("segment-detail") as HTMLElement).style.display = "none";
 
-  // Refresh model data
   fetchModel();
 }
 

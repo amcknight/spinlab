@@ -46,7 +46,6 @@ def spawn_vite(frontend_dir: Path) -> subprocess.Popen:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    # Check for early exit (missing node_modules, bad config, etc.)
     if proc.poll() is not None:
         stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
         raise ViteStartupError(

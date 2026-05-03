@@ -51,9 +51,11 @@ class Scheduler:
             est_name = estimator_name
         self.estimator: Estimator = get_estimator(est_name)
         self.allocator: MixAllocator = self._build_mix_from_db()
-        # Clean up legacy single-allocator config key
-        if db.load_allocator_config("allocator") is not None:
-            db.delete_allocator_config("allocator")
+        self._drop_legacy_allocator_config_key()
+
+    def _drop_legacy_allocator_config_key(self) -> None:
+        if self.db.load_allocator_config("allocator") is not None:
+            self.db.delete_allocator_config("allocator")
 
     def _build_mix_from_db(self) -> MixAllocator:
         raw = self.db.load_allocator_config("allocator_weights")

@@ -45,9 +45,9 @@ def _resolve_spinrec_path(
         if session_id:
             target = next((s for s in sessions if s["id"] == session_id), None)
             return target["spinrec_path"] if target else None
-        # Default: first session (lowest ordinal — list is already ordered by ordinal)
         return sessions[0]["spinrec_path"]
-    # Legacy fallback: pre-multi-session runs wrote a single file named after the run
+    # Legacy single-file layout: a run with no capture_sessions rows still has
+    # a spinrec at the path named after the run id.
     gid = session.game_id or "unknown"
     legacy_path = session.data_dir / gid / "rec" / f"{ref_id}.spinrec"
     return str(legacy_path.resolve())
@@ -89,7 +89,7 @@ def list_references(session: SessionManager = Depends(get_session), db: Database
                 Path(s["spinrec_path"]).is_file() for s in sessions
             )
         else:
-            # Legacy fallback for pre-multi-session runs
+            # Legacy single-file layout (no capture_sessions rows)
             legacy_path = session.data_dir / gid / "rec" / f"{ref_id}.spinrec"
             d["has_spinrec"] = legacy_path.is_file()
         out.append(d)

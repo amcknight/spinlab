@@ -105,7 +105,6 @@ def set_estimator_params(body: dict, session: SessionManager = Depends(get_sessi
     sched = session.get_scheduler()
     est = sched.estimator
     params = body.get("params", {})
-    # Validate param names
     valid_names = {p.name for p in est.declared_params()}
     for name in params:
         if name not in valid_names:
@@ -124,11 +123,10 @@ def segment_history(segment_id: str, db: Database = Depends(get_db)):
         raise HTTPException(status_code=404, detail=f"Segment not found: {segment_id}")
 
     raw_rows = db.get_segment_attempts(segment_id)
-    # _attempts_from_rows filters invalidated; we also need completed only
+    # _attempts_from_rows already drops invalidated; filter to completed too.
     all_records = _attempts_from_rows(raw_rows)
     completed = [a for a in all_records if a.completed and a.time_ms is not None]
 
-    # Build attempt data points
     attempts = []
     for i, a in enumerate(completed):
         attempts.append({
@@ -139,7 +137,6 @@ def segment_history(segment_id: str, db: Database = Depends(get_db)):
             "created_at": a.created_at,
         })
 
-    # Load estimator params and replay through each estimator
     estimator_names = list_estimators()
     estimator_curves: dict[str, dict] = {}
 

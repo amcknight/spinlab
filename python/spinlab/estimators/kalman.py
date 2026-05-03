@@ -16,7 +16,6 @@ from spinlab.models import AttemptRecord, Estimate, ModelOutput
 if TYPE_CHECKING:
     from spinlab.db import Database
 
-# === Defaults ===
 DEFAULT_D = 0.0
 DEFAULT_R = 25.0
 DEFAULT_P_D0 = 1.0

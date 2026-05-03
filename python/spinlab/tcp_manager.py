@@ -43,7 +43,6 @@ class TcpManager:
                 timeout=timeout,
             )
             logger.info("TCP connected to %s:%d", self.host, self.port)
-            # Start the single reader coroutine
             self._read_task = asyncio.create_task(self._read_loop())
             return True
         except (OSError, asyncio.TimeoutError) as e:
@@ -66,7 +65,6 @@ class TcpManager:
             self._writer = None
             self._reader = None
             logger.info("TCP disconnected")
-        # Drain any remaining events
         while not self.events.empty():
             try:
                 self.events.get_nowait()
@@ -119,7 +117,6 @@ class TcpManager:
         except (ConnectionError, OSError, asyncio.CancelledError):
             pass
         finally:
-            # Connection dropped — clean up
             self._writer = None
             self._reader = None
             if self.on_disconnect:

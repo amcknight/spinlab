@@ -32,7 +32,6 @@ interface ChartDataset {
 export function buildChartDatasets(history: SegmentHistory, mode: SeriesMode): ChartDataset[] {
   const datasets: ChartDataset[] = [];
 
-  // Raw attempt points
   const rawData = history.attempts.map((a) => {
     const ms = mode === "total" ? a.time_ms : a.clean_tail_ms;
     return ms != null ? ms / 1000 : null;
@@ -47,7 +46,6 @@ export function buildChartDatasets(history: SegmentHistory, mode: SeriesMode): C
     tension: 0,
   });
 
-  // Estimator curves
   const estimatorNames = Object.keys(history.estimator_curves);
   estimatorNames.forEach((name, i) => {
     const curves = history.estimator_curves[name]!;
@@ -77,7 +75,6 @@ export async function renderSegmentDetail(
 ): Promise<void> {
   container.innerHTML = "";
 
-  // Header with back button
   const header = document.createElement("div");
   header.className = "detail-header";
   const backBtn = document.createElement("button");
@@ -91,7 +88,6 @@ export async function renderSegmentDetail(
   header.appendChild(title);
   container.appendChild(header);
 
-  // Toggle buttons
   const toggleRow = document.createElement("div");
   toggleRow.className = "detail-toggle";
   const totalBtn = document.createElement("button");
@@ -113,7 +109,6 @@ export async function renderSegmentDetail(
   chartWrap.appendChild(canvas);
   container.appendChild(chartWrap);
 
-  // Fetch data
   const history = await fetchJSON<SegmentHistory>(
     `/api/segments/${encodeURIComponent(segmentId)}/history`,
   );
@@ -134,7 +129,6 @@ export async function renderSegmentDetail(
     return;
   }
 
-  // Build chart
   const labels = history.attempts.map((a) => String(a.attempt_number));
   _chart = new Chart(canvas, {
     type: "line",
@@ -170,7 +164,6 @@ export async function renderSegmentDetail(
     },
   });
 
-  // Wire toggle
   totalBtn.addEventListener("click", () => {
     if (_mode === "total") return;
     _mode = "total";

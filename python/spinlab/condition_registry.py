@@ -11,7 +11,6 @@ import yaml
 # + respawn in a standard SMW retry (~3.2 s measured from SMW NTSC timing).
 DEFAULT_DEATH_PENALTY_MS: int = 3200
 
-# Scope types ----------------------------------------------------------
 @dataclass(frozen=True)
 class Scope:
     """Scope of a condition: entire game, or specific levels only."""

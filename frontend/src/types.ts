@@ -1,5 +1,3 @@
-// -- Enums as string unions --
-
 export type Mode =
   | "idle"
   | "reference"
@@ -10,8 +8,6 @@ export type Mode =
   | "speed_run";
 
 export type EndpointType = "entrance" | "checkpoint" | "goal";
-
-// -- API response shapes --
 
 export interface Estimate {
   expected_ms: number | null;

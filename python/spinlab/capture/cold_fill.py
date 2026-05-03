@@ -1,4 +1,3 @@
-# python/spinlab/cold_fill_controller.py
 """ColdFillController — captures cold save states for segments missing them."""
 from __future__ import annotations
 

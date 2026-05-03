@@ -128,8 +128,6 @@ describe("API contract fixtures", () => {
   it("practice state has correct nested model_output structure", () => {
     const seg = PRACTICE_STATE.current_segment!;
     const output = seg.model_outputs[seg.selected_model]!;
-    // This is the bug the migration fixed — old JS accessed output.expected_time_ms
-    // which doesn't exist. The correct path is output.total.expected_ms.
     expect(output.total.expected_ms).toBe(8500);
     expect(output.total.ms_per_attempt).toBe(-45.2);
     expect(output.total.floor_ms).toBe(6200);

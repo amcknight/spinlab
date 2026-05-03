@@ -42,8 +42,6 @@ class SegmentsMixin:
     conn: sqlite3.Connection
     _row_to_segment: Callable[[sqlite3.Row], Segment]
 
-    # -- Segments --
-
     def upsert_segment(self, seg: Segment) -> None:
         now = datetime.now(UTC).isoformat()
         self.conn.execute(
@@ -176,8 +174,6 @@ class SegmentsMixin:
 
     def soft_delete_segment(self, segment_id: str) -> None:
         self.update_segment(segment_id, active=0)
-
-    # -- Waypoint Save States --
 
     def add_save_state(self, s: WaypointSaveState) -> None:
         self.conn.execute(

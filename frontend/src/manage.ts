@@ -49,7 +49,6 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
   (document.getElementById("btn-ref-delete") as HTMLButtonElement).disabled =
     busy || pausedRun != null || noRefs;
 
-  // Paused run card
   if (pausedRun) {
     pausedRunCard.style.display = "";
     document.getElementById("paused-run-summary")!.textContent =
@@ -66,7 +65,6 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
   (document.getElementById("btn-discard-run") as HTMLButtonElement).disabled =
     !pausedRun;
 
-  // Live recording indicator
   const recIndicator = document.getElementById("recording-indicator") as HTMLElement;
   if (recording) {
     recIndicator.style.display = "";

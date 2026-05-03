@@ -122,7 +122,7 @@ class CaptureRunsMixin:
             self.conn.execute(
                 "DELETE FROM segments WHERE reference_id = ?", (run_id,),
             )
-        # capture_sessions and recorded_segment_times cascade via FK ON DELETE CASCADE
+        # capture_sessions and recorded_segment_times CASCADE from capture_runs
         self.conn.execute("DELETE FROM capture_runs WHERE id = ?", (run_id,))
         self.conn.commit()
 
@@ -142,8 +142,7 @@ class CaptureRunsMixin:
             ) from unlink_failures[0][1]
 
     def get_segments_by_reference(self, reference_id: str) -> list[ReferenceSegmentRow]:
-        # state_path is always NULL until a future task rewrites this to join
-        # waypoint_save_states via start_waypoint_id.
+        # state_path is always NULL — populate via waypoint_save_states join in caller.
         cur = self.conn.execute(
             """SELECT s.id, s.game_id, s.level_number, s.start_type, s.start_ordinal,
                       s.end_type, s.end_ordinal, s.description, s.active, s.ordinal,

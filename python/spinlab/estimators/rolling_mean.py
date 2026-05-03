@@ -1,4 +1,3 @@
-# python/spinlab/estimators/rolling_mean.py
 """Rolling mean estimator (model-free)."""
 from __future__ import annotations
 

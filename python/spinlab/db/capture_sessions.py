@@ -117,10 +117,10 @@ class CaptureSessionsMixin:
         Returns the recovered run id, or None if no draft exists.
         """
         # Exclude replay-derived runs (id prefix 'replay_'). They are left as paused
-        # drafts when segments were captured, but must not be considered "recoverable"
-        # paused references — that would cause them to clobber a real paused run or be
-        # surfaced to the user as a resumable reference run on dashboard restart.
-        # Orphaned replay drafts accumulate until explicitly discarded (acceptable v1).
+        # drafts when segments were captured, but must not be surfaced as recoverable
+        # paused references — that would clobber a real paused run or appear to the
+        # user as a resumable reference. Orphaned replay drafts accumulate until
+        # explicitly discarded.
         rows = self.conn.execute(
             "SELECT id FROM capture_runs WHERE game_id = ? AND draft = 1 "
             "AND id NOT LIKE 'replay_%' "

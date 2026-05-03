@@ -144,7 +144,6 @@ class Estimator(ABC):
         return {}
 
 
-# Registry: name -> Estimator class
 _ESTIMATOR_REGISTRY: dict[str, type[Estimator]] = {}
 
 

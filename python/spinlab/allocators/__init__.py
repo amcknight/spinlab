@@ -35,7 +35,6 @@ class SegmentWithModel:
     strat_version: int
     state_path: str | None
     active: bool
-    # Multi-model output
     model_outputs: dict[str, ModelOutput] = field(default_factory=dict)
     selected_model: str = "kalman"
     n_completed: int = 0
@@ -121,7 +120,6 @@ class Allocator(ABC):
         ...
 
 
-# Registry: name -> Allocator class
 _ALLOCATOR_REGISTRY: dict[str, type[Allocator]] = {}
 
 

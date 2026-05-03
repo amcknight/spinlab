@@ -1,4 +1,3 @@
-# python/spinlab/protocol.py
 """Typed TCP protocol — message catalog for Lua <-> Python communication.
 
 Every Lua->Python event and Python->Lua command is a dataclass here.
@@ -15,9 +14,7 @@ from dataclasses import dataclass, field
 # never pass SPEED_UNCAPPED directly to setSpeed.
 SPEED_UNCAPPED = 0
 
-# ---------------------------------------------------------------------------
 # Lua -> Python events
-# ---------------------------------------------------------------------------
 
 @dataclass
 class RomInfoEvent:
@@ -130,9 +127,7 @@ class SpeedRunCompleteEvent:
     split_ms: int = 0
 
 
-# ---------------------------------------------------------------------------
 # Python -> Lua commands
-# ---------------------------------------------------------------------------
 
 @dataclass
 class GameContextCmd:
@@ -219,9 +214,7 @@ class ResetCmd:
     event: str = "reset"
 
 
-# ---------------------------------------------------------------------------
 # Event registry and parser
-# ---------------------------------------------------------------------------
 
 _EVENT_REGISTRY: dict[str, type] = {
     "rom_info": RomInfoEvent,

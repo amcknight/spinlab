@@ -1,4 +1,3 @@
-# python/spinlab/session_manager.py
 """SessionManager — thin coordinator that delegates to focused controllers."""
 from __future__ import annotations
 
@@ -78,8 +77,7 @@ class SessionManager:
         self.data_dir = data_dir or Path("data")
         self.invalidate_combo: list[str] = invalidate_combo if invalidate_combo is not None else ["L", "Select"]
 
-        # Core state — SystemState is the single source of truth
-        self.state = SystemState()
+        self.state = SystemState()  # SystemState is the single source of truth
         self.scheduler = None  # Scheduler | None, lazy-init
         self.practice_session = None  # PracticeSession | None
         self.practice_task: asyncio.Task | None = None
@@ -90,7 +88,6 @@ class SessionManager:
         self.replay_frame: int = 0
         self.replay_total: int = 0
 
-        # Delegated components
         self.capture = ReferenceController(db, tcp)
         self.cold_fill = ColdFillController(db, tcp)
         self.sse = SSEBroadcaster()
@@ -153,7 +150,6 @@ class SessionManager:
             return self.speed_run_session.session_id
         return None
 
-    # --- State ---
 
     def get_state(self) -> dict:
         """Full state snapshot for API and SSE."""
@@ -191,7 +187,6 @@ class SessionManager:
         self.capture.recover_paused_run(game_id)
         await self._notify_sse()
 
-    # --- SSE (delegate to broadcaster) ---
 
     def subscribe_sse(self) -> asyncio.Queue:
         return self.sse.subscribe()
@@ -210,7 +205,6 @@ class SessionManager:
         except Exception:
             logger.exception("SSE broadcast failed; subscribers will sync on next event")
 
-    # --- Event routing ---
 
     async def route_event(self, event: dict) -> None:
         try:
@@ -360,7 +354,6 @@ class SessionManager:
         self.db.set_attempt_invalidated(aid, True)
         logger.info("Marked attempt %d as invalidated", aid)
 
-    # --- Mode actions (delegate to controllers, apply mode transitions) ---
 
     async def _apply_result(self, result: ActionResult) -> ActionResult:
         """Apply mode transition from result and notify SSE."""
@@ -437,7 +430,6 @@ class SessionManager:
         await self._notify_sse()
         return result
 
-    # --- Practice mode ---
 
     async def start_practice(self) -> ActionResult:
         if self.capture.has_paused_run:
@@ -483,7 +475,6 @@ class SessionManager:
             return ActionResult(status=Status.STOPPED)
         raise NotRunningError()
 
-    # --- Speed Run mode ---
 
     async def start_speed_run(self) -> ActionResult:
         if self.capture.has_paused_run:

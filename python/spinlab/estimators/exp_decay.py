@@ -1,4 +1,3 @@
-# python/spinlab/estimators/exp_decay.py
 """Exponential decay estimator.
 
 Fits time(n) = amplitude * exp(-decay_rate * n) + asymptote
@@ -218,12 +217,10 @@ class ExpDecayEstimator(Estimator):
 
         next_n = float(n)  # predict at index n (next unobserved)
 
-        # Total time fit
         total_expected = float(state.total_amplitude * np.exp(-state.total_decay_rate * next_n) + state.total_asymptote)
         total_next_next = float(state.total_amplitude * np.exp(-state.total_decay_rate * (next_n + 1)) + state.total_asymptote)
         total_mpa = total_expected - total_next_next  # discrete difference, positive = improving
 
-        # Clean tail fit
         clean_expected = float(state.amplitude * np.exp(-state.decay_rate * next_n) + state.asymptote)
         clean_next_next = float(state.amplitude * np.exp(-state.decay_rate * (next_n + 1)) + state.asymptote)
         clean_mpa = clean_expected - clean_next_next

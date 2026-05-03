@@ -1,6 +1,6 @@
 -- SpinLab — Mesen2 Lua Script
--- Steps 1+2 complete: Save State PoC + Passive Recorder
--- Step 4: Practice loop MVP
+-- Always-on. Switches between idle / reference / replay / practice / fill-gap
+-- on TCP commands from the Python dashboard. See docs/ARCHITECTURE.md.
 --
 -- Keyboard (manual testing):
 --   T = save state to test file

@@ -140,7 +140,6 @@ class ReferenceController:
     def rec_path(self) -> str | None:
         return self.recorder.rec_path
 
-    # --- Run-phase transitions ----------------------------------------------
     # These three methods are the only places that mutate the
     # paused_run_id / recorder.capture_run_id pair. Everywhere else reads
     # but does not write. Keep it that way.
@@ -194,8 +193,6 @@ class ReferenceController:
     def clear_and_idle(self) -> None:
         """Clear all in-memory state. Caller sets mode to IDLE."""
         self._enter_idle()
-
-    # ---------------------------------------------------------------- helpers
 
     def _game_rec_dir(self, data_dir: Path, game_id: str) -> Path:
         d = data_dir / game_id / "rec"
@@ -260,8 +257,6 @@ class ReferenceController:
         logger.info("session: created sess=%s run=%s ordinal=%d", sess_id, run_id, next_ord)
         return sess_id, spinrec_path
 
-    # ---------------------------------------------------------------- start/resume
-
     async def start_reference(
         self, mode: Mode,
         game_id: str, data_dir: Path, run_name: str | None = None,
@@ -307,8 +302,6 @@ class ReferenceController:
         await self.tcp.send_command(ReferenceStartCmd(path=spinrec_path))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REFERENCE)
 
-    # ---------------------------------------------------------------- stop/finalize/discard
-
     async def stop_reference(self, mode: Mode) -> ActionResult:
         if mode != Mode.REFERENCE:
             raise NotInReferenceError()
@@ -345,24 +338,14 @@ class ReferenceController:
     ) -> ActionResult:
         """Combined Stop Session + Finalize, atomic.
 
-        Atomicity is achieved with an explicit ``BEGIN IMMEDIATE`` / commit block
-        that inlines all mutations directly on ``db.conn``, bypassing the mixin
-        methods that each call ``conn.commit()`` internally. Calling a mixin's
-        commit() inside an outer BEGIN would commit the partial work done up to
-        that point, breaking atomicity.
-
-        The atomic unit is: end capture session → drain timing rows → promote
-        draft → set active → seed attempts. If any step raises, ``rollback()``
-        undoes all of them — including the session-end. That matters because a
-        previous version stamped the session ``ended_at`` outside the
-        transaction; a finalize that later failed left the user with a session
-        marked ended but a run still in draft (the audit's #11 concern). With
-        the session-end now inside the block, either the whole finish succeeds
-        or every state is left exactly as it was.
-
-        TCP send and recorder state are unchanged regardless — the stop command
-        was already sent (non-transactional side effect), and recorder is
-        cleared after a successful commit via ``_enter_idle``.
+        Inlines mutations on ``db.conn`` inside an explicit ``BEGIN IMMEDIATE``
+        because the mixin methods each call ``conn.commit()`` internally —
+        calling them inside an outer transaction would commit partial work and
+        break atomicity. Either every step (end session → drain timing rows →
+        promote draft → set active → seed attempts) succeeds, or rollback
+        leaves every row exactly as it was. TCP stop is sent before the
+        transaction since it is non-transactional; recorder state is cleared
+        only on successful commit via ``_enter_idle``.
         """
         if mode != Mode.REFERENCE:
             raise NotInReferenceError()
@@ -380,8 +363,8 @@ class ReferenceController:
         try:
             self.db.conn.execute("BEGIN IMMEDIATE")
 
-            # End the capture session inside the transaction (was previously
-            # committed separately via _end_current_session, breaking atomicity).
+            # End the capture session inside the transaction so a later failure
+            # rolls it back. _end_current_session would commit it separately.
             if sess_id:
                 self.db.conn.execute(
                     "UPDATE capture_sessions SET ended_at = ?, end_reason = ? "
@@ -410,7 +393,7 @@ class ReferenceController:
                 "UPDATE capture_runs SET draft = 0, name = ? WHERE id = ?",
                 (name, run_id),
             )
-            # Set as active (deactivate all others for the same game first)
+            # Activate this run (deactivate siblings for the same game first)
             game_row = self.db.conn.execute(
                 "SELECT game_id FROM capture_runs WHERE id = ?", (run_id,)
             ).fetchone()
@@ -422,7 +405,6 @@ class ReferenceController:
                 self.db.conn.execute(
                     "UPDATE capture_runs SET active = 1 WHERE id = ?", (run_id,)
                 )
-            # Seed reference attempts — all inserts are inside the open transaction
             now = _dt.now(UTC)
             seeded = 0
             for row in timing_rows:
@@ -500,7 +482,6 @@ class ReferenceController:
         logger.info("session: deleted sess=%s from run=%s", session_id, run_id)
         return ActionResult(status=Status.OK)
 
-    # ---------------------------------------------------------------- replay
 
     async def start_replay(
         self, mode: Mode,
@@ -552,7 +533,6 @@ class ReferenceController:
         # real paused reference runs on the next dashboard restart.
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
 
-    # ---------------------------------------------------------------- fill_gap (unchanged behaviour)
 
     async def start_fill_gap(self, segment_id: str) -> ActionResult:
         if not self.tcp.is_connected:
@@ -586,7 +566,6 @@ class ReferenceController:
         self._fill_gap_waypoint_id = None
         return True
 
-    # ---------------------------------------------------------------- event routing
 
     def handle_entrance(self, event: LevelEntranceEvent) -> None:
         logger.info("capture: entrance level=%s", event.level)
@@ -641,7 +620,6 @@ class ReferenceController:
         """Treat as a clean session end. Run stays paused for resume."""
         self._end_current_session(end_reason="disconnected")
 
-    # ---------------------------------------------------------------- recovery
 
     def recover_paused_run(self, game_id: str) -> None:
         """On game-load, find any paused run for this game and surface it."""

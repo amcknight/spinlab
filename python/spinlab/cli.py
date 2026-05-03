@@ -59,10 +59,8 @@ def main(args: list[str] | None = None) -> None:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # stats
     sub.add_parser("stats", help="Show practice statistics (coming soon)")
 
-    # dashboard
     p_dash = sub.add_parser("dashboard", help="Start the web dashboard")
     p_dash.add_argument(
         "--config", default="config.yaml", help="Path to config.yaml"
@@ -71,19 +69,16 @@ def main(args: list[str] | None = None) -> None:
         "--port", type=int, default=None, help="Dashboard port (overrides config)"
     )
 
-    # replay
     p_replay = sub.add_parser("replay", help="Replay a .spinrec file to regenerate a reference run")
     p_replay.add_argument("path", help="Path to .spinrec file")
     p_replay.add_argument("--speed", type=int, default=0, help="Emulation speed (0=max, 100=normal)")
     p_replay.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     p_replay.add_argument("--port", type=int, default=None, help="Dashboard port (overrides config)")
 
-    # lua-cmd
     p_lua = sub.add_parser("lua-cmd", help="Send raw commands to the Lua TCP server")
     p_lua.add_argument("commands", nargs="+", help="Commands to send (e.g. practice_stop reset)")
     p_lua.add_argument("--config", default="config.yaml", help="Path to config.yaml")
 
-    # db
     p_db = sub.add_parser("db", help="Database management commands")
     db_sub = p_db.add_subparsers(dest="db_command", required=True)
     p_db_reset = db_sub.add_parser("reset", help="Delete and recreate the database")

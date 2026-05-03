@@ -126,7 +126,7 @@ class SegmentRecorder:
                 is_default=True,
             ))
 
-        # Persist timing immediately (crash-safe).
+        # Persist timing immediately so a crash before finalize keeps the data.
         start_ts = start.timestamp_ms
         if (start_ts is not None and end_timestamp_ms is not None
                 and self.current_capture_session_id is not None):

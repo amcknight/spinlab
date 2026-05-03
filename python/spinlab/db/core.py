@@ -160,13 +160,11 @@ class DatabaseCore:
 
     def _init_schema(self) -> None:
         # STOP: this routine drops any table whose columns drift from
-        # _expected_columns(). That is fine while the DB is recreatable, but
-        # once you change the schema for a table that holds data a user would
-        # not want to lose (reference runs, attempts that took real time to
-        # accumulate), DO NOT add the table here — switch to a forward-only
-        # migration log instead. See docs/superpowers/specs/2026-05-01-multi-
-        # session-followups-design.md item #19 for the trigger and approach.
-        stale_tables = ["splits", "segment_variants"]  # legacy tables dropped unconditionally
+        # _expected_columns(). Fine while the DB is recreatable. Once you
+        # change the schema for a table that holds data a user would not want
+        # to lose (reference runs, accumulated attempts), DO NOT add the table
+        # here — switch to a forward-only migration log instead.
+        stale_tables = ["splits", "segment_variants"]
         for table in ["model_state", "attempts", "segments", "waypoints", "waypoint_save_states"]:
             cols = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})").fetchall()}
             if cols and cols != self._expected_columns(table):
@@ -209,8 +207,6 @@ class DatabaseCore:
             self.conn.rollback()
             raise
 
-    # -- Games --
-
     def upsert_game(self, game_id: str, name: str, category: str) -> None:
         now = datetime.now(UTC).isoformat()
         self.conn.execute(
@@ -219,8 +215,6 @@ class DatabaseCore:
             (game_id, name, category, now),
         )
         self.conn.commit()
-
-    # -- Reset --
 
     def reset_all_data(self) -> None:
         """Delete all attempts, sessions, model state, and allocator config."""
@@ -246,8 +240,6 @@ class DatabaseCore:
         self.conn.execute("DELETE FROM sessions WHERE game_id = ?", (game_id,))
         self.conn.execute("DELETE FROM transitions WHERE game_id = ?", (game_id,))
         self.conn.commit()
-
-    # -- Helpers --
 
     @staticmethod
     def _row_to_segment(row: sqlite3.Row) -> Segment:

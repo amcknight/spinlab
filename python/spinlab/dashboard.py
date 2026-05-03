@@ -88,8 +88,6 @@ def create_app(
     app.state.session = session
     app.state.db = db
 
-    # -- Routers --
-
     from .routes.attempts import router as attempts_router
     from .routes.model import router as model_router
     from .routes.practice import router as practice_router

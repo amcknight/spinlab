@@ -33,7 +33,6 @@ function updateFromState(data: AppState): void {
   }
 }
 
-// Tab switching
 document.querySelectorAll(".tab").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
@@ -68,12 +67,10 @@ async function fetchAndRenderSegments(): Promise<void> {
   }
 }
 
-// Init
 initHeader();
 initModelTab();
 initManageTab();
 
-// Connect SSE with initial poll
 connectSSE(updateFromState);
 fetchJSON<AppState>("/api/state").then((data) => {
   if (data) updateFromState(data);
