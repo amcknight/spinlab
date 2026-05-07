@@ -19,9 +19,14 @@ In `retroarch.cfg` (typically `<RetroArch dir>/retroarch.cfg`):
 ```
 network_cmd_enable = "true"
 network_cmd_port = "55355"
+cheevos_hardcore_mode_enable = "false"
 ```
 
+The first two enable the Network Command Interface SpinLab uses. **The third one is non-obvious but required:** when `cheevos_hardcore_mode_enable = "true"`, RetroArch silently drops NCI hotkey-style commands (SAVE_STATE, LOAD_STATE_SLOT, PAUSE_TOGGLE, MENU_TOGGLE) — even when `cheevos_enable = "false"`. The hardcore flag is checked independently. Manual gamepad save state continues to work, so this fails silently and is genuinely confusing if you don't know to look. SpinLab needs hardcore-mode off to drive its automated saves/loads.
+
 Restart RetroArch fully after editing — the cfg is read once at startup. SpinLab talks to RetroArch over UDP using the libretro Network Command Interface (NCI). The default port `55355` matches RA's default; SpinLab's `network.nci_port` config will track it.
+
+Run-ahead is fully compatible with all NCI commands SpinLab uses; enable it for low input latency. Verified with `run_ahead_enabled = "true"` and `run_ahead_frames = "3"`.
 
 Quick sanity check from PowerShell with RA running:
 

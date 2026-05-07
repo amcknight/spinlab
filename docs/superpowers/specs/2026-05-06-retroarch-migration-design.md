@@ -1,7 +1,14 @@
 # RetroArch Migration — Findings, Open Decisions, Working Plan
 
 **Date:** 2026-05-06
-**Status:** Phase 0 complete (Mesen+Lua incompatible with runahead). Initial Phase 2 spike complete (RetroArch + NCI viable for memory polling). **Architectural decision (shim vs rewrite) still open.** More spike work needed on savestate-via-NCI and input injection before committing.
+**Status:**
+- Phase 0 complete (Mesen+Lua incompatible with runahead).
+- Phase 2 spike complete (RetroArch + NCI viable, including under runahead).
+- Phase A complete (Lua surface audit at `docs/retroarch-migration/lua-audit.md`).
+- Phase B complete (Python NCIClient: 26 unit tests, end-to-end validated against live RA with runahead = 3). Required cfg gotcha discovered: `cheevos_hardcore_mode_enable = "false"`.
+- Phases C-G pending. Phase C plan written at `docs/superpowers/plans/2026-05-06-retroarch-phase-c-poller.md`.
+
+**Architectural direction settled:** rewrite Lua logic in Python; replay via BSV (Phase E, last).
 **Branch:** `worktree/retroarch-port`
 
 ## Goal
