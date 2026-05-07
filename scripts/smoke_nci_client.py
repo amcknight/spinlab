@@ -306,11 +306,26 @@ def main() -> int:
     results: list[tuple[str, bool]] = []
 
     with NCIClient(host=args.host, port=args.port) as client:
+        # Phase 1: focus-independent tests (memory R/W and queries work regardless
+        # of which window is active).
         results.append(("version", smoke_version(client)))
         results.append(("get_status", smoke_get_status(client)))
         results.append(("read_ram", smoke_read_ram(client)))
         results.append(("is_core_running", smoke_is_core_running(client)))
         results.append(("write_ram", smoke_write_ram_unused_address(client)))
+
+        # Phase 2: focus-dependent tests. RA's hotkey simulation (SAVE_STATE,
+        # PAUSE_TOGGLE) appears to require RA's window to have OS focus. Give
+        # the user time to Alt-Tab.
+        print("\n" + "=" * 60)
+        print(" SWITCH TO THE RETROARCH WINDOW NOW (Alt-Tab).")
+        print(" Hotkey-simulating commands need RA focused. 5 seconds...")
+        for i in range(5, 0, -1):
+            print(f"   ... {i}", end="\r", flush=True)
+            time.sleep(1)
+        print(" " * 30)
+        print("=" * 60)
+
         results.append(("savestate_roundtrip", smoke_savestate_roundtrip(client, args.states_dir)))
         results.append(("pause_unpause", smoke_pause_unpause(client)))
 
