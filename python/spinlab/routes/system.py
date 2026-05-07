@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import subprocess
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -86,23 +87,74 @@ def list_roms(config: AppConfig = Depends(get_config)):
     return {"roms": roms}
 
 
-@router.post("/emulator/launch")
-def launch_emulator(body: dict | None = None, config: AppConfig = Depends(get_config)):
-    import subprocess
-    if config.emulator.backend == "retroarch":
-        # F-live ships manual launch only under retroarch backend (per
-        # docs/retroarch-migration/launch-retroarch.md). The dashboard auto-
-        # detects the loaded ROM via NCI GET_STATUS at orchestrator connect;
-        # the user has already launched RetroArch with the ROM before this
-        # button is reachable. Auto-spawning retroarch.exe is a Phase G item.
+def _retroarch_already_running(nci_port: int) -> bool:
+    """Probe NCI to detect if RetroArch is already up. Short timeout — best effort."""
+    try:
+        from spinlab.retroarch.exceptions import NCIError
+        from spinlab.retroarch.nci import NCIClient
+    except ImportError:
+        return False
+    client = NCIClient(port=nci_port, timeout=0.3)
+    try:
+        client.version()
+        return True
+    except NCIError:
+        return False
+    finally:
+        client.close()
+
+
+def _launch_retroarch(body: dict | None, config: AppConfig):
+    """Launch RetroArch with the requested ROM, or no-op if RA's already running.
+
+    Mirrors the Mesen-launch UX: click a game in the dashboard → emulator pops
+    up with that ROM loaded. If RA is already running we don't launch a second
+    instance (it would fight over the NCI port); the user can switch ROMs from
+    inside RA's Quick Menu.
+    """
+    emu = config.emulator
+    if _retroarch_already_running(config.network.nci_port):
+        return {"status": "already_running"}
+
+    if not emu.retroarch_path or not Path(emu.retroarch_path).exists():
         raise HTTPException(
-            status_code=501,
+            status_code=400,
             detail=(
-                "Manual launch only under retroarch backend. Start RetroArch "
-                "yourself with the ROM loaded, then restart the dashboard. "
-                "See docs/retroarch-migration/launch-retroarch.md."
+                f"emulator.retroarch_path not configured or missing: "
+                f"{emu.retroarch_path}. See "
+                f"docs/retroarch-migration/launch-retroarch.md."
             ),
         )
+
+    rom_dir = config.rom_dir
+    rom_name = (body or {}).get("rom", "")
+    if not rom_name:
+        raise HTTPException(status_code=400, detail="No ROM specified in request body")
+    if not rom_dir:
+        raise HTTPException(status_code=400, detail="rom.dir not configured")
+    rom_path = (rom_dir / rom_name).resolve()
+    if not str(rom_path).startswith(str(rom_dir.resolve())):
+        raise HTTPException(status_code=400, detail="ROM path outside rom_dir")
+    if not rom_path.is_file():
+        raise HTTPException(status_code=400, detail=f"ROM not found: {rom_path}")
+
+    # Default core path: <retroarch_dir>/cores/snes9x_libretro.dll. If it
+    # doesn't exist, omit -L and let RA auto-pick (which works if the user
+    # has loaded SNES content with snes9x_libretro before).
+    core_path = Path(emu.retroarch_path).parent / "cores" / "snes9x_libretro.dll"
+    cmd = [str(emu.retroarch_path)]
+    if core_path.exists():
+        cmd += ["-L", str(core_path)]
+    cmd.append(str(rom_path))
+    logger.info("Launching RetroArch: %s", cmd)
+    subprocess.Popen(cmd)
+    return {"status": "ok"}
+
+
+@router.post("/emulator/launch")
+def launch_emulator(body: dict | None = None, config: AppConfig = Depends(get_config)):
+    if config.emulator.backend == "retroarch":
+        return _launch_retroarch(body, config)
     emu_path = config.emulator.path
     if not emu_path or not emu_path.exists():
         raise HTTPException(status_code=400, detail=f"Emulator not found: {emu_path}")

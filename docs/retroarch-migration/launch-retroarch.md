@@ -77,17 +77,38 @@ Verify by manually saving a state in RA once and checking the filename in
 
 ## Step-by-step launch workflow
 
-### 1. Start RetroArch with the ROM
+### 1. Start the SpinLab dashboard
 
-Command-line launch (snes9x core path is an example):
+```
+spinlab dashboard --config config.yaml
+```
+
+(Or hit Ctrl+Alt+W if the AHK script is loaded.) Then **click a game** in
+the dashboard's ROM list — the dashboard will:
+
+- Spawn `retroarch.exe -L <cores>/snes9x_libretro.dll <rom>` if RetroArch
+  is not already running, OR
+- Skip the launch and return `{"status": "already_running"}` if RA is
+  already up on the NCI port (don't fight over it).
+
+You don't need to start RetroArch manually first; the dashboard does it.
+
+The `spinlab` CLI entry point is registered by the package (`pyproject.toml`
+`[project.scripts]`). If it isn't on PATH after editable install, use:
+
+```
+python -m spinlab.cli dashboard --config config.yaml
+```
+
+### 2. (Optional) Manual launch / NCI probe
+
+If you'd rather start RA yourself first:
 
 ```
 "C:/RetroArch-Win64/retroarch.exe" -L "C:/RetroArch-Win64/cores/snes9x_libretro.dll" "<path-to-rom>"
 ```
 
-Or open RetroArch normally and load the ROM via the menu.
-
-### 2. Confirm NCI is alive
+Confirm NCI is alive:
 
 ```
 python scripts/probe_cp_entrance.py
@@ -96,7 +117,7 @@ python scripts/probe_cp_entrance.py
 Should print something like `RA version: 1.22.x` and start polling.
 Ctrl-C to exit. If it hangs or errors, see Troubleshooting below.
 
-### 3. Start the SpinLab dashboard
+### 3. Verify dashboard connection
 
 ```
 spinlab dashboard --config config.yaml
