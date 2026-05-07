@@ -49,3 +49,11 @@ def test_transport_timeout_raises(fake_nci_server):
     )
     with pytest.raises(NCITimeout):
         client._send("UNHANDLED_COMMAND")
+
+
+def test_version(fake_nci_server):
+    from spinlab.retroarch.nci import NCIClient
+
+    fake_nci_server.handle("VERSION", "1.22.2\n")
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    assert client.version() == "1.22.2"

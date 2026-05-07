@@ -56,3 +56,7 @@ class NCIClient:
             sock.sendto(command.encode("ascii"), (self.host, self.port))
         finally:
             sock.close()
+
+    def version(self) -> str:
+        """Return RetroArch's reported version string (e.g. "1.22.2")."""
+        return self._send("VERSION")
