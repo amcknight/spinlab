@@ -182,6 +182,15 @@ Documented in `docs/retroarch-migration/spike-log.md` 2026-05-06: NCI service ca
 4. **BSV anchor strategy** (deferred from spec).
 5. **Conditions API: at-event vs continuous polling.** Currently `read_conditions()` runs *only* at event emission. Post-migration we'd be polling all the time anyway. Decide whether to keep the "event-time snapshot" semantic or stream all condition values continuously to the dashboard. Probably the former — keeps semantics identical.
 
+## Phase D followups for Phase F-live
+
+Captured during Phase D closeout review (2026-05-07). None block F-live; surface here so they don't get lost:
+
+1. **Cold-fill end-to-end test through poller.** Phase D smoke-tests `Spawn.segment_id` field shape and the resolver-via-poller wiring separately, but no test drives `poller.activate_cold_fill("seg-cold")` → death-then-spawn snapshot sequence → assertion that the emitted Spawn has both `segment_id="seg-cold"` AND `state_path=<resolved>`. F-live exercises this surface naturally; add a test alongside that work.
+2. **mtime-resolution race on coarse filesystems.** `StateIO.save_segment_state` uses `cur_mtime > pre_mtime` as the "save completed" signal. On filesystems with ≥1s mtime granularity (FAT32, some network shares) two saves within the same second would falsely time out. NTFS has 100ns resolution so production impact is low; consider also accepting size-change as an "advance" signal if F-live live-RA testing trips this.
+3. **Orphan slot file on `shutil.move` failure.** If the SpinLab dir is read-only or full when `save_segment_state` runs, `_client.save_state()` has already fired and written `<game>.state9999`, but the move fails — leaving an orphan in RA's slot dir. Wrap the move in try/except and log the orphan path so it's recoverable. Low likelihood, low cost to add.
+4. **`resolve_event_path` returns `str`, `state_path_for` returns `Path`.** Type inconsistency forced by `Spawn.state_path: str`. Either change the event field to `Path | str`, or add a one-line comment at the resolver pointing at `state_path_for` for Path callers. Cosmetic.
+
 ## Phase C followups for Phase D / F
 
 Captured during Phase C closeout review. None block Phase D, but each has a natural home in a later phase:
