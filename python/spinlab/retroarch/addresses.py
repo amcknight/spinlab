@@ -10,7 +10,7 @@ may need a different read mechanism for that one address.
 """
 
 # Game state.
-ADDR_GAME_MODE = 0x0100  # 0x0E = standard in-level; other values vary.
+ADDR_GAME_MODE = 0x0100  # game mode: 18=prepare level, 20=in level
 ADDR_LEVEL_NUM = 0x13BF  # current level number
 ADDR_ROOM_NUM = 0x010B  # current room/sublevel
 ADDR_LEVEL_START = 0x1935  # 0->1 when player appears in level (entrance edge)
