@@ -58,6 +58,17 @@ class StateIO:
         reserved_slot: int = DEFAULT_RESERVED_SLOT,
         save_timeout_sec: float = DEFAULT_SAVE_TIMEOUT_SEC,
     ) -> None:
+        """Construct a StateIO bound to the (RA savestate dir, SpinLab state dir, game) triple.
+
+        CALLER CONTRACT: pass a `spinlab_state_dir` that is already scoped to the
+        current game/ROM (e.g., `<data_dir>/states/<game_id>/`). The resolver's path
+        keys (e.g., `entrance_<level>_<room>`) do not include game_id, so two games
+        sharing the same level+room would clobber each other's saves if the dir
+        isn't scoped. F-live wiring constructs one StateIO per game session.
+
+        `ra_savestate_dir` is RA's `savestate_directory` and is shared across games —
+        RA owns it and uses `<game_basename>.state<slot>` filenames there.
+        """
         self._client = client
         self._ra_dir = Path(ra_savestate_dir)
         self._sl_dir = Path(spinlab_state_dir)
@@ -84,14 +95,21 @@ class StateIO:
     def resolve_event_path(self, event: TransitionEvent) -> str:
         """Resolver for `PollerDeps.state_path_for`.
 
-        Returns the absolute path string to stamp onto the event, or "" when
-        no path applies (Death, LevelExit, Spawn with no segment_id).
+        Returns the absolute path string to stamp onto the event, or "" when no
+        path applies (Death, LevelExit, Spawn with no segment_id).
 
-        Naming conventions chosen to match lua/spinlab.lua's filename layout
-        but flattened (segment_id-keyed where possible):
-        - LevelEntrance  -> "entrance_<level>_<room>"
-        - Checkpoint     -> "cp_<level>_<ordinal>_hot"
-        - Spawn(cold-fill) -> "<segment_id>"
+        Naming conventions chosen to match lua/spinlab.lua's filename layout but
+        flattened to the segment_id idiom where possible:
+        - LevelEntrance  -> "entrance_<level>_<room>" (anonymous; F-live maps to segment_id)
+        - Checkpoint     -> "cp_<level>_<ordinal>_hot" (hot only)
+        - Spawn (cold-fill) -> "<segment_id>" (segment_id-keyed; cold paths flow through here)
+
+        Note: Phase F-live owns the bridge from anonymous (level+room / level+ordinal)
+        keys to actual segment_ids. The path returned here is the file LOCATION; whether
+        that file gets created/loaded is the F-live caller's responsibility.
+
+        Returns `str` (not `Path`) because the event field `state_path: str` is the
+        sink. Use `state_path_for(segment_id)` directly if you want a `Path` object.
         """
         if isinstance(event, LevelEntrance):
             return str(self.state_path_for(f"entrance_{event.level}_{event.room}"))
