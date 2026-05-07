@@ -37,25 +37,52 @@ class ColdFillController:
         if not gaps:
             logger.info("cold_fill: no gaps found — all segments have cold states")
             return ActionResult(status=Status.NO_GAPS)
-        self.queue = gaps
+        self.queue = list(gaps)
         self.total = len(gaps)
         self.current = None
         logger.info("cold_fill: starting — %d segments need cold states", self.total)
         return await self._load_next()
 
     async def _load_next(self) -> ActionResult:
-        seg = self.queue[0]
-        self.current = seg["segment_id"]
-        current_num = self.total - len(self.queue) + 1
-        segment_row = self.db.get_segment_by_id(seg["segment_id"])
-        self.cold_waypoint_id = segment_row.start_waypoint_id if segment_row else None
-        logger.info("cold_fill: loading %d/%d — segment=%s state=%s",
-                     current_num, self.total, seg["segment_id"], seg["hot_state_path"])
-        await self.tcp.send_command(ColdFillLoadCmd(
-            state_path=seg["hot_state_path"],
-            segment_id=seg["segment_id"],
-        ))
-        return ActionResult(status=Status.STARTED, new_mode=Mode.COLD_FILL)
+        """Load the next segment's hot state into the emulator.
+
+        Skips segments whose hot state file doesn't exist on disk — that can
+        happen when a reference run completed but the underlying state save
+        failed (e.g. early dashboard versions where ra_game_basename mismatch
+        caused silent SAVE_STATE timeouts). Skipping lets the rest of the
+        cold-fill batch proceed; the user gets a warning per skipped segment.
+        """
+        from pathlib import Path
+        while self.queue:
+            seg = self.queue[0]
+            hot_path = seg["hot_state_path"]
+            if not hot_path or not Path(hot_path).is_file():
+                logger.warning(
+                    "cold_fill: skipping segment %s — hot state missing at %r",
+                    seg["segment_id"], hot_path,
+                )
+                self.queue.pop(0)
+                continue
+            self.current = seg["segment_id"]
+            current_num = self.total - len(self.queue) + 1
+            segment_row = self.db.get_segment_by_id(seg["segment_id"])
+            self.cold_waypoint_id = segment_row.start_waypoint_id if segment_row else None
+            logger.info("cold_fill: loading %d/%d — segment=%s state=%s",
+                         current_num, self.total, seg["segment_id"], hot_path)
+            await self.tcp.send_command(ColdFillLoadCmd(
+                state_path=hot_path,
+                segment_id=seg["segment_id"],
+            ))
+            return ActionResult(status=Status.STARTED, new_mode=Mode.COLD_FILL)
+        # Drained the queue — every segment had a missing hot state. Surface
+        # this as a no-op result so the caller can finalize/return cleanly.
+        logger.warning(
+            "cold_fill: all %d gap segments had missing hot states; nothing to capture",
+            self.total,
+        )
+        self.current = None
+        self.cold_waypoint_id = None
+        return ActionResult(status=Status.NO_GAPS)
 
     async def handle_spawn(self, event: SpawnEvent) -> bool:
         """Store cold save state, advance queue. Returns True when all done."""

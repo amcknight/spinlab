@@ -53,6 +53,7 @@ class _FakeStateIO:
         self.load_segment_calls: list[str] = []
         self.load_path_calls: list = []
         self.saved_segments: list[str] = []
+        self.set_basename_calls: list[str] = []
 
     def load_segment_state(self, segment_id: str) -> None:
         self.load_segment_calls.append(segment_id)
@@ -62,6 +63,9 @@ class _FakeStateIO:
 
     def save_segment_state(self, segment_id: str) -> None:
         self.saved_segments.append(segment_id)
+
+    def update_game_basename(self, name: str) -> None:
+        self.set_basename_calls.append(name)
 
     def resolve_event_path(self, ev) -> str:
         return ""
@@ -118,6 +122,23 @@ async def test_connect_emits_rom_info_event():
     ev = await asyncio.wait_for(orch.events.get(), timeout=0.1)
     assert ev["event"] == "rom_info"
     assert ev["filename"] == "Test Game"
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_connect_propagates_game_basename_to_state_io():
+    """connect() should update state_io's game basename from RA's GET_STATUS.
+
+    This is the fix for the silent save failure bug: previously a stale
+    `ra_game_basename` in config caused mtime polling to time out forever
+    because it watched the wrong filename. Now RA's report is authoritative.
+    """
+    orch, client, state_io, poller, conditions = _build_orchestrator()
+    # State_io starts with whatever the fake builds it with (or empty).
+    await orch.connect()
+    # The fake client.get_status() returns game="Test Game", so basename
+    # should now be "Test Game".
+    assert state_io.set_basename_calls == ["Test Game"]
     await orch.disconnect()
 
 

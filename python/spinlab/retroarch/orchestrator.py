@@ -121,10 +121,16 @@ class RetroArchOrchestrator:
             return False
 
         # Emit rom_info to mimic Lua's startup behaviour so the dashboard
-        # session sees the game name immediately.
+        # session sees the game name immediately. Also update StateIO's slot
+        # basename to whatever RA reports — this fixes the silent save
+        # failure that bites users whose config.ra_game_basename doesn't
+        # exactly match the loaded ROM filename (e.g. config says
+        # "Toothpaste World" but ROM is "Toothpaste.smc").
         try:
             status = self._client.get_status()
             self.events.put_nowait(to_rom_info_dict(status))
+            if status.game and hasattr(self._state_io, "update_game_basename"):
+                self._state_io.update_game_basename(status.game)
         except NCIError:
             logger.debug("RetroArchOrchestrator: GET_STATUS failed at startup; skipping rom_info")
 
@@ -396,12 +402,15 @@ def build_orchestrator(config) -> "RetroArchOrchestrator":
         raise ValueError(
             f"build_orchestrator requires backend='retroarch', got {emu.backend!r}"
         )
+    # ra_game_basename is intentionally NOT in the required list: the
+    # orchestrator overrides it from RA's GET_STATUS at connect() time.
+    # Listing it as required led users to set a stale/wrong value that
+    # then silently broke save/load via mtime-polling timeouts.
     missing = [
         name
         for name, val in (
             ("savestate_dir", emu.savestate_dir),
             ("spinlab_state_dir", emu.spinlab_state_dir),
-            ("ra_game_basename", emu.ra_game_basename),
         )
         if val is None
     ]
@@ -420,7 +429,7 @@ def build_orchestrator(config) -> "RetroArchOrchestrator":
         client=client,
         ra_savestate_dir=emu.savestate_dir,
         spinlab_state_dir=emu.spinlab_state_dir,
-        ra_game_basename=emu.ra_game_basename,
+        ra_game_basename=emu.ra_game_basename or "",  # auto-set on connect()
     )
     conditions = ConditionRegistry()
     practice_timing = PracticeTiming()

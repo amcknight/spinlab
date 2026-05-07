@@ -52,7 +52,10 @@ def test_build_orchestrator_rejects_missing_spinlab_state_dir(tmp_path):
         build_orchestrator(cfg)
 
 
-def test_build_orchestrator_rejects_missing_ra_game_basename(tmp_path):
+def test_build_orchestrator_accepts_missing_ra_game_basename(tmp_path):
+    """ra_game_basename is intentionally optional — the orchestrator overrides
+    it from RA's GET_STATUS at connect() time, so the config value (if any) is
+    just a stale-or-fallback hint."""
     cfg = _config(tmp_path, ra_game_basename=None)
-    with pytest.raises(ValueError, match="ra_game_basename"):
-        build_orchestrator(cfg)
+    orch = build_orchestrator(cfg)
+    assert orch is not None  # no ValueError raised

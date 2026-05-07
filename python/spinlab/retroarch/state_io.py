@@ -57,7 +57,7 @@ class StateIO:
         client: NCIClient,
         ra_savestate_dir: Path,
         spinlab_state_dir: Path,
-        ra_game_basename: str,
+        ra_game_basename: str = "",
         reserved_slot: int = DEFAULT_RESERVED_SLOT,
         save_timeout_sec: float = DEFAULT_SAVE_TIMEOUT_SEC,
         load_settle_sec: float = DEFAULT_LOAD_SETTLE_SEC,
@@ -72,6 +72,11 @@ class StateIO:
 
         `ra_savestate_dir` is RA's `savestate_directory` and is shared across games —
         RA owns it and uses `<game_basename>.state<slot>` filenames there.
+
+        `ra_game_basename` is optional. The orchestrator sets it at connect()
+        time from RA's GET_STATUS response, which is always authoritative.
+        Until then save/load operations raise a clear error rather than
+        timing out invisibly because of a stale basename.
         """
         self._client = client
         self._ra_dir = Path(ra_savestate_dir)
@@ -97,10 +102,38 @@ class StateIO:
         return self.state_path_for(segment_id).exists()
 
     def _ra_slot_path(self) -> Path:
+        if not self._game_basename:
+            raise RuntimeError(
+                "StateIO: game basename not set yet. The orchestrator sets it "
+                "at connect() from RA's GET_STATUS — make sure RetroArch is "
+                "running and the orchestrator finished connecting before "
+                "calling save/load operations."
+            )
         return self._ra_dir / ra_slot_filename(self._game_basename, self._reserved_slot)
+
+    @property
+    def game_basename(self) -> str:
+        return self._game_basename
+
+    def update_game_basename(self, name: str) -> None:
+        """Update which slot filename StateIO targets at <ra_savestate_dir>/.
+
+        Called by the orchestrator at connect() after a GET_STATUS round-trip
+        so the basename always matches the ROM RA actually has loaded — no
+        more "wrong filename → mtime polling times out" silent save failures.
+        Re-runs the startup sweep against the new basename.
+        """
+        if not name or name == self._game_basename:
+            return
+        old = self._game_basename
+        self._game_basename = name
+        logger.info("StateIO: game basename %r -> %r", old, name)
+        self._cleanup_stale_slot_file()
 
     def _cleanup_stale_slot_file(self) -> None:
         """Remove any leftover reserved-slot file from a previous session."""
+        if not self._game_basename:
+            return  # nothing to clean up until we know the basename
         slot_path = self._ra_slot_path()
         if not slot_path.exists():
             return
