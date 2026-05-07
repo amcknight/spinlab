@@ -69,6 +69,23 @@ Goal: settle the NCI hotkey-sim failure. Smoke test pre-test pattern: NCI memory
 - `device = 1` (RETRO_DEVICE_JOYPAD), `id` = button index (0=B, 1=Y, 2=SELECT, 3=START, 4=UP, 5=DOWN, 6=LEFT, 7=RIGHT, 8=A, 9=X, 10=L, 11=R), `state` = 1 (pressed) or 0 (released).
 - Note: NRP IDs are RetroPad-layout; user's `input_save_state_btn = "4"` is raw HID button index — they may not align without a re-binding to a RetroPad button id.
 
+**Probe 4 results — Test A/B/C (2026-05-06 evening):**
+
+- **Test A — NCI MENU_TOGGLE**: PASS. The menu opened via NCI. cheevos_hardcore_mode_enable = "false" unblocked hotkey-sim.
+- **Initial Test B/C in same script**: FAIL. Both blocked because the second MENU_TOGGLE didn't fully close the menu before the next tests ran. Game was paused. Lesson: don't sequence menu toggles right before save/input tests.
+- **Re-run with `probe_save_and_nrp.py` (menu manually closed)**: NCI SAVE_STATE PASS — `Toothpaste.state490` created. Confirmed RA shows the "Save state saved" toast even without RA window having OS focus. NRP test FAIL — Mario X did not change. Likely NRP requires window focus or the protocol/binding mapping needs more work; deferred since NRP is no longer needed.
+
+**Settled root cause:** `cheevos_hardcore_mode_enable = "true"` silently gates NCI hotkey-sim commands (SAVE_STATE, LOAD_STATE_SLOT, MENU_TOGGLE, PAUSE_TOGGLE), independently of `cheevos_enable`. With hardcore mode off, all NCI commands work as documented. Permanent fix to keep in cfg.
+
+**Phase B verdict:** NCIClient is functional for everything SpinLab needs. Confirmed working WITH `run_ahead_enabled = "true"` and `run_ahead_frames = "3"` — `Toothpaste.state491` created via NCI SAVE_STATE under runahead. Memory R/W, save state, menu/pause toggle all coexist cleanly with runahead.
+
+**Cfg deployment requirement for SpinLab on RetroArch:**
+
+- `network_cmd_enable = "true"` (port 55355) — required.
+- `cheevos_hardcore_mode_enable = "false"` — REQUIRED. With it true, NCI hotkey-sim commands (SAVE_STATE, LOAD_STATE_SLOT, PAUSE_TOGGLE, MENU_TOGGLE) silently no-op even when `cheevos_enable = false`. This will go in the README under RetroArch setup.
+- `run_ahead_enabled = "true"` (with whatever frame count Andrew prefers) — recommended for low input latency, doesn't conflict with NCI.
+- `network_remote_enable = "true"` and `network_remote_enable_user_p1 = "true"` — NOT required; NRP isn't on SpinLab's path. Currently set to true but can be reverted to false.
+
 ### 2026-05-06 — Probe 3 (`c:/tmp/probe_slots.py` and follow-up)
 
 Game state: stuck at SMW Retry screen (game mode `$7E0100 = 0x14`), Mario dead, no user at keyboard.
