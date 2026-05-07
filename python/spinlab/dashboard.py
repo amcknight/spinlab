@@ -55,7 +55,11 @@ def create_app(
             rom_dir=None,
         )
 
-    tcp = TcpManager(config.network.host, config.network.port)
+    if config.emulator.backend == "retroarch":
+        from spinlab.retroarch.orchestrator import build_orchestrator
+        tcp = build_orchestrator(config)
+    else:
+        tcp = TcpManager(config.network.host, config.network.port)
     session = SessionManager(
         db, tcp, config.rom_dir, config.category, data_dir=config.data_dir,
         invalidate_combo=list(config.practice.invalidate_combo),

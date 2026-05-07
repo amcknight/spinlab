@@ -294,3 +294,68 @@ class RetroArchOrchestrator:
             except Exception:
                 logger.exception("RetroArchOrchestrator: tick error")
             await asyncio.sleep(TICK_INTERVAL_SEC)
+
+
+def build_orchestrator(config) -> "RetroArchOrchestrator":
+    """Construct a fully wired RetroArchOrchestrator from AppConfig.
+
+    Raises ValueError if config.emulator is missing required RA fields.
+
+    Imports are deferred inside the function to avoid circular import issues
+    (AppConfig lives in spinlab.config; importing it at module level could
+    create cycles via dashboard.py → orchestrator.py → config.py → ...).
+    """
+    emu = config.emulator
+    if emu.backend != "retroarch":
+        raise ValueError(
+            f"build_orchestrator requires backend='retroarch', got {emu.backend!r}"
+        )
+    missing = [
+        name
+        for name, val in (
+            ("savestate_dir", emu.savestate_dir),
+            ("spinlab_state_dir", emu.spinlab_state_dir),
+            ("ra_game_basename", emu.ra_game_basename),
+        )
+        if val is None
+    ]
+    if missing:
+        raise ValueError(
+            f"build_orchestrator: emulator.{', emulator.'.join(missing)} required for retroarch backend"
+        )
+
+    from spinlab.retroarch.nci import NCIClient
+    from spinlab.retroarch.poller import DEFAULT_PERIOD_SEC, Poller, PollerDeps
+    from spinlab.retroarch.snapshot import read_snapshot
+    from spinlab.retroarch.state_io import StateIO
+
+    client = NCIClient(host=config.network.host, port=config.network.nci_port)
+    state_io = StateIO(
+        client=client,
+        ra_savestate_dir=emu.savestate_dir,
+        spinlab_state_dir=emu.spinlab_state_dir,
+        ra_game_basename=emu.ra_game_basename,
+    )
+    conditions = ConditionRegistry()
+    practice_timing = PracticeTiming()
+    speed_run_timing = SpeedRunTiming()
+
+    deps = PollerDeps(
+        client=client,
+        read_snapshot=read_snapshot,
+        on_event=lambda ev: None,  # rebound below after orch is constructed
+        state_path_for=state_io.resolve_event_path,
+        conditions_registry=conditions,
+    )
+    poller = Poller(deps, period_sec=DEFAULT_PERIOD_SEC)
+    orch = RetroArchOrchestrator(
+        client=client,
+        state_io=state_io,
+        poller=poller,
+        conditions=conditions,
+        practice_timing=practice_timing,
+        speed_run_timing=speed_run_timing,
+    )
+    # Wire the poller's event callback to the orchestrator now that it exists.
+    deps.on_event = orch.on_poller_event
+    return orch
