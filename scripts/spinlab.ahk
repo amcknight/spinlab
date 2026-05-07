@@ -51,16 +51,45 @@ StopDashboard() {
     return false
 }
 
-; Ctrl+Alt+W — launch dashboard only (Mesen launches from dashboard UI)
+; Ctrl+Alt+W — launch dashboard only (emulator launches from dashboard UI)
 ^!w:: {
     global dashPID
     existingPID := (dashPID != 0 && ProcessExist(dashPID)) ? dashPID : FindDashPID()
     if (existingPID != 0) {
         dashPID := existingPID
-    } else {
-        Run 'spinlab dashboard', A_ScriptDir '\..',  'Min', &dashPID
+        Flash("SpinLab already running (PID " dashPID ")", 2000)
+        return
     }
-    Flash("SpinLab started", 2000)
+    ; Pass --config with an absolute path so the dashboard doesn't depend on
+    ; CWD. AHK doesn't always inherit the cwd you'd expect, and a relative
+    ; "config.yaml" produces a silent FileNotFoundError on detached launches.
+    projectDir := A_ScriptDir '\..'
+    configPath := projectDir '\config.yaml'
+    if !FileExist(configPath) {
+        MsgBox("SpinLab: config.yaml not found at`n" configPath
+            "`n`nCopy config.example.yaml to config.yaml and edit it,"
+            " then try Ctrl+Alt+W again.",
+            "SpinLab — startup error", 16)
+        return
+    }
+    ; Run NOT minimized for first-launch shakedown so any error is visible.
+    ; Once you're confident it works, change 'Hide' below back to 'Min' if
+    ; you want the window minimized.
+    Run 'spinlab dashboard --config "' configPath '"', projectDir,, &dashPID
+    Flash("SpinLab started — PID " dashPID, 2000)
+    ; Sanity-check after 5s: if the process died fast, the dashboard crashed
+    ; and the user needs to look at %TEMP%/spinlab-startup-*.log.
+    SetTimer () => CheckDashAlive(dashPID), -5000
+}
+
+CheckDashAlive(pid) {
+    if (pid != 0 && !ProcessExist(pid)) {
+        MsgBox("SpinLab dashboard exited within 5s of launch."
+            "`nCheck %TEMP%\spinlab-startup-*.log for details."
+            "`nOr run 'spinlab dashboard --config <path>' from a terminal"
+            " to see the error live.",
+            "SpinLab — startup failed", 48)
+    }
 }
 
 ; Ctrl+Alt+X — graceful shutdown

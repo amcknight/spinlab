@@ -4,6 +4,24 @@ Manual reference for running SpinLab against RetroArch instead of Mesen-Lua.
 
 ---
 
+## 0. First-time setup
+
+If you've never started SpinLab from this checkout before:
+
+```powershell
+# In the project root (c:\Users\thedo\git\spinlab):
+Copy-Item config.example.yaml config.yaml
+# Edit config.yaml with your RA paths (see section 2 below).
+```
+
+The `config.yaml` file is gitignored so each environment can have its own. The
+`spinlab dashboard` CLI looks for `config.yaml` in the current working
+directory by default; if it's missing you get an actionable error pointing to
+this section. Detached launches (e.g. AutoHotkey's Ctrl+Alt+W) also write a
+crash log to `%TEMP%\spinlab-startup-*.log` so silent failures stay debuggable.
+
+---
+
 ## Required RetroArch settings
 
 Edit `C:\RetroArch-Win64\retroarch.cfg` and confirm (or set) these keys, then restart RetroArch:
@@ -128,6 +146,26 @@ to slot 9999. All other slots are yours.
 - **`ADDR_CP_ENTRANCE = 0x1B403`** is verified for hacks without ASM checkpoint
   patches. If you use a hack with ASM checkpoints and detection misfires, file
   a followup (per Phase C closeout).
+
+---
+
+## Dashboard won't start (silent failure)
+
+If `spinlab dashboard` exits immediately with no visible output (typical when
+launched detached, e.g. AHK Ctrl+Alt+W), look at `%TEMP%\spinlab-startup-*.log`
+for the most-recent entry:
+
+```powershell
+Get-ChildItem $env:TEMP\spinlab-startup-*.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content
+```
+
+Common causes captured this way:
+- `config.yaml` not found at the resolved path (see section 0)
+- Vite spawn failure (`'vite' is not recognized` → run `npm install` in `frontend/`)
+- Port already in use
+
+You can also re-run the same command from a regular PowerShell terminal to see
+the error live without going through the temp log.
 
 ---
 
