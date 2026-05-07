@@ -47,13 +47,27 @@ def test_spawn_vite_raises_on_port_timeout(tmp_path):
     """spawn_vite raises ViteStartupError when port never opens."""
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
+    mock_proc.pid = 999_999  # unlikely-to-exist pid; taskkill will exit nonzero
+                              # but check=False so terminate_vite tolerates it
 
+    # Patch subprocess.run too — the Windows path of terminate_vite uses
+    # taskkill /T /F to walk the process tree, replacing the old proc.terminate().
     with patch("spinlab.vite.subprocess.Popen", return_value=mock_proc), \
-         patch("spinlab.vite.wait_for_port", return_value=False):
+         patch("spinlab.vite.wait_for_port", return_value=False), \
+         patch("spinlab.vite.subprocess.run") as mock_run:
         with pytest.raises(ViteStartupError, match="did not start"):
             spawn_vite(tmp_path)
 
-    mock_proc.terminate.assert_called_once()
+    # On Windows, terminate_vite calls subprocess.run with taskkill.
+    # On POSIX, it calls proc.terminate() directly.
+    import sys
+    if sys.platform == "win32":
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "taskkill"
+        assert "/T" in cmd and "/F" in cmd
+    else:
+        mock_proc.terminate.assert_called_once()
 
 
 def test_spawn_vite_raises_on_early_exit(tmp_path):
