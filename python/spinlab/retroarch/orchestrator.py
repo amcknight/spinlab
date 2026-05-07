@@ -360,13 +360,39 @@ class RetroArchOrchestrator:
                 seg_id = f"cp_{ev.level_num}_{ev.cp_ordinal}_hot"
         if seg_id is None:
             return
+
+        # Run save in a worker thread so a slow SAVE_STATE (mtime polling can
+        # block up to save_timeout_sec) doesn't freeze the asyncio event loop.
+        # Without this, a single misbehaving save stalls the whole dashboard
+        # for the entire timeout window. The save still completes well before
+        # the user clicks Save & Finish — the recorder only stores state_path
+        # in the DB at handle-entrance time, it doesn't read the file then.
+        try:
+            asyncio.create_task(self._save_state_async(seg_id, type(ev).__name__))
+        except RuntimeError:
+            # No running loop (e.g., poller called us off-loop in a test). Fall
+            # back to synchronous save so unit tests still see the call.
+            self._save_state_sync(seg_id, type(ev).__name__)
+        return
+
+    async def _save_state_async(self, seg_id: str, ev_name: str) -> None:
+        try:
+            await asyncio.to_thread(self._state_io.save_segment_state, seg_id)
+        except Exception:
+            logger.exception(
+                "save_segment_state failed for %r (segment_id=%r); event "
+                "flowed with stale state_path",
+                ev_name, seg_id,
+            )
+
+    def _save_state_sync(self, seg_id: str, ev_name: str) -> None:
         try:
             self._state_io.save_segment_state(seg_id)
         except Exception:
             logger.exception(
                 "save_segment_state failed for %r (segment_id=%r); event "
                 "will flow with stale state_path",
-                type(ev).__name__, seg_id,
+                ev_name, seg_id,
             )
 
     def _enqueue_dict(self, d: dict) -> None:

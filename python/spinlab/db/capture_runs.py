@@ -74,8 +74,26 @@ class CaptureRunsMixin:
         self.conn.commit()
 
     def delete_capture_run(self, run_id: str) -> None:
-        """Soft-delete: deactivate all segments in the run, null FK, remove the record."""
+        """Soft-delete: deactivate all segments in the run, null FKs, remove the record.
+
+        Also nulls segments.capture_session_id so that the cascade chain
+        (capture_runs → capture_sessions → segments via the ON DELETE CASCADE
+        on segments.capture_session_id) doesn't cascade-delete segments
+        out from under their non-cascading attempts FK. Without this, a
+        soft-delete on a run with seeded attempts raises FOREIGN KEY constraint
+        failed.
+        """
         now = datetime.now(UTC).isoformat()
+        # Break the segments→capture_sessions cascade so segments stay alive.
+        self.conn.execute(
+            """
+            UPDATE segments SET capture_session_id = NULL, updated_at = ?
+            WHERE capture_session_id IN (
+                SELECT id FROM capture_sessions WHERE capture_run_id = ?
+            )
+            """,
+            (now, run_id),
+        )
         self.conn.execute(
             "UPDATE segments SET active = 0, reference_id = NULL, updated_at = ? "
             "WHERE reference_id = ?",

@@ -324,6 +324,9 @@ async def test_reference_recording_triggers_save_on_level_entrance():
     await orch.send_command(ReferenceStartCmd(path="/tmp/x.spinrec"))
 
     orch.on_poller_event(LevelEntrance(timestamp_ms=0, level=5, room=2))
+    # Save happens in a worker thread to keep the event loop responsive;
+    # let the scheduled task run before asserting.
+    await asyncio.sleep(0.05)
 
     # FakeStateIO records save_segment_state calls.
     assert state_io.saved_segments == ["entrance_5_2"]
@@ -359,6 +362,7 @@ async def test_cold_fill_spawn_always_saves_regardless_of_recording_flag():
         is_cold_cp=True, state_captured=True,
         cp_ordinal=1, segment_id="seg-cold-x",
     ))
+    await asyncio.sleep(0.05)  # let the worker-thread save complete
     assert state_io.saved_segments == ["seg-cold-x"]
     await orch.disconnect()
 

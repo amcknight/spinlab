@@ -69,6 +69,43 @@ class TestCaptureRunCRUD:
         segments = db.get_all_segments_with_model("g")
         assert len(segments) == 0  # deactivated, not returned
 
+    def test_delete_works_when_segments_have_capture_session_id(self, db):
+        """Regression: deleting a run whose segments link a capture_session
+        used to fail with FOREIGN KEY constraint failed because the cascade
+        chain capture_runs → capture_sessions → segments would auto-delete
+        segments out from under non-cascading attempts FK.
+
+        The fix: delete_capture_run nulls segments.capture_session_id first
+        so the cascade stops before reaching segments.
+        """
+        db.create_capture_run("ref1", "g", "Run 1")
+        sess_id = "sess1"
+        db.create_capture_session(
+            session_id=sess_id, capture_run_id="ref1",
+            ordinal=1, spinrec_path="/tmp/x.spinrec",
+        )
+        seg = _make_segment(db, "g", 1, ref_id="ref1")
+        # Tie the segment to the session via the cascade-FK column.
+        db.conn.execute(
+            "UPDATE segments SET capture_session_id = ? WHERE id = ?",
+            (sess_id, seg.id),
+        )
+        db.conn.commit()
+
+        # Should NOT raise FOREIGN KEY constraint failed.
+        db.delete_capture_run("ref1")
+
+        # Run gone, but segment row still exists (deactivated).
+        assert db.list_capture_runs("g") == []
+        seg_row = db.conn.execute(
+            "SELECT active, reference_id, capture_session_id FROM segments WHERE id = ?",
+            (seg.id,),
+        ).fetchone()
+        assert seg_row is not None
+        assert seg_row[0] == 0  # active=False
+        assert seg_row[1] is None  # reference_id NULL
+        assert seg_row[2] is None  # capture_session_id NULL
+
 
 class TestSegmentEdit:
     def test_update_segment_description(self, db):
