@@ -188,3 +188,19 @@ def test_is_core_running_raises_on_read_error(fake_nci_server):
 
     with pytest.raises(NCIProtocolError):
         client.is_core_running(tick_addr=0xFFFF, sample_delay=0.01)
+
+
+def test_client_close_is_idempotent(fake_nci_server):
+    fake_nci_server.handle("VERSION", "1.22.2\n")
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    assert client.version() == "1.22.2"
+    client.close()
+    client.close()  # idempotent — must not raise
+    # After close, the client is still usable (lazy reconnect).
+    assert client.version() == "1.22.2"
+
+
+def test_client_context_manager(fake_nci_server):
+    fake_nci_server.handle("VERSION", "1.22.2\n")
+    with NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1]) as client:
+        assert client.version() == "1.22.2"

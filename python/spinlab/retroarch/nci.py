@@ -32,32 +32,39 @@ class NCIClient:
         self.host = host
         self.port = port
         self.timeout = timeout
+        self._sock: socket.socket | None = None
+
+    def _get_socket(self) -> socket.socket:
+        """Get or create the persistent UDP socket, lazily bound on first use.
+
+        The socket is created once and reused across calls. After close() is
+        called, the next _get_socket() creates a fresh socket (lazy reconnect).
+        """
+        if self._sock is None:
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Always set timeout before use, since it may have changed.
+        self._sock.settimeout(self.timeout)
+        return self._sock
 
     def _send(self, command: str) -> str:
         """Send command and return the reply text (whitespace-stripped).
 
         Raises NCITimeout if no reply arrives within self.timeout seconds.
         """
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(self.timeout)
+        sock = self._get_socket()
         try:
             sock.sendto(command.encode("ascii"), (self.host, self.port))
             data, _ = sock.recvfrom(RECV_BUFFER_BYTES)
         except socket.timeout as exc:
             raise NCITimeout(f"no reply within {self.timeout}s for {command!r}") from exc
-        finally:
-            sock.close()
         return data.decode("ascii", errors="replace").strip()
 
     def _send_no_reply(self, command: str) -> None:
         """Send command and don't wait for any reply. For fire-and-forget commands
         like SAVE_STATE that simulate a hotkey press and return nothing.
         """
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            sock.sendto(command.encode("ascii"), (self.host, self.port))
-        finally:
-            sock.close()
+        sock = self._get_socket()
+        sock.sendto(command.encode("ascii"), (self.host, self.port))
 
     def version(self) -> str:
         """Return RetroArch's reported version string (e.g. "1.22.2")."""
@@ -110,9 +117,9 @@ class NCIClient:
     def write_ram(self, addr: int, data: bytes) -> None:
         """Write `data` to WRAM-flat offset `addr`. Returns nothing on success.
 
-        WRITE_CORE_RAM is fire-and-forget from our side: RetroArch echoes the
-        write back but we don't currently parse the response (no reliable signal
-        beyond "no exception thrown").
+        Sends `WRITE_CORE_RAM <addr> <hex bytes>` and waits for RetroArch's echo
+        reply. We don't validate the echo's contents, but waiting gives us a
+        liveness signal: if RA is unresponsive, the call raises NCITimeout.
         """
         hex_bytes = " ".join(f"{b:02x}" for b in data)
         self._send(f"WRITE_CORE_RAM {addr:x} {hex_bytes}")
@@ -170,3 +177,21 @@ class NCIClient:
         time.sleep(sample_delay)
         b = self.read_ram(tick_addr, 1)
         return a != b
+
+    def close(self) -> None:
+        """Close the persistent socket, if it exists. Idempotent.
+
+        After close(), the next _send/_send_no_reply will lazily create a
+        fresh socket (lazy reconnect).
+        """
+        if self._sock is not None:
+            self._sock.close()
+            self._sock = None
+
+    def __enter__(self) -> NCIClient:
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit: close the socket."""
+        self.close()
