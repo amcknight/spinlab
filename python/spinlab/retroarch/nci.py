@@ -7,6 +7,7 @@ calls in `asyncio.to_thread` if they need to.
 from __future__ import annotations
 
 import socket
+import time
 
 from spinlab.retroarch.exceptions import NCIProtocolError, NCITimeout
 from spinlab.retroarch.responses import StatusInfo
@@ -148,3 +149,24 @@ class NCIClient:
     def quit(self) -> None:
         """Tell RetroArch to shut down."""
         self._send_no_reply("QUIT")
+
+    def is_core_running(self, tick_addr: int, sample_delay: float = 0.05) -> bool:
+        """Return True if the emulator core is advancing frames.
+
+        Detects the spike-discovered deep-pause state where NCI stays responsive
+        but the core thread is frozen — see docs/retroarch-migration/spike-log.md.
+
+        Strategy: read a single byte at `tick_addr` twice with `sample_delay`
+        between samples. If the bytes are identical, the core is not advancing.
+        Caller picks `tick_addr` (typically a frame counter or fast-changing
+        animation register).
+
+        Note: a False result can occur transiently if `tick_addr` happens to
+        wrap back to its previous value within `sample_delay`. For deep-pause
+        detection, sample_delay should be significantly larger than one frame
+        period (16.67ms) — default 0.05s ≈ 3 frames is comfortable.
+        """
+        a = self.read_ram(tick_addr, 1)
+        time.sleep(sample_delay)
+        b = self.read_ram(tick_addr, 1)
+        return a != b
