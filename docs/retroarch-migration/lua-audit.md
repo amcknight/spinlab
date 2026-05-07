@@ -193,6 +193,7 @@ Captured during Phase C closeout review. None block Phase D, but each has a natu
 5. **Cold-fill activation through poller has no integration test.** `Poller.activate_cold_fill()` is plumbed but only `_FakeClient`-based snapshot-sequence tests would prove it works end-to-end. Add when Phase F integration tests land.
 6. **`_FakeClient.read_calls` in `tests/unit/retroarch/test_poller.py:15` is unused.** Trivial cleanup or assert against it.
 7. **`addresses.py` ↔ `tests/integration/addresses.py` ADDR_MAP duplication.** Phase C added the Python source-of-truth but the integration shim that parses `lua/addresses.lua` still exists. Phase G (Lua removal) consolidates.
+8. **`ADDR_CP_ENTRANCE = 0x1B403` partially verified (2026-05-07).** Pre-flight live probe (`scripts/probe_cp_entrance.py`) against a hack without ASM checkpoint patches showed cp_entrance constant at 0x15 across 534 polls — predicate-safe (no false positives). **Not yet verified** against a hack with ASM cp patches; if SpinLab is later used with such a hack, this address may need re-investigation (likely `READ_CORE_MEMORY` with a SNES bus address, which currently fails on snes9x_libretro with "no memory map defined"). Defer until a user actually needs it.
 
 ## Lines of code displaced
 
