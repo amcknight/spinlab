@@ -172,3 +172,23 @@ class StateIO:
         logger.debug(
             "StateIO: loaded segment %s (slot=%d)", segment_id, self._reserved_slot
         )
+
+    def load_state_from_path(self, path: Path | str) -> None:
+        """Copy a savestate file from an arbitrary path into RA's reserved slot, fire LOAD_STATE_SLOT.
+
+        Variant of load_segment_state for callers that already have the source path
+        (e.g. ColdFillLoadCmd/FillGapLoadCmd carry state_path directly). Raises
+        FileNotFoundError if the source path doesn't exist.
+        """
+        src = Path(path)
+        if not src.exists():
+            raise FileNotFoundError(
+                f"No savestate at {src}"
+            )
+        slot_path = self._ra_slot_path()
+        slot_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(str(src), str(slot_path))
+        self._client.load_state_slot(self._reserved_slot)
+        logger.debug(
+            "StateIO: loaded state from %s (slot=%d)", src, self._reserved_slot
+        )

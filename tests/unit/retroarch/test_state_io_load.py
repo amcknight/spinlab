@@ -89,3 +89,37 @@ def test_load_uses_custom_reserved_slot(tmp_path):
 
     assert (ra_dir / "G.state42").read_bytes() == b"D"
     assert nci.load_state_slot_calls == [42]
+
+
+def test_load_state_from_path_copies_into_slot(setup, tmp_path):
+    """Direct path → copy into slot, fire LOAD_STATE_SLOT."""
+    io, nci, ra_dir, sl_dir = setup
+    src = tmp_path / "external.state"
+    src.write_bytes(b"EXTERNAL_PAYLOAD")
+
+    io.load_state_from_path(src)
+
+    slot_path = ra_dir / f"Game.state{DEFAULT_RESERVED_SLOT}"
+    assert slot_path.read_bytes() == b"EXTERNAL_PAYLOAD"
+    assert src.exists()  # source persists (copy, not move)
+    assert nci.load_state_slot_calls == [DEFAULT_RESERVED_SLOT]
+
+
+def test_load_state_from_path_missing_raises(setup):
+    """No source file -> FileNotFoundError, no NCI call."""
+    io, nci, ra_dir, sl_dir = setup
+    with pytest.raises(FileNotFoundError, match="missing.state"):
+        io.load_state_from_path(sl_dir / "missing.state")
+    assert nci.load_state_slot_calls == []
+
+
+def test_load_state_from_path_accepts_str_path(setup, tmp_path):
+    """Caller may pass a str path; method coerces internally."""
+    io, nci, ra_dir, sl_dir = setup
+    src = tmp_path / "external.state"
+    src.write_bytes(b"X")
+
+    io.load_state_from_path(str(src))   # str, not Path
+
+    slot_path = ra_dir / f"Game.state{DEFAULT_RESERVED_SLOT}"
+    assert slot_path.read_bytes() == b"X"
