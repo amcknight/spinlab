@@ -33,6 +33,9 @@ from spinlab.retroarch.state_paths import (
 
 DEFAULT_RESERVED_SLOT = 9999  # see Decision 6 in Phase D plan
 DEFAULT_SAVE_TIMEOUT_SEC = 1.0  # mtime-advance wait; healthy RA writes in <100ms
+DEFAULT_LOAD_SETTLE_SEC = 0.1   # wait after LOAD_STATE_SLOT before deleting the slot
+                                 # file; RA processes the command on its next frame
+                                 # (~16ms at 60Hz) and reads the file synchronously
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,7 @@ class StateIO:
         ra_game_basename: str,
         reserved_slot: int = DEFAULT_RESERVED_SLOT,
         save_timeout_sec: float = DEFAULT_SAVE_TIMEOUT_SEC,
+        load_settle_sec: float = DEFAULT_LOAD_SETTLE_SEC,
     ) -> None:
         """Construct a StateIO bound to the (RA savestate dir, SpinLab state dir, game) triple.
 
@@ -75,8 +79,13 @@ class StateIO:
         self._game_basename = ra_game_basename
         self._reserved_slot = reserved_slot
         self._save_timeout_sec = save_timeout_sec
+        self._load_settle_sec = load_settle_sec
         # Ensure SpinLab dir exists; the RA dir is RA's responsibility.
         self._sl_dir.mkdir(parents=True, exist_ok=True)
+        # Sweep any stale reserved-slot file from a previous run. Without this,
+        # a hard-killed dashboard leaves <game>.state<reserved_slot> sitting in
+        # the user's savestate_dir indefinitely.
+        self._cleanup_stale_slot_file()
 
     # -- pure path resolution --------------------------------------------------
 
@@ -89,6 +98,41 @@ class StateIO:
 
     def _ra_slot_path(self) -> Path:
         return self._ra_dir / ra_slot_filename(self._game_basename, self._reserved_slot)
+
+    def _cleanup_stale_slot_file(self) -> None:
+        """Remove any leftover reserved-slot file from a previous session."""
+        slot_path = self._ra_slot_path()
+        if not slot_path.exists():
+            return
+        try:
+            slot_path.unlink()
+            logger.info("StateIO: cleaned up stale slot file %s", slot_path)
+        except OSError as exc:
+            logger.warning(
+                "StateIO: could not clean up stale slot file %s: %s",
+                slot_path, exc,
+            )
+
+    def _cleanup_slot_after_load(self) -> None:
+        """Delete the reserved slot file after RA has loaded it.
+
+        RA processes LOAD_STATE_SLOT on its next emulator frame (~16ms at 60Hz)
+        and reads the file synchronously; the default 100ms wait is a generous
+        margin. Without this cleanup, <game>.state<reserved_slot> sits in the
+        user's savestate_dir until the next save (or never, if no save follows).
+        Best-effort: a delete failure is logged and skipped — the next load
+        overwrites it, and the startup sweep catches it on next launch.
+        """
+        if self._load_settle_sec > 0:
+            time.sleep(self._load_settle_sec)
+        slot_path = self._ra_slot_path()
+        try:
+            slot_path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "StateIO: could not delete slot file %s after load: %s",
+                slot_path, exc,
+            )
 
     # -- event-shaped resolver -------------------------------------------------
 
@@ -172,6 +216,7 @@ class StateIO:
         logger.debug(
             "StateIO: loaded segment %s (slot=%d)", segment_id, self._reserved_slot
         )
+        self._cleanup_slot_after_load()
 
     def load_state_from_path(self, path: Path | str) -> None:
         """Copy a savestate file from an arbitrary path into RA's reserved slot, fire LOAD_STATE_SLOT.
@@ -192,3 +237,4 @@ class StateIO:
         logger.debug(
             "StateIO: loaded state from %s (slot=%d)", src, self._reserved_slot
         )
+        self._cleanup_slot_after_load()
