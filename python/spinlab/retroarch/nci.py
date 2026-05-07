@@ -83,3 +83,13 @@ class NCIClient:
             return bytes(int(t, 16) for t in data_tokens)
         except ValueError as exc:
             raise NCIProtocolError(f"unparseable reply: {reply!r}") from exc
+
+    def write_ram(self, addr: int, data: bytes) -> None:
+        """Write `data` to WRAM-flat offset `addr`. Returns nothing on success.
+
+        WRITE_CORE_RAM is fire-and-forget from our side: RetroArch echoes the
+        write back but we don't currently parse the response (no reliable signal
+        beyond "no exception thrown").
+        """
+        hex_bytes = " ".join(f"{b:02x}" for b in data)
+        self._send(f"WRITE_CORE_RAM {addr:x} {hex_bytes}")

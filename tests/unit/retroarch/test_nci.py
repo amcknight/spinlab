@@ -93,3 +93,17 @@ def test_read_ram_protocol_error_on_unparseable(fake_nci_server):
     client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
     with pytest.raises(NCIProtocolError):
         client.read_ram(0x94, 1)
+
+
+def test_write_ram_sends_correct_command(fake_nci_server):
+    received = []
+
+    def capture(cmd):
+        received.append(cmd)
+        return "WRITE_CORE_RAM 94 1\n"  # RA echoes addr + count on success
+
+    fake_nci_server.handle("WRITE_CORE_RAM", capture)
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    client.write_ram(0x94, bytes([0xAA, 0xBB]))
+
+    assert received[0] == "WRITE_CORE_RAM 94 aa bb"
