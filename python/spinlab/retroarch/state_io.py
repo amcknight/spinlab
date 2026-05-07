@@ -4,6 +4,10 @@ Replaces lua/spinlab.lua's save_state_to_file/load_state_from_file plus the
 pending_saves/pending_loads/cpuExec-deferred drain pattern. The cpuExec
 deferral was a Mesen-specific requirement; NCI has no such constraint.
 
+Filesystem-shuffle strategy (Decision 1): uses a reserved slot (9999 by
+default) to capture SAVE_STATE commands atomically, then verifies capture via
+mtime polling (Decision 5) before moving to the segment-named destination.
+
 Phase D scope: this module owns the SAVE_STATE -> mtime-poll -> move flow,
 and the reverse for load. Wiring into session_manager / practice.py / the
 capture pipeline is Phase F-live.
