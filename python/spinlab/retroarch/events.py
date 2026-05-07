@@ -55,3 +55,4 @@ class Spawn(TransitionEvent):
     cp_ordinal: int = 0
     state_captured: bool = False
     state_path: str = ""
+    segment_id: str = ""

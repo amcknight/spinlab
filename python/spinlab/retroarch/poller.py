@@ -18,6 +18,7 @@ Caller responsibilities:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -36,6 +37,7 @@ class PollerDeps:
     client: NCIClient
     read_snapshot: Callable[[NCIClient], MemorySnapshot]
     on_event: Callable[[TransitionEvent], None]
+    state_path_for: Callable[[TransitionEvent], str] | None = None
 
 
 class Poller:
@@ -47,6 +49,17 @@ class Poller:
         self._detector = TransitionDetector()
         self._cold_fill = ColdFillTracker()
         self._start_ms = time.perf_counter() * 1000
+
+    def _stamp_state_path(self, ev: TransitionEvent) -> TransitionEvent:
+        """Apply state_path_for resolver if configured. Returns event with stamped path."""
+        if self._deps.state_path_for is None:
+            return ev
+        path = self._deps.state_path_for(ev)
+        if not path:
+            return ev
+        if not hasattr(ev, "state_path"):
+            return ev
+        return dataclasses.replace(ev, state_path=path)
 
     def mark_state_loaded(self) -> None:
         """Tell the poller the next snapshot replaces prev (suppress phantom edges)."""
@@ -78,10 +91,10 @@ class Poller:
                 continue
 
             for event in self._detector.step(snap, timestamp_ms=ts):
-                self._deps.on_event(event)
+                self._deps.on_event(self._stamp_state_path(event))
 
             cf_event = self._cold_fill.step(snap, timestamp_ms=ts)
             if cf_event is not None:
-                self._deps.on_event(cf_event)
+                self._deps.on_event(self._stamp_state_path(cf_event))
 
             await asyncio.sleep(self._period)

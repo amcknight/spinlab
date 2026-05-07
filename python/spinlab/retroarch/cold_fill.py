@@ -55,6 +55,7 @@ class ColdFillTracker:
                     is_cold_cp=True,
                     cp_ordinal=0,
                     state_captured=True,
+                    segment_id=self._segment_id or "",
                 )
                 self._active = False
                 self._waiting_spawn = False
