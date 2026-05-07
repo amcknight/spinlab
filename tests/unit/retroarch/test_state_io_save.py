@@ -1,0 +1,123 @@
+"""save_segment_state tests — fake NCI, real tmp_path filesystem."""
+import time
+from pathlib import Path
+
+import pytest
+
+from spinlab.retroarch.state_io import (
+    DEFAULT_RESERVED_SLOT,
+    StateIO,
+    StateSaveTimeout,
+)
+
+
+class _FakeNCI:
+    """NCIClient stub. save_state() optionally simulates RA writing the slot file."""
+
+    def __init__(self) -> None:
+        self.save_state_calls = 0
+        self.load_state_slot_calls: list[int] = []
+        self._on_save = None  # callable invoked when save_state fires
+
+    def save_state(self) -> None:
+        self.save_state_calls += 1
+        if self._on_save:
+            self._on_save()
+
+    def load_state_slot(self, slot: int) -> None:
+        self.load_state_slot_calls.append(slot)
+
+
+@pytest.fixture
+def setup(tmp_path):
+    ra_dir = tmp_path / "ra"
+    ra_dir.mkdir()
+    sl_dir = tmp_path / "sl"
+    sl_dir.mkdir()
+    nci = _FakeNCI()
+    io = StateIO(
+        client=nci,
+        ra_savestate_dir=ra_dir,
+        spinlab_state_dir=sl_dir,
+        ra_game_basename="Game",
+        save_timeout_sec=0.5,
+    )
+    return io, nci, ra_dir, sl_dir
+
+
+def test_save_segment_state_first_capture(setup):
+    """No pre-existing slot file. save_state() writes one. We move it to SpinLab path."""
+    io, nci, ra_dir, sl_dir = setup
+    slot_path = ra_dir / f"Game.state{DEFAULT_RESERVED_SLOT}"
+
+    nci._on_save = lambda: slot_path.write_bytes(b"FAKE_SAVE_DATA")
+
+    result = io.save_segment_state("seg-1")
+
+    assert nci.save_state_calls == 1
+    assert result == sl_dir / "seg-1.state"
+    assert result.read_bytes() == b"FAKE_SAVE_DATA"
+    assert not slot_path.exists(), "slot file should have been moved out of RA dir"
+
+
+def test_save_segment_state_overwrites_previous(setup):
+    """Second capture for the same segment overwrites the SpinLab file."""
+    io, nci, ra_dir, sl_dir = setup
+    slot_path = ra_dir / f"Game.state{DEFAULT_RESERVED_SLOT}"
+    sp_path = sl_dir / "seg-1.state"
+    sp_path.write_bytes(b"OLD")
+
+    # Pre-existing slot file at older mtime.
+    slot_path.write_bytes(b"PREEXISTING_SLOT")
+
+    def on_save():
+        time.sleep(0.01)
+        slot_path.write_bytes(b"NEW_SAVE_DATA")
+
+    nci._on_save = on_save
+
+    result = io.save_segment_state("seg-1")
+    assert result.read_bytes() == b"NEW_SAVE_DATA"
+
+
+def test_save_segment_state_times_out_when_save_doesnt_happen(setup):
+    """If no slot file appears, raise StateSaveTimeout."""
+    io, nci, ra_dir, sl_dir = setup
+    nci._on_save = None
+
+    with pytest.raises(StateSaveTimeout):
+        io.save_segment_state("seg-2")
+
+    assert nci.save_state_calls == 1
+
+
+def test_save_segment_state_times_out_when_existing_file_unchanged(setup):
+    """Pre-existing slot file with no mtime advance -> timeout."""
+    io, nci, ra_dir, sl_dir = setup
+    slot_path = ra_dir / f"Game.state{DEFAULT_RESERVED_SLOT}"
+    slot_path.write_bytes(b"STALE")
+    nci._on_save = None
+
+    with pytest.raises(StateSaveTimeout):
+        io.save_segment_state("seg-3")
+
+
+def test_save_segment_state_creates_spinlab_dir_if_missing(tmp_path):
+    """Constructor creates spinlab_state_dir; verify by passing one that doesn't exist."""
+    ra_dir = tmp_path / "ra"
+    ra_dir.mkdir()
+    sl_dir = tmp_path / "deep" / "nested" / "states"
+    nci = _FakeNCI()
+    io = StateIO(
+        client=nci,
+        ra_savestate_dir=ra_dir,
+        spinlab_state_dir=sl_dir,
+        ra_game_basename="Game",
+        save_timeout_sec=0.5,
+    )
+    assert sl_dir.exists()
+
+    slot_path = ra_dir / f"Game.state{DEFAULT_RESERVED_SLOT}"
+    nci._on_save = lambda: slot_path.write_bytes(b"D")
+    result = io.save_segment_state("a")
+    assert result.exists()

@@ -102,8 +102,35 @@ class StateIO:
     # -- save/load (Tasks 4 & 5; stubbed below until those tasks land) --------
 
     def save_segment_state(self, segment_id: str) -> Path:
-        """Triggered by Task 4."""
-        raise NotImplementedError("implemented in Task 4")
+        """Trigger SAVE_STATE, wait for the slot file to appear/advance, move it.
+
+        Returns the SpinLab path the file now lives at. Raises StateSaveTimeout
+        if the slot file's mtime does not advance (or it does not appear) within
+        `save_timeout_sec`.
+        """
+        slot_path = self._ra_slot_path()
+        pre_mtime = slot_path.stat().st_mtime if slot_path.exists() else None
+
+        self._client.save_state()
+
+        deadline = time.monotonic() + self._save_timeout_sec
+        poll_interval = 0.01  # 10ms — finer than RA's typical save time
+        while time.monotonic() < deadline:
+            if slot_path.exists():
+                cur_mtime = slot_path.stat().st_mtime
+                if pre_mtime is None or cur_mtime > pre_mtime:
+                    break
+            time.sleep(poll_interval)
+        else:
+            raise StateSaveTimeout(
+                f"SAVE_STATE for segment {segment_id!r}: slot file "
+                f"{slot_path} did not advance within {self._save_timeout_sec}s"
+            )
+
+        target = self.state_path_for(segment_id)
+        shutil.move(str(slot_path), str(target))
+        logger.debug("StateIO: saved segment %s -> %s", segment_id, target)
+        return target
 
     def load_segment_state(self, segment_id: str) -> None:
         """Triggered by Task 5."""
