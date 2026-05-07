@@ -78,7 +78,15 @@ class RetroArchOrchestrator:
         self._poller_task: asyncio.Task | None = None
         self._tick_task: asyncio.Task | None = None
 
+        # When True, save_eligible transition events trigger StateIO saves.
+        # Set by ReferenceStart, cleared by ReferenceStop. State files are
+        # *separate* from BSV input recording — practice can use the captured
+        # states without ever recording inputs.
+        self._recording = False
+
         # Build dispatch table once; handlers are bound methods.
+        # ReferenceStart/Stop now succeed (state captures only — no BSV).
+        # Replay/ReplayStop still raise: those genuinely require BSV (Phase E).
         self._dispatch: dict[type, Callable] = {
             PracticeLoadCmd: self._on_practice_load,
             PracticeStopCmd: self._on_practice_stop,
@@ -90,8 +98,8 @@ class RetroArchOrchestrator:
             SetConditionsCmd: self._on_set_conditions,
             SetInvalidateComboCmd: self._on_set_invalidate_combo,
             GameContextCmd: self._on_game_context,
-            ReferenceStartCmd: self._unsupported_phase_e,
-            ReferenceStopCmd: self._unsupported_phase_e,
+            ReferenceStartCmd: self._on_reference_start,
+            ReferenceStopCmd: self._on_reference_stop,
             ReplayCmd: self._unsupported_phase_e,
             ReplayStopCmd: self._unsupported_phase_e,
         }
@@ -250,14 +258,40 @@ class RetroArchOrchestrator:
             "RetroArchOrchestrator: GameContext is informational only; game already loaded in RA",
         )
 
+    async def _on_reference_start(self, cmd: ReferenceStartCmd) -> None:
+        """Begin a reference run: enable state-capture-on-event.
+
+        Under RA backend we don't write a .spinrec input recording (that's BSV
+        — Phase E). But state captures and segment DB rows are independent of
+        input recording: they're driven by transition events. Setting
+        `_recording = True` causes save-eligible events (LevelEntrance,
+        Checkpoint) to trigger `state_io.save_segment_state` so the path
+        stamped on the event by `state_io.resolve_event_path` actually exists
+        on disk by the time the recorder consumes it.
+        """
+        self._recording = True
+        logger.info(
+            "Reference recording started under retroarch backend "
+            "(state captures only — no input recording until Phase E)"
+        )
+
+    async def _on_reference_stop(self, cmd: ReferenceStopCmd) -> None:
+        """End reference recording. Emit a synthetic rec_saved so session_manager
+        can finalize the run with an empty replay path."""
+        self._recording = False
+        # session_manager.handle_rec_saved just stores the path on the recorder.
+        # An empty path under RA correctly signals 'no replay file'; the
+        # captured states + segment rows are what the practice loop needs.
+        self._enqueue_dict({"event": "rec_saved", "path": "", "frame_count": 0})
+        logger.info("Reference recording stopped (no .spinrec under RA backend)")
+
     async def _unsupported_phase_e(self, cmd) -> None:
         # Surfaces as a clean HTTP 501 via the dashboard's ActionError handler.
-        # Reference recording / replay needs BSV (libretro movie format), which
-        # is the next migration phase. Until then, callers wanting fresh
-        # reference captures can flip emulator.backend back to "mesen-lua".
+        # Replay genuinely needs BSV (libretro deterministic movie format),
+        # which is the next migration phase.
         from spinlab.errors import BackendNotImplementedError
         logger.warning(
-            "RetroArchOrchestrator: %s rejected — BSV (Phase E) not wired",
+            "RetroArchOrchestrator: %s rejected — BSV replay (Phase E) not wired",
             type(cmd).__name__,
         )
         raise BackendNotImplementedError()
@@ -273,6 +307,14 @@ class RetroArchOrchestrator:
         dashboard or build_orchestrator) can attach this as
         ``poller.deps.on_event``.
         """
+        # Persist a state file BEFORE handing off the event, so the path
+        # stamped on it by state_io.resolve_event_path actually exists by the
+        # time the recorder consumes it. (Lua wrote the file before emitting;
+        # under NCI, the orchestrator does.) Best-effort — failures log and
+        # the event still flows; the consumer's handling of a missing file is
+        # already in place (recorder skips entries with no state_path).
+        self._maybe_save_state_for(ev)
+
         try:
             d = to_protocol_dict(ev)
         except TypeError:
@@ -285,6 +327,41 @@ class RetroArchOrchestrator:
         self._practice_timing.observe_event(d)
         self._speed_run_timing.observe_event(d)
         self.events.put_nowait(d)
+
+    def _maybe_save_state_for(self, ev: TransitionEvent) -> None:
+        """Capture a savestate if this event needs to back its `state_path` field.
+
+        Two cases trigger a save:
+          - Cold-fill spawn (`is_cold_cp=True` with a segment_id): always save,
+            since the cold path is being captured into a segment regardless of
+            reference-recording mode.
+          - LevelEntrance / Checkpoint during reference recording: save so the
+            path the resolver stamped on the event resolves to a real file.
+
+        Practice and speed-run modes deliberately don't save here — they're
+        consumers, not producers. Saving in those modes would clobber the
+        reference's captured states.
+        """
+        from spinlab.retroarch.events import Checkpoint, LevelEntrance, Spawn
+
+        seg_id: str | None = None
+        if isinstance(ev, Spawn) and ev.is_cold_cp and ev.segment_id:
+            seg_id = ev.segment_id
+        elif self._recording:
+            if isinstance(ev, LevelEntrance):
+                seg_id = f"entrance_{ev.level}_{ev.room}"
+            elif isinstance(ev, Checkpoint):
+                seg_id = f"cp_{ev.level_num}_{ev.cp_ordinal}_hot"
+        if seg_id is None:
+            return
+        try:
+            self._state_io.save_segment_state(seg_id)
+        except Exception:
+            logger.exception(
+                "save_segment_state failed for %r (segment_id=%r); event "
+                "will flow with stale state_path",
+                type(ev).__name__, seg_id,
+            )
 
     def _enqueue_dict(self, d: dict) -> None:
         """Direct enqueue helper used as callback by PracticeTiming / SpeedRunTiming."""

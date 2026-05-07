@@ -52,12 +52,16 @@ class _FakeStateIO:
     def __init__(self) -> None:
         self.load_segment_calls: list[str] = []
         self.load_path_calls: list = []
+        self.saved_segments: list[str] = []
 
     def load_segment_state(self, segment_id: str) -> None:
         self.load_segment_calls.append(segment_id)
 
     def load_state_from_path(self, path) -> None:
         self.load_path_calls.append(path)
+
+    def save_segment_state(self, segment_id: str) -> None:
+        self.saved_segments.append(segment_id)
 
     def resolve_event_path(self, ev) -> str:
         return ""
@@ -246,12 +250,11 @@ async def test_game_context_is_noop():
     await orch.disconnect()
 
 
-@pytest.mark.parametrize("cmd_cls", [ReferenceStartCmd, ReferenceStopCmd, ReplayCmd, ReplayStopCmd])
+@pytest.mark.parametrize("cmd_cls", [ReplayCmd, ReplayStopCmd])
 @pytest.mark.asyncio
-async def test_replay_record_commands_raise_backend_not_implemented(cmd_cls):
-    """BSV record/replay isn't wired (Phase E); orchestrator must raise the
-    typed ActionError so the route layer surfaces it as HTTP 501 instead of
-    a generic 500."""
+async def test_replay_commands_raise_backend_not_implemented(cmd_cls):
+    """BSV replay genuinely needs Phase E; orchestrator must raise the typed
+    ActionError so the route layer surfaces it as HTTP 501 instead of 500."""
     from spinlab.errors import BackendNotImplementedError
 
     orch, _, _, _, _ = _build_orchestrator()
@@ -260,6 +263,82 @@ async def test_replay_record_commands_raise_backend_not_implemented(cmd_cls):
     with pytest.raises(BackendNotImplementedError) as exc_info:
         await orch.send_command(cmd_cls())
     assert exc_info.value.http_code == 501
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_reference_start_enables_recording_does_not_raise():
+    """ReferenceStart succeeds under RA backend (state captures, no BSV)."""
+    orch, _, _, _, _ = _build_orchestrator()
+    await orch.connect()
+    await orch.events.get()
+    assert orch._recording is False
+    await orch.send_command(ReferenceStartCmd(path="/tmp/seg.spinrec"))
+    assert orch._recording is True
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_reference_stop_clears_recording_and_emits_rec_saved():
+    """ReferenceStop clears the flag and emits a synthetic rec_saved (empty path)."""
+    orch, _, _, _, _ = _build_orchestrator()
+    await orch.connect()
+    await orch.events.get()  # drain rom_info
+    await orch.send_command(ReferenceStartCmd(path="/tmp/seg.spinrec"))
+    await orch.send_command(ReferenceStopCmd())
+    assert orch._recording is False
+    ev = await asyncio.wait_for(orch.events.get(), timeout=0.1)
+    assert ev == {"event": "rec_saved", "path": "", "frame_count": 0}
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_reference_recording_triggers_save_on_level_entrance():
+    """During reference recording, LevelEntrance fires state_io.save_segment_state."""
+    from spinlab.retroarch.events import LevelEntrance
+
+    orch, _, state_io, _, _ = _build_orchestrator()
+    await orch.connect()
+    await orch.events.get()
+    await orch.send_command(ReferenceStartCmd(path="/tmp/x.spinrec"))
+
+    orch.on_poller_event(LevelEntrance(timestamp_ms=0, level=5, room=2))
+
+    # FakeStateIO records save_segment_state calls.
+    assert state_io.saved_segments == ["entrance_5_2"]
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_no_save_outside_recording_for_entrance():
+    """Without reference recording active, LevelEntrance must NOT trigger a save."""
+    from spinlab.retroarch.events import LevelEntrance
+
+    orch, _, state_io, _, _ = _build_orchestrator()
+    await orch.connect()
+    await orch.events.get()
+
+    orch.on_poller_event(LevelEntrance(timestamp_ms=0, level=5, room=2))
+    assert state_io.saved_segments == []
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_cold_fill_spawn_always_saves_regardless_of_recording_flag():
+    """Cold-fill captures are decoupled from reference recording — they fire
+    through their own segment_id and must save independently."""
+    from spinlab.retroarch.events import Spawn
+
+    orch, _, state_io, _, _ = _build_orchestrator()
+    await orch.connect()
+    await orch.events.get()
+
+    orch.on_poller_event(Spawn(
+        timestamp_ms=0, level_num=5,
+        is_cold_cp=True, state_captured=True,
+        cp_ordinal=1, segment_id="seg-cold-x",
+    ))
+    assert state_io.saved_segments == ["seg-cold-x"]
     await orch.disconnect()
 
 

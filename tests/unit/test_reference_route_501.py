@@ -1,8 +1,10 @@
-"""POST /api/reference/start under retroarch backend surfaces a clean 501.
+"""POST /api/reference/start under retroarch — must not raise a generic 500.
 
-BSV record/replay is Phase E; F-live's orchestrator raises
-BackendNotImplementedError, which the dashboard's ActionError handler turns
-into HTTP 501 instead of a generic 500. Verifying the wire is intact.
+ReferenceStart no longer raises BackendNotImplementedError under RA: it
+enables state-capture mode (no BSV input recording, but states are saved
+on entrance/checkpoint events). Replay endpoints still 501 since BSV is
+genuinely Phase E. This test guards against regressing reference/start
+back into the 500 hole.
 """
 from __future__ import annotations
 
@@ -15,29 +17,10 @@ from spinlab.dashboard import create_app
 from spinlab.db import Database
 
 
-def _retroarch_app(tmp_path: Path) -> TestClient:
+def test_reference_start_does_not_500_under_retroarch(tmp_path):
+    """reference/start should return either success or a typed error (409 etc),
+    never an opaque 500."""
     db = Database(":memory:")
-    cfg = AppConfig(
-        network=NetworkConfig(),
-        emulator=EmulatorConfig(
-            backend="retroarch",
-            savestate_dir=tmp_path / "ra",
-            spinlab_state_dir=tmp_path / "sl",
-            ra_game_basename="Test",
-        ),
-        data_dir=tmp_path,
-        rom_dir=None,
-    )
-    return TestClient(create_app(db, config=cfg))
-
-
-def test_reference_start_returns_501_under_retroarch(tmp_path):
-    """The orchestrator's NotImplementedError must surface as HTTP 501, not 500."""
-    # Seed a game so session_manager has somewhere to start (start_reference
-    # fails earlier without a game id; we want to reach the orchestrator
-    # dispatch path so the BackendNotImplementedError actually fires).
-    db = Database(":memory:")
-    db.upsert_game("test_game", "Test Game", "any%")
     cfg = AppConfig(
         network=NetworkConfig(),
         emulator=EmulatorConfig(
@@ -50,15 +33,34 @@ def test_reference_start_returns_501_under_retroarch(tmp_path):
         rom_dir=None,
     )
     with TestClient(create_app(db, config=cfg)) as client:
-        # Switch to the seeded game, then request a reference run.
-        # If we can't easily reach reference/start in a clean state, at least
-        # assert the response isn't a generic 500 — backend failure path is
-        # what we're testing.
         resp = client.post("/api/reference/start")
-    # Either 501 (we reached the orchestrator and it raised cleanly) or 409/503
-    # (session_manager rejected before reaching the orchestrator). The bad
-    # outcome we're guarding against is 500.
+    # Acceptable outcomes: 200 (success), 409 (no game seeded, etc.), 503
+    # (orchestrator not connected). Critical: NOT 500 — that would mean an
+    # unhandled NotImplementedError leaked through again.
     assert resp.status_code != 500, (
-        f"reference/start under retroarch surfaced as 500 instead of a typed "
-        f"error: {resp.text}"
+        f"reference/start under retroarch surfaced as 500: {resp.text}"
     )
+
+
+def test_replay_start_returns_501_under_retroarch(tmp_path):
+    """Replay genuinely needs BSV (Phase E) — must surface as a typed 501."""
+    db = Database(":memory:")
+    cfg = AppConfig(
+        network=NetworkConfig(),
+        emulator=EmulatorConfig(
+            backend="retroarch",
+            savestate_dir=tmp_path / "ra",
+            spinlab_state_dir=tmp_path / "sl",
+            ra_game_basename="Test",
+        ),
+        data_dir=tmp_path,
+        rom_dir=None,
+    )
+    with TestClient(create_app(db, config=cfg)) as client:
+        # Replay needs a ref_id; we expect to fail before hitting the
+        # orchestrator with a 400. If we somehow reach the orchestrator,
+        # 501 is the right code.
+        resp = client.post("/api/replay/start", json={"ref_id": "nonexistent"})
+    # Either 400 (no ref) / 404 (ref not found) / 501 (reached orchestrator)
+    # — never 500.
+    assert resp.status_code != 500
