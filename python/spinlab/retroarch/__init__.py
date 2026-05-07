@@ -6,5 +6,12 @@ from spinlab.retroarch.exceptions import (
     NCIProtocolError,
     NCITimeout,
 )
+from spinlab.retroarch.responses import StatusInfo
 
-__all__ = ["NCICoreFrozen", "NCIError", "NCIProtocolError", "NCITimeout"]
+__all__ = [
+    "NCICoreFrozen",
+    "NCIError",
+    "NCIProtocolError",
+    "NCITimeout",
+    "StatusInfo",
+]

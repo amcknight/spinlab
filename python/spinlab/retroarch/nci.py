@@ -9,6 +9,7 @@ from __future__ import annotations
 import socket
 
 from spinlab.retroarch.exceptions import NCIProtocolError, NCITimeout
+from spinlab.retroarch.responses import StatusInfo
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 55355
@@ -60,6 +61,27 @@ class NCIClient:
     def version(self) -> str:
         """Return RetroArch's reported version string (e.g. "1.22.2")."""
         return self._send("VERSION")
+
+    def get_status(self) -> StatusInfo:
+        """Return parsed emulator state. Raises NCIProtocolError on malformed reply."""
+        reply = self._send("GET_STATUS")
+        # Format: "GET_STATUS <STATE> [<system>,<game>,crc32=<hex>]"
+        parts = reply.split(maxsplit=2)
+        if len(parts) < 2:
+            raise NCIProtocolError(f"GET_STATUS reply too short: {reply!r}")
+        state = parts[1]
+        if len(parts) < 3:
+            return StatusInfo(state=state)
+        # Third field is comma-separated; last entry is "crc32=<hex>".
+        bits = parts[2].split(",")
+        if len(bits) != 3 or not bits[2].startswith("crc32="):
+            raise NCIProtocolError(f"GET_STATUS metadata malformed: {reply!r}")
+        return StatusInfo(
+            state=state,
+            system=bits[0],
+            game=bits[1],
+            crc32=bits[2].removeprefix("crc32="),
+        )
 
     def read_ram(self, addr: int, length: int) -> bytes:
         """Read `length` bytes from WRAM-flat offset `addr`.

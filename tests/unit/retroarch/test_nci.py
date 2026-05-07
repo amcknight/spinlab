@@ -8,6 +8,7 @@ from spinlab.retroarch import (
     NCIError,
     NCIProtocolError,
     NCITimeout,
+    StatusInfo,
 )
 from spinlab.retroarch.nci import NCIClient
 
@@ -107,3 +108,28 @@ def test_write_ram_sends_correct_command(fake_nci_server):
     client.write_ram(0x94, bytes([0xAA, 0xBB]))
 
     assert received[0] == "WRITE_CORE_RAM 94 aa bb"
+
+
+def test_get_status_playing(fake_nci_server):
+    fake_nci_server.handle(
+        "GET_STATUS",
+        "GET_STATUS PLAYING super_nes,Toothpaste,crc32=41b3c49d\n",
+    )
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    status = client.get_status()
+
+    assert status == StatusInfo(
+        state="PLAYING",
+        system="super_nes",
+        game="Toothpaste",
+        crc32="41b3c49d",
+    )
+
+
+def test_get_status_contentless(fake_nci_server):
+    """No game loaded — still a valid response, just sparse."""
+    fake_nci_server.handle("GET_STATUS", "GET_STATUS CONTENTLESS\n")
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    status = client.get_status()
+
+    assert status == StatusInfo(state="CONTENTLESS", system=None, game=None, crc32=None)
