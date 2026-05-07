@@ -26,3 +26,26 @@ def test_fake_nci_server_responds(fake_nci_server):
     sock.close()
 
     assert data.decode() == "1.22.2\n"
+
+
+def test_transport_round_trip(fake_nci_server):
+    from spinlab.retroarch.nci import NCIClient
+
+    fake_nci_server.handle("PING", "PONG\n")
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    assert client._send("PING") == "PONG"
+
+
+def test_transport_timeout_raises(fake_nci_server):
+    import pytest
+
+    from spinlab.retroarch.nci import NCIClient
+
+    # No handler registered; server drops the packet.
+    client = NCIClient(
+        host=fake_nci_server.address[0],
+        port=fake_nci_server.address[1],
+        timeout=0.1,
+    )
+    with pytest.raises(NCITimeout):
+        client._send("UNHANDLED_COMMAND")
