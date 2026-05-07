@@ -43,6 +43,32 @@ Game state at probe time: stuck at Retry screen (Mario dead, physics frozen).
 - Input injection requires either **Network RetroPad** (UDP virtual controller, needs `network_remote_enable = "true"` in cfg + RA restart) or **BSV movie playback**. Neither is necessary for the *live* practice loop (user's real controller drives the game); both are options for *replay*.
 - **Side effect of probe:** `$7E0094`/`$7E0095` left with `AA BB` written. Will be cleared automatically on next level transition / retry — no cleanup needed.
 
+### 2026-05-06 — Probe 4 (`scripts/probe_input_dispatch.py`)
+
+Goal: settle the NCI hotkey-sim failure. Smoke test pre-test pattern: NCI memory R/W and queries work, NCI hotkey-sim (SAVE_STATE, MENU_TOGGLE, PAUSE_TOGGLE, LOAD_STATE_SLOT) all silently fail. Game Focus is OFF (manual F1 opens the menu), keyboard hotkeys work, manual gamepad save works.
+
+**Pre-test cfg changes (made, RA restart required):**
+
+- `cheevos_hardcore_mode_enable = "true"` → `"false"` (line 1373 in retroarch.cfg). Default-after-restart: `false`.
+  - Why: rule out cheevos hardcore mode as the gate on NCI save-state. Even though `cheevos_enable = false`, RA source has hardcore checks that may apply to NCI-routed commands.
+  - Revert: set back to `"true"` and restart.
+- `network_remote_enable = "false"` → `"true"` (line 3079).
+  - Why: enable Network RetroPad as a fallback path for input injection if NCI hotkey-sim is permanently broken.
+  - Revert: set back to `"false"` and restart.
+- `network_remote_enable_user_p1 = "false"` → `"true"` (line 3080).
+  - Why: enable Player 1 for Network RetroPad reception.
+  - Revert: set back to `"false"` and restart.
+- `run_ahead_enabled = "true"` → `"false"` (line ~3203, search for it).
+  - Why: rule out runahead as a confound. We can re-enable later once we know whether it interacts with the save-state path.
+  - Revert: set back to `"true"` and restart.
+
+**Network RetroPad protocol notes (from RA source):**
+
+- UDP, port 55400 (configurable: `network_remote_base_port`).
+- Packet format: `struct remote_message { int port; int device; int index; int id; uint16_t state; }` with C struct padding → 20 bytes total on x64.
+- `device = 1` (RETRO_DEVICE_JOYPAD), `id` = button index (0=B, 1=Y, 2=SELECT, 3=START, 4=UP, 5=DOWN, 6=LEFT, 7=RIGHT, 8=A, 9=X, 10=L, 11=R), `state` = 1 (pressed) or 0 (released).
+- Note: NRP IDs are RetroPad-layout; user's `input_save_state_btn = "4"` is raw HID button index — they may not align without a re-binding to a RetroPad button id.
+
 ### 2026-05-06 — Probe 3 (`c:/tmp/probe_slots.py` and follow-up)
 
 Game state: stuck at SMW Retry screen (game mode `$7E0100 = 0x14`), Mario dead, no user at keyboard.
