@@ -133,3 +133,27 @@ def test_get_status_contentless(fake_nci_server):
     status = client.get_status()
 
     assert status == StatusInfo(state="CONTENTLESS", system=None, game=None, crc32=None)
+
+
+@pytest.mark.parametrize(
+    "method,args,expected_command",
+    [
+        ("save_state", (), "SAVE_STATE"),
+        ("load_state_slot", (9999,), "LOAD_STATE_SLOT 9999"),
+        ("reset", (), "RESET"),
+        ("pause_toggle", (), "PAUSE_TOGGLE"),
+        ("frame_advance", (), "FRAMEADVANCE"),
+        ("quit", (), "QUIT"),
+    ],
+)
+def test_fire_and_forget_commands(fake_nci_server, method, args, expected_command):
+    received = []
+    fake_nci_server.handle("", lambda cmd: received.append(cmd) or None)
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+
+    getattr(client, method)(*args)
+
+    # Give the fake server a moment to process the datagram.
+    import time
+    time.sleep(0.05)
+    assert received == [expected_command]

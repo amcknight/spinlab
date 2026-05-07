@@ -115,3 +115,36 @@ class NCIClient:
         """
         hex_bytes = " ".join(f"{b:02x}" for b in data)
         self._send(f"WRITE_CORE_RAM {addr:x} {hex_bytes}")
+
+    def save_state(self) -> None:
+        """Save state to RA's current slot. Increments state_slot if savestate_auto_index is on.
+
+        SpinLab's slot strategy lives in Phase D's state_io module; this method
+        is the raw command and does no slot management.
+        """
+        self._send_no_reply("SAVE_STATE")
+
+    def load_state_slot(self, slot: int) -> None:
+        """Load state from a specific slot, ignoring RA's current slot."""
+        self._send_no_reply(f"LOAD_STATE_SLOT {slot}")
+
+    def reset(self) -> None:
+        """Hard-reset the emulated console."""
+        self._send_no_reply("RESET")
+
+    def pause_toggle(self) -> None:
+        """Toggle paused state. WARNING: don't call blindly — see is_core_running.
+
+        Phase 2 spike found a 'deep pause' state where PAUSE_TOGGLE could not
+        recover the emulator core. Use is_core_running() to confirm state before
+        toggling.
+        """
+        self._send_no_reply("PAUSE_TOGGLE")
+
+    def frame_advance(self) -> None:
+        """Advance one frame (only meaningful while paused)."""
+        self._send_no_reply("FRAMEADVANCE")
+
+    def quit(self) -> None:
+        """Tell RetroArch to shut down."""
+        self._send_no_reply("QUIT")
