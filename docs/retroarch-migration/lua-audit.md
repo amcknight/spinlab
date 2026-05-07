@@ -182,6 +182,19 @@ Documented in `docs/retroarch-migration/spike-log.md` 2026-05-06: NCI service ca
 4. **BSV anchor strategy** (deferred from spec).
 5. **Conditions API: at-event vs continuous polling.** Currently `read_conditions()` runs *only* at event emission. Post-migration we'd be polling all the time anyway. Decide whether to keep the "event-time snapshot" semantic or stream all condition values continuously to the dashboard. Probably the former — keeps semantics identical.
 
+## Phase F-live followups for the smoke-test phase / Phase E / Phase G
+
+Captured during F-live closeout review (2026-05-07). Manual smoke gate (Andrew exercising the dashboard against live RetroArch) will likely surface more; these are the predictable ones:
+
+1. **`rom_info.filename` mismatch between backends.** RA's `GET_STATUS` returns `status.game = "Toothpaste"` (no extension). The orchestrator stamps that as the rom_info filename. `session_manager._handle_rom_info` then can't find a file by that name in `rom_dir`, falls back to a `file_<basename>` synthetic checksum — which differs from Mesen's `file_<basename>.smc`. **Same physical ROM, two different `game_id`s across backends; reference and segment data won't link.** Fix options: (a) try `<basename>.smc`/.sfc lookup in rom_dir before falling back; (b) hash `status.crc32` as the synthetic id; (c) make `ra_game_basename` the canonical key. Defer until Andrew tests; if the synthetic-id collision is actually an issue, it'll surface immediately.
+2. **No disconnection signal under UDP.** If RetroArch crashes mid-session, `RetroArchOrchestrator.is_connected` stays `True` forever (the poller swallows NCI errors and keeps spinning). The dashboard never re-enters a disconnected state and practice loops appear hung. Fix: add a heartbeat probe (cheap `client.version()` ping every N seconds) that fires `on_disconnect` after K consecutive failures.
+3. **`NotImplementedError` for ReferenceStart/ReplayCmd surfaces as HTTP 500.** Generic "Internal server error" instead of "BSV not yet supported on RetroArch backend." Add a route-level guard, OR catch `NotImplementedError` in the relevant `routes/reference.py` handlers and return 501.
+4. **Speed-run timing is a minimal port.** Per Task 3 caveat — `SpeedRunTiming` arms/disarms but doesn't yet implement the death-respawn / checkpoint / blackout-reload logic. Verify against `lua/spinlab.lua` `handle_speed_run` (~line 778) during the smoke gate; flesh out as needed.
+5. **No early-finish (`detect_finish`) handling in PracticeTiming.** Lua's `detect_finish` (orb/key mid-level detection separate from `is_exit_frame`) isn't replicated. `PracticeTiming` treats `level_exit` as the only finish signal. If premature/late `attempt_result` emissions appear during smoke testing, add early-finish event handling.
+6. **No save-on-transition path under RA backend.** `StateIO.save_segment_state` exists but no F-live code path calls it during reference capture — that's still TCP-driven. The save path is exercised once Phase E wires reference recording for RA.
+7. **Address-map source-of-truth has now grown to 4 places** (lua/addresses.lua, lua/poke_engine.lua ADDR_MAP, tests/integration/addresses.py ADDR_MAP, python/spinlab/retroarch/addresses.py). CLAUDE.md "Address maps (must stay in sync)" callout is stale; Phase G consolidates.
+8. **`SetInvalidateComboCmd` is logged at INFO level** — fires once per game switch. If log noise is a problem during practice testing, demote to DEBUG.
+
 ## Phase D followups for Phase F-live
 
 Captured during Phase D closeout review (2026-05-07). None block F-live; surface here so they don't get lost:
