@@ -19,6 +19,7 @@ from spinlab.retroarch.events import (
     TransitionEvent,
 )
 from spinlab.retroarch.predicates import (
+    LEVEL_START_ACTIVE,
     PLAYER_ANIM_DEAD,
     check_checkpoint_hit,
     goal_type,
@@ -60,6 +61,7 @@ class TransitionDetector:
         self._prev = snapshot
 
     def step(self, curr: MemorySnapshot, timestamp_ms: int) -> list[TransitionEvent]:
+        """Advance one frame; return list of transition events fired (often empty)."""
         self._frame_counter += 1
         events: list[TransitionEvent] = []
         prev = self._prev
@@ -103,10 +105,10 @@ class TransitionDetector:
             )
 
         # 4. Entrance: level_start 0->1 OR fast retry.
-        edge_spawn = curr.level_start == 1 and prev.level_start == 0
+        edge_spawn = curr.level_start == LEVEL_START_ACTIVE and prev.level_start == 0
         fast_retry = (
             self._state.died_flag
-            and curr.level_start == 1
+            and curr.level_start == LEVEL_START_ACTIVE
             and curr.player_anim != PLAYER_ANIM_DEAD
             and prev.player_anim == PLAYER_ANIM_DEAD
         )

@@ -69,3 +69,16 @@ def test_checkpoint_then_spawn_after_death():
     # Frame 5: respawn — level_start 0 -> 1 with died_flag still set.
     spawn_events = d.step(_snap(level_num=5, midway=1, level_start=1), timestamp_ms=64)
     assert any(isinstance(e, Spawn) and e.is_cold_cp for e in spawn_events)
+
+
+def test_exit_this_frame_does_not_bleed_to_next_frame():
+    """A LevelExit one frame must not suppress LevelEntrance the next frame."""
+    d = TransitionDetector()
+    d.step(_snap(exit_mode=0, level_num=5), timestamp_ms=0)
+    exit_events = d.step(_snap(exit_mode=1, level_num=5), timestamp_ms=16)
+    assert any(isinstance(e, LevelExit) for e in exit_events)
+    # Next frame: exit_mode still 1 (no edge), level_start 0->1 — entrance must fire.
+    entrance_events = d.step(
+        _snap(exit_mode=1, level_num=5, level_start=1), timestamp_ms=32
+    )
+    assert any(isinstance(e, LevelEntrance) for e in entrance_events)

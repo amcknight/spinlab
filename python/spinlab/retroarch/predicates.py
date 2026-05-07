@@ -12,6 +12,7 @@ from spinlab.retroarch.transition_state import TransitionState
 
 PLAYER_ANIM_DEAD = 9
 FANFARE_ACTIVE = 1  # SMW fanfare byte: steps to this value when goal is reached and stays.
+LEVEL_START_ACTIVE = 1  # SMW level_start byte: set to this when the player appears in a level.
 
 
 def is_death_frame(prev: MemorySnapshot, curr: MemorySnapshot) -> bool:
