@@ -13,6 +13,9 @@ from spinlab.retroarch.exceptions import NCITimeout
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 55355
 DEFAULT_TIMEOUT_SEC = 0.5
+# NCI replies are short — longest is READ_CORE_RAM returning a few KB of hex
+# bytes plus the echoed command + address. 4 KB is generous headroom.
+RECV_BUFFER_BYTES = 4096
 
 
 class NCIClient:
@@ -37,7 +40,7 @@ class NCIClient:
         sock.settimeout(self.timeout)
         try:
             sock.sendto(command.encode("ascii"), (self.host, self.port))
-            data, _ = sock.recvfrom(4096)
+            data, _ = sock.recvfrom(RECV_BUFFER_BYTES)
         except socket.timeout as exc:
             raise NCITimeout(f"no reply within {self.timeout}s for {command!r}") from exc
         finally:
