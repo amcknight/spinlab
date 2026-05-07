@@ -1,18 +1,26 @@
 emulator:
-  path: "C:/path/to/Mesen.exe"
+  backend: mesen-lua          # "mesen-lua" or "retroarch"
   type: mesen2
+  # Mesen-Lua keys (used when backend == "mesen-lua"):
+  path: "C:/path/to/Mesen.exe"
   lua_script: "lua/spinlab.lua"
   script_data_dir: "C:/Users/<you>/Documents/Mesen2/LuaScriptData/spinlab"
+  # RetroArch keys (used when backend == "retroarch"):
+  retroarch_path: "C:/RetroArch-Win64/retroarch.exe"
+  savestate_dir: "C:/RetroArch-Win64/saves/states"
+  spinlab_state_dir: "data/spinlab_states"
+  ra_game_basename: "Toothpaste World"
 
 rom:
-  dir: "C:/path/to/your/romhacks"  # directory containing ROM files (.sfc/.smc)
+  dir: "C:/path/to/your/romhacks"
 
 game:
-  category: "any%"  # default category for auto-discovered games
+  category: "any%"
 
 network:
-  port: 15482          # Lua TCP server port (must match TCP_PORT in lua/spinlab.lua)
-  dashboard_port: 15483  # Dashboard HTTP port
+  port: 15482          # Lua TCP server (mesen-lua backend only)
+  nci_port: 55355      # RetroArch NCI (retroarch backend only)
+  dashboard_port: 15483
   host: "127.0.0.1"
 
 scheduler:
