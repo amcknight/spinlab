@@ -78,10 +78,10 @@ def detect_finish(prev: MemorySnapshot, curr: MemorySnapshot) -> str | None:
     Edge-triggered on the relevant transitions.
     """
     # Goal tape: fanfare 0 -> 1, boss alive, no orb.
-    if curr.fanfare == FANFARE_ACTIVE and prev.fanfare != FANFARE_ACTIVE and curr.boss_defeat == 0 and curr.io_port != a.IO_ORB:
+    if curr.fanfare == FANFARE_ACTIVE and prev.fanfare == 0 and curr.boss_defeat == 0 and curr.io_port != a.IO_ORB:
         return "normal"
     # Boss: fanfare 0 -> 1, boss defeated.
-    if curr.fanfare == FANFARE_ACTIVE and prev.fanfare != FANFARE_ACTIVE and curr.boss_defeat != 0:
+    if curr.fanfare == FANFARE_ACTIVE and prev.fanfare == 0 and curr.boss_defeat != 0:
         return "boss"
     # Orb: io shifts to 3, boss alive.
     if curr.io_port == a.IO_ORB and prev.io_port != a.IO_ORB and curr.boss_defeat == 0:
