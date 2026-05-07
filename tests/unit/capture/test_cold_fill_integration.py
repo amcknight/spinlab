@@ -30,13 +30,24 @@ def sm(db, tcp):
     return SessionManager(db=db, tcp=tcp, rom_dir=None)
 
 
-def _create_segments_with_hot_only(db):
+def _create_segments_with_hot_only(db, tmp_path=None):
     """Create 3 segments with waypoints: entrance>cp1, cp1>cp2, cp2>goal.
     Entrance waypoint gets cold (entrance IS the cold start).
     cp1 and cp2 waypoints get only hot.
+
+    If tmp_path is given, hot/cold files are written there as empty files —
+    needed because cold_fill now defensively skips segments with missing
+    state files on disk.
     """
     game_id = "g1"
     level = 105
+
+    def _path(name: str) -> str:
+        if tmp_path is None:
+            return f"/{name}"
+        p = tmp_path / name
+        p.write_bytes(b"")
+        return str(p)
 
     # Build waypoints for each boundary
     wp_entrance = Waypoint.make(game_id, level, "entrance", 0, {})
@@ -79,21 +90,21 @@ def _create_segments_with_hot_only(db):
         db.upsert_segment(s)
 
     # Entrance segment: cold save state (entrance IS the cold start)
-    db.add_save_state(WaypointSaveState(wp_entrance.id, "cold", "/cold0.mss", True))
+    db.add_save_state(WaypointSaveState(wp_entrance.id, "cold", _path("cold0.mss"), True))
     # cp1 and cp2: hot save states only (cold fill will capture cold ones)
-    db.add_save_state(WaypointSaveState(wp_cp1.id, "hot", "/hot1.mss", True))
-    db.add_save_state(WaypointSaveState(wp_cp2.id, "hot", "/hot2.mss", True))
+    db.add_save_state(WaypointSaveState(wp_cp1.id, "hot", _path("hot1.mss"), True))
+    db.add_save_state(WaypointSaveState(wp_cp2.id, "hot", _path("hot2.mss"), True))
 
     return segs, wp_cp1, wp_cp2
 
 
 class TestColdFillIntegration:
-    async def test_full_cycle(self, sm, db, tcp):
+    async def test_full_cycle(self, sm, db, tcp, tmp_path):
         sm.game_id = "g1"
 
         # Set up and save draft — capture run must exist before segments (FK)
         db.create_capture_run("run1", "g1", "Test Run", draft=True)
-        segs, wp_cp1, wp_cp2 = _create_segments_with_hot_only(db)
+        segs, wp_cp1, wp_cp2 = _create_segments_with_hot_only(db, tmp_path=tmp_path)
         sm.capture.paused_run_id = "run1"
         result = await sm.finalize_run("Test Run")
 
@@ -104,7 +115,7 @@ class TestColdFillIntegration:
         cmd = tcp.send_command.call_args[0][0]
         assert isinstance(cmd, ColdFillLoadCmd)
         assert cmd.event == "cold_fill_load"
-        assert cmd.state_path == "/hot1.mss"
+        assert cmd.state_path == str(tmp_path / "hot1.mss")
         assert cmd.segment_id == segs[1].id
 
         # Simulate spawn for first segment

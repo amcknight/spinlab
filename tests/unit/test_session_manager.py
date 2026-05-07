@@ -247,19 +247,24 @@ class TestFillGap:
 
 
 class TestColdFill:
-    async def test_save_draft_triggers_cold_fill(self, mock_db, mock_tcp):
+    async def test_save_draft_triggers_cold_fill(self, mock_db, mock_tcp, tmp_path):
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
 
         # Set up paused run
         sm.capture.paused_run_id = "run1"
 
+        # Write real (empty) hot-state files — cold_fill defensively skips
+        # segments whose hot_state_path doesn't exist on disk.
+        hot1 = tmp_path / "hot1.mss"; hot1.write_bytes(b"")
+        hot2 = tmp_path / "hot2.mss"; hot2.write_bytes(b"")
+
         # Mock: 2 segments missing cold
         mock_db.segments_missing_cold = MagicMock(return_value=[
-            {"segment_id": "seg1", "hot_state_path": "/hot1.mss",
+            {"segment_id": "seg1", "hot_state_path": str(hot1),
              "level_number": 105, "start_type": "checkpoint", "start_ordinal": 1,
              "end_type": "checkpoint", "end_ordinal": 2, "description": ""},
-            {"segment_id": "seg2", "hot_state_path": "/hot2.mss",
+            {"segment_id": "seg2", "hot_state_path": str(hot2),
              "level_number": 105, "start_type": "checkpoint", "start_ordinal": 2,
              "end_type": "goal", "end_ordinal": 0, "description": ""},
         ])
