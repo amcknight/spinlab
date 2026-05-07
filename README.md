@@ -4,10 +4,41 @@ Spaced-repetition practice for SNES romhack speedrunning. Records save states at
 
 Input recording captures every frame's controller state during reference runs into `.spinrec` binary files. Replay mode feeds those inputs back at any emulation speed to regenerate reference data without human input.
 
+> **Migration in progress.** SpinLab is being ported from Mesen + Lua to RetroArch + snes9x_libretro on the `worktree/retroarch-port` branch. Most content below describes the current Mesen-based system; the RetroArch setup notes are at the end of this section. See [`docs/superpowers/specs/2026-05-06-retroarch-migration-design.md`](docs/superpowers/specs/2026-05-06-retroarch-migration-design.md) for context.
+
 ## Requirements
 
-- [Mesen2](https://www.mesen.ca/) (has LuaSocket built in)
+- [Mesen2](https://www.mesen.ca/) (has LuaSocket built in) — current
+- [RetroArch](https://retroarch.com) + snes9x_libretro core (installed via RA's Online Updater) — post-migration
 - Python 3.11+
+
+## RetroArch Setup (post-migration)
+
+In `retroarch.cfg` (typically `<RetroArch dir>/retroarch.cfg`):
+
+```
+network_cmd_enable = "true"
+network_cmd_port = "55355"
+```
+
+Restart RetroArch fully after editing — the cfg is read once at startup. SpinLab talks to RetroArch over UDP using the libretro Network Command Interface (NCI). The default port `55355` matches RA's default; SpinLab's `network.nci_port` config will track it.
+
+Quick sanity check from PowerShell with RA running:
+
+```powershell
+$udp = New-Object System.Net.Sockets.UdpClient
+$udp.Connect("127.0.0.1", 55355)
+$bytes = [Text.Encoding]::ASCII.GetBytes("VERSION")
+$udp.Send($bytes, $bytes.Length) | Out-Null
+$udp.Client.ReceiveTimeout = 2000
+$ep = New-Object System.Net.IPEndPoint([Net.IPAddress]::Any, 0)
+[Text.Encoding]::ASCII.GetString($udp.Receive([ref]$ep))
+$udp.Close()
+```
+
+Should print RA's version string. If it times out, NCI isn't reachable — re-check the cfg edits and that RA was restarted, not just reloaded.
+
+A standalone validation spike lives at [`scripts/spike_retroarch.py`](scripts/spike_retroarch.py) — runs five tests (NCI handshake, memory read, sustained 60Hz polling, runahead coexistence, savestate round-trip) and reports pass/fail per step. Used to prove the migration is feasible; kept as a regression check.
 
 ## Setup
 
