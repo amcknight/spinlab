@@ -57,3 +57,56 @@ def test_version(fake_nci_server):
     fake_nci_server.handle("VERSION", "1.22.2\n")
     client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
     assert client.version() == "1.22.2"
+
+
+def test_read_ram_parses_data_bytes(fake_nci_server):
+    import pytest
+    from spinlab.retroarch.nci import NCIClient
+
+    # 4 bytes at $7E0094 returned as: command-echo + addr-echo + 4 hex bytes
+    fake_nci_server.handle(
+        "READ_CORE_RAM 94 4",
+        "READ_CORE_RAM 94 AA BB CC DD\n",
+    )
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    assert client.read_ram(0x94, 4) == bytes([0xAA, 0xBB, 0xCC, 0xDD])
+
+
+def test_read_ram_skips_address_echo(fake_nci_server):
+    import pytest
+    from spinlab.retroarch.nci import NCIClient
+
+    """Regression: spike's bug was treating the echoed address as a data byte.
+    For an unfortunately-shaped address like 0x94 (looks like a byte), the
+    parser must not include it in the result.
+    """
+    fake_nci_server.handle(
+        "READ_CORE_RAM 94 1",
+        "READ_CORE_RAM 94 7F\n",
+    )
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    # Single requested byte returns single byte — NOT [0x94, 0x7F].
+    assert client.read_ram(0x94, 1) == bytes([0x7F])
+
+
+def test_read_ram_protocol_error_on_minus_one(fake_nci_server):
+    import pytest
+    from spinlab.retroarch.nci import NCIClient
+
+    fake_nci_server.handle(
+        "READ_CORE_RAM ffff 1",
+        "READ_CORE_RAM ffff -1\n",
+    )
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    with pytest.raises(NCIProtocolError, match="-1"):
+        client.read_ram(0xFFFF, 1)
+
+
+def test_read_ram_protocol_error_on_unparseable(fake_nci_server):
+    import pytest
+    from spinlab.retroarch.nci import NCIClient
+
+    fake_nci_server.handle("READ_CORE_RAM 94 1", "garbage\n")
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    with pytest.raises(NCIProtocolError):
+        client.read_ram(0x94, 1)

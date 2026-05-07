@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import socket
 
-from spinlab.retroarch.exceptions import NCITimeout
+from spinlab.retroarch.exceptions import NCIProtocolError, NCITimeout
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 55355
@@ -60,3 +60,26 @@ class NCIClient:
     def version(self) -> str:
         """Return RetroArch's reported version string (e.g. "1.22.2")."""
         return self._send("VERSION")
+
+    def read_ram(self, addr: int, length: int) -> bytes:
+        """Read `length` bytes from WRAM-flat offset `addr`.
+
+        Reply format: "READ_CORE_RAM <addr_hex> <byte0> <byte1> ..." on success,
+        or "READ_CORE_RAM <addr_hex> -1 [error]" on failure.
+
+        Raises NCIProtocolError if the reply is malformed or contains -1.
+        """
+        reply = self._send(f"READ_CORE_RAM {addr:x} {length}")
+        parts = reply.split()
+        if len(parts) < 2:
+            raise NCIProtocolError(f"reply too short: {reply!r}")
+        # parts[0] = command echo, parts[1] = address echo, parts[2:] = data bytes.
+        data_tokens = parts[2:]
+        if not data_tokens:
+            raise NCIProtocolError(f"reply has no data bytes: {reply!r}")
+        if data_tokens[0] == "-1":
+            raise NCIProtocolError(f"RetroArch returned error for read at {addr:#x}: {reply!r}")
+        try:
+            return bytes(int(t, 16) for t in data_tokens)
+        except ValueError as exc:
+            raise NCIProtocolError(f"unparseable reply: {reply!r}") from exc
