@@ -251,9 +251,16 @@ class RetroArchOrchestrator:
         )
 
     async def _unsupported_phase_e(self, cmd) -> None:
-        raise NotImplementedError(
-            f"BSV record/replay not wired in F-live; coming in Phase E. cmd={type(cmd).__name__}"
+        # Surfaces as a clean HTTP 501 via the dashboard's ActionError handler.
+        # Reference recording / replay needs BSV (libretro movie format), which
+        # is the next migration phase. Until then, callers wanting fresh
+        # reference captures can flip emulator.backend back to "mesen-lua".
+        from spinlab.errors import BackendNotImplementedError
+        logger.warning(
+            "RetroArchOrchestrator: %s rejected — BSV (Phase E) not wired",
+            type(cmd).__name__,
         )
+        raise BackendNotImplementedError()
 
     # ------------------------------------------------------------------
     # Event plumbing

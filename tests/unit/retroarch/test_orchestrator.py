@@ -248,12 +248,18 @@ async def test_game_context_is_noop():
 
 @pytest.mark.parametrize("cmd_cls", [ReferenceStartCmd, ReferenceStopCmd, ReplayCmd, ReplayStopCmd])
 @pytest.mark.asyncio
-async def test_replay_record_commands_raise_not_implemented(cmd_cls):
+async def test_replay_record_commands_raise_backend_not_implemented(cmd_cls):
+    """BSV record/replay isn't wired (Phase E); orchestrator must raise the
+    typed ActionError so the route layer surfaces it as HTTP 501 instead of
+    a generic 500."""
+    from spinlab.errors import BackendNotImplementedError
+
     orch, _, _, _, _ = _build_orchestrator()
     await orch.connect()
     await orch.events.get()
-    with pytest.raises(NotImplementedError, match="Phase E"):
+    with pytest.raises(BackendNotImplementedError) as exc_info:
         await orch.send_command(cmd_cls())
+    assert exc_info.value.http_code == 501
     await orch.disconnect()
 
 
