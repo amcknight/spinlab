@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import socket
 import time
+from types import TracebackType
+from typing import Self
 
 from spinlab.retroarch.exceptions import NCIProtocolError, NCITimeout
 from spinlab.retroarch.responses import StatusInfo
@@ -56,8 +58,29 @@ class NCIClient:
             sock.sendto(command.encode("ascii"), (self.host, self.port))
             data, _ = sock.recvfrom(RECV_BUFFER_BYTES)
         except socket.timeout as exc:
+            # Drain any late reply that may arrive while we're handling this
+            # timeout — otherwise it would be picked up by the next _send call
+            # and silently misattributed to a different command.
+            self._drain_socket(sock)
             raise NCITimeout(f"no reply within {self.timeout}s for {command!r}") from exc
         return data.decode("ascii", errors="replace").strip()
+
+    def _drain_socket(self, sock: socket.socket) -> None:
+        """Discard any datagrams sitting in the receive buffer.
+
+        Called after a timeout so that a reply that arrived during the timeout
+        interval cannot be misattributed to the next command issued on the same socket.
+        """
+        sock.setblocking(False)
+        try:
+            while True:
+                try:
+                    sock.recvfrom(RECV_BUFFER_BYTES)
+                except (BlockingIOError, OSError):
+                    break
+        finally:
+            sock.setblocking(True)
+            sock.settimeout(self.timeout)
 
     def _send_no_reply(self, command: str) -> None:
         """Send command and don't wait for any reply. For fire-and-forget commands
@@ -188,10 +211,15 @@ class NCIClient:
             self._sock.close()
             self._sock = None
 
-    def __enter__(self) -> NCIClient:
+    def __enter__(self) -> Self:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Context manager exit: close the socket."""
         self.close()

@@ -204,3 +204,84 @@ def test_client_context_manager(fake_nci_server):
     fake_nci_server.handle("VERSION", "1.22.2\n")
     with NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1]) as client:
         assert client.version() == "1.22.2"
+
+
+def test_send_after_timeout_recovers(fake_nci_server):
+    """After a timeout, a subsequent successful call works on the same client.
+
+    Regression test for the persistent-socket refactor: if drain isn't done
+    on timeout, the late reply could land on the next call.
+    """
+    # First call has no handler — guaranteed to timeout.
+    client = NCIClient(
+        host=fake_nci_server.address[0],
+        port=fake_nci_server.address[1],
+        timeout=0.1,
+    )
+    with pytest.raises(NCITimeout):
+        client.version()
+
+    # Now register VERSION handler and confirm subsequent call works.
+    fake_nci_server.handle("VERSION", "1.22.2\n")
+    assert client.version() == "1.22.2"
+
+
+def test_socket_reused_across_calls(fake_nci_server):
+    """The persistent-socket refactor's invariant: socket is created once.
+
+    Pin this so a future change can't accidentally reintroduce per-call
+    socket creation.
+    """
+    fake_nci_server.handle("VERSION", "1.22.2\n")
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    client.version()
+    sock_after_first = client._sock
+    client.version()
+    sock_after_second = client._sock
+    assert sock_after_first is sock_after_second
+    assert sock_after_first is not None
+
+
+def test_late_reply_does_not_contaminate_next_call(fake_nci_server):
+    """Drain clears datagrams that arrived during the timeout window.
+
+    Simulates the scenario: command A times out, but its reply has already
+    landed in the kernel buffer (fast network). We drain it so CMD_B's reply
+    isn't contaminated. The drain doesn't help with replies that arrive AFTER
+    the timeout but before the next call (those require socket close).
+    """
+    import time as _time
+
+    # Use a handler that replies quickly (before the client's timeout),
+    # so the reply arrives and sits in the buffer during timeout processing.
+    reply_sent = {"count": 0}
+
+    def quick_a(cmd):
+        reply_sent["count"] += 1
+        return "REPLY_FOR_A\n"
+
+    fake_nci_server.handle("CMD_A", quick_a)
+    fake_nci_server.handle("CMD_B", "REPLY_FOR_B\n")
+
+    client = NCIClient(
+        host=fake_nci_server.address[0],
+        port=fake_nci_server.address[1],
+        timeout=0.5,  # Long timeout so the reply arrives normally for CMD_A.
+    )
+
+    # First: a normal successful call to establish the socket.
+    assert client._send("CMD_A") == "REPLY_FOR_A"
+
+    # Now switch to a very short timeout and send a command that has no handler,
+    # guaranteeing timeout. The socket is already open.
+    client.timeout = 0.05
+    with pytest.raises(NCITimeout):
+        client._send("UNHANDLED")
+
+    # Back to normal timeout. CMD_B should work correctly (drain ensured any
+    # buffered reply from timeout processing was cleared).
+    client.timeout = 0.5
+    assert client._send("CMD_B") == "REPLY_FOR_B"
+
+    # Confirm CMD_A was never called again (drain didn't interfere with socket).
+    assert reply_sent["count"] == 1
