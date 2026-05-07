@@ -92,7 +92,7 @@ def test_check_checkpoint_hit_suppressed_during_goal():
 
 def test_detect_finish_normal_goal():
     prev = _snap(fanfare=0)
-    curr = _snap(fanfare=1)
+    curr = _snap(fanfare=1, boss_defeat=0)  # explicit: must be non-boss for normal path
     assert detect_finish(prev, curr) == "normal"
 
 
@@ -104,7 +104,7 @@ def test_detect_finish_boss():
 
 def test_detect_finish_orb():
     prev = _snap(io_port=0)
-    curr = _snap(io_port=a.IO_ORB)
+    curr = _snap(io_port=a.IO_ORB, boss_defeat=0)  # explicit: orb branch guards boss_defeat==0
     assert detect_finish(prev, curr) == "orb"
 
 

@@ -11,15 +11,16 @@ from spinlab.retroarch.snapshot import MemorySnapshot
 from spinlab.retroarch.transition_state import TransitionState
 
 PLAYER_ANIM_DEAD = 9
+FANFARE_ACTIVE = 1  # SMW fanfare byte: steps to this value when goal is reached and stays.
 
 
 def is_death_frame(prev: MemorySnapshot, curr: MemorySnapshot) -> bool:
-    """Player animation transitioned from non-9 to 9 (death animation start)."""
+    """Edge-triggered so the caller gets one death event per transition, not one per frame while the animation sustains."""
     return curr.player_anim == PLAYER_ANIM_DEAD and prev.player_anim != PLAYER_ANIM_DEAD
 
 
 def is_exit_frame(prev: MemorySnapshot, curr: MemorySnapshot) -> bool:
-    """exit_mode 0 -> non-zero edge."""
+    """SMW's exit_mode byte stays non-zero through the whole exit sequence; the edge check gives one event per exit."""
     return curr.exit_mode != 0 and prev.exit_mode == 0
 
 
@@ -33,9 +34,9 @@ def goal_type(curr: MemorySnapshot) -> str:
         return "key"
     if curr.io_port == a.IO_ORB:
         return "orb"
-    if curr.boss_defeat != 0 and curr.fanfare == 1:
+    if curr.boss_defeat != 0 and curr.fanfare == FANFARE_ACTIVE:
         return "boss"
-    if curr.fanfare == 1 or curr.io_port == a.IO_GOAL:
+    if curr.fanfare == FANFARE_ACTIVE or curr.io_port == a.IO_GOAL:
         return "normal"
     return "abort"
 
@@ -50,7 +51,7 @@ def check_checkpoint_hit(
     spurious side effect.
     """
     got_orb = curr.io_port == a.IO_ORB
-    got_goal = curr.fanfare == 1 or curr.io_port == a.IO_GOAL
+    got_goal = curr.fanfare == FANFARE_ACTIVE or curr.io_port == a.IO_GOAL
     got_key = curr.io_port == a.IO_KEY
     got_fadeout = curr.io_port == a.IO_FADEOUT
     blocked = got_orb or got_goal or got_key or got_fadeout
@@ -77,10 +78,10 @@ def detect_finish(prev: MemorySnapshot, curr: MemorySnapshot) -> str | None:
     Edge-triggered on the relevant transitions.
     """
     # Goal tape: fanfare 0 -> 1, boss alive, no orb.
-    if curr.fanfare == 1 and prev.fanfare == 0 and curr.boss_defeat == 0 and curr.io_port != a.IO_ORB:
+    if curr.fanfare == FANFARE_ACTIVE and prev.fanfare != FANFARE_ACTIVE and curr.boss_defeat == 0 and curr.io_port != a.IO_ORB:
         return "normal"
     # Boss: fanfare 0 -> 1, boss defeated.
-    if curr.fanfare == 1 and prev.fanfare == 0 and curr.boss_defeat != 0:
+    if curr.fanfare == FANFARE_ACTIVE and prev.fanfare != FANFARE_ACTIVE and curr.boss_defeat != 0:
         return "boss"
     # Orb: io shifts to 3, boss alive.
     if curr.io_port == a.IO_ORB and prev.io_port != a.IO_ORB and curr.boss_defeat == 0:
