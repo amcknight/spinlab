@@ -24,6 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from spinlab.retroarch.cold_fill import ColdFillTracker
+from spinlab.retroarch.conditions import ConditionRegistry
 from spinlab.retroarch.detector import TransitionDetector
 from spinlab.retroarch.events import TransitionEvent
 from spinlab.retroarch.nci import NCIClient
@@ -38,6 +39,7 @@ class PollerDeps:
     read_snapshot: Callable[[NCIClient], MemorySnapshot]
     on_event: Callable[[TransitionEvent], None]
     state_path_for: Callable[[TransitionEvent], str] | None = None
+    conditions_registry: ConditionRegistry | None = None
 
 
 class Poller:
@@ -60,6 +62,19 @@ class Poller:
         if not hasattr(ev, "state_path"):
             return ev
         return dataclasses.replace(ev, state_path=path)
+
+    def _stamp_conditions(self, ev: TransitionEvent) -> TransitionEvent:
+        """Apply conditions_registry if configured. Returns event with populated conditions."""
+        reg = self._deps.conditions_registry
+        if reg is None:
+            return ev
+        try:
+            values = reg.read_all(self._deps.client)
+        except Exception:
+            return ev  # don't kill the loop on transient NCI errors
+        if not values:
+            return ev
+        return dataclasses.replace(ev, conditions=values)
 
     def mark_state_loaded(self) -> None:
         """Tell the poller the next snapshot replaces prev (suppress phantom edges)."""
@@ -91,10 +106,14 @@ class Poller:
                 continue
 
             for event in self._detector.step(snap, timestamp_ms=ts):
-                self._deps.on_event(self._stamp_state_path(event))
+                event = self._stamp_state_path(event)
+                event = self._stamp_conditions(event)
+                self._deps.on_event(event)
 
             cf_event = self._cold_fill.step(snap, timestamp_ms=ts)
             if cf_event is not None:
-                self._deps.on_event(self._stamp_state_path(cf_event))
+                cf_event = self._stamp_state_path(cf_event)
+                cf_event = self._stamp_conditions(cf_event)
+                self._deps.on_event(cf_event)
 
             await asyncio.sleep(self._period)
