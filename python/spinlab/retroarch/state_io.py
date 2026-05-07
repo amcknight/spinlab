@@ -201,34 +201,63 @@ class StateIO:
     # -- save/load (Tasks 4 & 5; stubbed below until those tasks land) --------
 
     def save_segment_state(self, segment_id: str) -> Path:
-        """Trigger SAVE_STATE, wait for the slot file to appear/advance, move it.
+        """Trigger SAVE_STATE, find the file RA wrote, move it to the SpinLab path.
 
-        Returns the SpinLab path the file now lives at. Raises StateSaveTimeout
-        if the slot file's mtime does not advance (or it does not appear) within
+        RA's NCI SAVE_STATE writes to whatever slot RA's `state_slot` counter
+        is currently at — NOT to a slot we control. (Phase 0's spike flagged
+        this as INCONCLUSIVE; it bit hard during F-live.) So we don't watch
+        a fixed reserved-slot file; instead we snapshot the directory before
+        the save, fire SAVE_STATE, then look for whichever `<game>.state*`
+        file was created or had its mtime advance, and move that.
+
+        The user's auto-index counter advances by one per capture — the
+        documented tradeoff in Phase D Decision 1 (Option C). Returns the
+        SpinLab path. Raises StateSaveTimeout if no file changed within
         `save_timeout_sec`.
         """
-        slot_path = self._ra_slot_path()
-        pre_mtime = slot_path.stat().st_mtime if slot_path.exists() else None
+        if not self._game_basename:
+            raise RuntimeError(
+                "StateIO: game basename not set; orchestrator must connect first."
+            )
+        # Snapshot existing state files for this game before SAVE_STATE.
+        pattern = f"{self._game_basename}.state*"
+        snapshot: dict[str, float] = {
+            p.name: p.stat().st_mtime
+            for p in self._ra_dir.glob(pattern) if p.is_file()
+        }
 
         self._client.save_state()
 
         deadline = time.monotonic() + self._save_timeout_sec
-        poll_interval = 0.01  # 10ms — finer than RA's typical save time
+        poll_interval = 0.01
+        new_path: Path | None = None
         while time.monotonic() < deadline:
-            if slot_path.exists():
-                cur_mtime = slot_path.stat().st_mtime
-                if pre_mtime is None or cur_mtime > pre_mtime:
+            for p in self._ra_dir.glob(pattern):
+                if not p.is_file():
+                    continue
+                old_mtime = snapshot.get(p.name)
+                cur_mtime = p.stat().st_mtime
+                # Either a brand-new file, or an existing one whose mtime
+                # advanced past what we observed pre-save.
+                if old_mtime is None or cur_mtime > old_mtime:
+                    new_path = p
                     break
+            if new_path is not None:
+                break
             time.sleep(poll_interval)
         else:
             raise StateSaveTimeout(
-                f"SAVE_STATE for segment {segment_id!r}: slot file "
-                f"{slot_path} did not advance within {self._save_timeout_sec}s"
+                f"SAVE_STATE for segment {segment_id!r}: no {pattern} file "
+                f"appeared or advanced in {self._ra_dir} within "
+                f"{self._save_timeout_sec}s"
             )
 
         target = self.state_path_for(segment_id)
-        shutil.move(str(slot_path), str(target))
-        logger.debug("StateIO: saved segment %s -> %s", segment_id, target)
+        shutil.move(str(new_path), str(target))
+        logger.debug(
+            "StateIO: saved segment %s — RA wrote %s -> %s",
+            segment_id, new_path.name, target,
+        )
         return target
 
     def load_segment_state(self, segment_id: str) -> None:

@@ -102,6 +102,32 @@ def test_save_segment_state_times_out_when_existing_file_unchanged(setup):
         io.save_segment_state("seg-3")
 
 
+def test_save_segment_state_picks_up_any_state_file_RA_writes(setup):
+    """Regression: RA's NCI SAVE_STATE writes to whatever slot RA's own
+    state_slot counter is at — not to a fixed reserved slot we control.
+
+    The original implementation watched <game>.state9999 specifically and
+    timed out forever because RA was writing to <game>.state500 etc. This
+    test simulates that scenario: RA writes to a non-reserved slot, and
+    save_segment_state should still find and move it.
+    """
+    io, nci, ra_dir, sl_dir = setup
+
+    # RA's auto-index counter is at 500; SAVE_STATE writes <game>.state500.
+    actual_slot_file = ra_dir / "Game.state500"
+
+    def on_save():
+        actual_slot_file.write_bytes(b"FROM_RAS_AUTO_INDEX")
+
+    nci._on_save = on_save
+
+    result = io.save_segment_state("seg-X")
+
+    assert result.read_bytes() == b"FROM_RAS_AUTO_INDEX"
+    assert not actual_slot_file.exists(), \
+        "RA's slot file should have been moved out of RA's dir"
+
+
 def test_save_segment_state_creates_spinlab_dir_if_missing(tmp_path):
     """Constructor creates spinlab_state_dir; verify by passing one that doesn't exist."""
     ra_dir = tmp_path / "ra"
