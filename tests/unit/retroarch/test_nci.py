@@ -102,12 +102,15 @@ def test_write_ram_sends_correct_command(fake_nci_server):
 
     def capture(cmd):
         received.append(cmd)
-        return "WRITE_CORE_RAM 94 1\n"  # RA echoes addr + count on success
+        return None  # write_ram is fire-and-forget; reply (if any) is ignored
 
     fake_nci_server.handle("WRITE_CORE_RAM", capture)
     client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
     client.write_ram(0x94, bytes([0xAA, 0xBB]))
 
+    # Fire-and-forget: give the fake server a moment to process the datagram.
+    import time
+    time.sleep(0.05)
     assert received[0] == "WRITE_CORE_RAM 94 aa bb"
 
 

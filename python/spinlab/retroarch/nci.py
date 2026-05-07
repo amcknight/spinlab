@@ -57,7 +57,12 @@ class NCIClient:
         try:
             sock.sendto(command.encode("ascii"), (self.host, self.port))
             data, _ = sock.recvfrom(RECV_BUFFER_BYTES)
-        except socket.timeout as exc:
+        except (socket.timeout, ConnectionResetError) as exc:
+            # socket.timeout: no reply arrived within self.timeout.
+            # ConnectionResetError: Windows surfaces "ICMP port unreachable"
+            # responses to UDP sends as 10054 on the next recvfrom. Treat both
+            # as "no useful reply" and surface as NCITimeout.
+            #
             # Drain any late reply that may arrive while we're handling this
             # timeout — otherwise it would be picked up by the next _send call
             # and silently misattributed to a different command.
@@ -140,12 +145,13 @@ class NCIClient:
     def write_ram(self, addr: int, data: bytes) -> None:
         """Write `data` to WRAM-flat offset `addr`. Returns nothing on success.
 
-        Sends `WRITE_CORE_RAM <addr> <hex bytes>` and waits for RetroArch's echo
-        reply. We don't validate the echo's contents, but waiting gives us a
-        liveness signal: if RA is unresponsive, the call raises NCITimeout.
+        Fire-and-forget: live-RA testing showed RetroArch parses WRITE_CORE_RAM
+        and applies the write but does not emit a reply over the network port.
+        Use is_core_running() or a follow-up read_ram() if you need confirmation
+        the write actually landed.
         """
         hex_bytes = " ".join(f"{b:02x}" for b in data)
-        self._send(f"WRITE_CORE_RAM {addr:x} {hex_bytes}")
+        self._send_no_reply(f"WRITE_CORE_RAM {addr:x} {hex_bytes}")
 
     def save_state(self) -> None:
         """Save state to RA's current slot. Increments state_slot if savestate_auto_index is on.
