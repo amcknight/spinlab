@@ -216,3 +216,18 @@ def test_speed_run_basic_smoke():
     assert sr.is_armed is True
     sr.disarm()
     assert sr.is_armed is False
+
+
+def test_speed_run_arm_stores_delay_kwargs():
+    """arm() captures death_delay_ms and auto_advance_delay_ms for later use."""
+    sr = SpeedRunTiming()
+    sr.arm(
+        segment_id="run-1",
+        checkpoints=[],
+        auto_advance_delay_ms=2500,
+        death_delay_ms=2000,
+        on_event=lambda d: None,
+    )
+    # Smoke check: kwargs accepted; instance has the values.
+    assert sr._auto_advance_delay_ms == 2500
+    assert sr._death_delay_ms == 2000

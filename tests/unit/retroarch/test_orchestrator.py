@@ -271,6 +271,24 @@ async def test_speed_run_load_arms_and_stop_disarms():
 
 
 @pytest.mark.asyncio
+async def test_speed_run_load_forwards_delay_kwargs():
+    """SpeedRunLoadCmd.death_delay_ms and auto_advance_delay_ms reach the timing object."""
+    orch, _, state_io, poller, _ = _build_orchestrator()
+    await orch.connect()
+    await orch.events.get()
+    cmd = SpeedRunLoadCmd(
+        id="run-1",
+        state_path="/p/sr.state",
+        death_delay_ms=2000,
+        auto_advance_delay_ms=2500,
+    )
+    await orch.send_command(cmd)
+    assert orch._speed_run_timing._death_delay_ms == 2000
+    assert orch._speed_run_timing._auto_advance_delay_ms == 2500
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_unknown_command_logged_no_raise():
     orch, _, _, _, _ = _build_orchestrator()
     await orch.connect()

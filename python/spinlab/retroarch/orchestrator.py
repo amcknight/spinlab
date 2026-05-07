@@ -210,6 +210,8 @@ class RetroArchOrchestrator:
         self._speed_run_timing.arm(
             segment_id=cmd.id,
             checkpoints=list(cmd.checkpoints),
+            auto_advance_delay_ms=cmd.auto_advance_delay_ms,
+            death_delay_ms=cmd.death_delay_ms,
             on_event=self._enqueue_dict,
         )
 
