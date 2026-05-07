@@ -59,10 +59,15 @@ async def test_poller_emits_death_event():
 
 @pytest.mark.asyncio
 async def test_poller_resync_clears_phantom_edges():
-    """After mark_state_loaded(), the next snapshot replaces prev (no phantom Death)."""
+    """After mark_state_loaded(), the loaded-state snapshot becomes prev — no phantom Death.
+
+    Real-world scenario: user loads a state where Mario is already dead. Without
+    the resync hook, prev (pre-load, alive) → curr (post-load, dead) would fire
+    a phantom Death. The resync replaces prev with the loaded state instead.
+    """
     snapshots = iter([
-        _snap(player_anim=0),  # seed
-        _snap(player_anim=9),  # would normally fire Death
+        _snap(player_anim=9),  # post-load: state where Mario is dead
+        _snap(player_anim=9),  # next frame: still dead, no edge
     ])
     received: list[TransitionEvent] = []
 

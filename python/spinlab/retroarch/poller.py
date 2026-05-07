@@ -44,19 +44,12 @@ class Poller:
         self._period = period_sec
         self._stopped = False
         self._state_just_loaded = False
-        self._seeded = False  # True once the detector has a prev snapshot
         self._detector = TransitionDetector()
         self._cold_fill = ColdFillTracker()
         self._start_ms = time.perf_counter() * 1000
 
     def mark_state_loaded(self) -> None:
-        """Tell the poller the next snapshot replaces prev (suppress phantom edges).
-
-        The resync is deferred until after the first snapshot has seeded _prev,
-        so the post-load read (not the seed read) becomes the new baseline. This
-        ensures that mark_state_loaded() called before the very first poll still
-        suppresses phantom edges on the first meaningful (prev, curr) comparison.
-        """
+        """Tell the poller the next snapshot replaces prev (suppress phantom edges)."""
         self._state_just_loaded = True
 
     def stop(self) -> None:
@@ -78,10 +71,7 @@ class Poller:
 
             ts = int(time.perf_counter() * 1000 - self._start_ms)
 
-            # Resync only once prev has been seeded: the snapshot consumed here
-            # becomes the post-load baseline, so the following step compares
-            # (post-load, next) rather than (pre-load, post-load).
-            if self._state_just_loaded and self._seeded:
+            if self._state_just_loaded:
                 self._detector.resync_after_state_load(snap)
                 self._state_just_loaded = False
                 await asyncio.sleep(self._period)
@@ -89,7 +79,6 @@ class Poller:
 
             for event in self._detector.step(snap, timestamp_ms=ts):
                 self._deps.on_event(event)
-            self._seeded = True
 
             cf_event = self._cold_fill.step(snap, timestamp_ms=ts)
             if cf_event is not None:
