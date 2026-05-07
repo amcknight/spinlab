@@ -133,5 +133,20 @@ class StateIO:
         return target
 
     def load_segment_state(self, segment_id: str) -> None:
-        """Triggered by Task 5."""
-        raise NotImplementedError("implemented in Task 5")
+        """Copy SpinLab's segment file into RA's reserved slot, fire LOAD_STATE_SLOT.
+
+        Raises FileNotFoundError if no SpinLab file exists for this segment.
+        Caller can gate via has_state_for().
+        """
+        sp_path = self.state_path_for(segment_id)
+        if not sp_path.exists():
+            raise FileNotFoundError(
+                f"No SpinLab savestate for segment {segment_id!r} at {sp_path}"
+            )
+        slot_path = self._ra_slot_path()
+        slot_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(str(sp_path), str(slot_path))
+        self._client.load_state_slot(self._reserved_slot)
+        logger.debug(
+            "StateIO: loaded segment %s (slot=%d)", segment_id, self._reserved_slot
+        )
