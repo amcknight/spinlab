@@ -182,6 +182,18 @@ Documented in `docs/retroarch-migration/spike-log.md` 2026-05-06: NCI service ca
 4. **BSV anchor strategy** (deferred from spec).
 5. **Conditions API: at-event vs continuous polling.** Currently `read_conditions()` runs *only* at event emission. Post-migration we'd be polling all the time anyway. Decide whether to keep the "event-time snapshot" semantic or stream all condition values continuously to the dashboard. Probably the former — keeps semantics identical.
 
+## Phase C followups for Phase D / F
+
+Captured during Phase C closeout review. None block Phase D, but each has a natural home in a later phase:
+
+1. **`Spawn` event needs `segment_id` for cold-fill.** Lua's `handle_cold_fill` (lines 671, 678) emits `segment_id` on the spawn event so the dashboard knows which segment the cold capture belongs to. The Python `ColdFillTracker` accepts `segment_id` on `activate()` but doesn't put it on the emitted `Spawn`. Fix in Phase D: add `segment_id: str = ""` to `Spawn`, populate from `_segment_id` in `cold_fill.py`.
+2. **`state_path` computation deferred.** `LevelEntrance.state_path`, `Checkpoint.state_path`, `Spawn.state_path` are populated by the detector to `""`. Phase D's `state_io` module owns path generation; the poller (or a thin adapter) should fill these before forwarding events.
+3. **`Poller.run()` swallows all exceptions silently** (`poller.py:65-70`). Bare-bones acceptable for Phase C unit tests; before Phase F wiring, add a logger hook (or narrow the catch to `NCIError` subclasses) so a recurring NCI fault is visible.
+4. **`TransitionState.last_event_key` is dead state.** Defined and reset, never written. The Lua source has the same dead field. Either delete from both or document a future use (event-debounce keying). Phase F.
+5. **Cold-fill activation through poller has no integration test.** `Poller.activate_cold_fill()` is plumbed but only `_FakeClient`-based snapshot-sequence tests would prove it works end-to-end. Add when Phase F integration tests land.
+6. **`_FakeClient.read_calls` in `tests/unit/retroarch/test_poller.py:15` is unused.** Trivial cleanup or assert against it.
+7. **`addresses.py` ↔ `tests/integration/addresses.py` ADDR_MAP duplication.** Phase C added the Python source-of-truth but the integration shim that parses `lua/addresses.lua` still exists. Phase G (Lua removal) consolidates.
+
 ## Lines of code displaced
 
 Rough numbers — useful for sizing Phase B–G work:
