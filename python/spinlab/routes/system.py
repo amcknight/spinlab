@@ -89,6 +89,20 @@ def list_roms(config: AppConfig = Depends(get_config)):
 @router.post("/emulator/launch")
 def launch_emulator(body: dict | None = None, config: AppConfig = Depends(get_config)):
     import subprocess
+    if config.emulator.backend == "retroarch":
+        # F-live ships manual launch only under retroarch backend (per
+        # docs/retroarch-migration/launch-retroarch.md). The dashboard auto-
+        # detects the loaded ROM via NCI GET_STATUS at orchestrator connect;
+        # the user has already launched RetroArch with the ROM before this
+        # button is reachable. Auto-spawning retroarch.exe is a Phase G item.
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "Manual launch only under retroarch backend. Start RetroArch "
+                "yourself with the ROM loaded, then restart the dashboard. "
+                "See docs/retroarch-migration/launch-retroarch.md."
+            ),
+        )
     emu_path = config.emulator.path
     if not emu_path or not emu_path.exists():
         raise HTTPException(status_code=400, detail=f"Emulator not found: {emu_path}")
