@@ -30,9 +30,10 @@ NCI_PING_RETRIES = 10
 NCI_PING_INTERVAL_S = 0.5
 
 # Bytes of low-WRAM read after FRAMEADVANCE to verify the core actually advanced.
-# Wide enough to catch any ticking byte (frame counters, RNG, etc.) without being
-# bandwidth-wasteful.
-WRAM_SANITY_PROBE_BYTES = 16
+# Must cover at least WRAM[0x13] (byte index 19) — the standard SMW global frame
+# counter, which ticks every frame.  16 bytes missed this on Love Yourself; 32
+# comfortably includes it while remaining bandwidth-light.
+WRAM_SANITY_PROBE_BYTES = 32
 
 # Teardown timing.
 QUIT_GRACE_S = 2.0

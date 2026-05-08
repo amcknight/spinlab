@@ -13,9 +13,14 @@ import pytest
 import yaml
 
 from spinlab.retroarch.movie import MovieRecorder, discover_movie_dir
+from tests.integration.conftest import (
+    LOVE_YOURSELF_ROM_NAME,
+    skip_no_love_yourself,
+    _love_yourself_rom_path,
+)
 from tests.integration.ra_harness import RAHarness, RAHarnessLaunchError
 
-pytestmark = pytest.mark.emulator
+pytestmark = [pytest.mark.emulator, skip_no_love_yourself]
 
 # Core subdirectory name RA uses for Snes9x replays. This is the subdir
 # under savestate_directory — confirmed by inspecting C:\RetroArch-Win64\states\.
@@ -35,27 +40,6 @@ def _load_config() -> dict:
         return {}
 
 
-def _ra_paths() -> tuple[Path | None, Path | None, Path | None]:
-    """Resolve (retroarch_exe, ra_core_path, rom_path) from config."""
-    config = _load_config()
-    emu = config.get("emulator", {})
-    retroarch_exe = emu.get("retroarch_path")
-    ra_core_path = emu.get("ra_core_path")
-    rom_dir = config.get("rom", {}).get("dir")
-    rom_path = None
-    if rom_dir:
-        for ext in ("*.sfc", "*.smc", "*.emc"):
-            roms = list(Path(rom_dir).glob(ext))
-            if roms:
-                rom_path = roms[0]
-                break
-    return (
-        Path(retroarch_exe) if retroarch_exe else None,
-        Path(ra_core_path) if ra_core_path else None,
-        rom_path,
-    )
-
-
 def _load_core_subdir() -> str:
     """Read ra_core_subdir from config.yaml, falling back to the confirmed default."""
     config = _load_config()
@@ -67,12 +51,26 @@ def _load_core_subdir() -> str:
 def movie_harness(tmp_path_factory):
     """Launch a RetroArch process with an isolated savestate directory.
 
+    Uses the Love Yourself ROM (same as test_replay_fixture.py) so Phase E
+    tests run against a representative SMW hack rather than the default test
+    ROM (which has unusual properties — goes straight into gameplay without a
+    title screen).
+
     Using a fresh temp savestate directory (not the user's states/) ensures
     RECORD_REPLAY can always create a new .replay file — RA's replay_max_keep
     setting can prevent new recordings when slots 1-N already exist in the
     configured save dir.
     """
-    retroarch_exe, ra_core_path, rom_path = _ra_paths()
+    config = _load_config()
+    emu = config.get("emulator", {})
+    retroarch_exe_str = emu.get("retroarch_path")
+    ra_core_path_str = emu.get("ra_core_path")
+    rom_path_str = _love_yourself_rom_path()
+
+    retroarch_exe = Path(retroarch_exe_str) if retroarch_exe_str else None
+    ra_core_path = Path(ra_core_path_str) if ra_core_path_str else None
+    rom_path = Path(rom_path_str) if rom_path_str else None
+
     missing = [
         label for label, p in
         [("retroarch_path", retroarch_exe), ("ra_core_path", ra_core_path), ("rom", rom_path)]
@@ -82,7 +80,7 @@ def movie_harness(tmp_path_factory):
         pytest.skip(
             f"movie smoke test requires: {', '.join(missing)} "
             "(retroarch_path/ra_core_path in config.yaml emulator section; "
-            "rom from rom.dir in config.yaml)"
+            f"Love Yourself ROM from SPINLAB_REPLAY_ROM env or '{LOVE_YOURSELF_ROM_NAME}' in rom.dir)"
         )
 
     # Create an isolated temp savestate directory. Using tmp_path_factory so

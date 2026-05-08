@@ -665,6 +665,20 @@ def _ra_paths() -> tuple[Path | None, Path | None, Path | None]:
     )
 
 
+def _ra_paths_love_yourself() -> tuple[Path | None, Path | None, Path | None]:
+    """Resolve (retroarch_exe, ra_core_path, love_yourself_rom_path) from env/config."""
+    config = _load_config()
+    emu = config.get("emulator", {})
+    retroarch_exe = emu.get("retroarch_path")
+    ra_core_path = emu.get("ra_core_path")
+    rom_path = _love_yourself_rom_path()
+    return (
+        Path(retroarch_exe) if retroarch_exe else None,
+        Path(ra_core_path) if ra_core_path else None,
+        Path(rom_path) if rom_path else None,
+    )
+
+
 @pytest.fixture(scope="session")
 def ra_harness():
     """Launch one RetroArch process per pytest session for poke-driven tests."""
@@ -687,6 +701,41 @@ def ra_harness():
         harness = RAHarness.launch(rom_path=rom_path, core_path=ra_core_path, retroarch_exe=retroarch_exe)
     except RAHarnessLaunchError as exc:
         pytest.skip(f"ra_harness launch failed: {exc}")
+
+    try:
+        yield harness
+    finally:
+        harness.teardown()
+
+
+@pytest.fixture(scope="session")
+def ra_harness_love_yourself():
+    """Launch one RetroArch process per pytest session using the Love Yourself ROM.
+
+    Same shape as ``ra_harness`` but uses ``_love_yourself_rom_path()`` instead
+    of the default test ROM.  Skips if Love Yourself is not available, keeping
+    the Phase E movie smoke test aligned with ``test_replay_fixture.py`` which
+    also gates on this ROM.
+    """
+    from tests.integration.ra_harness import RAHarness, RAHarnessLaunchError
+
+    retroarch_exe, ra_core_path, rom_path = _ra_paths_love_yourself()
+    missing = [
+        label for label, p in
+        [("retroarch_path", retroarch_exe), ("ra_core_path", ra_core_path), ("rom", rom_path)]
+        if p is None or not p.exists()
+    ]
+    if missing:
+        pytest.skip(
+            f"ra_harness_love_yourself requires: {', '.join(missing)} "
+            "(retroarch_path/ra_core_path in config.yaml emulator section; "
+            f"Love Yourself ROM from SPINLAB_REPLAY_ROM env or '{LOVE_YOURSELF_ROM_NAME}' in rom.dir)"
+        )
+
+    try:
+        harness = RAHarness.launch(rom_path=rom_path, core_path=ra_core_path, retroarch_exe=retroarch_exe)
+    except RAHarnessLaunchError as exc:
+        pytest.skip(f"ra_harness_love_yourself launch failed: {exc}")
 
     try:
         yield harness
