@@ -71,7 +71,20 @@ class ColdFillTracker:
                 and curr.player_anim != PLAYER_ANIM_DEAD
                 and self._prev_anim == PLAYER_ANIM_DEAD
             )
-            if edge_spawn or fast_retry:
+            # CP-respawn path: in some hacks the level isn't reloaded after a
+            # death — the player just respawns at the CP. level_start may stay
+            # at 1 throughout, OR briefly drop to 0 during the transition;
+            # similarly exit_mode 1->0 may not coincide with level_start=1 on
+            # the same frame. Edge-triggered checks (edge_spawn, fast_retry)
+            # miss both. Once we're already in waiting_spawn (we KNOW a death
+            # fired), the simplest robust signal is level-triggered: fire on
+            # the first frame the player is back in playable state.
+            playable = (
+                curr.exit_mode == 0
+                and curr.level_start == LEVEL_START_ACTIVE
+                and curr.player_anim != PLAYER_ANIM_DEAD
+            )
+            if edge_spawn or fast_retry or playable:
                 emitted = Spawn(
                     timestamp_ms=timestamp_ms,
                     level_num=curr.level_num,

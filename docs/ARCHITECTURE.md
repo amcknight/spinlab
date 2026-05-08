@@ -2,7 +2,14 @@
 
 ## System Overview
 
-SpinLab turns SNES-romhack speedrun practice into a spaced-repetition loop. The Lua script runs inside Mesen2 and operates in five modes; the Python dashboard is the orchestrator.
+SpinLab turns SNES-romhack speedrun practice into a spaced-repetition loop. The Python dashboard is the orchestrator. There are two emulator backends, selected at startup from `config.emulator.backend`:
+
+- **`mesen`** (this doc) — the Lua script runs inside Mesen2 and owns transition detection / save-state I/O / `.spinrec` recording. Python connects to the Lua TCP server on port 15482.
+- **`retroarch`** — RetroArch runs a libretro core (snes9x); Python talks NCI directly and owns transition detection itself. Replay (Phase E) is not yet implemented under this backend. Architecture details in `docs/retroarch-migration/architecture.md`. Status and gaps in `docs/retroarch-migration/status.md`.
+
+Below describes the Mesen backend in detail; the RetroArch backend uses different IPC and a different transition-detection home but exposes the same dashboard surface.
+
+## Mesen Backend Modes
 
 - **Idle** (default): Lua passively watches memory and emits transition events. Zero side effects beyond reads.
 - **Reference**: Records controller inputs to a `.spinrec` file and saves states at level entrances, checkpoints, and cold spawns. Each transition pairs into a database segment.

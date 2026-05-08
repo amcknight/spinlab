@@ -444,13 +444,21 @@ class RetroArchOrchestrator:
         if not (is_death or is_death_fall):
             return
         if not self._practice_timing.is_armed:
-            return  # not in practice; let other modes handle their own deaths
+            logger.info(
+                "practice reload-on-death skipped: timing not armed (ev=%s)",
+                type(ev).__name__,
+            )
+            return
         path = self._practice_state_path
         if not path:
             logger.warning(
                 "practice death observed but no state_path remembered — skipping reload"
             )
             return
+        logger.info(
+            "practice reload-on-death triggered (ev=%s, path=%s)",
+            type(ev).__name__, path,
+        )
         try:
             asyncio.create_task(self._reload_state_async(path))
         except RuntimeError:
@@ -465,6 +473,7 @@ class RetroArchOrchestrator:
         try:
             await asyncio.to_thread(self._state_io.load_state_from_path, path)
             self._poller.mark_state_loaded()
+            logger.info("practice reload-on-death: state loaded (path=%s)", path)
         except Exception:
             logger.exception("practice reload-on-death failed (path=%s)", path)
 

@@ -69,6 +69,51 @@ def test_pit_fall_death_via_exit_mode_then_spawn():
     assert e.segment_id == "seg-pit"
 
 
+def test_cp_respawn_via_playable_check():
+    """In some SMW hacks, dying with a CP set just respawns the player at the
+    CP — the level isn't reloaded, so level_start stays at 1 throughout.
+    edge_spawn (level_start 0->1) never fires, and many deaths skip anim=9 too,
+    so fast_retry doesn't fire either.
+
+    Once cold-fill is in waiting_spawn (we KNOW a death fired), fire on the
+    first frame where the player is back in playable state (exit_mode=0,
+    level_start=1, anim != 9). Level-triggered, not edge-triggered, so we
+    don't miss the conjunction-not-coinciding case.
+
+    Without this path, cold-fill in such hacks gets stuck in waiting_spawn
+    forever (observed: 5 LevelExits, 0 Spawns)."""
+    cf = ColdFillTracker()
+    cf.activate(segment_id="seg-cp")
+
+    # Playing — exit_mode 0, level_start 1, anim 0.
+    cf.step(_snap(player_anim=0, level_start=1, exit_mode=0), timestamp_ms=0)
+    # Sprite hit / pit fall — exit_mode goes non-zero, no goal flags.
+    cf.step(_snap(player_anim=0, level_start=1, exit_mode=1), timestamp_ms=16)
+    # Death sequence playing out.
+    cf.step(_snap(player_anim=0, level_start=1, exit_mode=1), timestamp_ms=32)
+    # Player respawns at CP — back to playable.
+    e = cf.step(_snap(player_anim=0, level_start=1, exit_mode=0), timestamp_ms=48)
+
+    assert isinstance(e, Spawn), \
+        "cp-respawn must capture spawn once player is back in playable state"
+    assert e.is_cold_cp is True
+    assert e.segment_id == "seg-cp"
+
+
+def test_no_false_positive_when_active_but_not_yet_dead():
+    """ColdFill activates with player already in playable state (just loaded
+    the hot CP state). We must NOT emit Spawn before any death is detected —
+    that would capture the same hot state we just loaded as the cold state."""
+    cf = ColdFillTracker()
+    cf.activate(segment_id="seg")
+
+    # Many frames of playable state, no death yet.
+    for t in range(0, 1000, 16):
+        e = cf.step(_snap(player_anim=0, level_start=1, exit_mode=0), timestamp_ms=t)
+        assert e is None, f"false-positive Spawn at t={t} before any death"
+    assert cf.is_active() is True
+
+
 def test_goal_exit_does_not_count_as_death():
     """exit_mode change WITH a goal signal (fanfare or io_port=goal/orb/key)
     is a normal level completion, not a death. Cold-fill must not treat it
