@@ -84,3 +84,38 @@ async def test_poller_resync_clears_phantom_edges():
     await task
 
     assert not any(isinstance(e, DeathEvent) for e in received), f"got: {received}"
+
+
+@pytest.mark.asyncio
+async def test_poll_count_increments_on_successful_reads():
+    """poll_count tracks the number of successful RAM reads.
+
+    Each iteration that returns a snapshot without raising increments the
+    counter. Iterations that raise (NCI error path) do not increment it.
+    """
+    # Provide enough snapshots for ~10ms at 1ms period, then raise to stop.
+    _SNAPSHOTS_TO_SERVE = 5
+    _calls = 0
+
+    def _read_snapshot(_client) -> MemorySnapshot:
+        nonlocal _calls
+        _calls += 1
+        if _calls > _SNAPSHOTS_TO_SERVE:
+            raise RuntimeError("no more snapshots")
+        return _snap()
+
+    deps = PollerDeps(
+        client=_FakeClient(),
+        read_snapshot=_read_snapshot,
+        on_event=lambda _: None,
+    )
+    poller = Poller(deps, period_sec=0.001)
+    task = asyncio.create_task(poller.run())
+    await asyncio.sleep(0.05)
+    poller.stop()
+    await task
+
+    # poll_count must equal the number of successful reads, not total attempts.
+    assert poller.poll_count == _SNAPSHOTS_TO_SERVE, (
+        f"Expected poll_count={_SNAPSHOTS_TO_SERVE}, got {poller.poll_count}"
+    )

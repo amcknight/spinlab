@@ -54,6 +54,9 @@ class Poller:
         self._detector = TransitionDetector()
         self._cold_fill = ColdFillSpawnDetector()
         self._start_ms = time.perf_counter() * 1000
+        # Number of successful RAM reads completed (excludes polls that raised
+        # an exception). Used by tests to verify throughput during playback.
+        self.poll_count: int = 0
 
     def _stamp_state_path(self, ev: Any) -> Any:
         """Apply state_path_for resolver if configured. Returns event with stamped path."""
@@ -100,6 +103,7 @@ class Poller:
                 await asyncio.sleep(self._period)
                 continue
 
+            self.poll_count += 1
             ts = int(time.perf_counter() * 1000 - self._start_ms)
 
             if self._state_just_loaded:

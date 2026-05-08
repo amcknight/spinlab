@@ -6,6 +6,7 @@ tests in Tasks 7-8 require Andrew to first record a real fixture under Task 6.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -14,6 +15,8 @@ import pytest
 import yaml
 
 from spinlab.retroarch.movie import MoviePlayer, MovieRecorder, discover_movie_dir
+from spinlab.retroarch.poller import DEFAULT_PERIOD_SEC, Poller, PollerDeps
+from spinlab.retroarch.snapshot import read_snapshot
 from tests.integration.conftest import (
     LOVE_YOURSELF_ROM_NAME,
     skip_no_love_yourself,
@@ -264,3 +267,81 @@ def test_movie_playback_deterministic(movie_harness):
             f"Update tests/fixtures/love_yourself/one_level.json to set "
             f"determinism_probe.expected_byte = {byte_run_1}."
         )
+
+
+# ---------------------------------------------------------------------------
+# Task 8 — poller throughput smoke test during movie playback
+# ---------------------------------------------------------------------------
+
+# How long to run the poller while playback is active. 1 second at 60Hz gives
+# a target of ~60 polls — large enough to detect starvation, short enough not
+# to extend the suite materially.
+_POLLER_SAMPLE_DURATION_S = 1.0
+
+# Fraction of target polls that must succeed. 90% allows for OS scheduling
+# jitter (a few missed frames) without masking real NCI starvation.
+_POLLER_SUCCESS_FRACTION = 0.9
+
+
+@pytest.mark.skipif(
+    not (FIXTURE_DIR / "one_level.replay").exists(),
+    reason="one_level.replay fixture not recorded yet",
+)
+def test_poller_runs_during_playback(movie_harness):
+    """Production Poller reads RAM at 60Hz during movie playback without
+    errors or starvation. Threshold 90% of expected polls allows for OS
+    scheduling jitter without masking real starvation.
+
+    Validates the production transition-detection pipeline can run during
+    replay without NCI bandwidth contention starving the poller.
+    """
+    harness, movie_dir = movie_harness
+    client = harness.client
+    fixture = FIXTURE_DIR / "one_level.replay"
+
+    target_polls = int(_POLLER_SAMPLE_DURATION_S / DEFAULT_PERIOD_SEC)  # ~60 at 60Hz
+    success_threshold = int(target_polls * _POLLER_SUCCESS_FRACTION)  # 90% — allows OS jitter
+
+    events_seen: list = []
+    deps = PollerDeps(
+        client=client,
+        read_snapshot=read_snapshot,
+        on_event=lambda ev: events_seen.append(ev),
+        state_path_for=None,
+        conditions_registry=None,
+    )
+    poller = Poller(deps, period_sec=DEFAULT_PERIOD_SEC)
+
+    async def _run_for(seconds: float) -> None:
+        task = asyncio.create_task(poller.run())
+        await asyncio.sleep(seconds)
+        poller.stop()
+        try:
+            await asyncio.wait_for(task, timeout=2.0)
+        except asyncio.TimeoutError:
+            task.cancel()
+
+    # play_replay requires PLAYING state — unpause first.
+    client.pause_toggle()
+    time.sleep(0.1)
+
+    player = MoviePlayer(client=client, movie_dir=movie_dir)
+    player.play(fixture)
+    try:
+        asyncio.run(_run_for(_POLLER_SAMPLE_DURATION_S))
+    finally:
+        player.stop()
+        time.sleep(_HALT_SETTLE_S)
+        # Re-pause to restore harness invariant (PAUSED) for subsequent tests.
+        status = client.get_status()
+        if status.state == "PLAYING":
+            client.pause_toggle()
+            time.sleep(0.1)
+
+    actual_polls = poller.poll_count
+
+    assert actual_polls >= success_threshold, (
+        f"Poller completed {actual_polls} successful reads in {_POLLER_SAMPLE_DURATION_S}s, "
+        f"expected ≥{success_threshold} ({_POLLER_SUCCESS_FRACTION:.0%} of {target_polls} target). "
+        f"Movie playback may be starving the poller (NCI bandwidth contention)."
+    )
