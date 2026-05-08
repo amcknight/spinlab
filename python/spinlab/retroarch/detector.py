@@ -10,13 +10,12 @@ which the detector doesn't know about), and forwarding events downstream.
 """
 from __future__ import annotations
 
-from spinlab.retroarch.events import (
-    Checkpoint,
-    Death,
-    LevelEntrance,
-    LevelExit,
-    Spawn,
-    TransitionEvent,
+from spinlab.protocol import (
+    CheckpointEvent,
+    DeathEvent,
+    LevelEntranceEvent,
+    LevelExitEvent,
+    SpawnEvent,
 )
 from spinlab.retroarch.predicates import (
     LEVEL_START_ACTIVE,
@@ -30,6 +29,12 @@ from spinlab.retroarch.snapshot import MemorySnapshot
 from spinlab.retroarch.transition_state import TransitionState
 
 FPS = 60.0  # SMW NTSC; close enough for elapsed-ms math
+
+# Union of every concrete event type the detector emits. Listed for downstream
+# type narrowing — protocol classes don't share a common base, so we enumerate.
+_EmittedEvent = (
+    LevelEntranceEvent | DeathEvent | CheckpointEvent | LevelExitEvent | SpawnEvent
+)
 
 
 class TransitionDetector:
@@ -71,10 +76,10 @@ class TransitionDetector:
         self._exit_this_frame = False
         self._prev = snapshot
 
-    def step(self, curr: MemorySnapshot, timestamp_ms: int) -> list[TransitionEvent]:
+    def step(self, curr: MemorySnapshot, timestamp_ms: int) -> list[_EmittedEvent]:
         """Advance one frame; return list of transition events fired (often empty)."""
         self._frame_counter += 1
-        events: list[TransitionEvent] = []
+        events: list[_EmittedEvent] = []
         prev = self._prev
         if prev is None:
             self._prev = curr
@@ -82,7 +87,7 @@ class TransitionDetector:
 
         # 1. Death.
         if is_death_frame(prev, curr) and not self._state.died_flag:
-            events.append(Death(timestamp_ms=timestamp_ms, level_num=curr.level_num))
+            events.append(DeathEvent(timestamp_ms=timestamp_ms, level_num=curr.level_num))
             self._state.died_flag = True
 
         # 2. Checkpoint.
@@ -92,7 +97,7 @@ class TransitionDetector:
             self._cp_acquired = True
             self._state.first_cp_entrance = 0  # opens cp_entrance shifts after first hit
             events.append(
-                Checkpoint(
+                CheckpointEvent(
                     timestamp_ms=timestamp_ms,
                     level_num=curr.level_num,
                     cp_type=cp_type,
@@ -105,7 +110,7 @@ class TransitionDetector:
         if self._exit_this_frame:
             elapsed = int((self._frame_counter - self._level_start_frame) / FPS * 1000)
             events.append(
-                LevelExit(
+                LevelExitEvent(
                     timestamp_ms=timestamp_ms,
                     level=curr.level_num,
                     room=curr.room_num,
@@ -130,7 +135,7 @@ class TransitionDetector:
                 if was_cp:
                     self._cp_acquired = False
                 events.append(
-                    Spawn(
+                    SpawnEvent(
                         timestamp_ms=timestamp_ms,
                         level_num=curr.level_num,
                         is_cold_cp=was_cp,
@@ -146,7 +151,7 @@ class TransitionDetector:
                 self._state.first_cp_entrance = curr.cp_entrance
                 self._level_start_frame = self._frame_counter
                 events.append(
-                    LevelEntrance(
+                    LevelEntranceEvent(
                         timestamp_ms=timestamp_ms,
                         level=curr.level_num,
                         room=curr.room_num,
