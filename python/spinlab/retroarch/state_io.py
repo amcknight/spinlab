@@ -21,11 +21,7 @@ from pathlib import Path
 
 from typing import Any
 
-from spinlab.protocol import (
-    CheckpointEvent,
-    LevelEntranceEvent,
-    SpawnEvent,
-)
+from spinlab.capture.segment_naming import segment_id_for_event as _segment_id_for_event
 from spinlab.retroarch.nci import NCIClient
 from spinlab.retroarch.state_paths import (
     ra_slot_filename,
@@ -184,26 +180,14 @@ class StateIO:
     # -- event-shaped resolver -------------------------------------------------
 
     def segment_id_for_event(self, event: Any) -> str | None:
-        """Single source of truth for the segment-id naming scheme.
+        """Delegate to the canonical helper in capture.segment_naming.
 
-        Naming conventions chosen to match lua/spinlab.lua's filename layout but
-        flattened to the segment_id idiom where possible:
-          - LevelEntranceEvent  -> "entrance_<level>_<room>"
-          - CheckpointEvent     -> "cp_<level>_<ordinal>_hot"  (hot only)
-          - SpawnEvent (cold)   -> "<segment_id>" (segment_id-keyed; cold paths flow through here)
-
-        Returns ``None`` when the event has no associated segment id (Death,
-        LevelExit, Spawn with no segment_id). Both callers — the path resolver
-        below and the orchestrator's save-on-event hook — go through here so
-        the naming scheme has exactly one writer.
+        Kept as an instance method to preserve the public surface and to
+        keep this class self-contained for tests, but the actual naming
+        logic lives in spinlab.capture.segment_naming so capture
+        controllers can derive the same id without going through StateIO.
         """
-        if isinstance(event, LevelEntranceEvent):
-            return f"entrance_{event.level}_{event.room}"
-        if isinstance(event, CheckpointEvent):
-            return f"cp_{event.level_num}_{event.cp_ordinal}_hot"
-        if isinstance(event, SpawnEvent) and event.segment_id:
-            return event.segment_id
-        return None
+        return _segment_id_for_event(event)
 
     def resolve_event_path(self, event: Any) -> str | None:
         """Resolver for `PollerDeps.state_path_for`.
