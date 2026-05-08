@@ -4,7 +4,7 @@ Architecture:
   - NCIClient (Phase B) — owns the UDP socket.
   - read_snapshot (Phase C task 2) — builds a MemorySnapshot.
   - TransitionDetector (task 7) — converts (prev, curr) -> events.
-  - ColdFillTracker (task 8) — separate mode, optional.
+  - ColdFillSpawnDetector — separate mode, optional.
   - on_event callback — receives every emitted TransitionEvent.
 
 Caller responsibilities:
@@ -23,8 +23,8 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from spinlab.retroarch.cold_fill import ColdFillTracker
-from spinlab.retroarch.conditions import ConditionRegistry
+from spinlab.condition_registry import ConditionRegistry
+from spinlab.retroarch.cold_fill import ColdFillSpawnDetector
 from spinlab.retroarch.detector import TransitionDetector
 from spinlab.retroarch.events import TransitionEvent
 from spinlab.retroarch.nci import NCIClient
@@ -49,7 +49,7 @@ class Poller:
         self._stopped = False
         self._state_just_loaded = False
         self._detector = TransitionDetector()
-        self._cold_fill = ColdFillTracker()
+        self._cold_fill = ColdFillSpawnDetector()
         self._start_ms = time.perf_counter() * 1000
 
     def _stamp_state_path(self, ev: TransitionEvent) -> TransitionEvent:

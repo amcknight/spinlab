@@ -182,34 +182,42 @@ class StateIO:
 
     # -- event-shaped resolver -------------------------------------------------
 
+    def segment_id_for_event(self, event: TransitionEvent) -> str | None:
+        """Single source of truth for the segment-id naming scheme.
+
+        Naming conventions chosen to match lua/spinlab.lua's filename layout but
+        flattened to the segment_id idiom where possible:
+          - LevelEntrance     -> "entrance_<level>_<room>"
+          - Checkpoint        -> "cp_<level>_<ordinal>_hot"  (hot only)
+          - Spawn (cold-fill) -> "<segment_id>" (segment_id-keyed; cold paths flow through here)
+
+        Returns ``None`` when the event has no associated segment id (Death,
+        LevelExit, Spawn with no segment_id). Both callers — the path resolver
+        below and the orchestrator's save-on-event hook — go through here so
+        the naming scheme has exactly one writer.
+        """
+        if isinstance(event, LevelEntrance):
+            return f"entrance_{event.level}_{event.room}"
+        if isinstance(event, Checkpoint):
+            return f"cp_{event.level_num}_{event.cp_ordinal}_hot"
+        if isinstance(event, Spawn) and event.segment_id:
+            return event.segment_id
+        return None
+
     def resolve_event_path(self, event: TransitionEvent) -> str:
         """Resolver for `PollerDeps.state_path_for`.
 
         Returns the absolute path string to stamp onto the event, or "" when no
-        path applies (Death, LevelExit, Spawn with no segment_id).
-
-        Naming conventions chosen to match lua/spinlab.lua's filename layout but
-        flattened to the segment_id idiom where possible:
-        - LevelEntrance  -> "entrance_<level>_<room>" (anonymous; F-live maps to segment_id)
-        - Checkpoint     -> "cp_<level>_<ordinal>_hot" (hot only)
-        - Spawn (cold-fill) -> "<segment_id>" (segment_id-keyed; cold paths flow through here)
-
-        Note: Phase F-live owns the bridge from anonymous (level+room / level+ordinal)
-        keys to actual segment_ids. The path returned here is the file LOCATION; whether
-        that file gets created/loaded is the F-live caller's responsibility.
+        path applies (Death, LevelExit, Spawn with no segment_id). The path
+        returned here is the file LOCATION; whether that file actually gets
+        created depends on the event flowing through the orchestrator's
+        save-on-event hook.
 
         Returns `str` (not `Path`) because the event field `state_path: str` is the
         sink. Use `state_path_for(segment_id)` directly if you want a `Path` object.
         """
-        if isinstance(event, LevelEntrance):
-            return str(self.state_path_for(f"entrance_{event.level}_{event.room}"))
-        if isinstance(event, Checkpoint):
-            return str(self.state_path_for(f"cp_{event.level_num}_{event.cp_ordinal}_hot"))
-        if isinstance(event, Spawn):
-            if not event.segment_id:
-                return ""
-            return str(self.state_path_for(event.segment_id))
-        return ""
+        seg_id = self.segment_id_for_event(event)
+        return str(self.state_path_for(seg_id)) if seg_id else ""
 
     # -- save/load (Tasks 4 & 5; stubbed below until those tasks land) --------
 

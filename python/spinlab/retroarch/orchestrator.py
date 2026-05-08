@@ -30,8 +30,7 @@ from spinlab.protocol import (
     SpeedRunLoadCmd,
     SpeedRunStopCmd,
 )
-from spinlab.retroarch.conditions import ConditionRegistry
-from spinlab.retroarch.conditions_loader import apply_definitions
+from spinlab.condition_registry import ConditionRegistry
 from spinlab.retroarch.event_adapter import to_protocol_dict, to_rom_info_dict
 from spinlab.retroarch.events import TransitionEvent
 from spinlab.retroarch.exceptions import NCIError
@@ -279,7 +278,7 @@ class RetroArchOrchestrator:
         self._client.reset()
 
     async def _on_set_conditions(self, cmd: SetConditionsCmd) -> None:
-        apply_definitions(self._conditions, cmd.definitions)
+        self._conditions.replace_with_read_specs(cmd.definitions)
 
     async def _on_set_invalidate_combo(self, cmd: SetInvalidateComboCmd) -> None:
         # Under the RetroArch backend the invalidate combo is handled via a
@@ -388,14 +387,15 @@ class RetroArchOrchestrator:
         """
         from spinlab.retroarch.events import Checkpoint, LevelEntrance, Spawn
 
-        seg_id: str | None = None
-        if isinstance(ev, Spawn) and ev.is_cold_cp and ev.segment_id:
-            seg_id = ev.segment_id
-        elif self._recording:
-            if isinstance(ev, LevelEntrance):
-                seg_id = f"entrance_{ev.level}_{ev.room}"
-            elif isinstance(ev, Checkpoint):
-                seg_id = f"cp_{ev.level_num}_{ev.cp_ordinal}_hot"
+        if isinstance(ev, Spawn):
+            if not (ev.is_cold_cp and ev.segment_id):
+                return
+        elif isinstance(ev, (LevelEntrance, Checkpoint)):
+            if not self._recording:
+                return
+        else:
+            return
+        seg_id = self._state_io.segment_id_for_event(ev)
         if seg_id is None:
             return
 

@@ -47,7 +47,7 @@ from .system_state import SystemState
 
 if TYPE_CHECKING:
     from .db import Database
-    from .tcp_manager import TcpManager
+    from .emu_backend import EmuBackend
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class SessionManager:
     def __init__(
         self,
         db: "Database",
-        tcp: "TcpManager",
+        tcp: "EmuBackend",
         rom_dir: Path | None,
         default_category: str = "any%",
         data_dir: Path | None = None,

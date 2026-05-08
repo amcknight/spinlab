@@ -6,13 +6,13 @@ import logging
 import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Protocol, cast
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .config import AppConfig, EmulatorConfig, NetworkConfig
 from .db import Database
+from .emu_backend import EmuBackend
 from .errors import ActionError
 from .session_manager import SessionManager
 from .tcp_manager import TcpManager
@@ -25,22 +25,7 @@ TCP_EVENT_TIMEOUT_S = 1.0
 SSE_KEEPALIVE_S = 30
 
 
-class _TcpLike(Protocol):
-    """Duck-typed surface shared by TcpManager and RetroArchOrchestrator.
-
-    Used so dashboard.event_loop can accept either backend without forcing
-    inheritance.
-    """
-
-    @property
-    def is_connected(self) -> bool: ...
-    async def connect(self, timeout: float = ...) -> bool: ...
-    async def disconnect(self) -> None: ...
-    async def send_command(self, cmd: object) -> None: ...
-    async def recv_event(self, timeout: float | None = ...) -> dict | None: ...
-
-
-async def event_loop(session: SessionManager, tcp: _TcpLike) -> None:
+async def event_loop(session: SessionManager, tcp: EmuBackend) -> None:
     """Bridge TCP events to SessionManager. Extracted for testability."""
     while True:
         if not tcp.is_connected:
@@ -73,15 +58,15 @@ def create_app(
 
     if config.emulator.backend == "retroarch":
         from spinlab.retroarch.orchestrator import build_orchestrator
-        tcp: _TcpLike = build_orchestrator(config)
+        tcp: EmuBackend = build_orchestrator(config)
     else:
         tcp = TcpManager(config.network.host, config.network.port)
     session = SessionManager(
-        db, cast(TcpManager, tcp), config.rom_dir, config.category,
+        db, tcp, config.rom_dir, config.category,
         data_dir=config.data_dir,
         invalidate_combo=list(config.practice.invalidate_combo),
     )
-    tcp.on_disconnect = session.on_disconnect  # type: ignore[attr-defined]
+    tcp.on_disconnect = session.on_disconnect
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

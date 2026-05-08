@@ -21,7 +21,7 @@ from spinlab.protocol import (
     SpeedRunLoadCmd,
     SpeedRunStopCmd,
 )
-from spinlab.retroarch.conditions import ConditionRegistry
+from spinlab.condition_registry import ConditionRegistry
 from spinlab.retroarch.orchestrator import RetroArchOrchestrator
 from spinlab.retroarch.timing import PracticeTiming, SpeedRunTiming
 
@@ -69,6 +69,18 @@ class _FakeStateIO:
 
     def resolve_event_path(self, ev) -> str:
         return ""
+
+    def segment_id_for_event(self, ev) -> str | None:
+        # Mirror StateIO.segment_id_for_event so the orchestrator's save-on-event
+        # path resolves a key when it should. The real method is also pure.
+        from spinlab.retroarch.events import Checkpoint, LevelEntrance, Spawn
+        if isinstance(ev, LevelEntrance):
+            return f"entrance_{ev.level}_{ev.room}"
+        if isinstance(ev, Checkpoint):
+            return f"cp_{ev.level_num}_{ev.cp_ordinal}_hot"
+        if isinstance(ev, Spawn) and ev.segment_id:
+            return ev.segment_id
+        return None
 
 
 class _FakePoller:
@@ -293,8 +305,8 @@ async def test_set_conditions_cmd_updates_registry():
     defs = [{"name": "x", "address": 0x100, "size": 1}]
     await orch.send_command(SetConditionsCmd(definitions=defs))
     # Registry should now have one spec.
-    assert len(conditions._specs) == 1
-    assert conditions._specs[0].name == "x"
+    assert len(conditions.definitions) == 1
+    assert conditions.definitions[0].name == "x"
     await orch.disconnect()
 
 

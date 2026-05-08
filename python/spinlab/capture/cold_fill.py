@@ -11,7 +11,7 @@ from ..protocol import ColdFillLoadCmd, SpawnEvent
 
 if TYPE_CHECKING:
     from ..db import Database
-    from ..tcp_manager import TcpManager
+    from ..emu_backend import EmuBackend
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ class ColdFillController:
     """Manages the cold-fill queue: loads hot states, waits for death+respawn,
     captures the resulting cold save state."""
 
-    def __init__(self, db: "Database", tcp: "TcpManager") -> None:
+    def __init__(self, db: "Database", tcp: "EmuBackend") -> None:
         self.db = db
         self.tcp = tcp
         self.queue: list[MissingColdRow] = []

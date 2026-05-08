@@ -1,4 +1,4 @@
-from spinlab.retroarch.cold_fill import ColdFillTracker
+from spinlab.retroarch.cold_fill import ColdFillSpawnDetector
 from spinlab.retroarch.events import Spawn
 from spinlab.retroarch.snapshot import MemorySnapshot
 
@@ -13,12 +13,12 @@ def _snap(**ov) -> MemorySnapshot:
 
 
 def test_inactive_emits_nothing():
-    cf = ColdFillTracker()
+    cf = ColdFillSpawnDetector()
     assert cf.step(_snap(player_anim=9), timestamp_ms=0) is None
 
 
 def test_active_waits_for_death_then_spawn():
-    cf = ColdFillTracker()
+    cf = ColdFillSpawnDetector()
     cf.activate(segment_id="boss-1")
 
     # Pre-death: nothing.
@@ -37,7 +37,7 @@ def test_active_waits_for_death_then_spawn():
 
 def test_fast_retry_path():
     """level_start stays at 1; spawn detected via player_anim 9 -> not-9."""
-    cf = ColdFillTracker()
+    cf = ColdFillSpawnDetector()
     cf.activate(segment_id="x")
 
     cf.step(_snap(player_anim=0, level_start=1), timestamp_ms=0)
@@ -50,7 +50,7 @@ def test_pit_fall_death_via_exit_mode_then_spawn():
     """Real-world: many SMW deaths skip anim=9 entirely (Mario falls off
     screen). The only signal is exit_mode going non-zero with no goal flag.
     Without this path, pit-falls in cold-fill never advance to spawn-watch."""
-    cf = ColdFillTracker()
+    cf = ColdFillSpawnDetector()
     cf.activate(segment_id="seg-pit")
 
     # Playing — exit_mode 0, anim 0.
@@ -82,7 +82,7 @@ def test_cp_respawn_via_playable_check():
 
     Without this path, cold-fill in such hacks gets stuck in waiting_spawn
     forever (observed: 5 LevelExits, 0 Spawns)."""
-    cf = ColdFillTracker()
+    cf = ColdFillSpawnDetector()
     cf.activate(segment_id="seg-cp")
 
     # Playing — exit_mode 0, level_start 1, anim 0.
@@ -104,7 +104,7 @@ def test_no_false_positive_when_active_but_not_yet_dead():
     """ColdFill activates with player already in playable state (just loaded
     the hot CP state). We must NOT emit Spawn before any death is detected —
     that would capture the same hot state we just loaded as the cold state."""
-    cf = ColdFillTracker()
+    cf = ColdFillSpawnDetector()
     cf.activate(segment_id="seg")
 
     # Many frames of playable state, no death yet.
@@ -120,7 +120,7 @@ def test_goal_exit_does_not_count_as_death():
     as a death indicator."""
     from spinlab.retroarch import addresses as a
 
-    cf = ColdFillTracker()
+    cf = ColdFillSpawnDetector()
     cf.activate(segment_id="seg-goal")
 
     cf.step(_snap(player_anim=0, level_start=1, exit_mode=0), timestamp_ms=0)
@@ -131,7 +131,7 @@ def test_goal_exit_does_not_count_as_death():
         "goal exit should not be misclassified as death"
 
     # Same for orb/key:
-    cf2 = ColdFillTracker()
+    cf2 = ColdFillSpawnDetector()
     cf2.activate(segment_id="seg-orb")
     cf2.step(_snap(player_anim=0, level_start=1, exit_mode=0), timestamp_ms=0)
     cf2.step(_snap(player_anim=0, level_start=1, exit_mode=1, io_port=a.IO_ORB), timestamp_ms=16)

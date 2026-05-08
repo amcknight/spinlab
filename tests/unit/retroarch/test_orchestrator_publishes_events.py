@@ -8,7 +8,7 @@ from typing import Iterator
 import pytest
 
 from spinlab.protocol import PracticeLoadCmd
-from spinlab.retroarch.conditions import ConditionRegistry
+from spinlab.condition_registry import ConditionRegistry
 from spinlab.retroarch.events import Death, LevelExit
 from spinlab.retroarch.orchestrator import RetroArchOrchestrator
 from spinlab.retroarch.poller import Poller, PollerDeps

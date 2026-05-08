@@ -1,8 +1,11 @@
-"""ColdFillTracker — captures cold spawns after a reference run.
+"""ColdFillSpawnDetector — captures cold spawns after a reference run.
 
-Activated externally with a segment id. Observes death-then-spawn sequence,
-emits a single Spawn event with is_cold_cp=True, deactivates. Mirrors
-lua/spinlab.lua's handle_cold_fill — but extends it to also detect
+Per-segment observer (compare with TransitionDetector, which is per-frame
+across the whole session). Activated externally with a segment id, watches
+the death-then-spawn sequence, emits a single Spawn event with
+is_cold_cp=True, deactivates.
+
+Mirrors lua/spinlab.lua's handle_cold_fill — but extends it to also detect
 death-falls (exit_mode going non-zero without a goal). Lua's narrow
 `anim == 9` check missed pit-falls; in practice, many SMW deaths skip the
 sprite-hit animation entirely and go straight from playing to falling
@@ -20,7 +23,7 @@ from spinlab.retroarch.predicates import (
 from spinlab.retroarch.snapshot import MemorySnapshot
 
 
-class ColdFillTracker:
+class ColdFillSpawnDetector:
     def __init__(self) -> None:
         self._active = False
         self._waiting_spawn = False  # False = waiting for death; True = waiting for spawn

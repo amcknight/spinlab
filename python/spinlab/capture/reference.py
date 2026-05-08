@@ -60,8 +60,8 @@ if TYPE_CHECKING:
 
     from ..db import Database
     from ..db.recorded_segment_times import RecordedSegmentTimeRow
+    from ..emu_backend import EmuBackend
     from ..scheduler import Scheduler
-    from ..tcp_manager import TcpManager
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ def _seed_reference_attempts(
 class ReferenceController:
     """Manages reference/replay capture, sessions, and finalize/discard."""
 
-    def __init__(self, db: "Database", tcp: "TcpManager") -> None:
+    def __init__(self, db: "Database", tcp: "EmuBackend") -> None:
         self.db = db
         self.tcp = tcp
         self.recorder = SegmentRecorder()

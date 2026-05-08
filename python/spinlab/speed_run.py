@@ -23,7 +23,7 @@ SpeedRunEvent = SpeedRunCheckpointEvent | SpeedRunDeathEvent | SpeedRunCompleteE
 
 if TYPE_CHECKING:
     from .db import Database
-    from .tcp_manager import TcpManager
+    from .emu_backend import EmuBackend
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class SpeedRunSession:
 
     def __init__(
         self,
-        tcp: "TcpManager",
+        tcp: "EmuBackend",
         db: "Database",
         game_id: str,
         auto_advance_delay_ms: int = 1000,

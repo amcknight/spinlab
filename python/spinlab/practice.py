@@ -15,7 +15,7 @@ from .scheduler import Scheduler
 
 if TYPE_CHECKING:
     from .db import Database
-    from .tcp_manager import TcpManager
+    from .emu_backend import EmuBackend
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +27,8 @@ class PracticeSession:
 
     def __init__(
         self,
-        tcp: TcpManager,
-        db: Database,
+        tcp: "EmuBackend",
+        db: "Database",
         game_id: str,
         auto_advance_delay_ms: int = 1000,
         death_penalty_ms: int = 3200,
