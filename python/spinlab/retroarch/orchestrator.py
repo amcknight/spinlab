@@ -84,6 +84,12 @@ class RetroArchOrchestrator:
         # states without ever recording inputs.
         self._recording = False
 
+        # Suppress the "NCI not reachable" warning after the first one in a
+        # disconnect streak. The dashboard's event_loop polls connect() every
+        # 2s; without suppression, an idle dashboard with RA not yet launched
+        # spams the log. Reset on successful connect.
+        self._not_reachable_warning_logged = False
+
         # Build dispatch table once; handlers are bound methods.
         # ReferenceStart/Stop now succeed (state captures only — no BSV).
         # Replay/ReplayStop still raise: those genuinely require BSV (Phase E).
@@ -117,8 +123,21 @@ class RetroArchOrchestrator:
         try:
             self._client.version()
         except NCIError as exc:
-            logger.warning("RetroArch NCI not reachable: %s", exc)
+            # Only log once per disconnect streak — event_loop retries every
+            # 2s, so without suppression an idle dashboard waiting for RA
+            # spams the log. Cleared on successful connect below.
+            if not self._not_reachable_warning_logged:
+                logger.warning(
+                    "RetroArch NCI not reachable: %s — will keep retrying "
+                    "every %ds (further failures suppressed until reconnect)",
+                    exc, 2,
+                )
+                self._not_reachable_warning_logged = True
+            else:
+                logger.debug("RetroArch NCI still not reachable: %s", exc)
             return False
+        # Connected — clear the suppression so the next disconnect streak logs.
+        self._not_reachable_warning_logged = False
 
         # Emit rom_info to mimic Lua's startup behaviour so the dashboard
         # session sees the game name immediately. Also update StateIO's slot
