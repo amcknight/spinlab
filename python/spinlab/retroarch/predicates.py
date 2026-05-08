@@ -12,7 +12,9 @@ from spinlab.retroarch.transition_state import TransitionState
 
 PLAYER_ANIM_DEAD = 9
 FANFARE_ACTIVE = 1  # SMW fanfare byte: steps to this value when goal is reached and stays.
-LEVEL_START_ACTIVE = 1  # SMW level_start byte: set to this when the player appears in a level.
+LEVEL_START_ACTIVE = 1  # $1935: vanilla SMW writes 1 for the MARIO START splash. Lunar
+# Magic deprecates this address (it's effectively free RAM in hacks), so it's only
+# reliable as a "fresh level entrance" edge — a CP-respawn never touches it.
 
 
 def is_death_frame(prev: MemorySnapshot, curr: MemorySnapshot) -> bool:

@@ -13,6 +13,8 @@ off-screen, which only shows up as an exit_mode change.
 """
 from __future__ import annotations
 
+import logging
+
 from spinlab.protocol import SpawnEvent
 from spinlab.retroarch import addresses as a
 from spinlab.retroarch.predicates import (
@@ -21,6 +23,8 @@ from spinlab.retroarch.predicates import (
     PLAYER_ANIM_DEAD,
 )
 from spinlab.retroarch.snapshot import MemorySnapshot
+
+logger = logging.getLogger(__name__)
 
 
 class ColdFillSpawnDetector:
@@ -42,6 +46,23 @@ class ColdFillSpawnDetector:
         self._prev_anim = 0
         self._prev_level_start = 0
         self._prev_exit_mode = 0
+        logger.info("cold_fill_detector: activated for segment=%s", segment_id)
+
+    def resync_after_state_load(self, snapshot: MemorySnapshot) -> None:
+        """Sync prev_* to the just-loaded snapshot to suppress phantom edges.
+
+        Mirrors TransitionDetector.resync_after_state_load. Without this,
+        activate() leaves prev_exit_mode=0; the first poll after a hot-state
+        load reads curr.exit_mode=non-zero (whatever the saved state had),
+        and died_via_exit fires immediately as a phantom death — the
+        detector enters _waiting_spawn=True before the player has touched
+        the controller. Observed live 2026-05-08 on L58 with a stale hot
+        state where exit_mode loaded at 1.
+        """
+        self._waiting_spawn = False
+        self._prev_anim = snapshot.player_anim
+        self._prev_level_start = snapshot.level_start
+        self._prev_exit_mode = snapshot.exit_mode
 
     def step(self, curr: MemorySnapshot, timestamp_ms: int) -> SpawnEvent | None:
         if not self._active:
@@ -65,6 +86,11 @@ class ColdFillSpawnDetector:
             )
             if died_sprite or died_via_exit:
                 self._waiting_spawn = True
+                logger.info(
+                    "cold_fill_detector: death observed segment=%s "
+                    "via_sprite=%s via_exit=%s — waiting for spawn",
+                    self._segment_id, died_sprite, died_via_exit,
+                )
         else:
             edge_spawn = (
                 curr.level_start == LEVEL_START_ACTIVE and self._prev_level_start == 0
@@ -74,20 +100,27 @@ class ColdFillSpawnDetector:
                 and curr.player_anim != PLAYER_ANIM_DEAD
                 and self._prev_anim == PLAYER_ANIM_DEAD
             )
-            # CP-respawn path: in some hacks the level isn't reloaded after a
-            # death — the player just respawns at the CP. level_start may stay
-            # at 1 throughout, OR briefly drop to 0 during the transition;
-            # similarly exit_mode 1->0 may not coincide with level_start=1 on
-            # the same frame. Edge-triggered checks (edge_spawn, fast_retry)
-            # miss both. Once we're already in waiting_spawn (we KNOW a death
-            # fired), the simplest robust signal is level-triggered: fire on
-            # the first frame the player is back in playable state.
+            # CP-respawn path: when the level isn't reloaded after a death,
+            # neither $1935 (level_start) nor $0100 (game_mode) gives a
+            # one-value "in playable level" check. game_mode is meaningful
+            # but uses multiple values for different playable contexts —
+            # observed live: 0x14 (Love Yourself L44) and 0x16 (Love Yourself
+            # L58, sublevel 20). Enumerating every valid game_mode across
+            # every hack is fragile. Since _waiting_spawn means we've ALREADY
+            # observed a death, the only thing we need to detect is "death
+            # sequence is over": exit_mode is back to 0 (not in any
+            # death/exit/transition animation) AND player_anim is not the
+            # death sprite. No level-identification needed.
             playable = (
                 curr.exit_mode == 0
-                and curr.level_start == LEVEL_START_ACTIVE
                 and curr.player_anim != PLAYER_ANIM_DEAD
             )
             if edge_spawn or fast_retry or playable:
+                via = (
+                    "edge_spawn" if edge_spawn
+                    else "fast_retry" if fast_retry
+                    else "playable"
+                )
                 emitted = SpawnEvent(
                     timestamp_ms=timestamp_ms,
                     level_num=curr.level_num,
@@ -95,6 +128,10 @@ class ColdFillSpawnDetector:
                     cp_ordinal=0,
                     state_captured=True,
                     segment_id=self._segment_id or "",
+                )
+                logger.info(
+                    "cold_fill_detector: spawn emitted via=%s segment=%s",
+                    via, self._segment_id,
                 )
                 self._active = False
                 self._waiting_spawn = False

@@ -280,6 +280,10 @@ class RetroArchOrchestrator:
         self._state_io.load_state_from_path(cmd.state_path)
         self._poller.mark_state_loaded()
         self._poller.activate_cold_fill(cmd.segment_id)
+        logger.info(
+            "cold_fill_load: state loaded and detector activated for segment=%s",
+            cmd.segment_id,
+        )
 
     async def _on_fill_gap_load(self, cmd: FillGapLoadCmd) -> None:
         # No cold-fill activation — capture controller handles fill-gap spawn

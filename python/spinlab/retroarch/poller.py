@@ -104,6 +104,12 @@ class Poller:
 
             if self._state_just_loaded:
                 self._detector.resync_after_state_load(snap)
+                # ColdFillSpawnDetector also needs prev_* synced to the just-
+                # loaded snapshot — otherwise its activate() leaves prev=0 and
+                # the first post-load poll sees a phantom 0->non-zero edge on
+                # exit_mode (or anim) that fires died_via_exit / died_sprite
+                # before the player has touched anything.
+                self._cold_fill.resync_after_state_load(snap)
                 self._state_just_loaded = False
                 await asyncio.sleep(self._period)
                 continue

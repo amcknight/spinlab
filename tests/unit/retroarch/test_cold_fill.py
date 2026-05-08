@@ -70,34 +70,84 @@ def test_pit_fall_death_via_exit_mode_then_spawn():
 
 
 def test_cp_respawn_via_playable_check():
-    """In some SMW hacks, dying with a CP set just respawns the player at the
-    CP — the level isn't reloaded, so level_start stays at 1 throughout.
-    edge_spawn (level_start 0->1) never fires, and many deaths skip anim=9 too,
-    so fast_retry doesn't fire either.
+    """Regression: Love Yourself, 2026-05-07. Dying with a CP set respawns
+    the player at the CP without reloading the level, so the MARIO-START
+    splash never fires. Neither $1935 (level_start) nor $0100 (game_mode)
+    gives a stable hack-independent "in level" signal — both differ by
+    sublevel:
 
-    Once cold-fill is in waiting_spawn (we KNOW a death fired), fire on the
-    first frame where the player is back in playable state (exit_mode=0,
-    level_start=1, anim != 9). Level-triggered, not edge-triggered, so we
-    don't miss the conjunction-not-coinciding case.
+      Level 44 (Love Yourself):   level_start=8,  game_mode=20
+      Level 58 (Love Yourself):   level_start=22, game_mode=22
 
-    Without this path, cold-fill in such hacks gets stuck in waiting_spawn
-    forever (observed: 5 LevelExits, 0 Spawns)."""
+    edge_spawn / fast_retry both gate on level_start == 1 and miss CP
+    respawn entirely. The simpler reliable check: once _waiting_spawn is
+    set (we KNOW a death fired), fire on the first frame where exit_mode
+    is back to 0 and player_anim is not the death sprite — i.e., the death
+    sequence is over. No level-identification needed."""
+    # Level 58 scenario: game_mode=22, level_start=22, exit_mode flips
+    # 0 -> 6 -> 9 -> 0 across the death-respawn sequence.
     cf = ColdFillSpawnDetector()
-    cf.activate(segment_id="seg-cp")
+    cf.activate(segment_id="seg-58")
 
-    # Playing — exit_mode 0, level_start 1, anim 0.
-    cf.step(_snap(player_anim=0, level_start=1, exit_mode=0), timestamp_ms=0)
-    # Sprite hit / pit fall — exit_mode goes non-zero, no goal flags.
-    cf.step(_snap(player_anim=0, level_start=1, exit_mode=1), timestamp_ms=16)
+    cf.step(_snap(game_mode=22, player_anim=1, level_start=22, exit_mode=0),
+            timestamp_ms=0)
+    # Pit fall — exit_mode goes non-zero, no goal flags.
+    cf.step(_snap(game_mode=22, player_anim=1, level_start=22, exit_mode=6),
+            timestamp_ms=16)
     # Death sequence playing out.
-    cf.step(_snap(player_anim=0, level_start=1, exit_mode=1), timestamp_ms=32)
-    # Player respawns at CP — back to playable.
-    e = cf.step(_snap(player_anim=0, level_start=1, exit_mode=0), timestamp_ms=48)
-
+    cf.step(_snap(game_mode=22, player_anim=1, level_start=22, exit_mode=9),
+            timestamp_ms=32)
+    # Player respawns at CP — exit_mode back to 0, anim still alive.
+    e = cf.step(_snap(game_mode=22, player_anim=1, level_start=22, exit_mode=0),
+                timestamp_ms=48)
     assert isinstance(e, SpawnEvent), \
-        "cp-respawn must capture spawn once player is back in playable state"
-    assert e.is_cold_cp is True
-    assert e.segment_id == "seg-cp"
+        "L58 cp-respawn must capture once exit_mode returns to 0 (anim alive)"
+    assert e.segment_id == "seg-58"
+
+    # Level 44 scenario: same logic, different stale bytes.
+    cf2 = ColdFillSpawnDetector()
+    cf2.activate(segment_id="seg-44")
+    cf2.step(_snap(game_mode=20, player_anim=0, level_start=8, exit_mode=0),
+             timestamp_ms=0)
+    cf2.step(_snap(game_mode=20, player_anim=0, level_start=8, exit_mode=1),
+             timestamp_ms=16)
+    e2 = cf2.step(_snap(game_mode=20, player_anim=0, level_start=8, exit_mode=0),
+                  timestamp_ms=32)
+    assert isinstance(e2, SpawnEvent), \
+        "L44 cp-respawn must capture once exit_mode returns to 0 (anim alive)"
+    assert e2.segment_id == "seg-44"
+
+
+def test_resync_after_state_load_suppresses_phantom_death():
+    """Regression: Love Yourself L58, 2026-05-08. After cold-fill loads a hot
+    state whose saved exit_mode != 0 (or anim != 0), the very next poll fed
+    raw to step() saw prev=0 (from activate()) and curr=loaded-value, firing
+    died_via_exit instantly as a phantom death — detector entered
+    _waiting_spawn=True before the player had touched the controller. Then
+    the player wasn't playing (the hot state was the wrong segment) so the
+    detector hung forever.
+
+    The poller calls resync_after_state_load(snap) after every state load,
+    syncing prev_* to the loaded snapshot so the very first step() sees
+    prev==curr and emits no edge."""
+    cf = ColdFillSpawnDetector()
+    cf.activate(segment_id="seg")
+
+    # Loaded hot state has exit_mode=1 (any non-zero — saved at a moment
+    # mid-transition). Without resync, this would phantom-fire died_via_exit.
+    loaded_snap = _snap(player_anim=1, level_start=22, exit_mode=1)
+    cf.resync_after_state_load(loaded_snap)
+
+    # First step after resync sees curr==prev — no edge, no phantom.
+    e = cf.step(loaded_snap, timestamp_ms=0)
+    assert e is None
+    assert cf._waiting_spawn is False, \
+        "phantom died_via_exit should be suppressed after resync"
+
+    # Player actually plays now: exit_mode goes 1 -> 0 -> 1 (real death).
+    cf.step(_snap(player_anim=1, level_start=22, exit_mode=0), timestamp_ms=16)
+    cf.step(_snap(player_anim=1, level_start=22, exit_mode=6), timestamp_ms=32)
+    assert cf._waiting_spawn is True, "real death should still be detected"
 
 
 def test_no_false_positive_when_active_but_not_yet_dead():
