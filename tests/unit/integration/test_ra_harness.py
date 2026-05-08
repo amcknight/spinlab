@@ -113,6 +113,26 @@ def test_launch_raises_when_pause_doesnt_stop_frames(fake_paths, fake_proc):
             RAHarness.launch(rom_path=rom, core_path=core, retroarch_exe=exe)
 
 
+def test_launch_raises_on_deep_freeze(fake_paths, fake_proc):
+    """If RA is already paused but FRAMEADVANCE doesn't change low-WRAM bytes,
+    the core is deep-frozen; refuse to proceed."""
+    from spinlab.retroarch.responses import StatusInfo
+
+    rom, core, exe = fake_paths
+    frozen_client = MagicMock()
+    frozen_client.version.return_value = "1.0"
+    # Already paused — no toggle needed, goes straight to FRAMEADVANCE check.
+    frozen_client.get_status.return_value = StatusInfo(state="PAUSED")
+    # Both reads return identical bytes — FRAMEADVANCE had no effect.
+    frozen_client.read_ram.return_value = b"\x00" * 16
+
+    with patch("tests.integration.ra_harness.subprocess.Popen", return_value=fake_proc), \
+         patch("tests.integration.ra_harness.NCIClient", return_value=frozen_client), \
+         patch("tests.integration.ra_harness.time.sleep"):
+        with pytest.raises(RAHarnessLaunchError, match="deep-freeze"):
+            RAHarness.launch(rom_path=rom, core_path=core, retroarch_exe=exe)
+
+
 def test_teardown_calls_quit_then_terminates_on_timeout(fake_client_running_then_paused):
     proc = MagicMock()
     proc.poll.return_value = None

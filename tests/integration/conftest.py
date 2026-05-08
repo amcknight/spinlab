@@ -677,7 +677,11 @@ def ra_harness():
         if p is None or not p.exists()
     ]
     if missing:
-        pytest.skip(f"ra_harness requires: {', '.join(missing)} (set in config.yaml emulator section)")
+        pytest.skip(
+            f"ra_harness requires: {', '.join(missing)} "
+            "(retroarch_path/ra_core_path in config.yaml emulator section; "
+            "rom from SPINLAB_TEST_ROM env or rom.dir in config.yaml)"
+        )
 
     try:
         harness = RAHarness.launch(rom_path=rom_path, core_path=ra_core_path, retroarch_exe=retroarch_exe)
@@ -699,7 +703,10 @@ def run_scenario(ra_harness):
         if not scenario_path.exists():
             pytest.fail(f"Scenario file not found: {scenario_path}")
         scenario = parse_poke_file(str(scenario_path))
-        return await asyncio.to_thread(ra_harness.engine.run_scenario, scenario)
+        return await asyncio.wait_for(
+            asyncio.to_thread(ra_harness.engine.run_scenario, scenario),
+            timeout=timeout,
+        )
 
     return _run
 

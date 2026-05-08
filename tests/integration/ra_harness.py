@@ -29,9 +29,10 @@ logger = logging.getLogger(__name__)
 NCI_PING_RETRIES = 10
 NCI_PING_INTERVAL_S = 0.5
 
-# is_core_running uses a frame-counter byte. SMW's frame counter at $0014 ticks
-# every frame; same address used by scripts/smoke_nci_client.py.
-ADDR_FRAME_COUNTER = 0x0014
+# Bytes of low-WRAM read after FRAMEADVANCE to verify the core actually advanced.
+# Wide enough to catch any ticking byte (frame counters, RNG, etc.) without being
+# bandwidth-wasteful.
+WRAM_SANITY_PROBE_BYTES = 16
 
 # Teardown timing.
 QUIT_GRACE_S = 2.0
@@ -161,10 +162,10 @@ class RAHarness:
 
         # Final sanity: confirm FRAMEADVANCE actually advances the core.
         # Read any WRAM byte, advance one frame, re-read — some byte must change.
-        snap_before = client.read_ram(0x0000, 16)
+        snap_before = client.read_ram(0x0000, WRAM_SANITY_PROBE_BYTES)
         client.frame_advance()
         time.sleep(NCI_PING_INTERVAL_S)
-        snap_after = client.read_ram(0x0000, 16)
+        snap_after = client.read_ram(0x0000, WRAM_SANITY_PROBE_BYTES)
         if snap_before == snap_after:
             cls._kill(proc)
             tmp_cfg_path.unlink(missing_ok=True)
