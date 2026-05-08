@@ -271,3 +271,62 @@ def test_current_expected_times_reflects_model_updates(practice_db):
     cur_total, cur_clean = ps.current_expected_times()
     assert cur_total is not None
     assert cur_total < initial_total
+
+
+class TestReloadOnDeath:
+    """PracticeSession owns reload-on-death (was previously the orchestrator's
+    _maybe_reload_state_on_death). The session remembers _current_state_path
+    after PracticeLoadCmd is sent; Death and LevelExit(abort) trigger a
+    backend.load_state(path) call."""
+
+    @pytest.mark.asyncio
+    async def test_handle_death_reloads_current_state_path(self, practice_db):
+        tcp = MagicMock()
+        tcp.is_connected = True
+        tcp.load_state = AsyncMock()
+
+        ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
+        ps._current_state_path = "/states/seg_x.state"
+
+        await ps.handle_death()
+        tcp.load_state.assert_awaited_once_with("/states/seg_x.state")
+
+    @pytest.mark.asyncio
+    async def test_handle_death_no_reload_when_unarmed(self, practice_db):
+        """No state path set (between attempts) — death must NOT trigger reload."""
+        tcp = MagicMock()
+        tcp.is_connected = True
+        tcp.load_state = AsyncMock()
+
+        ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
+        # _current_state_path defaults to None.
+
+        await ps.handle_death()
+        tcp.load_state.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_handle_level_exit_abort_reloads(self, practice_db):
+        """Pit-falls / death-falls don't fire a Death frame in SMW — they
+        manifest as LevelExit(goal='abort'). Same reload behavior."""
+        tcp = MagicMock()
+        tcp.is_connected = True
+        tcp.load_state = AsyncMock()
+
+        ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
+        ps._current_state_path = "/states/seg_y.state"
+
+        await ps.handle_level_exit_abort()
+        tcp.load_state.assert_awaited_once_with("/states/seg_y.state")
+
+    @pytest.mark.asyncio
+    async def test_receive_result_clears_current_state_path(self, practice_db):
+        """Race fix: clear the armed flag the moment attempt_result arrives,
+        so a Death event arriving in the same handler batch doesn't trigger
+        a spurious post-attempt reload."""
+        ps = PracticeSession(tcp=AsyncMock(), db=practice_db, game_id="g")
+        ps._current_state_path = "/states/seg_z.state"
+
+        ps.receive_result(AttemptResultEvent(
+            segment_id="seg_z", completed=True, time_ms=1000,
+        ))
+        assert ps._current_state_path is None

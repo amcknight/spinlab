@@ -268,12 +268,14 @@ class SessionManager:
         await self._notify_sse()
 
     async def _handle_death(self, event: DeathEvent) -> None:
-        if self.mode not in (Mode.REFERENCE, Mode.REPLAY, Mode.COLD_FILL):
-            return
         if self.mode == Mode.COLD_FILL:
             logger.info("death during cold_fill — waiting for respawn")
+            return
         if self.mode in (Mode.REFERENCE, Mode.REPLAY):
             self.capture.handle_death(event)
+            return
+        if self.mode == Mode.PRACTICE and self.practice_session:
+            await self.practice_session.handle_death()
 
     async def _handle_spawn(self, event: SpawnEvent) -> None:
         if self.mode == Mode.COLD_FILL:
@@ -298,6 +300,10 @@ class SessionManager:
             self.capture.handle_spawn(event, self.require_game())
 
     async def _handle_level_exit(self, event: LevelExitEvent) -> None:
+        if self.mode == Mode.PRACTICE and self.practice_session and event.goal == "abort":
+            # Pit-fall / death-fall — same reload semantics as a Death event.
+            await self.practice_session.handle_level_exit_abort()
+            return
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
         self.capture.handle_exit(event, self.require_game())

@@ -57,6 +57,14 @@ class PracticeSession:
         self._result_data: AttemptResultEvent | None = None
         self._last_allocator: str | None = None
 
+        # Doubles as the "armed for reload-on-death" flag: non-None means
+        # an attempt is in flight and Death / LevelExit(abort) should
+        # trigger a backend.load_state. Cleared the moment attempt_result
+        # arrives in receive_result (NOT at run_one cleanup) so a Death
+        # arriving between result and tear-down doesn't cause a spurious
+        # post-attempt reload.
+        self._current_state_path: str | None = None
+
     def _snapshot_expected_times(
         self, estimator_name: str
     ) -> tuple[float | None, float | None]:
@@ -114,8 +122,38 @@ class PracticeSession:
 
     def receive_result(self, event: AttemptResultEvent) -> None:
         """Called by SessionManager.route_event when attempt_result arrives."""
+        # Clear the armed flag FIRST so any Death event arriving in the
+        # same route_event batch doesn't try to reload on a finished attempt.
+        self._current_state_path = None
         self._result_data = event
         self._result_event.set()
+
+    async def handle_death(self) -> None:
+        """SessionManager calls this when a Death event arrives during PRACTICE.
+
+        Reloads the segment's start state via the backend so the player
+        retries from the segment boundary, not from wherever they respawned.
+        Lua's practice loop did this via ``pending_loads``; under RA the
+        orchestrator used to do it. Now we own it.
+
+        No-op when not currently armed (between attempts).
+        """
+        path = self._current_state_path
+        if not path:
+            return
+        try:
+            await self.tcp.load_state(path)
+        except Exception:
+            logger.exception("practice: load_state on death failed (path=%s)", path)
+
+    async def handle_level_exit_abort(self) -> None:
+        """SessionManager calls this on LevelExit(goal='abort') during PRACTICE.
+
+        Pit-falls / death-falls in SMW don't fire a Death frame (player_anim
+        skips 9 entirely); they only show up as LevelExit. Same reload as
+        a regular Death.
+        """
+        await self.handle_death()
 
     async def run_one(self) -> bool:
         """Run one pick-send-receive cycle. Returns False if no segments available."""
@@ -149,6 +187,9 @@ class PracticeSession:
         )
 
         self.current_segment_id = cmd.id
+        # Arm reload-on-death — set BEFORE the cmd send so an immediate
+        # Death event isn't dropped while the load is mid-flight.
+        self._current_state_path = cmd.state_path
         logger.info("practice: loading segment=%s label=%r state=%s",
                      cmd.id, label, cmd.state_path)
 
