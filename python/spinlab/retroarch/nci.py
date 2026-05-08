@@ -198,32 +198,30 @@ class NCIClient:
         """Advance one frame (only meaningful while paused)."""
         self._send_no_reply("FRAMEADVANCE")
 
-    def bsv_record_toggle(self) -> None:
-        """Toggle BSV (libretro deterministic movie) recording on/off.
+    def record_replay(self) -> None:
+        """Start movie recording. Fire-and-forget. Requires content in PLAYING state.
 
-        Fire-and-forget. RetroArch starts a new .bsv file in movie_directory on
-        record-on and finalizes it on record-off. The exact filename is chosen
-        by RA; use the recorder's mtime-baseline pattern to discover it.
-
-        NOTE: Phase E smoke test confirms this command's wire format. If the
-        command name is wrong on RA 1.22.2 the smoke test fails loudly and we
-        investigate alternatives (BSV_RECORD_TOGGLE, hotkey_bsv_record, etc.).
+        RA 1.22.2 confirmed command name: RECORD_REPLAY. Writes a .replay<slot>
+        file in <savestate_directory>/<core_name>/ when HALT_REPLAY is called.
         """
-        self._send_no_reply("BSV_RECORD_TOGGLE")
+        self._send_no_reply("RECORD_REPLAY")
 
-    def bsv_play(self) -> None:
-        """Start BSV playback of whatever movie RA currently has loaded.
+    def halt_replay(self) -> None:
+        """Stop movie recording or playback. Fire-and-forget.
 
-        Fire-and-forget. Loading the .bsv file itself is out-of-band — typically
-        via CLI flag at launch (--bsvplay) or via filesystem placement.
-
-        NOTE: command name is provisional. Smoke test confirms.
+        RA 1.22.2 confirmed command name: HALT_REPLAY. Works as the universal
+        halt for both the recorder and the player.
         """
-        self._send_no_reply("MOVIE_PLAYBACK_TOGGLE")
+        self._send_no_reply("HALT_REPLAY")
 
-    def bsv_stop(self) -> None:
-        """Stop BSV playback (toggle off)."""
-        self._send_no_reply("MOVIE_PLAYBACK_TOGGLE")
+    def play_replay(self) -> None:
+        """Start movie playback of the currently-loaded movie. Fire-and-forget.
+
+        RA 1.22.2 confirmed command name: PLAY_REPLAY. Requires content in
+        PLAYING state — RA diverges from the normal timeline and replays recorded
+        input. Use halt_replay() to stop.
+        """
+        self._send_no_reply("PLAY_REPLAY")
 
     def quit(self) -> None:
         """Tell RetroArch to shut down."""

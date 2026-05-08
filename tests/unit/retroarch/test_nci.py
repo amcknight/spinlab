@@ -202,12 +202,12 @@ def test_get_config_param_sends_correct_command(fake_nci_server):
         ("pause_toggle", (), "PAUSE_TOGGLE"),
         ("frame_advance", (), "FRAMEADVANCE"),
         ("quit", (), "QUIT"),
-        # BSV movie commands — all fire-and-forget via _send_no_reply.
-        ("bsv_record_toggle", (), "BSV_RECORD_TOGGLE"),
-        # bsv_play and bsv_stop both map to MOVIE_PLAYBACK_TOGGLE (RA models
-        # playback as a toggle, so start and stop use the same wire command).
-        ("bsv_play", (), "MOVIE_PLAYBACK_TOGGLE"),
-        ("bsv_stop", (), "MOVIE_PLAYBACK_TOGGLE"),
+        # Movie replay commands — all fire-and-forget via _send_no_reply.
+        # Confirmed against RA 1.22.2: BSV_RECORD_TOGGLE doesn't exist;
+        # correct commands are RECORD_REPLAY / HALT_REPLAY / PLAY_REPLAY.
+        ("record_replay", (), "RECORD_REPLAY"),
+        ("halt_replay", (), "HALT_REPLAY"),
+        ("play_replay", (), "PLAY_REPLAY"),
     ],
 )
 def test_fire_and_forget_commands(fake_nci_server, method, args, expected_command):
