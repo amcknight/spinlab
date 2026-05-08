@@ -24,6 +24,7 @@ class EmulatorConfig:
     script_data_dir: Path | None = None
     # RetroArch keys:
     retroarch_path: Path | None = None
+    ra_core_path: Path | None = None
     savestate_dir: Path | None = None
     spinlab_state_dir: Path | None = None
     ra_game_basename: str | None = None
@@ -70,6 +71,7 @@ class AppConfig:
         script_data_dir = emu.get("script_data_dir")
 
         retroarch_path = emu.get("retroarch_path")
+        ra_core_path = emu.get("ra_core_path")
         savestate_dir = emu.get("savestate_dir")
         spinlab_state_dir = emu.get("spinlab_state_dir")
         ra_game_basename = emu.get("ra_game_basename")
@@ -92,6 +94,7 @@ class AppConfig:
                 lua_script=Path(lua_script) if lua_script else None,
                 script_data_dir=Path(script_data_dir) if script_data_dir else None,
                 retroarch_path=Path(retroarch_path) if retroarch_path else None,
+                ra_core_path=Path(ra_core_path) if ra_core_path else None,
                 savestate_dir=Path(savestate_dir) if savestate_dir else None,
                 spinlab_state_dir=Path(spinlab_state_dir) if spinlab_state_dir else None,
                 ra_game_basename=ra_game_basename if ra_game_basename else None,

@@ -84,6 +84,32 @@ def test_nci_port_override(tmp_path):
     assert cfg.network.nci_port == 12345
 
 
+def test_ra_core_path_parsed_from_yaml(tmp_path):
+    config_yaml = tmp_path / "config.yaml"
+    config_yaml.write_text("""
+data:
+  dir: /tmp/data
+emulator:
+  backend: retroarch
+  retroarch_path: C:/RetroArch-Win64/retroarch.exe
+  ra_core_path: C:/RetroArch-Win64/cores/snes9x_libretro.dll
+""")
+    cfg = AppConfig.from_yaml(config_yaml)
+    assert cfg.emulator.ra_core_path == Path("C:/RetroArch-Win64/cores/snes9x_libretro.dll")
+
+
+def test_ra_core_path_defaults_to_none_when_absent(tmp_path):
+    config_yaml = tmp_path / "config.yaml"
+    config_yaml.write_text("""
+data:
+  dir: /tmp/data
+emulator:
+  backend: retroarch
+""")
+    cfg = AppConfig.from_yaml(config_yaml)
+    assert cfg.emulator.ra_core_path is None
+
+
 def test_old_mesen_keys_still_parse(tmp_path):
     """Existing Mesen-shaped configs must continue to parse without errors."""
     cfg_path = _write_config(tmp_path, _minimal_config({
