@@ -1,29 +1,44 @@
-# Phase E — BSV Replay Validation
+# Phase E — Movie Replay Validation
 
 ## Goal
 
-Validate that BSV record/playback under our snes9x_libretro + runahead=2 + secondary-instance=true setup is viable as a replacement for the Mesen `.spinrec` replay path, by getting `tests/integration/test_replay_fixture.py` running end-to-end through RetroArch. As a structural side effect, wire BSV recording into `ReferenceController` so a real reference run produces the test fixture — bootstrapping toward the larger "full parity" goal (path-to-parity.md item 1: capture inputs alongside states) without committing to it before validation.
+Validate that movie record/playback under our snes9x_libretro + runahead=2 + secondary-instance=true setup is viable as a replacement for the Mesen `.spinrec` replay path, by getting `tests/integration/test_replay_fixture.py` running end-to-end through RetroArch. As a structural side effect, wire movie recording into `ReferenceController` so a real reference run produces the test fixture — bootstrapping toward the larger "full parity" goal (path-to-parity.md item 1: capture inputs alongside states) without committing to it before validation.
+
+> **Naming history.** This spec was originally titled "BSV Replay" because libretro's deterministic movie format historically went by BSV (the bsnes-era movie format). The Task 4 smoke test (2026-05-08) found that RA 1.22.2 has evolved past that nomenclature: the NCI commands are `RECORD_REPLAY`/`HALT_REPLAY`, the on-disk format is `.replay<slot>`, and `GET_CONFIG_PARAM movie_directory` returns "unsupported" — RA writes movies to `<savestate_directory>/<core_name>/` instead. We've renamed the production code to `MovieRecorder`/`MoviePlayer`/`movie.py` to avoid colliding with `ReplayCmd` (which already means "play back a recording"). "Movie" is the neutral term that fits both the historical BSV name and the current `.replay` reality.
 
 ## Why now
 
 The 2026-05-08 RA poke harness landing closed P1.2 — the integration tests that don't require input replay now pass under RA. The remaining backend-specific failures are all in replay territory (`test_replay_fixture.py` skips, `/api/replay/start` returns 501). Before committing to the full input-recording rewrite, Andrew wants validation that BSV is reachable, deterministic, and compatible with the live poller in our specific RA configuration. Three foundational unknowns have never been confirmed (per spike-log.md, BSV feasibility was deferred during Phase 2):
 
-1. **Control path.** Whether NCI exposes a working BSV record/playback toggle in RA 1.22.2.
-2. **Determinism under our config.** snes9x_libretro + runahead=2 + cheevos-off — does BSV playback produce identical memory state every run?
-3. **Replay-while-polling.** Can the NCI poller read RAM at 60Hz while RA is in BSV playback without errors or starvation?
+1. **Control path.** Whether NCI exposes a working movie record/playback toggle in RA 1.22.2. **(Resolved 2026-05-08 by Task 4 smoke test):** Yes — `RECORD_REPLAY`/`HALT_REPLAY` for record; playback commands TBD by Task 4 follow-up probe. The originally-assumed `BSV_RECORD_TOGGLE` does not exist in 1.22.2.
+2. **Determinism under our config.** snes9x_libretro + runahead=2 + cheevos-off — does movie playback produce identical memory state every run? (Pending Task 7.)
+3. **Replay-while-polling.** Can the NCI poller read RAM at 60Hz while RA is in movie playback without errors or starvation? (Pending Task 8.)
 
-This spec validates those unknowns via cheap tests sequenced before the larger machinery, and ships test-only replay (option (a) from brainstorming). User-facing replay endpoint restoration and reference-run BSV-by-default are option (b), gated on Andrew's smoke testing of (a).
+This spec validates those unknowns via cheap tests sequenced before the larger machinery, and ships test-only replay (option (a) from brainstorming). User-facing replay endpoint restoration and reference-run movie-by-default are option (b), gated on Andrew's smoke testing of (a).
+
+## RA 1.22.2 movie format facts (empirical, from Task 4 smoke test)
+
+These were unknowns when the spec was first written; the Task 4 probe resolved them. Subsequent tasks must follow these findings, not the original assumptions.
+
+- **Record start command:** `RECORD_REPLAY` (not `BSV_RECORD_TOGGLE`). Fire-and-forget. Requires content already loaded and in PLAYING state.
+- **Record stop command:** `HALT_REPLAY`. Fire-and-forget. Finalizes the file.
+- **Playback commands:** TBD — Task 4 follow-up probe. Candidates: `PLAY_REPLAY`, `MOVIE_PLAYBACK_TOGGLE`, or hotkey-sim equivalents.
+- **File format:** `.replay<slot>` (e.g. `the.replay2`). RA auto-increments the slot suffix on each new recording.
+- **Output directory:** `<savestate_directory>/<core_name>/`, e.g. `C:\RetroArch-Win64\states\Snes9x\`. The `movie_directory` config key returns "unsupported" via `GET_CONFIG_PARAM`. The `<core_name>` subdirectory is determined by RA at content load time and is not directly queryable via NCI; the orchestrator either takes it as config (`EmulatorConfig.ra_movie_dir` set explicitly) or derives it from another path.
+- **Stability:** Confirmed RA stays responsive after `RECORD_REPLAY`/`HALT_REPLAY`; FRAMEADVANCE continues to tick the core. No deep-pause side effects observed.
+
+These facts shape the production-code naming chosen below.
 
 ## Scope
 
 ### In scope
 
-1. **`BSVRecorder` integrated into `ReferenceController`.** Reference runs produce `<refid>.bsv` alongside `<refid>.mss`. None-by-default in unit tests; constructed and injected by the dashboard wiring.
-2. **`BSVPlayer` driven from the orchestrator's `ReplayCmd`.** Replaces `_unsupported_phase_e` for `ReplayCmd` and `ReplayStopCmd`. Reuses existing `ReplayStartedEvent` / `ReplayProgressEvent` / `ReplayFinishedEvent` protocol; no schema changes.
+1. **`MovieRecorder` integrated into `ReferenceController`.** Reference runs produce `<refid>.bsv` alongside `<refid>.mss`. None-by-default in unit tests; constructed and injected by the dashboard wiring.
+2. **`MoviePlayer` driven from the orchestrator's `ReplayCmd`.** Replaces `_unsupported_phase_e` for `ReplayCmd` and `ReplayStopCmd`. Reuses existing `ReplayStartedEvent` / `ReplayProgressEvent` / `ReplayFinishedEvent` protocol; no schema changes.
 3. **Three new RA-backend integration tests** in `tests/integration/test_bsv_smoke.py`: record-toggle smoke, playback determinism, polling-during-playback.
 4. **Port `tests/integration/test_replay_fixture.py`** from Mesen+`.spinrec` to RA+`.bsv`. Same segment-count and segment-structure assertions.
 5. **`tests/fixtures/love_yourself/one_level.bsv`** — Andrew records this manually after step 2 lands. Replaces `two_level.spinrec` as the replay fixture input.
-6. **Unit tests** for `BSVRecorder` and `BSVPlayer` against a fake NCI client.
+6. **Unit tests** for `MovieRecorder` and `MoviePlayer` against a fake NCI client.
 
 ### Out of scope (deferred)
 
@@ -45,7 +60,7 @@ Each step's tests pass before the next begins. Steps 1 and 4 are real go/no-go g
 
 **File.** `tests/integration/test_bsv_smoke.py`. Uses the existing `ra_harness` session fixture from Plan 2.
 
-**Candidate control paths**, tried in order; first that produces a non-zero file wins and gets recorded as the canonical mechanism in `bsv.py`:
+**Candidate control paths**, tried in order; first that produces a non-zero file wins and gets recorded as the canonical mechanism in `movie.py`:
 
 1. NCI `BSV_RECORD_TOGGLE` (per libretro NCI doc lineage).
 2. NCI hotkey-sim equivalent for `bsv_record_toggle`. May be filtered at RA's input layer (Phase 0 found this for `MENU_TOGGLE`).
@@ -71,13 +86,13 @@ def test_bsv_record_toggle_smoke(ra_harness):
 
 **Open during step 1.** Where the `.bsv` file lands. RA's default movie dir is configurable (`movie_directory` in cfg). Test reads via NCI `GET_CONFIG_PARAM` if available, else does an mtime sweep of plausible directories. Whichever works gets fixed in `EmulatorConfig.ra_movie_dir`.
 
-### Step 2 — `BSVRecorder` integrated into `ReferenceController`
+### Step 2 — `MovieRecorder` integrated into `ReferenceController`
 
-**New module.** `python/spinlab/retroarch/bsv.py`:
+**New module.** `python/spinlab/retroarch/movie.py`:
 
 ```python
 @dataclass
-class BSVRecorder:
+class MovieRecorder:
     client: NCIClient
     movie_dir: Path                   # where RA writes .bsv (from cfg)
     _active_dest: Path | None = None
@@ -100,7 +115,7 @@ class BSVRecorder:
 
 The move-into-final-path shuffle mirrors what `StateIO` already does for `.state` files (mtime baseline + retry + atomic rename); reuse helpers where they exist.
 
-**Wiring into `ReferenceController`.** `__init__` gains an optional `bsv_recorder: BSVRecorder | None`. `start()` calls `recorder.start(rec_dir / f"{ref_id}.bsv")` when present. `stop()` calls `recorder.stop()`. None-by-default — unit tests don't need a recorder; the dashboard's `RetroArchOrchestrator` constructs one and passes it in.
+**Wiring into `ReferenceController`.** `__init__` gains an optional `bsv_recorder: MovieRecorder | None`. `start()` calls `recorder.start(rec_dir / f"{ref_id}.bsv")` when present. `stop()` calls `recorder.stop()`. None-by-default — unit tests don't need a recorder; the dashboard's `RetroArchOrchestrator` constructs one and passes it in.
 
 **Failure mode.** If recording fails (NCI error, file never appears, move fails), log a warning and continue. Reference runs are about state captures; BSV is supplementary until step 5 wires playback into something user-facing. A failed recording does not abort or invalidate the reference run.
 
@@ -143,7 +158,7 @@ def test_poller_runs_during_playback(ra_harness, fixture_metadata):
     fixture = Path("tests/fixtures/love_yourself/one_level.bsv")
     target_frames = 60   # one second of playback
 
-    player = BSVPlayer(ra_harness.client, ra_harness.movie_dir)
+    player = MoviePlayer(ra_harness.client, ra_harness.movie_dir)
     poller = Poller(ra_harness.client, ...)
 
     player.play(fixture)
@@ -158,11 +173,11 @@ If success rate falls below 90%, the spec adapts in step 5 to throttle playback 
 
 ### Step 5 — Wire `_on_replay_cmd` in `RetroArchOrchestrator`
 
-Replaces `_unsupported_phase_e` for `ReplayCmd` and `ReplayStopCmd`. Constructs a `BSVPlayer`, calls `.play()` with the fixture path and the anchor state (resolved from the reference's `.mss` file), transitions session state to `replay`. `_on_replay_stop` calls `player.stop()` and emits `ReplayFinishedEvent`.
+Replaces `_unsupported_phase_e` for `ReplayCmd` and `ReplayStopCmd`. Constructs a `MoviePlayer`, calls `.play()` with the fixture path and the anchor state (resolved from the reference's `.mss` file), transitions session state to `replay`. `_on_replay_stop` calls `player.stop()` and emits `ReplayFinishedEvent`.
 
 ```python
 @dataclass
-class BSVPlayer:
+class MoviePlayer:
     client: NCIClient
     movie_dir: Path
 
@@ -194,8 +209,8 @@ Three plausible models in libretro cores. The smoke test in step 1 will reveal w
 3. **Hybrid.** Record toggles mid-session but encodes "start state inline" or "start at frame N from boot." Replay uses whichever was encoded.
 
 What this affects:
-- **Model 1:** `BSVRecorder.start()` is a "split point marker," not a fresh record. Reference runs would need to pair `.bsv` with the boot-time state, OR we accept that replay always starts from boot (ugly for partial-run replays).
-- **Model 2:** clean. `BSVPlayer.play(src, anchor_state)` does what it says.
+- **Model 1:** `MovieRecorder.start()` is a "split point marker," not a fresh record. Reference runs would need to pair `.bsv` with the boot-time state, OR we accept that replay always starts from boot (ugly for partial-run replays).
+- **Model 2:** clean. `MoviePlayer.play(src, anchor_state)` does what it says.
 - **Model 3:** depends on what's encoded. Handle each case explicitly.
 
 ### Determinism risks
@@ -221,8 +236,8 @@ BSV playback proceeds at full speed by default. If the poller can't keep up, tra
 ## Definition of done
 
 - [ ] `tests/integration/test_bsv_smoke.py` passes under `backend=retroarch`: three tests covering record-toggle, playback determinism, polling-during-playback.
-- [ ] `BSVRecorder` integrated into `ReferenceController`; reference runs produce `<refid>.bsv` alongside `<refid>.mss`. Recording failures log a warning and don't abort the run.
-- [ ] `BSVPlayer` integrated into `RetroArchOrchestrator`; `ReplayCmd` and `ReplayStopCmd` route to it (no longer raise `BackendNotImplementedError`). Existing `ReplayStartedEvent` / `ReplayProgressEvent` / `ReplayFinishedEvent` protocol used unchanged.
+- [ ] `MovieRecorder` integrated into `ReferenceController`; reference runs produce `<refid>.bsv` alongside `<refid>.mss`. Recording failures log a warning and don't abort the run.
+- [ ] `MoviePlayer` integrated into `RetroArchOrchestrator`; `ReplayCmd` and `ReplayStopCmd` route to it (no longer raise `BackendNotImplementedError`). Existing `ReplayStartedEvent` / `ReplayProgressEvent` / `ReplayFinishedEvent` protocol used unchanged.
 - [ ] `tests/fixtures/love_yourself/one_level.bsv` committed, with sibling `one_level.json` declaring `frame_count`, `expected_segments`, and `determinism_probe`.
 - [ ] `tests/integration/test_replay_fixture.py` ported to RA + BSV, passes 5 consecutive runs with no flakes.
 - [ ] Mesen-side `tests/integration/test_replay_fixture.py` deleted (option (a)).

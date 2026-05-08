@@ -1,10 +1,12 @@
-# Phase E — BSV Replay Validation Implementation Plan
+# Phase E — Movie Replay Validation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Validate BSV record/playback under our snes9x_libretro + runahead=2 setup by getting `tests/integration/test_replay_fixture.py` running through RetroArch, with BSV recording integrated into reference runs as the fixture-producing path.
+> **2026-05-08 amendment.** The Task 4 smoke test against live RA 1.22.2 found the originally-assumed NCI commands and file format wrong. Corrected facts now in the spec under "RA 1.22.2 movie format facts". Production code uses **`MovieRecorder`/`MoviePlayer`/`movie.py`** naming (avoids collision with `ReplayCmd`); NCI methods are `record_replay()`/`halt_replay()` for record (playback commands TBD by follow-up probe). On-disk format is `.replay<slot>` in `<savestate_directory>/<core_name>/`. The class names `BSVRecorder`/`BSVPlayer` and module `bsv.py` referenced below are obsolete — read every occurrence as `MovieRecorder`/`MoviePlayer`/`movie.py`. The fix-forward task between Task 4 and Task 5 lands these renames in production code.
 
-**Architecture:** New `python/spinlab/retroarch/bsv.py` module owns `BSVRecorder` and `BSVPlayer` thin wrappers around NCI. The orchestrator's `_on_reference_start`/`_on_reference_stop` (currently no-ops) trigger recording; `_on_replay_cmd` (currently raises 501) drives playback. Three new integration tests gate progression: control-path smoke before the recorder, determinism + polling-during-playback after a real fixture exists.
+**Goal:** Validate movie record/playback under our snes9x_libretro + runahead=2 setup by getting `tests/integration/test_replay_fixture.py` running through RetroArch, with movie recording integrated into reference runs as the fixture-producing path.
+
+**Architecture:** New `python/spinlab/retroarch/movie.py` module owns `MovieRecorder` and `MoviePlayer` thin wrappers around NCI. The orchestrator's `_on_reference_start`/`_on_reference_stop` (currently no-ops) trigger recording; `_on_replay_cmd` (currently raises 501) drives playback. Three new integration tests gate progression: control-path smoke before the recorder, determinism + polling-during-playback after a real fixture exists.
 
 **Tech Stack:** Python 3.11+ dataclasses, pytest + pytest-asyncio, RetroArch 1.22.2 with `snes9x_libretro.dll`, NCI over UDP 55355, libretro BSV deterministic movie format.
 
