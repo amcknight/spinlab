@@ -121,3 +121,57 @@ class TestSerializeCommand:
         msg = serialize_command(PracticeStopCmd())
         parsed = json.loads(msg)
         assert parsed["event"] == "practice_stop"
+
+
+class TestRichEventFields:
+    """Protocol events carry the rich fields the RA detector emits.
+
+    Added in 2026-05-07's event-pipeline-collapse refactor — the previous
+    split between internal retroarch.events.* and wire-shape protocol.*
+    classes dropped fields like room/elapsed_ms/segment_id at the boundary.
+    """
+
+    def test_level_entrance_event_carries_room_and_frame(self):
+        from spinlab.protocol import LevelEntranceEvent
+        ev = LevelEntranceEvent(level=5, room=2, frame=120)
+        assert ev.room == 2
+        assert ev.frame == 120
+
+    def test_level_exit_event_carries_room_elapsed_frame(self):
+        ev = LevelExitEvent(level=5, room=1, goal="goal", elapsed_ms=12345, frame=600)
+        assert ev.room == 1
+        assert ev.elapsed_ms == 12345
+        assert ev.frame == 600
+
+    def test_checkpoint_event_carries_cp_type(self):
+        from spinlab.protocol import CheckpointEvent
+        ev = CheckpointEvent(level_num=5, cp_ordinal=1, cp_type="midway")
+        assert ev.cp_type == "midway"
+
+    def test_spawn_event_carries_segment_id(self):
+        ev = SpawnEvent(level_num=5, segment_id="seg_abc", is_cold_cp=True)
+        assert ev.segment_id == "seg_abc"
+
+    def test_death_event_carries_level_num_and_timestamp(self):
+        ev = DeathEvent(level_num=7, timestamp_ms=999)
+        assert ev.level_num == 7
+        assert ev.timestamp_ms == 999
+
+    def test_parse_event_tolerates_unknown_extras(self):
+        """Forward-compat: a Lua message with an unknown field still parses."""
+        raw = {"event": "death", "level_num": 5, "spurious_field": 999}
+        ev = parse_event(raw)
+        assert isinstance(ev, DeathEvent)
+        assert ev.level_num == 5
+
+    def test_parse_event_populates_new_level_exit_fields(self):
+        raw = {
+            "event": "level_exit", "level": 5, "room": 1,
+            "goal": "goal", "elapsed_ms": 12345, "frame": 600,
+            "timestamp_ms": 1000,
+        }
+        ev = parse_event(raw)
+        assert isinstance(ev, LevelExitEvent)
+        assert ev.room == 1
+        assert ev.elapsed_ms == 12345
+        assert ev.frame == 600

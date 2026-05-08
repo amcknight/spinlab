@@ -31,6 +31,8 @@ class GameContextEvent:
 class LevelEntranceEvent:
     event: str = "level_entrance"
     level: int = 0
+    room: int = 0
+    frame: int = 0
     state_path: str | None = None
     timestamp_ms: int = 0
     conditions: dict = field(default_factory=dict)
@@ -40,6 +42,7 @@ class CheckpointEvent:
     event: str = "checkpoint"
     level_num: int = 0
     cp_ordinal: int = 1
+    cp_type: str = ""
     state_path: str | None = None
     timestamp_ms: int = 0
     conditions: dict = field(default_factory=dict)
@@ -47,6 +50,9 @@ class CheckpointEvent:
 @dataclass
 class DeathEvent:
     event: str = "death"
+    level_num: int = 0
+    timestamp_ms: int = 0
+    conditions: dict = field(default_factory=dict)
 
 @dataclass
 class SpawnEvent:
@@ -57,13 +63,17 @@ class SpawnEvent:
     conditions: dict = field(default_factory=dict)
     is_cold_cp: bool = False
     cp_ordinal: int | None = None
+    segment_id: str = ""
     timestamp_ms: int = 0
 
 @dataclass
 class LevelExitEvent:
     event: str = "level_exit"
     level: int = 0
+    room: int = 0
     goal: str = "abort"
+    elapsed_ms: int = 0
+    frame: int = 0
     timestamp_ms: int = 0
     conditions: dict = field(default_factory=dict)
 
