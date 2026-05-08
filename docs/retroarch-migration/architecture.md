@@ -38,29 +38,31 @@ python/spinlab/retroarch/
 ├── addresses.py        SMW WRAM offsets (single source of truth for the RA backend).
 ├── predicates.py       Pure detection functions: is_death_frame, is_exit_frame, goal_type, check_checkpoint_hit.
 ├── transition_state.py Mutable per-segment state (died_flag, cp_ordinal, first_cp_entrance).
-├── detector.py         TransitionDetector. step(snap, ts) -> list[TransitionEvent].
-├── cold_fill.py        ColdFillSpawnDetector. step(snap, ts) -> Spawn | None. Activated externally.
+├── detector.py         TransitionDetector. step(snap, ts) -> list of protocol events.
+├── cold_fill.py        ColdFillSpawnDetector. step(snap, ts) -> SpawnEvent | None. Activated externally.
 ├── poller.py           Async loop. Owns TransitionDetector + ColdFillSpawnDetector. ~60 Hz.
 ├── state_io.py         SAVE_STATE/LOAD_STATE_SLOT + filesystem shuffle. Sync (call via to_thread).
-├── conditions.py       ConditionRegistry. Per-event condition evaluation against memory.
-├── conditions_loader.py  Apply protocol's SetConditionsCmd definitions to a registry.
 ├── timing.py           PracticeTiming + SpeedRunTiming state machines.
-├── events.py           TransitionEvent dataclasses (Death, LevelExit, Checkpoint, ...).
-├── event_adapter.py    to_protocol_dict / to_rom_info_dict — convert events → JSON shape.
 ├── exceptions.py       NCIError hierarchy.
 └── orchestrator.py     RetroArchOrchestrator — TcpManager-shaped façade.
+
+Both backends share the canonical event vocabulary in
+`spinlab.protocol` (LevelEntranceEvent, CheckpointEvent, …). The detector
+constructs them directly; the orchestrator serializes via
+`dataclasses.asdict` for the SSE / route_event dict consumers. Conditions
+likewise share `spinlab.condition_registry.ConditionRegistry`.
 ```
 
 ## Event flow
 
 1. `Poller.run()` calls `read_snapshot(client)` → `MemorySnapshot`.
 2. If `mark_state_loaded()` was called (after a save-state load), the next snapshot is fed to `TransitionDetector.resync_after_state_load(snap)` — replaces `prev` and clears `died_flag` / `cp_acquired` / `exit_this_frame`. The frame is otherwise skipped to avoid phantom edges.
-3. `TransitionDetector.step(snap, ts)` returns 0..N events. The poller stamps `state_path` (via `StateIO.resolve_event_path`) and `conditions` (via `ConditionRegistry.read_all`), then calls `on_event(ev)`.
-4. `ColdFillSpawnDetector.step(snap, ts)` runs after the detector. Returns at most one `Spawn` per activation; deactivates after emitting.
+3. `TransitionDetector.step(snap, ts)` returns 0..N protocol events. The poller stamps `state_path` (via `StateIO.resolve_event_path`) and `conditions` (via `ConditionRegistry.read_all`), then calls `on_event(ev)`.
+4. `ColdFillSpawnDetector.step(snap, ts)` runs after the detector. Returns at most one `SpawnEvent` per activation; deactivates after emitting.
 5. `RetroArchOrchestrator.on_poller_event(ev)` is the registered callback. It:
-   - Calls `_maybe_save_state_for(ev)` — saves a state file when needed (cold-fill spawn or reference recording).
-   - Calls `_maybe_reload_state_on_death(ev)` — practice-mode reload via `state_io.load_state_from_path` when the player dies.
-   - Converts `ev` to a JSON dict via `to_protocol_dict`.
+   - Calls `_maybe_save_state_for(ev)` — saves a state file when needed (cold-fill spawn or reference recording). *(Pending move to capture controllers — see `docs/superpowers/plans/2026-05-07-backend-layering.md`.)*
+   - Calls `_maybe_reload_state_on_death(ev)` — practice-mode reload via `state_io.load_state_from_path` when the player dies. *(Pending move to PracticeSession.)*
+   - Converts `ev` to a JSON dict via `dataclasses.asdict` (the protocol classes carry the discriminator `event` field).
    - Feeds the dict to `PracticeTiming.observe_event` and `SpeedRunTiming.observe_event`.
    - Enqueues to `events`.
 6. The dashboard's event loop reads from `events` via `recv_event` and calls `session_manager.route_event(d)`.
