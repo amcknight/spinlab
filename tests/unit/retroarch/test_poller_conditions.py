@@ -5,10 +5,7 @@ from typing import Iterator
 import pytest
 
 from spinlab.condition_registry import ConditionRegistry
-from spinlab.retroarch.events import (
-    LevelEntrance,
-    TransitionEvent,
-)
+from spinlab.protocol import LevelEntranceEvent
 from spinlab.retroarch.poller import Poller, PollerDeps
 from spinlab.retroarch.snapshot import MemorySnapshot
 
@@ -52,7 +49,7 @@ async def test_poller_populates_event_conditions_from_registry():
         _snap(level_num=5),
         _snap(level_num=5, level_start=1),  # entrance
     ])
-    received: list[TransitionEvent] = []
+    received: list = []
 
     deps = PollerDeps(
         client=_FakeClient(ram_values={0x19: 2}),
@@ -66,7 +63,7 @@ async def test_poller_populates_event_conditions_from_registry():
     poller.stop()
     await task
 
-    entrances = [e for e in received if isinstance(e, LevelEntrance)]
+    entrances = [e for e in received if isinstance(e, LevelEntranceEvent)]
     assert len(entrances) == 1
     assert entrances[0].conditions == {"powerup": 2}
 
@@ -78,7 +75,7 @@ async def test_poller_no_registry_leaves_conditions_empty():
         _snap(level_num=5),
         _snap(level_num=5, level_start=1),
     ])
-    received: list[TransitionEvent] = []
+    received: list = []
 
     deps = PollerDeps(
         client=_FakeClient(),
@@ -91,6 +88,6 @@ async def test_poller_no_registry_leaves_conditions_empty():
     poller.stop()
     await task
 
-    entrances = [e for e in received if isinstance(e, LevelEntrance)]
+    entrances = [e for e in received if isinstance(e, LevelEntranceEvent)]
     assert len(entrances) == 1
     assert entrances[0].conditions == {}

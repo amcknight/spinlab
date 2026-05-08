@@ -4,10 +4,7 @@ from typing import Iterator
 
 import pytest
 
-from spinlab.retroarch.events import (
-    LevelEntrance,
-    TransitionEvent,
-)
+from spinlab.protocol import LevelEntranceEvent
 from spinlab.retroarch.poller import Poller, PollerDeps
 from spinlab.retroarch.snapshot import MemorySnapshot
 from spinlab.retroarch.state_io import StateIO
@@ -52,7 +49,7 @@ async def test_poller_uses_state_io_resolver_for_level_entrance(tmp_path):
         _snap(level_num=5),
         _snap(level_num=5, level_start=1),  # entrance
     ])
-    received: list[TransitionEvent] = []
+    received: list = []
 
     deps = PollerDeps(
         client=nci,
@@ -66,6 +63,6 @@ async def test_poller_uses_state_io_resolver_for_level_entrance(tmp_path):
     poller.stop()
     await task
 
-    entrances = [e for e in received if isinstance(e, LevelEntrance)]
+    entrances = [e for e in received if isinstance(e, LevelEntranceEvent)]
     assert len(entrances) == 1
     assert entrances[0].state_path.endswith("entrance_5_0.state")

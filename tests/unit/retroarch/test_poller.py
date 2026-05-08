@@ -3,7 +3,7 @@ from typing import Iterator
 
 import pytest
 
-from spinlab.retroarch.events import Death, TransitionEvent
+from spinlab.protocol import DeathEvent
 from spinlab.retroarch.poller import Poller, PollerDeps
 from spinlab.retroarch.snapshot import MemorySnapshot
 
@@ -41,7 +41,7 @@ async def test_poller_emits_death_event():
         _snap(player_anim=9),  # frame 2 -> death
         _snap(player_anim=9),  # frame 3 -> still dying, no event
     ])
-    received: list[TransitionEvent] = []
+    received: list = []
 
     deps = PollerDeps(
         client=_FakeClient(),
@@ -54,7 +54,7 @@ async def test_poller_emits_death_event():
     poller.stop()
     await task
 
-    assert any(isinstance(e, Death) for e in received), f"got: {received}"
+    assert any(isinstance(e, DeathEvent) for e in received), f"got: {received}"
 
 
 @pytest.mark.asyncio
@@ -69,7 +69,7 @@ async def test_poller_resync_clears_phantom_edges():
         _snap(player_anim=9),  # post-load: state where Mario is dead
         _snap(player_anim=9),  # next frame: still dead, no edge
     ])
-    received: list[TransitionEvent] = []
+    received: list = []
 
     deps = PollerDeps(
         client=_FakeClient(),
@@ -83,4 +83,4 @@ async def test_poller_resync_clears_phantom_edges():
     poller.stop()
     await task
 
-    assert not any(isinstance(e, Death) for e in received), f"got: {received}"
+    assert not any(isinstance(e, DeathEvent) for e in received), f"got: {received}"

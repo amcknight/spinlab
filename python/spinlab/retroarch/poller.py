@@ -22,11 +22,11 @@ import dataclasses
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from spinlab.condition_registry import ConditionRegistry
 from spinlab.retroarch.cold_fill import ColdFillSpawnDetector
 from spinlab.retroarch.detector import TransitionDetector
-from spinlab.retroarch.events import TransitionEvent
 from spinlab.retroarch.nci import NCIClient
 from spinlab.retroarch.snapshot import MemorySnapshot
 
@@ -37,8 +37,11 @@ DEFAULT_PERIOD_SEC = 1.0 / 60.0  # one frame at 60 Hz
 class PollerDeps:
     client: NCIClient
     read_snapshot: Callable[[NCIClient], MemorySnapshot]
-    on_event: Callable[[TransitionEvent], None]
-    state_path_for: Callable[[TransitionEvent], str] | None = None
+    # Event payload is a protocol dataclass instance (LevelEntranceEvent /
+    # DeathEvent / etc.). Typed Any here because the Union of every emitted
+    # type is verbose and the consumer pattern is isinstance-dispatch.
+    on_event: Callable[[Any], None]
+    state_path_for: Callable[[Any], str | None] | None = None
     conditions_registry: ConditionRegistry | None = None
 
 
@@ -52,7 +55,7 @@ class Poller:
         self._cold_fill = ColdFillSpawnDetector()
         self._start_ms = time.perf_counter() * 1000
 
-    def _stamp_state_path(self, ev: TransitionEvent) -> TransitionEvent:
+    def _stamp_state_path(self, ev: Any) -> Any:
         """Apply state_path_for resolver if configured. Returns event with stamped path."""
         if self._deps.state_path_for is None:
             return ev
@@ -63,7 +66,7 @@ class Poller:
             return ev
         return dataclasses.replace(ev, state_path=path)
 
-    def _stamp_conditions(self, ev: TransitionEvent) -> TransitionEvent:
+    def _stamp_conditions(self, ev: Any) -> Any:
         """Apply conditions_registry if configured. Returns event with populated conditions."""
         reg = self._deps.conditions_registry
         if reg is None:

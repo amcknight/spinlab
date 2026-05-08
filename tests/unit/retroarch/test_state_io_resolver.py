@@ -3,12 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from spinlab.retroarch.events import (
-    Checkpoint,
-    Death,
-    LevelEntrance,
-    LevelExit,
-    Spawn,
+from spinlab.protocol import (
+    CheckpointEvent,
+    DeathEvent,
+    LevelEntranceEvent,
+    LevelExitEvent,
+    SpawnEvent,
 )
 from spinlab.retroarch.state_io import StateIO
 
@@ -56,37 +56,37 @@ def test_has_state_for_true_after_file_created(state_io, tmp_path):
 
 def test_resolve_event_path_level_entrance_uses_level_room(state_io, tmp_path):
     """LevelEntrance state path keyed by level+room (no segment_id known yet)."""
-    ev = LevelEntrance(timestamp_ms=0, level=5, room=0)
+    ev = LevelEntranceEvent(timestamp_ms=0, level=5, room=0)
     p = state_io.resolve_event_path(ev)
     assert p.endswith("entrance_5_0.state")
 
 
 def test_resolve_event_path_checkpoint_uses_level_ordinal(state_io, tmp_path):
-    ev = Checkpoint(timestamp_ms=0, level_num=5, cp_type="midway", cp_ordinal=2)
+    ev = CheckpointEvent(timestamp_ms=0, level_num=5, cp_type="midway", cp_ordinal=2)
     p = state_io.resolve_event_path(ev)
     assert p.endswith("cp_5_2_hot.state")
 
 
 def test_resolve_event_path_spawn_uses_segment_id(state_io, tmp_path):
     """Cold-fill spawn carries its own segment_id."""
-    ev = Spawn(timestamp_ms=0, level_num=5, segment_id="seg-cold-1",
-               state_captured=True, is_cold_cp=True)
+    ev = SpawnEvent(timestamp_ms=0, level_num=5, segment_id="seg-cold-1",
+                    state_captured=True, is_cold_cp=True)
     p = state_io.resolve_event_path(ev)
     assert p.endswith("seg-cold-1.state")
 
 
 def test_resolve_event_path_spawn_without_segment_id_returns_empty(state_io):
     """Defensive: if for some reason segment_id is unset, return '' (no path)."""
-    ev = Spawn(timestamp_ms=0, level_num=5, segment_id="")
+    ev = SpawnEvent(timestamp_ms=0, level_num=5, segment_id="")
     assert state_io.resolve_event_path(ev) == ""
 
 
 def test_resolve_event_path_death_returns_empty(state_io):
     """Death has no state_path field — resolver returns ''."""
-    assert state_io.resolve_event_path(Death(timestamp_ms=0)) == ""
+    assert state_io.resolve_event_path(DeathEvent(timestamp_ms=0)) == ""
 
 
 def test_resolve_event_path_level_exit_returns_empty(state_io):
     """LevelExit isn't path-tagged — that's per the Lua audit."""
-    ev = LevelExit(timestamp_ms=0, level=5, goal="normal")
+    ev = LevelExitEvent(timestamp_ms=0, level=5, goal="normal")
     assert state_io.resolve_event_path(ev) == ""

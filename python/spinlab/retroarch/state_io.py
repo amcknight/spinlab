@@ -19,11 +19,12 @@ import shutil
 import time
 from pathlib import Path
 
-from spinlab.retroarch.events import (
-    Checkpoint,
-    LevelEntrance,
-    Spawn,
-    TransitionEvent,
+from typing import Any
+
+from spinlab.protocol import (
+    CheckpointEvent,
+    LevelEntranceEvent,
+    SpawnEvent,
 )
 from spinlab.retroarch.nci import NCIClient
 from spinlab.retroarch.state_paths import (
@@ -182,29 +183,29 @@ class StateIO:
 
     # -- event-shaped resolver -------------------------------------------------
 
-    def segment_id_for_event(self, event: TransitionEvent) -> str | None:
+    def segment_id_for_event(self, event: Any) -> str | None:
         """Single source of truth for the segment-id naming scheme.
 
         Naming conventions chosen to match lua/spinlab.lua's filename layout but
         flattened to the segment_id idiom where possible:
-          - LevelEntrance     -> "entrance_<level>_<room>"
-          - Checkpoint        -> "cp_<level>_<ordinal>_hot"  (hot only)
-          - Spawn (cold-fill) -> "<segment_id>" (segment_id-keyed; cold paths flow through here)
+          - LevelEntranceEvent  -> "entrance_<level>_<room>"
+          - CheckpointEvent     -> "cp_<level>_<ordinal>_hot"  (hot only)
+          - SpawnEvent (cold)   -> "<segment_id>" (segment_id-keyed; cold paths flow through here)
 
         Returns ``None`` when the event has no associated segment id (Death,
         LevelExit, Spawn with no segment_id). Both callers — the path resolver
         below and the orchestrator's save-on-event hook — go through here so
         the naming scheme has exactly one writer.
         """
-        if isinstance(event, LevelEntrance):
+        if isinstance(event, LevelEntranceEvent):
             return f"entrance_{event.level}_{event.room}"
-        if isinstance(event, Checkpoint):
+        if isinstance(event, CheckpointEvent):
             return f"cp_{event.level_num}_{event.cp_ordinal}_hot"
-        if isinstance(event, Spawn) and event.segment_id:
+        if isinstance(event, SpawnEvent) and event.segment_id:
             return event.segment_id
         return None
 
-    def resolve_event_path(self, event: TransitionEvent) -> str:
+    def resolve_event_path(self, event: Any) -> str:
         """Resolver for `PollerDeps.state_path_for`.
 
         Returns the absolute path string to stamp onto the event, or "" when no

@@ -4,12 +4,11 @@ from typing import Iterator
 
 import pytest
 
-from spinlab.retroarch.events import (
-    Checkpoint,
-    Death,
-    LevelEntrance,
-    Spawn,
-    TransitionEvent,
+from spinlab.protocol import (
+    CheckpointEvent,
+    DeathEvent,
+    LevelEntranceEvent,
+    SpawnEvent,
 )
 from spinlab.retroarch.poller import Poller, PollerDeps
 from spinlab.retroarch.snapshot import MemorySnapshot
@@ -41,12 +40,12 @@ async def test_state_path_for_called_on_each_event():
         _snap(level_num=5),  # seed
         _snap(level_num=5, level_start=1),  # entrance
     ])
-    received: list[TransitionEvent] = []
-    resolver_calls: list[TransitionEvent] = []
+    received: list = []
+    resolver_calls: list = []
 
-    def resolver(ev: TransitionEvent) -> str:
+    def resolver(ev) -> str:
         resolver_calls.append(ev)
-        if isinstance(ev, LevelEntrance):
+        if isinstance(ev, LevelEntranceEvent):
             return "/states/seg-1.state"
         return ""
 
@@ -62,7 +61,7 @@ async def test_state_path_for_called_on_each_event():
     poller.stop()
     await task
 
-    entrances = [e for e in received if isinstance(e, LevelEntrance)]
+    entrances = [e for e in received if isinstance(e, LevelEntranceEvent)]
     assert len(entrances) == 1
     assert entrances[0].state_path == "/states/seg-1.state"
     assert resolver_calls, "resolver was never invoked"
@@ -75,7 +74,7 @@ async def test_resolver_returning_empty_keeps_existing_state_path():
         _snap(player_anim=0),
         _snap(player_anim=9),
     ])
-    received: list[TransitionEvent] = []
+    received: list = []
 
     deps = PollerDeps(
         client=_FakeClient(),
@@ -89,7 +88,7 @@ async def test_resolver_returning_empty_keeps_existing_state_path():
     poller.stop()
     await task
 
-    deaths = [e for e in received if isinstance(e, Death)]
+    deaths = [e for e in received if isinstance(e, DeathEvent)]
     assert len(deaths) == 1
     # Death has no state_path field; this asserts we didn't crash trying to set one.
 
@@ -101,7 +100,7 @@ async def test_resolver_optional_default_none():
         _snap(level_num=5),
         _snap(level_num=5, level_start=1),
     ])
-    received: list[TransitionEvent] = []
+    received: list = []
 
     deps = PollerDeps(
         client=_FakeClient(),
@@ -115,12 +114,12 @@ async def test_resolver_optional_default_none():
     poller.stop()
     await task
 
-    entrances = [e for e in received if isinstance(e, LevelEntrance)]
+    entrances = [e for e in received if isinstance(e, LevelEntranceEvent)]
     assert len(entrances) == 1
-    assert entrances[0].state_path == ""  # detector default unchanged
+    assert entrances[0].state_path is None  # protocol default unchanged
 
 
 def test_spawn_has_segment_id_field():
-    """Spawn must carry segment_id so cold-fill resolution can compute its path."""
-    s = Spawn(timestamp_ms=0, level_num=5, segment_id="seg-x")
+    """SpawnEvent must carry segment_id so cold-fill resolution can compute its path."""
+    s = SpawnEvent(timestamp_ms=0, level_num=5, segment_id="seg-x")
     assert s.segment_id == "seg-x"
