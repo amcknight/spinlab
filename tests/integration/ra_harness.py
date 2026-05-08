@@ -66,7 +66,18 @@ class RAHarness:
         rom_path: Path,
         core_path: Path,
         retroarch_exe: Path,
+        extra_cfg: str = "",
     ) -> "RAHarness":
+        """Launch RetroArch headless with the given ROM and core.
+
+        Args:
+            rom_path: Path to the ROM file to load.
+            core_path: Path to the libretro core (.dll/.so).
+            retroarch_exe: Path to the retroarch executable.
+            extra_cfg: Additional retroarch.cfg key=value pairs to append to the
+                null-driver appendconfig. Used to override settings like
+                savestate_directory for tests that need an isolated save dir.
+        """
         for p, label in [(retroarch_exe, "retroarch_exe"), (core_path, "core_path"), (rom_path, "rom_path")]:
             if not p.exists():
                 raise RAHarnessLaunchError(f"{label} does not exist: {p}")
@@ -80,6 +91,8 @@ class RAHarness:
         try:
             with open(tmp_cfg_fd, "w") as f:
                 f.write(_NULL_DRIVER_CFG)
+                if extra_cfg:
+                    f.write(extra_cfg)
         except Exception:
             tmp_cfg_path.unlink(missing_ok=True)
             raise

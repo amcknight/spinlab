@@ -28,7 +28,9 @@ class EmulatorConfig:
     savestate_dir: Path | None = None
     spinlab_state_dir: Path | None = None
     ra_game_basename: str | None = None
-    ra_movie_dir: Path | None = None  # where RA writes .bsv files; None → discover via NCI GET_CONFIG_PARAM
+    ra_movie_dir: Path | None = None  # where RA writes movie files; None → discover via NCI
+    ra_core_subdir: str | None = None  # subdir name RA uses under savestate_directory for movies
+    # e.g. "Snes9x" for snes9x_libretro.dll — not derivable from the DLL stem automatically
 
 
 # SNES controller buttons reserved for the in-emulator invalidation combo.
@@ -77,6 +79,7 @@ class AppConfig:
         spinlab_state_dir = emu.get("spinlab_state_dir")
         ra_game_basename = emu.get("ra_game_basename")
         ra_movie_dir = emu.get("ra_movie_dir")
+        ra_core_subdir = emu.get("ra_core_subdir")
 
         practice_raw = raw.get("practice", {})
         practice_cfg = PracticeConfig(
@@ -101,6 +104,7 @@ class AppConfig:
                 spinlab_state_dir=Path(spinlab_state_dir) if spinlab_state_dir else None,
                 ra_game_basename=ra_game_basename if ra_game_basename else None,
                 ra_movie_dir=Path(ra_movie_dir) if ra_movie_dir else None,
+                ra_core_subdir=ra_core_subdir if ra_core_subdir else None,
             ),
             data_dir=Path(raw["data"]["dir"]),
             rom_dir=Path(rom_dir_str) if rom_dir_str else None,

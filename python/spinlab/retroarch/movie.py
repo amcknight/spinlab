@@ -13,6 +13,7 @@ production paths.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -91,7 +92,16 @@ class MovieRecorder:
                 f"after {self._poll_attempts} attempts × {self._poll_interval_s}s"
             )
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(new_file), str(dest))
+        # On Windows, RA may still hold the file handle briefly after writing.
+        # Copy first, then retry-delete the source to handle that race.
+        shutil.copy2(str(new_file), str(dest))
+        for attempt in range(self._poll_attempts):
+            try:
+                os.unlink(new_file)
+                break
+            except PermissionError:
+                if attempt < self._poll_attempts - 1:
+                    time.sleep(self._poll_interval_s)
         logger.info("MovieRecorder.stop: %s → %s", new_file.name, dest)
         return dest
 
