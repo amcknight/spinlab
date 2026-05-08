@@ -119,6 +119,22 @@ class NCIClient:
             crc32=bits[2].removeprefix("crc32="),
         )
 
+    def get_config_param(self, key: str) -> str:
+        """Read a runtime config param, e.g. 'movie_directory', 'savestate_directory'.
+
+        Reply format: GET_CONFIG_PARAM <key> "<value>"
+
+        Raises NCIProtocolError if the reply is malformed.
+        """
+        reply = self._send(f"GET_CONFIG_PARAM {key}")
+        parts = reply.split(maxsplit=2)
+        if len(parts) < 3:
+            raise NCIProtocolError(f"GET_CONFIG_PARAM reply too short: {reply!r}")
+        value = parts[2]
+        if value.startswith('"') and value.endswith('"'):
+            value = value[1:-1]
+        return value
+
     def read_ram(self, addr: int, length: int) -> bytes:
         """Read `length` bytes from WRAM-flat offset `addr`.
 
@@ -181,6 +197,33 @@ class NCIClient:
     def frame_advance(self) -> None:
         """Advance one frame (only meaningful while paused)."""
         self._send_no_reply("FRAMEADVANCE")
+
+    def bsv_record_toggle(self) -> None:
+        """Toggle BSV (libretro deterministic movie) recording on/off.
+
+        Fire-and-forget. RetroArch starts a new .bsv file in movie_directory on
+        record-on and finalizes it on record-off. The exact filename is chosen
+        by RA; use the recorder's mtime-baseline pattern to discover it.
+
+        NOTE: Phase E smoke test confirms this command's wire format. If the
+        command name is wrong on RA 1.22.2 the smoke test fails loudly and we
+        investigate alternatives (BSV_RECORD_TOGGLE, hotkey_bsv_record, etc.).
+        """
+        self._send_no_reply("BSV_RECORD_TOGGLE")
+
+    def bsv_play(self) -> None:
+        """Start BSV playback of whatever movie RA currently has loaded.
+
+        Fire-and-forget. Loading the .bsv file itself is out-of-band — typically
+        via CLI flag at launch (--bsvplay) or via filesystem placement.
+
+        NOTE: command name is provisional. Smoke test confirms.
+        """
+        self._send_no_reply("MOVIE_PLAYBACK_TOGGLE")
+
+    def bsv_stop(self) -> None:
+        """Stop BSV playback (toggle off)."""
+        self._send_no_reply("MOVIE_PLAYBACK_TOGGLE")
 
     def quit(self) -> None:
         """Tell RetroArch to shut down."""
