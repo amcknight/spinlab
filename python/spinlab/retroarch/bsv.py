@@ -111,7 +111,7 @@ class BSVPlayer:
     movie_dir: Path
     _staged_path: Path | None = field(default=None, init=False, repr=False)
     _is_playing: bool = field(default=False, init=False, repr=False)
-    _staged_name: str = "spinlab_replay.bsv"
+    _staged_name: str = field(default="spinlab_replay.bsv", init=False, repr=False)
 
     def is_playing(self) -> bool:
         return self._is_playing
@@ -132,15 +132,17 @@ class BSVPlayer:
     def stop(self) -> None:
         if not self._is_playing:
             return  # idempotent stop, like NCI's pause_toggle gating
-        self.client.bsv_stop()
-        self._is_playing = False
-        if self._staged_path is not None and self._staged_path.exists():
-            try:
-                self._staged_path.unlink()
-            except OSError as exc:
-                logger.warning("BSVPlayer.stop: could not unlink staged %s: %s",
-                               self._staged_path, exc)
-        self._staged_path = None
+        try:
+            self.client.bsv_stop()
+        finally:
+            self._is_playing = False
+            if self._staged_path is not None and self._staged_path.exists():
+                try:
+                    self._staged_path.unlink()
+                except OSError as exc:
+                    logger.warning("BSVPlayer.stop: could not unlink staged %s: %s",
+                                   self._staged_path, exc)
+            self._staged_path = None
         logger.info("BSVPlayer.stop")
 
 
