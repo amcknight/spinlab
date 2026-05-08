@@ -139,6 +139,60 @@ def test_get_status_contentless(fake_nci_server):
     assert status == StatusInfo(state="CONTENTLESS", system=None, game=None, crc32=None)
 
 
+def test_get_config_param_parses_reply(fake_nci_server):
+    fake_nci_server.handle(
+        "GET_CONFIG_PARAM movie_directory",
+        'GET_CONFIG_PARAM movie_directory "C:/RetroArch-Win64/states"\n',
+    )
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    assert client.get_config_param("movie_directory") == "C:/RetroArch-Win64/states"
+
+
+def test_get_config_param_strips_quotes(fake_nci_server):
+    """Values returned by RA are quoted; the method strips them."""
+    fake_nci_server.handle(
+        "GET_CONFIG_PARAM savestate_directory",
+        'GET_CONFIG_PARAM savestate_directory "/home/user/saves"\n',
+    )
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    assert client.get_config_param("savestate_directory") == "/home/user/saves"
+
+
+def test_get_config_param_unquoted_value(fake_nci_server):
+    """A value without quotes is returned as-is."""
+    fake_nci_server.handle(
+        "GET_CONFIG_PARAM some_key",
+        "GET_CONFIG_PARAM some_key somevalue\n",
+    )
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    assert client.get_config_param("some_key") == "somevalue"
+
+
+def test_get_config_param_short_reply_raises(fake_nci_server):
+    """A reply with fewer than 3 parts raises NCIProtocolError."""
+    fake_nci_server.handle(
+        "GET_CONFIG_PARAM only_two",
+        "GET_CONFIG_PARAM only_two\n",
+    )
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    with pytest.raises(NCIProtocolError, match="GET_CONFIG_PARAM reply too short"):
+        client.get_config_param("only_two")
+
+
+def test_get_config_param_sends_correct_command(fake_nci_server):
+    """The command sent to RA includes the key name."""
+    received = []
+
+    def capture(cmd: str) -> str:
+        received.append(cmd)
+        return f'GET_CONFIG_PARAM {cmd.split()[1]} "some_value"\n'
+
+    fake_nci_server.handle("GET_CONFIG_PARAM", capture)
+    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
+    client.get_config_param("movie_directory")
+    assert received == ["GET_CONFIG_PARAM movie_directory"]
+
+
 @pytest.mark.parametrize(
     "method,args,expected_command",
     [
@@ -148,6 +202,12 @@ def test_get_status_contentless(fake_nci_server):
         ("pause_toggle", (), "PAUSE_TOGGLE"),
         ("frame_advance", (), "FRAMEADVANCE"),
         ("quit", (), "QUIT"),
+        # BSV movie commands — all fire-and-forget via _send_no_reply.
+        ("bsv_record_toggle", (), "BSV_RECORD_TOGGLE"),
+        # bsv_play and bsv_stop both map to MOVIE_PLAYBACK_TOGGLE (RA models
+        # playback as a toggle, so start and stop use the same wire command).
+        ("bsv_play", (), "MOVIE_PLAYBACK_TOGGLE"),
+        ("bsv_stop", (), "MOVIE_PLAYBACK_TOGGLE"),
     ],
 )
 def test_fire_and_forget_commands(fake_nci_server, method, args, expected_command):
