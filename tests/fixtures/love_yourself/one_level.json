@@ -9,7 +9,7 @@
   "determinism_probe": {
     "frame": 1000,
     "addr": 148,
-    "expected_byte": 0,
-    "_comment": "Placeholder probe — addr 0x94 is Mario X-low. expected_byte will be measured by Task 7."
+    "expected_byte": 8,
+    "_comment": "addr 0x94 is Mario X-low. expected_byte=8 measured by Task 7 determinism test at ~3s (~180 frames) into playback. Both runs returned identical value, confirming determinism under runahead=2 + secondary-instance=true."
   }
 }

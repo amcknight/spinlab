@@ -6,13 +6,14 @@ tests in Tasks 7-8 require Andrew to first record a real fixture under Task 6.
 """
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
 import pytest
 import yaml
 
-from spinlab.retroarch.movie import MovieRecorder, discover_movie_dir
+from spinlab.retroarch.movie import MoviePlayer, MovieRecorder, discover_movie_dir
 from tests.integration.conftest import (
     LOVE_YOURSELF_ROM_NAME,
     skip_no_love_yourself,
@@ -170,3 +171,96 @@ def test_movie_record_creates_file(movie_harness, tmp_path: Path):
     assert snap_before != snap_after, (
         "FRAMEADVANCE no longer ticks core after movie record"
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 7 — determinism smoke test
+# ---------------------------------------------------------------------------
+
+FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "love_yourself"
+
+# How long to let movie playback run before sampling WRAM. 3 seconds at 60 fps
+# puts us roughly at frame 180 — well into gameplay, past any title screen or
+# initial loading frames. Short enough to keep the test under 30s total (two
+# runs + overhead).
+_PLAYBACK_SAMPLE_DURATION_S = 3.0
+
+# Brief settle pause after halt_replay before reading RAM. halt_replay is
+# fire-and-forget; without a short wait the NCI read can race the RA core
+# thread's replay-stop cleanup.
+_HALT_SETTLE_S = 0.1
+
+
+def _load_fixture_metadata() -> dict:
+    return json.loads((FIXTURE_DIR / "one_level.json").read_text())
+
+
+def _play_and_read(harness: "RAHarness", movie_dir: Path, fixture: Path, addr: int) -> int:
+    """Start playback, let it run for _PLAYBACK_SAMPLE_DURATION_S, read byte at
+    ``addr``, stop playback, return RA to paused state.
+
+    Assumes RA is in PAUSED state on entry. Leaves RA in PAUSED state on exit
+    (whether or not an exception is raised).
+    """
+    client = harness.client
+    player = MoviePlayer(client=client, movie_dir=movie_dir)
+
+    # play_replay requires PLAYING state — unpause first.
+    client.pause_toggle()
+    time.sleep(0.1)
+
+    try:
+        player.play(fixture)
+        # Let the movie run freely for the sample window.
+        time.sleep(_PLAYBACK_SAMPLE_DURATION_S)
+        b = client.read_ram(addr, 1)[0]
+    finally:
+        player.stop()
+        time.sleep(_HALT_SETTLE_S)
+        # Re-pause to restore harness invariant (PAUSED) for the next run.
+        status = client.get_status()
+        if status.state == "PLAYING":
+            client.pause_toggle()
+            time.sleep(0.1)
+
+    return b
+
+
+@pytest.mark.skipif(
+    not (FIXTURE_DIR / "one_level.replay").exists(),
+    reason="one_level.replay fixture not recorded yet",
+)
+def test_movie_playback_deterministic(movie_harness):
+    """Same fixture, played twice in the same RA session, must produce identical
+    memory at the same elapsed time. Validates determinism under our RA config
+    (runahead=2, secondary-instance=true, cheevos-off, replay_max_keep>=99).
+
+    Uses a time-window sample (not frame-advance) because PLAY_REPLAY puts RA
+    into PLAYING state; FRAMEADVANCE is a no-op during free-running playback.
+    Both runs sleep the same duration (_PLAYBACK_SAMPLE_DURATION_S) so they
+    read at approximately the same playback frame.
+    """
+    harness, movie_dir = movie_harness
+    meta = _load_fixture_metadata()
+    probe = meta["determinism_probe"]
+    addr = probe["addr"]
+    expected_byte = probe["expected_byte"]
+    fixture = FIXTURE_DIR / "one_level.replay"
+
+    byte_run_1 = _play_and_read(harness, movie_dir, fixture, addr)
+    byte_run_2 = _play_and_read(harness, movie_dir, fixture, addr)
+
+    assert byte_run_1 == byte_run_2, (
+        f"Non-deterministic playback: run1={byte_run_1:#x} run2={byte_run_2:#x} "
+        f"addr={addr:#x} after {_PLAYBACK_SAMPLE_DURATION_S}s of playback"
+    )
+
+    # On first run expected_byte is the placeholder (0). If actual differs,
+    # surface it so the test maintainer can refine one_level.json.
+    if byte_run_1 != expected_byte:
+        pytest.fail(
+            f"Determinism check passed (both runs returned {byte_run_1:#x}), "
+            f"but metadata's expected_byte={expected_byte:#x} differs. "
+            f"Update tests/fixtures/love_yourself/one_level.json to set "
+            f"determinism_probe.expected_byte = {byte_run_1}."
+        )
