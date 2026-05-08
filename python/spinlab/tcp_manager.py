@@ -82,6 +82,29 @@ class TcpManager:
         """Send a typed protocol command (serialized to JSON)."""
         await self.send(serialize_command(cmd))
 
+    async def save_state(self, segment_id: str) -> None:
+        """No-op under the Mesen backend.
+
+        Lua autonomously writes save state files when it observes
+        save-eligible transition events (entrance / checkpoint while
+        recording, cold-fill spawns). The state_path on the inbound
+        event is set by Lua and read by the recorder; Python doesn't
+        need to do anything here. The method exists to satisfy the
+        EmuBackend Protocol so capture controllers can call it
+        backend-agnostically.
+        """
+        return None
+
+    async def load_state(self, state_path: str) -> None:
+        """No-op under the Mesen backend.
+
+        Lua's practice loop owns state loading: it loads on every
+        ``practice_load`` command and re-loads via its ``pending_loads``
+        queue on every detected death frame. Python doesn't need to
+        act here.
+        """
+        return None
+
     async def recv_event(self, timeout: float | None = None) -> dict | None:
         """Wait for the next JSON event from the queue. Returns None on timeout."""
         try:
