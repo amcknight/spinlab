@@ -60,12 +60,17 @@ likewise share `spinlab.condition_registry.ConditionRegistry`.
 3. `TransitionDetector.step(snap, ts)` returns 0..N protocol events. The poller stamps `state_path` (via `StateIO.resolve_event_path`) and `conditions` (via `ConditionRegistry.read_all`), then calls `on_event(ev)`.
 4. `ColdFillSpawnDetector.step(snap, ts)` runs after the detector. Returns at most one `SpawnEvent` per activation; deactivates after emitting.
 5. `RetroArchOrchestrator.on_poller_event(ev)` is the registered callback. It:
-   - Calls `_maybe_save_state_for(ev)` — saves a state file when needed (cold-fill spawn or reference recording). *(Pending move to capture controllers — see `docs/superpowers/plans/2026-05-07-backend-layering.md`.)*
-   - Calls `_maybe_reload_state_on_death(ev)` — practice-mode reload via `state_io.load_state_from_path` when the player dies. *(Pending move to PracticeSession.)*
    - Converts `ev` to a JSON dict via `dataclasses.asdict` (the protocol classes carry the discriminator `event` field).
    - Feeds the dict to `PracticeTiming.observe_event` and `SpeedRunTiming.observe_event`.
    - Enqueues to `events`.
 6. The dashboard's event loop reads from `events` via `recv_event` and calls `session_manager.route_event(d)`.
+
+**Save-on-event and reload-on-death live in the application layer**, not the orchestrator. Capture controllers and `PracticeSession` call `EmuBackend.save_state(seg_id)` / `EmuBackend.load_state(path)` directly:
+- `ReferenceController.handle_entrance` / `handle_checkpoint` save when `is_recording`.
+- `ColdFillController.handle_spawn` saves the cold variant.
+- `PracticeSession.handle_death` / `handle_level_exit_abort` reload the segment's start state on Death and pit-fall events.
+
+Under RA the orchestrator's `save_state` / `load_state` wrap `StateIO` in worker threads; under Mesen they're no-ops because Lua handles state I/O autonomously.
 
 ## Save-state I/O
 
