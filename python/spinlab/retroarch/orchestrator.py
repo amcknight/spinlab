@@ -494,27 +494,24 @@ def build_orchestrator(config) -> "RetroArchOrchestrator":
     )
     poller = Poller(deps, period_sec=DEFAULT_PERIOD_SEC)
 
-    from spinlab.retroarch.movie import MoviePlayer, MovieRecorder, discover_movie_dir
+    from spinlab.retroarch.movie import MoviePlayer, MovieRecorder
 
     # Resolve where RA writes movie files. Priority:
     #   1. emu.ra_movie_dir (explicit override)
-    #   2. discover_movie_dir(client, emu.ra_core_subdir) if ra_core_subdir available
-    #   3. None — disables both the recorder and the player
+    #   2. emu.savestate_dir / emu.ra_core_subdir (derived from existing config)
+    #   3. None — disables recorder/player
+    # No NCI call needed — both fields are already in config, so this works even
+    # when RA is not yet running (the common case at dashboard startup).
     movie_dir: Path | None
     if emu.ra_movie_dir is not None:
         movie_dir = emu.ra_movie_dir
-    elif emu.ra_core_subdir:
-        try:
-            movie_dir = discover_movie_dir(client, emu.ra_core_subdir)
-        except Exception as exc:
-            logger.warning(
-                "build_orchestrator: movie recorder/player disabled — could not discover movie_dir: %s",
-                exc,
-            )
-            movie_dir = None
+    elif emu.savestate_dir is not None and emu.ra_core_subdir:
+        movie_dir = emu.savestate_dir / emu.ra_core_subdir
+        logger.info("build_orchestrator: movie_dir derived as %s", movie_dir)
     else:
         logger.info(
-            "build_orchestrator: movie recorder/player disabled — neither emu.ra_movie_dir nor emu.ra_core_subdir set"
+            "build_orchestrator: movie recorder/player disabled — set emu.ra_movie_dir "
+            "or emu.savestate_dir + emu.ra_core_subdir to enable",
         )
         movie_dir = None
 

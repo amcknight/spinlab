@@ -59,3 +59,38 @@ def test_build_orchestrator_accepts_missing_ra_game_basename(tmp_path):
     cfg = _config(tmp_path, ra_game_basename=None)
     orch = build_orchestrator(cfg)
     assert orch is not None  # no ValueError raised
+
+
+# ---------------------------------------------------------------------------
+# movie_dir resolution: three branches, no NCI required
+# ---------------------------------------------------------------------------
+
+def test_movie_dir_explicit_ra_movie_dir(tmp_path):
+    """Branch 1: emu.ra_movie_dir set → recorder/player use that dir."""
+    explicit = tmp_path / "custom_movies"
+    cfg = _config(tmp_path, ra_movie_dir=explicit, ra_core_subdir="Snes9x")
+    orch = build_orchestrator(cfg)
+    assert orch._movie_recorder is not None
+    assert orch._movie_player is not None
+    assert orch._movie_recorder.movie_dir == explicit
+    assert orch._movie_player.movie_dir == explicit
+
+
+def test_movie_dir_derived_from_savestate_and_core_subdir(tmp_path):
+    """Branch 2: ra_movie_dir=None, savestate_dir + ra_core_subdir → derive dir."""
+    savestate = tmp_path / "ra"
+    cfg = _config(tmp_path, ra_movie_dir=None, ra_core_subdir="Snes9x")
+    orch = build_orchestrator(cfg)
+    expected = savestate / "Snes9x"
+    assert orch._movie_recorder is not None
+    assert orch._movie_player is not None
+    assert orch._movie_recorder.movie_dir == expected
+    assert orch._movie_player.movie_dir == expected
+
+
+def test_movie_dir_none_disables_recorder_and_player(tmp_path):
+    """Branch 3: neither ra_movie_dir nor ra_core_subdir → recorder/player are None."""
+    cfg = _config(tmp_path, ra_movie_dir=None, ra_core_subdir=None)
+    orch = build_orchestrator(cfg)
+    assert orch._movie_recorder is None
+    assert orch._movie_player is None
