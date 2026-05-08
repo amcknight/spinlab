@@ -67,3 +67,22 @@ def test_invalidate_combo_custom(tmp_path: Path):
     )
     conf = AppConfig.from_yaml(cfg)
     assert conf.practice.invalidate_combo == ["R", "Start"]
+
+
+def test_ra_movie_dir_parsed_from_yaml(tmp_path):
+    cfg_yaml = tmp_path / "config.yaml"
+    cfg_yaml.write_text(
+        "data:\n"
+        "  dir: /tmp/data\n"
+        "emulator:\n"
+        "  backend: retroarch\n"
+        "  ra_movie_dir: /custom/movies\n"
+    )
+    cfg = AppConfig.from_yaml(cfg_yaml)
+    assert cfg.emulator.ra_movie_dir == Path("/custom/movies")
+
+
+def test_ra_movie_dir_defaults_to_none():
+    from spinlab.config import EmulatorConfig
+    emu = EmulatorConfig()
+    assert emu.ra_movie_dir is None
