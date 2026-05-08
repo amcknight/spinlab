@@ -1,14 +1,26 @@
-"""SNES memory address constants — parsed from lua/addresses.lua (single source of truth)."""
-import re
-from pathlib import Path
+"""SMW WRAM address constants — re-export from spinlab.retroarch.addresses.
 
-_LUA_FILE = Path(__file__).resolve().parents[2] / "lua" / "addresses.lua"
+The Python source of truth for memory addresses lives at
+spinlab.retroarch.addresses. This file exists as a Mesen-era compatibility
+shim; under the RA harness it just re-exports the canonical values so that
+poke_parser.py (and any other consumer of ADDR_MAP) reads them from one place.
 
-ADDR_MAP: dict[str, int] = {}
+Note: the keys here MUST match the names used in tests/integration/scenarios/
+.poke files (e.g., 'game_mode', 'level_num') — those names are stable user
+input, not implementation detail.
+"""
+from spinlab.retroarch import addresses as _a
 
-for line in _LUA_FILE.read_text().splitlines():
-    m = re.match(r"(ADDR_\w+)\s*=\s*(0x[0-9a-fA-F]+)", line)
-    if m:
-        # Convert ADDR_GAME_MODE -> game_mode
-        key = m.group(1).replace("ADDR_", "").lower()
-        ADDR_MAP[key] = int(m.group(2), 16)
+ADDR_MAP: dict[str, int] = {
+    "game_mode": _a.ADDR_GAME_MODE,
+    "level_num": _a.ADDR_LEVEL_NUM,
+    "room_num": _a.ADDR_ROOM_NUM,
+    "level_start": _a.ADDR_LEVEL_START,
+    "player_anim": _a.ADDR_PLAYER_ANIM,
+    "exit_mode": _a.ADDR_EXIT_MODE,
+    "io_port": _a.ADDR_IO,
+    "fanfare": _a.ADDR_FANFARE,
+    "boss_defeat": _a.ADDR_BOSS_DEFEAT,
+    "midway": _a.ADDR_MIDWAY,
+    "cp_entrance": _a.ADDR_CP_ENTRANCE,
+}
