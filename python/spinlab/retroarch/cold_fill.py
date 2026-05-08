@@ -2,12 +2,21 @@
 
 Activated externally with a segment id. Observes death-then-spawn sequence,
 emits a single Spawn event with is_cold_cp=True, deactivates. Mirrors
-lua/spinlab.lua's handle_cold_fill.
+lua/spinlab.lua's handle_cold_fill — but extends it to also detect
+death-falls (exit_mode going non-zero without a goal). Lua's narrow
+`anim == 9` check missed pit-falls; in practice, many SMW deaths skip the
+sprite-hit animation entirely and go straight from playing to falling
+off-screen, which only shows up as an exit_mode change.
 """
 from __future__ import annotations
 
+from spinlab.retroarch import addresses as a
 from spinlab.retroarch.events import Spawn
-from spinlab.retroarch.predicates import LEVEL_START_ACTIVE, PLAYER_ANIM_DEAD
+from spinlab.retroarch.predicates import (
+    FANFARE_ACTIVE,
+    LEVEL_START_ACTIVE,
+    PLAYER_ANIM_DEAD,
+)
 from spinlab.retroarch.snapshot import MemorySnapshot
 
 
@@ -18,6 +27,7 @@ class ColdFillTracker:
         self._segment_id: str | None = None
         self._prev_anim = 0
         self._prev_level_start = 0
+        self._prev_exit_mode = 0
 
     def is_active(self) -> bool:
         return self._active
@@ -28,6 +38,7 @@ class ColdFillTracker:
         self._segment_id = segment_id
         self._prev_anim = 0
         self._prev_level_start = 0
+        self._prev_exit_mode = 0
 
     def step(self, curr: MemorySnapshot, timestamp_ms: int) -> Spawn | None:
         if not self._active:
@@ -36,8 +47,20 @@ class ColdFillTracker:
         emitted: Spawn | None = None
 
         if not self._waiting_spawn:
-            # Look for death.
-            if curr.player_anim == PLAYER_ANIM_DEAD and self._prev_anim != PLAYER_ANIM_DEAD:
+            died_sprite = (
+                curr.player_anim == PLAYER_ANIM_DEAD
+                and self._prev_anim != PLAYER_ANIM_DEAD
+            )
+            # Pit-fall / death-fall: exit_mode goes non-zero without any goal
+            # signal. The detector emits LevelExit for the same edge but with
+            # goal_type='abort'; we treat that as a death too. Guard against
+            # goal-triggered exits by checking fanfare and io_port.
+            died_via_exit = (
+                curr.exit_mode != 0 and self._prev_exit_mode == 0
+                and curr.fanfare != FANFARE_ACTIVE
+                and curr.io_port not in (a.IO_GOAL, a.IO_ORB, a.IO_KEY)
+            )
+            if died_sprite or died_via_exit:
                 self._waiting_spawn = True
         else:
             edge_spawn = (
@@ -63,4 +86,5 @@ class ColdFillTracker:
 
         self._prev_anim = curr.player_anim
         self._prev_level_start = curr.level_start
+        self._prev_exit_mode = curr.exit_mode
         return emitted

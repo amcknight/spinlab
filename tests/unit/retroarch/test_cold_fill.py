@@ -44,3 +44,50 @@ def test_fast_retry_path():
     cf.step(_snap(player_anim=9, level_start=1), timestamp_ms=16)
     e = cf.step(_snap(player_anim=0, level_start=1), timestamp_ms=32)
     assert isinstance(e, Spawn)
+
+
+def test_pit_fall_death_via_exit_mode_then_spawn():
+    """Real-world: many SMW deaths skip anim=9 entirely (Mario falls off
+    screen). The only signal is exit_mode going non-zero with no goal flag.
+    Without this path, pit-falls in cold-fill never advance to spawn-watch."""
+    cf = ColdFillTracker()
+    cf.activate(segment_id="seg-pit")
+
+    # Playing — exit_mode 0, anim 0.
+    cf.step(_snap(player_anim=0, level_start=1, exit_mode=0), timestamp_ms=0)
+    # Mario falls in a pit: exit_mode 0 -> non-zero, no goal/orb/key/fanfare.
+    cf.step(_snap(player_anim=0, level_start=1, exit_mode=1), timestamp_ms=16)
+    # Now waiting for spawn.
+    # Level transitions, level_start 1 -> 0 briefly.
+    cf.step(_snap(player_anim=0, level_start=0, exit_mode=1), timestamp_ms=32)
+    # Respawn: level_start back to 1.
+    e = cf.step(_snap(player_anim=0, level_start=1, exit_mode=0), timestamp_ms=48)
+
+    assert isinstance(e, Spawn), \
+        "pit-fall death should advance through to spawn capture"
+    assert e.is_cold_cp is True
+    assert e.segment_id == "seg-pit"
+
+
+def test_goal_exit_does_not_count_as_death():
+    """exit_mode change WITH a goal signal (fanfare or io_port=goal/orb/key)
+    is a normal level completion, not a death. Cold-fill must not treat it
+    as a death indicator."""
+    from spinlab.retroarch import addresses as a
+
+    cf = ColdFillTracker()
+    cf.activate(segment_id="seg-goal")
+
+    cf.step(_snap(player_anim=0, level_start=1, exit_mode=0), timestamp_ms=0)
+    # Mario hits goal tape: exit_mode goes non-zero AND fanfare lights up.
+    cf.step(_snap(player_anim=0, level_start=1, exit_mode=1, fanfare=1), timestamp_ms=16)
+    # Should still be waiting for death, not for spawn.
+    assert cf._waiting_spawn is False, \
+        "goal exit should not be misclassified as death"
+
+    # Same for orb/key:
+    cf2 = ColdFillTracker()
+    cf2.activate(segment_id="seg-orb")
+    cf2.step(_snap(player_anim=0, level_start=1, exit_mode=0), timestamp_ms=0)
+    cf2.step(_snap(player_anim=0, level_start=1, exit_mode=1, io_port=a.IO_ORB), timestamp_ms=16)
+    assert cf2._waiting_spawn is False

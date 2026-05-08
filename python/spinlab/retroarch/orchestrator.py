@@ -430,10 +430,18 @@ class RetroArchOrchestrator:
         death frame. The state path is the one PracticeLoadCmd handed us;
         we reload via state_io.load_state_from_path on a worker thread so
         SAVE/LOAD's mtime polling doesn't block the asyncio loop.
-        """
-        from spinlab.retroarch.events import Death
 
-        if not isinstance(ev, Death):
+        Also fires on pit-fall / death-fall LevelExits (goal=='abort'):
+        those are deaths from the player's perspective even though the
+        narrow `is_death_frame` (anim=9) doesn't catch them. Without this
+        the player has to wait for AttemptResult's auto_advance_delay_ms
+        before the reload kicks in via the next PracticeLoadCmd.
+        """
+        from spinlab.retroarch.events import Death, LevelExit
+
+        is_death = isinstance(ev, Death)
+        is_death_fall = isinstance(ev, LevelExit) and ev.goal == "abort"
+        if not (is_death or is_death_fall):
             return
         if not self._practice_timing.is_armed:
             return  # not in practice; let other modes handle their own deaths
