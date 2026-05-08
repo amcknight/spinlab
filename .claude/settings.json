@@ -61,9 +61,13 @@
       "Bash(python -m pyflakes python/spinlab/estimators/rolling_mean.py)",
       "Bash(python -m mypy python/spinlab/estimators/rolling_mean.py --ignore-missing-imports)",
       "Bash(ruff check *)",
-      "Bash(npx pyright *)"
+      "Bash(npx pyright *)",
+      "Bash(awk -F'\\\\t' 'length\\($2\\) > 88 {print NR\": \"length\\($2\\)\" chars: \"$2}')",
+      "Bash(npx vite *)"
     ],
-    "additionalDirectories": []
+    "additionalDirectories": [
+      "C:\\RetroArch-Win64"
+    ]
   },
   "enabledPlugins": {
     "playwright@claude-plugins-official": true,

@@ -11,8 +11,10 @@ session_manager, capture controllers) work unchanged.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 from collections.abc import Callable
+from typing import Any
 
 from spinlab.protocol import (
     ColdFillLoadCmd,
@@ -31,10 +33,19 @@ from spinlab.protocol import (
     SpeedRunStopCmd,
 )
 from spinlab.condition_registry import ConditionRegistry
-from spinlab.retroarch.event_adapter import to_protocol_dict, to_rom_info_dict
-from spinlab.retroarch.events import TransitionEvent
 from spinlab.retroarch.exceptions import NCIError
+from spinlab.retroarch.responses import StatusInfo
 from spinlab.retroarch.timing import PracticeTiming, SpeedRunTiming
+
+
+def _rom_info_dict(status: StatusInfo) -> dict:
+    """Build a `rom_info` JSON dict from NCI's GET_STATUS reply.
+
+    Used at orchestrator startup to mimic the Lua-emitted RomInfoEvent
+    so the dashboard sees the game name immediately. Inlined here from the
+    deleted event_adapter module — only one caller.
+    """
+    return {"event": "rom_info", "filename": status.game or ""}
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +163,7 @@ class RetroArchOrchestrator:
         # "Toothpaste World" but ROM is "Toothpaste.smc").
         try:
             status = self._client.get_status()
-            self.events.put_nowait(to_rom_info_dict(status))
+            self.events.put_nowait(_rom_info_dict(status))
             if status.game and hasattr(self._state_io, "update_game_basename"):
                 self._state_io.update_game_basename(status.game)
         except NCIError:
@@ -337,7 +348,7 @@ class RetroArchOrchestrator:
     # Event plumbing
     # ------------------------------------------------------------------
 
-    def on_poller_event(self, ev: TransitionEvent) -> None:
+    def on_poller_event(self, ev: Any) -> None:
         """Sync callback for the poller's on_event. Convert to protocol dict + enqueue.
 
         Public so the factory/builder that wires the poller (e.g. in
@@ -358,8 +369,13 @@ class RetroArchOrchestrator:
         # we run it in a worker thread so the asyncio loop stays responsive.
         self._maybe_reload_state_on_death(ev)
 
+        # The detector emits protocol dataclasses (LevelEntranceEvent etc.).
+        # asdict already populates the discriminator `event` field from the
+        # dataclass default — no manual translation needed. Was an
+        # event_adapter module that hand-mapped fields and dropped the
+        # rich-shape extras (room/elapsed_ms/segment_id); deleting it here.
         try:
-            d = to_protocol_dict(ev)
+            d = dataclasses.asdict(ev)
         except TypeError:
             logger.warning(
                 "RetroArchOrchestrator: dropping unknown event type %r",
@@ -371,7 +387,7 @@ class RetroArchOrchestrator:
         self._speed_run_timing.observe_event(d)
         self.events.put_nowait(d)
 
-    def _maybe_save_state_for(self, ev: TransitionEvent) -> None:
+    def _maybe_save_state_for(self, ev: Any) -> None:
         """Capture a savestate if this event needs to back its `state_path` field.
 
         Two cases trigger a save:
@@ -385,12 +401,12 @@ class RetroArchOrchestrator:
         consumers, not producers. Saving in those modes would clobber the
         reference's captured states.
         """
-        from spinlab.retroarch.events import Checkpoint, LevelEntrance, Spawn
+        from spinlab.protocol import CheckpointEvent, LevelEntranceEvent, SpawnEvent
 
-        if isinstance(ev, Spawn):
+        if isinstance(ev, SpawnEvent):
             if not (ev.is_cold_cp and ev.segment_id):
                 return
-        elif isinstance(ev, (LevelEntrance, Checkpoint)):
+        elif isinstance(ev, (LevelEntranceEvent, CheckpointEvent)):
             if not self._recording:
                 return
         else:
@@ -423,7 +439,7 @@ class RetroArchOrchestrator:
                 ev_name, seg_id,
             )
 
-    def _maybe_reload_state_on_death(self, ev: TransitionEvent) -> None:
+    def _maybe_reload_state_on_death(self, ev: Any) -> None:
         """Practice-mode death → reload the segment's start state.
 
         Lua's `handle_practice` did this synchronously on every detected
@@ -437,10 +453,10 @@ class RetroArchOrchestrator:
         the player has to wait for AttemptResult's auto_advance_delay_ms
         before the reload kicks in via the next PracticeLoadCmd.
         """
-        from spinlab.retroarch.events import Death, LevelExit
+        from spinlab.protocol import DeathEvent, LevelExitEvent
 
-        is_death = isinstance(ev, Death)
-        is_death_fall = isinstance(ev, LevelExit) and ev.goal == "abort"
+        is_death = isinstance(ev, DeathEvent)
+        is_death_fall = isinstance(ev, LevelExitEvent) and ev.goal == "abort"
         if not (is_death or is_death_fall):
             return
         if not self._practice_timing.is_armed:

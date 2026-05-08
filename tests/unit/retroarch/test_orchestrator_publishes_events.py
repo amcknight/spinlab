@@ -7,9 +7,8 @@ from typing import Iterator
 
 import pytest
 
-from spinlab.protocol import PracticeLoadCmd
+from spinlab.protocol import DeathEvent, LevelExitEvent, PracticeLoadCmd
 from spinlab.condition_registry import ConditionRegistry
-from spinlab.retroarch.events import Death, LevelExit
 from spinlab.retroarch.orchestrator import RetroArchOrchestrator
 from spinlab.retroarch.poller import Poller, PollerDeps
 from spinlab.retroarch.responses import StatusInfo
@@ -169,9 +168,9 @@ async def test_end_to_end_practice_attempt_result_emitted(tmp_path):
 
     # Inject a death and a goal-exit through the orchestrator's event path.
     # This bypasses the poller's snapshot loop so the test is deterministic.
-    orch.on_poller_event(Death(timestamp_ms=100))
+    orch.on_poller_event(DeathEvent(timestamp_ms=100))
     orch.on_poller_event(
-        LevelExit(timestamp_ms=200, level=5, room=0, goal="normal", elapsed_ms=2000, frame=120)
+        LevelExitEvent(timestamp_ms=200, level=5, room=0, goal="normal", elapsed_ms=2000, frame=120)
     )
 
     # The tick loop is running; attempt_result should fire after auto_advance_delay_ms.
