@@ -338,6 +338,13 @@ class ReferenceController:
     ) -> ActionResult:
         """Combined Stop Session + Finalize, atomic.
 
+        Two valid entry conditions:
+          - mode == REFERENCE: full atomic stop + finalize.
+          - mode == IDLE and paused_run_id is set: the user already clicked
+            Stop separately; just finalize the paused run. Delegates to
+            finalize_run so the dashboard's primary "Save & Finish Run"
+            button works regardless of whether the user clicked Stop first.
+
         Inlines mutations on ``db.conn`` inside an explicit ``BEGIN IMMEDIATE``
         because the mixin methods each call ``conn.commit()`` internally —
         calling them inside an outer transaction would commit partial work and
@@ -347,6 +354,10 @@ class ReferenceController:
         transaction since it is non-transactional; recorder state is cleared
         only on successful commit via ``_enter_idle``.
         """
+        # Already-stopped case: just promote the draft. finalize_run handles
+        # the lighter version (no recorder/session state to wind down).
+        if mode == Mode.IDLE and self.paused_run_id:
+            return await self.finalize_run(name, scheduler=scheduler)
         if mode != Mode.REFERENCE:
             raise NotInReferenceError()
         if self.tcp.is_connected:

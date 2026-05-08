@@ -41,6 +41,32 @@ async def started_session(controller, db, tmp_path):
     return controller
 
 
+# --- Save & Finish from already-stopped (paused) state ---
+
+@pytest.mark.asyncio
+async def test_save_and_finish_from_paused_after_stop_finalizes(started_session, db):
+    """Regression: clicking Save & Finish AFTER Stop should finalize the
+    paused run, not silently 409. The dashboard's primary save button stays
+    visible after Stop and users expect it to work either way."""
+    sess_id = started_session.recorder.current_capture_session_id
+    run_id = started_session.recorder.capture_run_id
+    db.add_recorded_segment_time(sess_id, "seg_a", time_ms=2000, deaths=0, clean_tail_ms=2000)
+    _make_minimal_segment(db, run_id, sess_id, "seg_a")
+
+    # Stop first (mode goes REFERENCE → IDLE, run becomes paused).
+    await started_session.stop_reference(Mode.REFERENCE)
+    assert started_session.has_paused_run
+
+    # Now Save & Finish from IDLE should finalize the paused run.
+    result = await started_session.save_and_finish_run(Mode.IDLE, name="Stopped First")
+    assert result.status == Status.OK
+    row = db.conn.execute(
+        "SELECT draft, name FROM capture_runs WHERE id = ?", (run_id,)
+    ).fetchone()
+    assert row[0] == 0  # promoted from draft
+    assert row[1] == "Stopped First"
+
+
 # --- Single-session save_and_finish path ---
 
 @pytest.mark.asyncio

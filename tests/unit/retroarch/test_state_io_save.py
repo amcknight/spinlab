@@ -81,14 +81,18 @@ def test_save_segment_state_overwrites_previous(setup):
 
 
 def test_save_segment_state_times_out_when_save_doesnt_happen(setup):
-    """If no slot file appears, raise StateSaveTimeout."""
+    """If no slot file appears, raise StateSaveTimeout — after retries."""
+    from spinlab.retroarch.state_io import SAVE_RETRY_ATTEMPTS
+
     io, nci, ra_dir, sl_dir = setup
     nci._on_save = None
 
     with pytest.raises(StateSaveTimeout):
         io.save_segment_state("seg-2")
 
-    assert nci.save_state_calls == 1
+    # NCI SAVE_STATE intermittently no-ops in real RA; we retry. Each attempt
+    # waits save_timeout_sec for any state file to appear.
+    assert nci.save_state_calls == SAVE_RETRY_ATTEMPTS
 
 
 def test_save_segment_state_times_out_when_existing_file_unchanged(setup):
@@ -100,6 +104,26 @@ def test_save_segment_state_times_out_when_existing_file_unchanged(setup):
 
     with pytest.raises(StateSaveTimeout):
         io.save_segment_state("seg-3")
+
+
+def test_save_segment_state_succeeds_on_retry_after_intermittent_noop(setup):
+    """Real-world: RA's NCI SAVE_STATE intermittently no-ops during level
+    transitions. Should retry and succeed when the next attempt lands."""
+    io, nci, ra_dir, sl_dir = setup
+    slot_path = ra_dir / "Game.state500"
+    nci._attempts = 0
+
+    def on_save():
+        nci._attempts += 1
+        # First attempt: silently no-op. Second: write the file.
+        if nci._attempts >= 2:
+            slot_path.write_bytes(b"WROTE_ON_SECOND_TRY")
+
+    nci._on_save = on_save
+
+    result = io.save_segment_state("seg-retry")
+    assert result.read_bytes() == b"WROTE_ON_SECOND_TRY"
+    assert nci.save_state_calls == 2  # succeeded on the 2nd try
 
 
 def test_save_segment_state_picks_up_any_state_file_RA_writes(setup):

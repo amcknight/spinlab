@@ -37,6 +37,19 @@ DEFAULT_LOAD_SETTLE_SEC = 0.1   # wait after LOAD_STATE_SLOT before deleting the
                                  # file; RA processes the command on its next frame
                                  # (~16ms at 60Hz) and reads the file synchronously
 
+# NCI SAVE_STATE intermittently no-ops when RA is in a transitioning state
+# (level load, fade, brief pause). Retry a few times with backoff to give the
+# emulator a chance to settle. Total worst-case wait per save: ATTEMPTS *
+# (TIMEOUT_SEC + BACKOFF_SEC) ≈ 3 * 1.2s = 3.6s.
+SAVE_RETRY_ATTEMPTS = 3
+SAVE_RETRY_BACKOFF_SEC = 0.2
+
+# After RA writes the slot file, it may keep an open handle for ~100-300ms
+# more; on Windows os.rename then raises PermissionError. Retry the move
+# briefly before falling back to a copy that leaves the source for cleanup.
+MOVE_RETRY_ATTEMPTS = 5
+MOVE_RETRY_BACKOFF_SEC = 0.1
+
 logger = logging.getLogger(__name__)
 
 
@@ -210,55 +223,97 @@ class StateIO:
         the save, fire SAVE_STATE, then look for whichever `<game>.state*`
         file was created or had its mtime advance, and move that.
 
+        Retries: NCI SAVE_STATE intermittently no-ops when the emulator is in
+        a transitioning state (level load, fade, brief pause). Up to
+        ``save_retry_attempts`` attempts with ``save_timeout_sec`` each.
+
+        Move retries: RA may still hold the slot file open for a few hundred
+        ms after writing it; ``shutil.move`` raises PermissionError on Windows
+        when the source is locked. We retry the move briefly.
+
         The user's auto-index counter advances by one per capture — the
         documented tradeoff in Phase D Decision 1 (Option C). Returns the
-        SpinLab path. Raises StateSaveTimeout if no file changed within
-        `save_timeout_sec`.
+        SpinLab path. Raises StateSaveTimeout if no file changed across all
+        attempts.
         """
         if not self._game_basename:
             raise RuntimeError(
                 "StateIO: game basename not set; orchestrator must connect first."
             )
-        # Snapshot existing state files for this game before SAVE_STATE.
         pattern = f"{self._game_basename}.state*"
+
+        last_err: str = ""
+        for attempt in range(SAVE_RETRY_ATTEMPTS):
+            new_path = self._try_one_save(pattern)
+            if new_path is not None:
+                target = self.state_path_for(segment_id)
+                self._move_with_retry(new_path, target)
+                logger.debug(
+                    "StateIO: saved segment %s on attempt %d — RA wrote %s -> %s",
+                    segment_id, attempt + 1, new_path.name, target,
+                )
+                return target
+            last_err = (
+                f"attempt {attempt + 1}: no {pattern} file appeared/advanced "
+                f"in {self._save_timeout_sec}s"
+            )
+            if attempt + 1 < SAVE_RETRY_ATTEMPTS:
+                time.sleep(SAVE_RETRY_BACKOFF_SEC)
+
+        raise StateSaveTimeout(
+            f"SAVE_STATE for segment {segment_id!r} failed after "
+            f"{SAVE_RETRY_ATTEMPTS} attempts: {last_err}"
+        )
+
+    def _try_one_save(self, pattern: str) -> Path | None:
+        """One SAVE_STATE round: snapshot, fire, poll. Returns the new file or None."""
         snapshot: dict[str, float] = {
             p.name: p.stat().st_mtime
             for p in self._ra_dir.glob(pattern) if p.is_file()
         }
-
         self._client.save_state()
 
         deadline = time.monotonic() + self._save_timeout_sec
         poll_interval = 0.01
-        new_path: Path | None = None
         while time.monotonic() < deadline:
             for p in self._ra_dir.glob(pattern):
                 if not p.is_file():
                     continue
                 old_mtime = snapshot.get(p.name)
                 cur_mtime = p.stat().st_mtime
-                # Either a brand-new file, or an existing one whose mtime
-                # advanced past what we observed pre-save.
                 if old_mtime is None or cur_mtime > old_mtime:
-                    new_path = p
-                    break
-            if new_path is not None:
-                break
+                    return p
             time.sleep(poll_interval)
-        else:
-            raise StateSaveTimeout(
-                f"SAVE_STATE for segment {segment_id!r}: no {pattern} file "
-                f"appeared or advanced in {self._ra_dir} within "
-                f"{self._save_timeout_sec}s"
-            )
+        return None
 
-        target = self.state_path_for(segment_id)
-        shutil.move(str(new_path), str(target))
-        logger.debug(
-            "StateIO: saved segment %s — RA wrote %s -> %s",
-            segment_id, new_path.name, target,
-        )
-        return target
+    def _move_with_retry(self, src: Path, dst: Path) -> None:
+        """shutil.move that retries when RA still has the slot file locked.
+
+        Windows raises PermissionError if RA holds an open handle; in practice
+        RA releases within a few hundred ms after writing. We retry briefly
+        before giving up.
+        """
+        last_exc: BaseException | None = None
+        for attempt in range(MOVE_RETRY_ATTEMPTS):
+            try:
+                shutil.move(str(src), str(dst))
+                return
+            except PermissionError as exc:
+                last_exc = exc
+                if attempt + 1 < MOVE_RETRY_ATTEMPTS:
+                    time.sleep(MOVE_RETRY_BACKOFF_SEC)
+        # Best-effort fallback: copy the bytes and leave the source for the
+        # next save / startup sweep to clean up. We still raise so the caller
+        # knows the slot file leaked, but the segment file is on disk.
+        try:
+            shutil.copyfile(str(src), str(dst))
+            logger.warning(
+                "StateIO: copied %s -> %s but couldn't unlink source after "
+                "%d retries (RA still holds the file). Leaving for cleanup.",
+                src, dst, MOVE_RETRY_ATTEMPTS,
+            )
+        except OSError:
+            raise last_exc if last_exc else OSError(f"move failed: {src} -> {dst}")
 
     def load_segment_state(self, segment_id: str) -> None:
         """Copy SpinLab's segment file into RA's reserved slot, fire LOAD_STATE_SLOT.
