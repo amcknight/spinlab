@@ -258,13 +258,13 @@ class SessionManager:
     async def _handle_level_entrance(self, event: LevelEntranceEvent) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
-        self.capture.handle_entrance(event)
+        await self.capture.handle_entrance(event)
         await self._notify_sse()
 
     async def _handle_checkpoint(self, event: CheckpointEvent) -> None:
         if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
             return
-        self.capture.handle_checkpoint(event, self.require_game())
+        await self.capture.handle_checkpoint(event, self.require_game())
         await self._notify_sse()
 
     async def _handle_death(self, event: DeathEvent) -> None:

@@ -157,7 +157,7 @@ def test_death_via_handle_death_increments_counter(db, registry):
     assert times[0][0] == 2
 
 
-def test_handle_spawn_event_propagates_timestamp_ms(db, registry):
+async def test_handle_spawn_event_propagates_timestamp_ms(db, registry):
     """ReferenceController.handle_spawn must pass event.timestamp_ms through to
     the recorder's _last_spawn_ms, otherwise clean_tail_ms is always == time_ms
     for any segment with deaths. Regression test for the multi-session work."""
@@ -172,11 +172,13 @@ def test_handle_spawn_event_propagates_timestamp_ms(db, registry):
     )
     # The module-level `db` fixture already pre-creates game="g1", run="run1",
     # session="sess1" — reuse those rather than building a parallel fixture.
-    ctl = ReferenceController(db, FakeTcpManager(connected=False))
+    # connected=True so handle_entrance's save_state call hits FakeTcpManager
+    # (no-op recorder; we're testing timing, not the save itself).
+    ctl = ReferenceController(db, FakeTcpManager(connected=True))
     ctl.recorder.capture_run_id = "run1"
     ctl.recorder.current_capture_session_id = "sess1"
 
-    ctl.handle_entrance(LevelEntranceEvent(
+    await ctl.handle_entrance(LevelEntranceEvent(
         level=1, state_path=None, timestamp_ms=1000, conditions={},
     ))
     ctl.handle_death(DeathEvent())

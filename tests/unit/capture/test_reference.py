@@ -425,3 +425,42 @@ class TestSaveAndFinishAtomicity:
         # Recorder still pointing at the live session — user can retry.
         assert controller.recorder.capture_run_id == run_id
         assert controller.recorder.current_capture_session_id == sess_id
+
+
+class TestSaveOnEvent:
+    """ReferenceController triggers backend save_state on entrance/checkpoint
+    while recording. Replaces the orchestrator's _maybe_save_state_for hook."""
+
+    async def test_handle_entrance_saves_state_when_recording(
+        self, controller, fake_tcp,
+    ):
+        from spinlab.protocol import LevelEntranceEvent
+        controller._enter_recording("run_x", "sess_x")
+        await controller.handle_entrance(LevelEntranceEvent(level=5, room=2))
+        assert fake_tcp.save_state_calls == ["entrance_5_2"]
+
+    async def test_handle_entrance_does_not_save_when_idle(
+        self, controller, fake_tcp,
+    ):
+        from spinlab.protocol import LevelEntranceEvent
+        await controller.handle_entrance(LevelEntranceEvent(level=5, room=2))
+        assert fake_tcp.save_state_calls == []
+
+    async def test_handle_checkpoint_saves_hot_state_when_recording(
+        self, controller, fake_tcp,
+    ):
+        from spinlab.protocol import CheckpointEvent
+        controller._enter_recording("run_x", "sess_x")
+        await controller.handle_checkpoint(
+            CheckpointEvent(level_num=5, cp_ordinal=1), "g1",
+        )
+        assert fake_tcp.save_state_calls == ["cp_5_1_hot"]
+
+    async def test_handle_checkpoint_does_not_save_when_idle(
+        self, controller, fake_tcp,
+    ):
+        from spinlab.protocol import CheckpointEvent
+        await controller.handle_checkpoint(
+            CheckpointEvent(level_num=5, cp_ordinal=1), "g1",
+        )
+        assert fake_tcp.save_state_calls == []

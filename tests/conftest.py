@@ -87,6 +87,8 @@ class FakeTcpManager:
     def __init__(self, connected: bool = True) -> None:
         self.is_connected: bool = connected
         self.sent_commands: list = []
+        self.save_state_calls: list[str] = []
+        self.load_state_calls: list[str] = []
         self.on_disconnect = None
 
     async def send_command(self, cmd) -> None:
@@ -99,6 +101,12 @@ class FakeTcpManager:
 
     async def disconnect(self) -> None:
         self.is_connected = False
+
+    async def save_state(self, segment_id: str) -> None:
+        self.save_state_calls.append(segment_id)
+
+    async def load_state(self, state_path: str) -> None:
+        self.load_state_calls.append(state_path)
 
 
 @pytest.fixture

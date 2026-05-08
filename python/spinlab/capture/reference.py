@@ -578,13 +578,38 @@ class ReferenceController:
         return True
 
 
-    def handle_entrance(self, event: LevelEntranceEvent) -> None:
+    async def handle_entrance(self, event: LevelEntranceEvent) -> None:
         logger.info("capture: entrance level=%s", event.level)
+        if self.is_recording:
+            from .segment_naming import segment_id_for_event
+            seg_id = segment_id_for_event(event)
+            if seg_id:
+                # Backend-agnostic: under RA this writes the segment file via
+                # NCI + filesystem shuffle (in a worker thread); under Mesen
+                # it's a no-op because Lua already wrote the file when it
+                # observed the same event. Either way the recorder's stamped
+                # state_path resolves to a real file.
+                try:
+                    await self.tcp.save_state(seg_id)
+                except Exception:
+                    logger.exception(
+                        "save_state failed for entrance event seg_id=%r", seg_id,
+                    )
         self.recorder.handle_entrance(event)
 
-    def handle_checkpoint(self, event: CheckpointEvent, game_id: str) -> None:
+    async def handle_checkpoint(self, event: CheckpointEvent, game_id: str) -> None:
         logger.info("capture: checkpoint level=%s cp=%s",
                      event.level_num, event.cp_ordinal)
+        if self.is_recording:
+            from .segment_naming import segment_id_for_event
+            seg_id = segment_id_for_event(event)
+            if seg_id:
+                try:
+                    await self.tcp.save_state(seg_id)
+                except Exception:
+                    logger.exception(
+                        "save_state failed for checkpoint event seg_id=%r", seg_id,
+                    )
         self.recorder.handle_checkpoint(event, game_id, self.db,
                                            self.condition_registry)
 
