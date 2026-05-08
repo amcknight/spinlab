@@ -81,6 +81,35 @@ def test_stop_ignores_pre_existing_files(tmp_path):
     assert old.exists()  # old file untouched
 
 
+def test_stop_detects_in_place_rewrite_of_existing_file(tmp_path):
+    """RA reuses the same <game>.replay<slot> filename for the same game
+    even with replay_auto_index=true; the recorder must detect the rewrite
+    via mtime, not just by filename set-diff."""
+    import time as _time
+    fake = FakeNCI()
+    # Existing file in baseline (think: leftover from a prior session).
+    existing = tmp_path / "Love Yourself.replay1"
+    existing.write_bytes(b"old recording")
+    # Make sure baseline mtime is older than the rewrite.
+    old_mtime = existing.stat().st_mtime - 10
+    import os
+    os.utime(existing, (old_mtime, old_mtime))
+
+    rec = MovieRecorder(client=fake, movie_dir=tmp_path, _poll_interval_s=0.01)
+    dest = tmp_path / "out.replay"
+    rec.start(dest)
+
+    # Simulate RA overwriting the same filename with new content (newer mtime).
+    existing.write_bytes(b"new recording")  # write bumps mtime
+
+    result = rec.stop()
+    assert result == dest
+    assert dest.exists()
+    assert dest.read_bytes() == b"new recording"
+    assert not existing.exists()  # moved to dest
+    assert not rec.is_recording()
+
+
 def test_double_start_raises(tmp_path):
     rec = MovieRecorder(client=FakeNCI(), movie_dir=tmp_path)
     rec.start(tmp_path / "a.replay")

@@ -51,7 +51,12 @@ class MovieRecorder:
     client: _NCIRecorder
     movie_dir: Path
     _active_dest: Path | None = field(default=None, init=False, repr=False)
-    _baseline_files: set[Path] = field(default_factory=set, init=False, repr=False)
+    # Map of path → mtime for every existing file at start(). Detects both
+    # new files (path missing from baseline) AND in-place rewrites (path in
+    # baseline but mtime increased) — RA reuses the same .replay<slot> name
+    # across recordings for the same game even with replay_auto_index=true,
+    # so a new file isn't always created.
+    _baseline_mtimes: dict[Path, float] = field(default_factory=dict, init=False, repr=False)
     _poll_interval_s: float = _DEFAULT_POLL_INTERVAL_S
     _poll_attempts: int = _DEFAULT_POLL_ATTEMPTS
 
@@ -63,11 +68,16 @@ class MovieRecorder:
             raise RuntimeError(f"already recording to {self._active_dest}")
         if not self.movie_dir.exists():
             self.movie_dir.mkdir(parents=True, exist_ok=True)
-        # Snapshot all existing files (format-agnostic baseline).
-        self._baseline_files = set(f for f in self.movie_dir.iterdir() if f.is_file())
+        # Snapshot {path → mtime} for every existing file (format-agnostic baseline).
+        self._baseline_mtimes = {
+            f: f.stat().st_mtime
+            for f in self.movie_dir.iterdir()
+            if f.is_file()
+        }
         self.client.record_replay()
         self._active_dest = dest
-        logger.info("MovieRecorder.start: dest=%s baseline=%d files", dest, len(self._baseline_files))
+        logger.info("MovieRecorder.start: dest=%s baseline=%d files",
+                    dest, len(self._baseline_mtimes))
 
     def stop(self) -> Path:
         if not self.is_recording():
@@ -75,37 +85,48 @@ class MovieRecorder:
         dest = self._active_dest
         assert dest is not None
         self.client.halt_replay()
-        # Poll for a new file (not in baseline) appearing in movie_dir.
-        new_file: Path | None = None
+        # Poll for a "changed" file: either new (not in baseline) or in-place
+        # rewrite (in baseline but mtime advanced).
+        changed_file: Path | None = None
         for _ in range(self._poll_attempts):
-            current = set(f for f in self.movie_dir.iterdir() if f.is_file())
-            new_files = current - self._baseline_files
-            if new_files:
-                new_file = max(new_files, key=lambda p: p.stat().st_mtime)
+            for f in self.movie_dir.iterdir():
+                if not f.is_file():
+                    continue
+                baseline_mtime = self._baseline_mtimes.get(f)
+                current_mtime = f.stat().st_mtime
+                if baseline_mtime is None or current_mtime > baseline_mtime:
+                    # New file or rewritten file — pick the most recent if multiple
+                    if changed_file is None or current_mtime > changed_file.stat().st_mtime:
+                        changed_file = f
+            if changed_file is not None:
                 break
             time.sleep(self._poll_interval_s)
+        baseline_snapshot = self._baseline_mtimes
         self._active_dest = None
-        self._baseline_files = set()
-        if new_file is None:
+        self._baseline_mtimes = {}
+        if changed_file is None:
             # The most common cause of this on a real install: RA's
             # `replay_max_keep` config is 0 (the default), and there are already
             # replay files in movie_dir, so RA silently refuses to create new
-            # ones. Detect that case and surface a clearer hint.
+            # ones AND won't overwrite existing ones either. Detect that case
+            # and surface a clearer hint.
             existing_replays = sum(
-                1 for f in self._baseline_files if f.suffix.startswith(".replay")
+                1 for f in baseline_snapshot if f.suffix.startswith(".replay")
             )
             hint = ""
             if existing_replays > 0:
                 hint = (
                     f" — {existing_replays} existing .replay* file(s) in dir; "
                     "this often means retroarch.cfg has replay_max_keep=0 "
-                    "(the default) and RA silently refuses to write more. "
+                    "(the default) and RA silently refuses to write. "
                     'Set replay_max_keep = "99" in retroarch.cfg.'
                 )
             raise FileNotFoundError(
-                f"MovieRecorder.stop: no new file appeared in {self.movie_dir} "
-                f"after {self._poll_attempts} attempts × {self._poll_interval_s}s{hint}"
+                f"MovieRecorder.stop: no new or rewritten file appeared in "
+                f"{self.movie_dir} after {self._poll_attempts} attempts × "
+                f"{self._poll_interval_s}s{hint}"
             )
+        new_file = changed_file
         dest.parent.mkdir(parents=True, exist_ok=True)
         # On Windows, RA may still hold the file handle briefly after writing.
         # Copy first, then retry-delete the source to handle that race.
