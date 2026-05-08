@@ -8,16 +8,16 @@
 
 **Architecture:** New `python/spinlab/retroarch/movie.py` module owns `MovieRecorder` and `MoviePlayer` thin wrappers around NCI. The orchestrator's `_on_reference_start`/`_on_reference_stop` (currently no-ops) trigger recording; `_on_replay_cmd` (currently raises 501) drives playback. Three new integration tests gate progression: control-path smoke before the recorder, determinism + polling-during-playback after a real fixture exists.
 
-**Tech Stack:** Python 3.11+ dataclasses, pytest + pytest-asyncio, RetroArch 1.22.2 with `snes9x_libretro.dll`, NCI over UDP 55355, libretro BSV deterministic movie format.
+**Tech Stack:** Python 3.11+ dataclasses, pytest + pytest-asyncio, RetroArch 1.22.2 with `snes9x_libretro.dll`, NCI over UDP 55355, libretro deterministic movie format.
 
-**Spec:** [`docs/superpowers/specs/2026-05-08-phase-e-bsv-replay-design.md`](../specs/2026-05-08-phase-e-bsv-replay-design.md)
+**Spec:** [`docs/superpowers/specs/2026-05-08-phase-e-movie-replay-design.md`](../specs/2026-05-08-phase-e-movie-replay-design.md)
 
-**Architectural deviation from spec.** The spec proposed adding `bsv_recorder: BSVRecorder | None` to `ReferenceController.__init__`. This plan instead owns the recorder on `RetroArchOrchestrator` and triggers it from `_on_reference_start`/`_on_reference_stop`, keeping `ReferenceController` backend-agnostic. The reference run still produces `<refid>.bsv` alongside `<refid>.mss`; only the wiring location differs.
+**Architectural deviation from spec.** The spec proposed adding `movie_recorder: MovieRecorder | None` to `ReferenceController.__init__`. This plan instead owns the recorder on `RetroArchOrchestrator` and triggers it from `_on_reference_start`/`_on_reference_stop`, keeping `ReferenceController` backend-agnostic. The reference run still produces `<refid>.replay` alongside `<refid>.mss`; only the wiring location differs.
 
 **Definition of done:**
 - All steps below complete with their tests passing
 - `python -m pytest` runs clean
-- Andrew has a fresh `tests/fixtures/love_yourself/one_level.bsv` + sibling metadata file
+- Andrew has a fresh `tests/fixtures/love_yourself/one_level.replay` + sibling metadata file
 - Mesen-side `test_replay_fixture.py` deleted; RA-side ports the assertions
 - `RetroArchOrchestrator` no longer raises `BackendNotImplementedError` for `ReplayCmd`/`ReplayStopCmd`
 
@@ -26,25 +26,25 @@
 ## File structure
 
 **New files:**
-- `python/spinlab/retroarch/bsv.py` — `BSVRecorder`, `BSVPlayer` classes and `discover_movie_dir` helper
-- `tests/integration/test_bsv_smoke.py` — three smoke tests (record toggle, determinism, polling-during-playback)
-- `tests/unit/test_bsv_recorder.py` — unit tests against fake NCI
-- `tests/unit/test_bsv_player.py` — unit tests against fake NCI
-- `tests/fixtures/love_yourself/one_level.bsv` — recorded by Andrew (Step 4); committed binary
+- `python/spinlab/retroarch/movie.py` — `MovieRecorder`, `MoviePlayer` classes and `discover_movie_dir` helper
+- `tests/integration/test_movie_smoke.py` — three smoke tests (record toggle, determinism, polling-during-playback)
+- `tests/unit/test_movie_recorder.py` — unit tests against fake NCI
+- `tests/unit/test_movie_player.py` — unit tests against fake NCI
+- `tests/fixtures/love_yourself/one_level.replay` — recorded by Andrew (Step 4); committed binary
 - `tests/fixtures/love_yourself/one_level.json` — fixture metadata (frame count, expected segments, determinism probe)
 
 **Modified files:**
 - `python/spinlab/config.py` — add `EmulatorConfig.ra_movie_dir: Path | None`
-- `python/spinlab/retroarch/nci.py` — add `bsv_record_toggle()`, `bsv_play()`, `bsv_stop()`, `get_config_param(key)` methods
-- `python/spinlab/retroarch/orchestrator.py` — wire `BSVRecorder` + `BSVPlayer`; replace `_unsupported_phase_e` for `ReplayCmd`/`ReplayStopCmd`; add `bsv_recorder`/`bsv_player` to `__init__` and `build_orchestrator`
+- `python/spinlab/retroarch/nci.py` — add `record_replay()`, `play_replay()`, `halt_replay()`, `get_config_param(key)` methods
+- `python/spinlab/retroarch/orchestrator.py` — wire `MovieRecorder` + `MoviePlayer`; replace `_unsupported_phase_e` for `ReplayCmd`/`ReplayStopCmd`; add `movie_recorder`/`movie_player` to `__init__` and `build_orchestrator`
 - `tests/integration/conftest.py` — add `replay_ra_dashboard` fixture (RA equivalent of `replay_dashboard`)
-- `tests/integration/test_replay_fixture.py` — port from `.spinrec`+Mesen to `.bsv`+RA; delete Mesen-side variant
+- `tests/integration/test_replay_fixture.py` — port from `.spinrec`+Mesen to `.replay`+RA; delete Mesen-side variant
 
 ---
 
 ## Pre-flight
 
-- [ ] **Read the spec.** Open [`docs/superpowers/specs/2026-05-08-phase-e-bsv-replay-design.md`](../specs/2026-05-08-phase-e-bsv-replay-design.md) and read the "Sequenced implementation" and "Anchoring, determinism, and the deep unknowns" sections. The plan below mirrors the steps but goes deeper.
+- [ ] **Read the spec.** Open [`docs/superpowers/specs/2026-05-08-phase-e-movie-replay-design.md`](../specs/2026-05-08-phase-e-movie-replay-design.md) and read the "Sequenced implementation" and "Anchoring, determinism, and the deep unknowns" sections. The plan below mirrors the steps but goes deeper.
 
 - [ ] **Run the full test suite to establish a baseline.**
 
@@ -55,7 +55,7 @@ cd c:/Users/thedo/git/spinlab && python -m pytest
 Expected: all tests pass or skip (the user's `feedback_fix_preexisting_failures.md` memory says any preexisting failures must be fixed before starting work — if anything fails, stop and fix it before continuing).
 
 - [ ] **Confirm RA config is correct.** Open `C:\RetroArch-Win64\retroarch.cfg` and verify:
-  - `cheevos_hardcore_mode_enable = "false"` (else BSV may silently no-op like savestates do)
+  - `cheevos_hardcore_mode_enable = "false"` (else movie record may silently no-op like savestates do)
   - `run_ahead_secondary_instance = "true"` (single-instance runahead corrupts state ops)
   - `network_cmd_enable = "true"` (NCI must be on)
 
@@ -63,46 +63,45 @@ If any are wrong, fix them and restart RetroArch before continuing.
 
 ---
 
-## Task 1: Add NCI methods for BSV control
+## Task 1: Add NCI methods for movie control
 
 **Files:**
 - Modify: `python/spinlab/retroarch/nci.py`
 - Test: `tests/unit/test_nci.py` (existing)
 
-This adds the raw NCI primitives the rest of the plan builds on. Three commands plus a config-param read. We don't yet know which BSV command works on RA 1.22.2 — the smoke test in Task 4 confirms — but the candidate set is well-known.
+This adds the raw NCI primitives the rest of the plan builds on. Three commands plus a config-param read. We don't yet know which movie command works on RA 1.22.2 — the smoke test in Task 4 confirms — but the candidate set is well-known.
 
 - [ ] **Step 1.1: Read the existing NCI client to match the style.**
 
-Open `python/spinlab/retroarch/nci.py` and look at how `save_state()`, `pause_toggle()`, `frame_advance()` are implemented. They use `_send_no_reply()` — fire-and-forget. BSV commands follow the same shape.
+Open `python/spinlab/retroarch/nci.py` and look at how `save_state()`, `pause_toggle()`, `frame_advance()` are implemented. They use `_send_no_reply()` — fire-and-forget. Movie commands follow the same shape.
 
 - [ ] **Step 1.2: Write failing unit tests for the new NCI methods.**
 
 Open `tests/unit/test_nci.py`. Find an existing test for a fire-and-forget command (e.g. `test_pause_toggle_sends_command`). Add four mirroring tests:
 
 ```python
-def test_bsv_record_toggle_sends_command(monkeypatch):
+def test_record_replay_sends_command(monkeypatch):
     sent = []
     client = NCIClient()
     monkeypatch.setattr(client, "_send_no_reply", lambda cmd: sent.append(cmd))
-    client.bsv_record_toggle()
-    assert sent == ["BSV_RECORD_TOGGLE"]
+    client.record_replay()
+    assert sent == ["RECORD_REPLAY"]
 
 
-def test_bsv_play_sends_command(monkeypatch):
+def test_play_replay_sends_command(monkeypatch):
     sent = []
     client = NCIClient()
     monkeypatch.setattr(client, "_send_no_reply", lambda cmd: sent.append(cmd))
-    client.bsv_play()
-    assert sent == ["MOVIE_PLAYBACK_TOGGLE"]
+    client.play_replay()
+    assert sent == ["PLAY_REPLAY"]
 
 
-def test_bsv_stop_sends_command(monkeypatch):
-    # MOVIE_PLAYBACK_TOGGLE again, since libretro models playback as a toggle
+def test_halt_replay_sends_command(monkeypatch):
     sent = []
     client = NCIClient()
     monkeypatch.setattr(client, "_send_no_reply", lambda cmd: sent.append(cmd))
-    client.bsv_stop()
-    assert sent == ["MOVIE_PLAYBACK_TOGGLE"]
+    client.halt_replay()
+    assert sent == ["HALT_REPLAY"]
 
 
 def test_get_config_param_parses_reply(monkeypatch):
@@ -114,44 +113,42 @@ def test_get_config_param_parses_reply(monkeypatch):
 - [ ] **Step 1.3: Run tests, expect failure.**
 
 ```bash
-python -m pytest tests/unit/test_nci.py -v -k "bsv or get_config_param"
+python -m pytest tests/unit/test_nci.py -v -k "record_replay or play_replay or halt_replay or get_config_param"
 ```
 
-Expected: 4 failures, `AttributeError: 'NCIClient' object has no attribute 'bsv_record_toggle'` etc.
+Expected: 4 failures, `AttributeError: 'NCIClient' object has no attribute 'record_replay'` etc.
 
 - [ ] **Step 1.4: Add the NCI methods.**
 
 In `python/spinlab/retroarch/nci.py`, after the existing `frame_advance()` method, add:
 
 ```python
-def bsv_record_toggle(self) -> None:
-    """Toggle BSV (libretro deterministic movie) recording on/off.
+def record_replay(self) -> None:
+    """Start movie recording.
 
-    Fire-and-forget. RetroArch starts a new .bsv file in movie_directory on
-    record-on and finalizes it on record-off. The exact filename is chosen
-    by RA; use the recorder's mtime-baseline pattern to discover it.
+    Fire-and-forget. RetroArch starts a new .replay file in its movie
+    directory on record-on. The exact filename is chosen by RA; use the
+    recorder's mtime-baseline pattern to discover it.
 
-    NOTE: Phase E smoke test confirms this command's wire format. If the
-    command name is wrong on RA 1.22.2 the smoke test fails loudly and we
-    investigate alternatives (BSV_RECORD_TOGGLE, hotkey_bsv_record, etc.).
+    Command `RECORD_REPLAY` confirmed working on RA 1.22.2 by Task 4 smoke test.
     """
-    self._send_no_reply("BSV_RECORD_TOGGLE")
+    self._send_no_reply("RECORD_REPLAY")
 
 
-def bsv_play(self) -> None:
-    """Start BSV playback of whatever movie RA currently has loaded.
+def play_replay(self) -> None:
+    """Start movie playback of whatever movie RA currently has loaded.
 
-    Fire-and-forget. Loading the .bsv file itself is out-of-band — typically
-    via CLI flag at launch (--bsvplay) or via filesystem placement.
+    Fire-and-forget. Loading the .replay file itself is out-of-band — typically
+    via CLI flag at launch or via filesystem placement.
 
-    NOTE: command name is provisional. Smoke test confirms.
+    NOTE: command name is provisional pending Task 4 follow-up probe.
     """
-    self._send_no_reply("MOVIE_PLAYBACK_TOGGLE")
+    self._send_no_reply("PLAY_REPLAY")
 
 
-def bsv_stop(self) -> None:
-    """Stop BSV playback (toggle off)."""
-    self._send_no_reply("MOVIE_PLAYBACK_TOGGLE")
+def halt_replay(self) -> None:
+    """Stop movie recording or playback."""
+    self._send_no_reply("HALT_REPLAY")
 
 
 def get_config_param(self, key: str) -> str:
@@ -172,7 +169,7 @@ def get_config_param(self, key: str) -> str:
 - [ ] **Step 1.5: Run tests, expect pass.**
 
 ```bash
-python -m pytest tests/unit/test_nci.py -v -k "bsv or get_config_param"
+python -m pytest tests/unit/test_nci.py -v -k "record_replay or play_replay or halt_replay or get_config_param"
 ```
 
 Expected: 4 passes.
@@ -189,12 +186,11 @@ Expected: all green.
 
 ```bash
 git add python/spinlab/retroarch/nci.py tests/unit/test_nci.py
-git commit -m "feat(retroarch): NCI methods for BSV control + GET_CONFIG_PARAM
+git commit -m "feat(retroarch): NCI methods for movie control + GET_CONFIG_PARAM
 
-Adds bsv_record_toggle, bsv_play, bsv_stop, get_config_param. Command
-names are provisional pending Phase E smoke test confirmation on RA
-1.22.2; if MOVIE_PLAYBACK_TOGGLE / BSV_RECORD_TOGGLE turn out wrong,
-we'll adjust at the smoke-test failure.
+Adds record_replay, play_replay, halt_replay, get_config_param. RECORD_REPLAY
+and HALT_REPLAY confirmed on RA 1.22.2 by Task 4 smoke test; PLAY_REPLAY
+is provisional pending Task 4 follow-up probe.
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -256,7 +252,7 @@ class EmulatorConfig:
     savestate_dir: Path | None = None
     spinlab_state_dir: Path | None = None
     ra_game_basename: str | None = None
-    ra_movie_dir: Path | None = None  # where RA writes .bsv files; None → discover via NCI GET_CONFIG_PARAM
+    ra_movie_dir: Path | None = None  # where RA writes .replay files; None → discover via NCI GET_CONFIG_PARAM
 ```
 
 In `from_yaml`, parse the new field. Inside the `emu = raw.get("emulator", {})` block, add:
@@ -283,27 +279,27 @@ Expected: 2 passes.
 
 ```bash
 git add python/spinlab/config.py tests/unit/test_config.py
-git commit -m "feat(config): add EmulatorConfig.ra_movie_dir for BSV output dir
+git commit -m "feat(config): add EmulatorConfig.ra_movie_dir for movie output dir
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 3: Build `BSVRecorder` (skeleton + unit tests)
+## Task 3: Build `MovieRecorder` (skeleton + unit tests)
 
 **Files:**
-- Create: `python/spinlab/retroarch/bsv.py`
-- Test: `tests/unit/test_bsv_recorder.py`
+- Create: `python/spinlab/retroarch/movie.py`
+- Test: `tests/unit/test_movie_recorder.py`
 
 The recorder owns the toggle-record / wait-for-file / move-to-final-path lifecycle. Stateful: tracks whether recording is active, where the destination is, and the mtime baseline for file discovery. NCI-only — no live RA needed for unit tests.
 
 - [ ] **Step 3.1: Write failing unit tests against a fake NCI client.**
 
-Create `tests/unit/test_bsv_recorder.py`:
+Create `tests/unit/test_movie_recorder.py`:
 
 ```python
-"""Unit tests for BSVRecorder against a fake NCI client + tmp filesystem."""
+"""Unit tests for MovieRecorder against a fake NCI client + tmp filesystem."""
 from __future__ import annotations
 
 import time
@@ -312,7 +308,7 @@ from pathlib import Path
 
 import pytest
 
-from spinlab.retroarch.bsv import BSVRecorder
+from spinlab.retroarch.movie import MovieRecorder
 from spinlab.retroarch.exceptions import NCIProtocolError
 
 
@@ -322,8 +318,11 @@ class FakeNCI:
     calls: list[str] = field(default_factory=list)
     status_responsive: bool = True
 
-    def bsv_record_toggle(self) -> None:
-        self.calls.append("bsv_record_toggle")
+    def record_replay(self) -> None:
+        self.calls.append("record_replay")
+
+    def halt_replay(self) -> None:
+        self.calls.append("halt_replay")
 
     def get_status(self):
         if not self.status_responsive:
@@ -332,28 +331,28 @@ class FakeNCI:
 
 
 def test_recorder_starts_idle():
-    rec = BSVRecorder(client=FakeNCI(), movie_dir=Path("/tmp"))
+    rec = MovieRecorder(client=FakeNCI(), movie_dir=Path("/tmp"))
     assert not rec.is_recording()
 
 
 def test_start_toggles_record_and_marks_active(tmp_path):
     fake = FakeNCI()
-    rec = BSVRecorder(client=fake, movie_dir=tmp_path)
-    rec.start(tmp_path / "out.bsv")
-    assert fake.calls == ["bsv_record_toggle"]
+    rec = MovieRecorder(client=fake, movie_dir=tmp_path)
+    rec.start(tmp_path / "out.replay")
+    assert fake.calls == ["record_replay"]
     assert rec.is_recording()
 
 
 def test_stop_toggles_record_polls_for_file_then_renames(tmp_path):
     fake = FakeNCI()
-    rec = BSVRecorder(client=fake, movie_dir=tmp_path, _poll_interval_s=0.01)
-    dest = tmp_path / "out.bsv"
+    rec = MovieRecorder(client=fake, movie_dir=tmp_path, _poll_interval_s=0.01)
+    dest = tmp_path / "out.replay"
     rec.start(dest)
 
-    # Simulate RA writing a .bsv on toggle-off — the recorder should find it
+    # Simulate RA writing a .replay file on halt — the recorder should find it
     # via mtime baseline and move it to dest.
-    ra_file = tmp_path / "RetroArch-auto.bsv"
-    ra_file.write_bytes(b"BSV1" + b"\x00" * 100)
+    ra_file = tmp_path / "RetroArch-auto.replay2"
+    ra_file.write_bytes(b"RPLY" + b"\x00" * 100)
 
     result = rec.stop()
     assert result == dest
@@ -362,36 +361,36 @@ def test_stop_toggles_record_polls_for_file_then_renames(tmp_path):
     assert not rec.is_recording()
 
 
-def test_stop_raises_if_no_new_bsv_appears(tmp_path):
+def test_stop_raises_if_no_new_replay_appears(tmp_path):
     fake = FakeNCI()
-    rec = BSVRecorder(client=fake, movie_dir=tmp_path, _poll_interval_s=0.01, _poll_attempts=2)
-    rec.start(tmp_path / "out.bsv")
+    rec = MovieRecorder(client=fake, movie_dir=tmp_path, _poll_interval_s=0.01, _poll_attempts=2)
+    rec.start(tmp_path / "out.replay")
     with pytest.raises(FileNotFoundError):
         rec.stop()
     assert not rec.is_recording()
 
 
-def test_stop_ignores_pre_existing_bsv_files(tmp_path):
+def test_stop_ignores_pre_existing_replay_files(tmp_path):
     fake = FakeNCI()
-    # An old .bsv already in the dir — should NOT be picked up.
-    old = tmp_path / "old.bsv"
+    # An old .replay file already in the dir — should NOT be picked up.
+    old = tmp_path / "old.replay2"
     old.write_bytes(b"old content")
-    rec = BSVRecorder(client=fake, movie_dir=tmp_path, _poll_interval_s=0.01, _poll_attempts=2)
-    rec.start(tmp_path / "new.bsv")
+    rec = MovieRecorder(client=fake, movie_dir=tmp_path, _poll_interval_s=0.01, _poll_attempts=2)
+    rec.start(tmp_path / "new.replay")
     with pytest.raises(FileNotFoundError):
         rec.stop()
     assert old.exists()  # old file untouched
 
 
 def test_double_start_raises(tmp_path):
-    rec = BSVRecorder(client=FakeNCI(), movie_dir=tmp_path)
-    rec.start(tmp_path / "a.bsv")
+    rec = MovieRecorder(client=FakeNCI(), movie_dir=tmp_path)
+    rec.start(tmp_path / "a.replay")
     with pytest.raises(RuntimeError, match="already recording"):
-        rec.start(tmp_path / "b.bsv")
+        rec.start(tmp_path / "b.replay")
 
 
 def test_stop_without_start_raises(tmp_path):
-    rec = BSVRecorder(client=FakeNCI(), movie_dir=tmp_path)
+    rec = MovieRecorder(client=FakeNCI(), movie_dir=tmp_path)
     with pytest.raises(RuntimeError, match="not recording"):
         rec.stop()
 ```
@@ -399,25 +398,25 @@ def test_stop_without_start_raises(tmp_path):
 - [ ] **Step 3.2: Run tests, expect failure.**
 
 ```bash
-python -m pytest tests/unit/test_bsv_recorder.py -v
+python -m pytest tests/unit/test_movie_recorder.py -v
 ```
 
-Expected: import error — `bsv.py` doesn't exist yet.
+Expected: import error — `movie.py` doesn't exist yet.
 
-- [ ] **Step 3.3: Create the `BSVRecorder` implementation.**
+- [ ] **Step 3.3: Create the `MovieRecorder` implementation.**
 
-Create `python/spinlab/retroarch/bsv.py`:
+Create `python/spinlab/retroarch/movie.py`:
 
 ```python
-"""BSV (libretro deterministic movie) record/play wrappers.
+"""libretro deterministic movie record/play wrappers.
 
 Both classes drive RA via NCI. The recorder writes a movie file under RA's
-movie_directory and renames it to a SpinLab-keyed path on stop. The player
-loads a SpinLab-keyed movie back into RA's movie_directory before triggering
+movie directory and renames it to a SpinLab-keyed path on stop. The player
+loads a SpinLab-keyed movie back into RA's movie directory before triggering
 playback.
 
 NCI commands and movie-file lifecycle are validated by the smoke tests in
-tests/integration/test_bsv_smoke.py before this module gets used in
+tests/integration/test_movie_smoke.py before this module gets used in
 production paths.
 """
 from __future__ import annotations
@@ -431,27 +430,28 @@ from typing import Protocol
 
 logger = logging.getLogger(__name__)
 
-# How long to wait after toggle-off for RA to finalize the .bsv file.
+# How long to wait after halt for RA to finalize the .replay file.
 # 5 attempts × 200ms = 1s ceiling — RA finalizes essentially instantly when
-# the toggle is processed, but the NCI command is fire-and-forget so we need
+# the command is processed, but the NCI command is fire-and-forget so we need
 # a margin for command-processing latency.
 _DEFAULT_POLL_INTERVAL_S = 0.2
 _DEFAULT_POLL_ATTEMPTS = 5
 
 
 class _NCIRecorder(Protocol):
-    def bsv_record_toggle(self) -> None: ...
+    def record_replay(self) -> None: ...
+    def halt_replay(self) -> None: ...
     def get_status(self): ...  # returns StatusInfo
 
 
 @dataclass
-class BSVRecorder:
-    """Toggles BSV recording and shuffles the resulting .bsv to a target path.
+class MovieRecorder:
+    """Toggles movie recording and shuffles the resulting .replay file to a target path.
 
     Lifecycle:
-      start(dest) — toggles record on, snapshots existing .bsv files in
+      start(dest) — toggles record on, snapshots existing .replay files in
                     movie_dir as the baseline.
-      stop()      — toggles record off, polls movie_dir for a NEW .bsv
+      stop()      — halts recording, polls movie_dir for a NEW .replay file
                     (anything not in the baseline), moves it to dest.
                     Returns the final path.
     """
@@ -471,21 +471,21 @@ class BSVRecorder:
             raise RuntimeError(f"already recording to {self._active_dest}")
         if not self.movie_dir.exists():
             self.movie_dir.mkdir(parents=True, exist_ok=True)
-        self._baseline_files = set(self.movie_dir.glob("*.bsv"))
-        self.client.bsv_record_toggle()
+        self._baseline_files = set(self.movie_dir.glob("*.replay*"))
+        self.client.record_replay()
         self._active_dest = dest
-        logger.info("BSVRecorder.start: dest=%s baseline=%d files", dest, len(self._baseline_files))
+        logger.info("MovieRecorder.start: dest=%s baseline=%d files", dest, len(self._baseline_files))
 
     def stop(self) -> Path:
         if not self.is_recording():
             raise RuntimeError("not recording")
         dest = self._active_dest
         assert dest is not None
-        self.client.bsv_record_toggle()
-        # Poll for a new .bsv (not in baseline) appearing in movie_dir.
+        self.client.halt_replay()
+        # Poll for a new .replay file (not in baseline) appearing in movie_dir.
         new_file: Path | None = None
         for _ in range(self._poll_attempts):
-            current = set(self.movie_dir.glob("*.bsv"))
+            current = set(self.movie_dir.glob("*.replay*"))
             new_files = current - self._baseline_files
             if new_files:
                 new_file = max(new_files, key=lambda p: p.stat().st_mtime)
@@ -495,24 +495,24 @@ class BSVRecorder:
         self._baseline_files = set()
         if new_file is None:
             raise FileNotFoundError(
-                f"BSVRecorder.stop: no new .bsv appeared in {self.movie_dir} "
+                f"MovieRecorder.stop: no new .replay file appeared in {self.movie_dir} "
                 f"after {self._poll_attempts} attempts × {self._poll_interval_s}s"
             )
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(new_file), str(dest))
-        logger.info("BSVRecorder.stop: %s → %s", new_file.name, dest)
+        logger.info("MovieRecorder.stop: %s → %s", new_file.name, dest)
         return dest
 
 
 class _NCIPlayer(Protocol):
-    def bsv_play(self) -> None: ...
-    def bsv_stop(self) -> None: ...
+    def play_replay(self) -> None: ...
+    def halt_replay(self) -> None: ...
     def get_status(self): ...
 
 
 @dataclass
-class BSVPlayer:
-    """Stages a BSV file into RA's movie_dir and toggles playback on/off.
+class MoviePlayer:
+    """Stages a movie file into RA's movie_dir and triggers playback on/off.
 
     Stateless across plays — each call to play() copies the source into
     movie_dir under a deterministic name and tells RA to start playback.
@@ -522,7 +522,7 @@ class BSVPlayer:
     movie_dir: Path
     _staged_path: Path | None = field(default=None, init=False, repr=False)
     _is_playing: bool = field(default=False, init=False, repr=False)
-    _staged_name: str = "spinlab_replay.bsv"
+    _staged_name: str = "spinlab_replay.replay"
 
     def is_playing(self) -> bool:
         return self._is_playing
@@ -531,28 +531,28 @@ class BSVPlayer:
         if self._is_playing:
             raise RuntimeError("already playing")
         if not src.exists():
-            raise FileNotFoundError(f"BSV source not found: {src}")
+            raise FileNotFoundError(f"movie source not found: {src}")
         self.movie_dir.mkdir(parents=True, exist_ok=True)
         staged = self.movie_dir / self._staged_name
         shutil.copy2(str(src), str(staged))
         self._staged_path = staged
-        self.client.bsv_play()
+        self.client.play_replay()
         self._is_playing = True
-        logger.info("BSVPlayer.play: %s → %s", src, staged)
+        logger.info("MoviePlayer.play: %s → %s", src, staged)
 
     def stop(self) -> None:
         if not self._is_playing:
             return  # idempotent stop, like NCI's pause_toggle gating
-        self.client.bsv_stop()
+        self.client.halt_replay()
         self._is_playing = False
         if self._staged_path is not None and self._staged_path.exists():
             try:
                 self._staged_path.unlink()
             except OSError as exc:
-                logger.warning("BSVPlayer.stop: could not unlink staged %s: %s",
+                logger.warning("MoviePlayer.stop: could not unlink staged %s: %s",
                                self._staged_path, exc)
         self._staged_path = None
-        logger.info("BSVPlayer.stop")
+        logger.info("MoviePlayer.stop")
 
 
 def discover_movie_dir(client) -> Path:
@@ -569,7 +569,7 @@ def discover_movie_dir(client) -> Path:
 - [ ] **Step 3.4: Run tests, expect pass.**
 
 ```bash
-python -m pytest tests/unit/test_bsv_recorder.py -v
+python -m pytest tests/unit/test_movie_recorder.py -v
 ```
 
 Expected: all 7 tests pass.
@@ -585,12 +585,12 @@ Expected: all green.
 - [ ] **Step 3.6: Commit.**
 
 ```bash
-git add python/spinlab/retroarch/bsv.py tests/unit/test_bsv_recorder.py
-git commit -m "feat(retroarch): BSVRecorder skeleton with mtime-baseline file discovery
+git add python/spinlab/retroarch/movie.py tests/unit/test_movie_recorder.py
+git commit -m "feat(retroarch): MovieRecorder skeleton with mtime-baseline file discovery
 
 Stateful recorder that snapshots movie_dir on start, polls for the new
-.bsv after toggle-off, then moves it to a SpinLab-keyed dest path. Unit
-tests against a fake NCI client cover lifecycle, error paths, and
+.replay file after halt_replay, then moves it to a SpinLab-keyed dest path.
+Unit tests against a fake NCI client cover lifecycle, error paths, and
 ignoring pre-existing files in movie_dir.
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -598,19 +598,19 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
-## Task 4: Smoke test — BSV record toggle works on real RA
+## Task 4: Smoke test — movie record toggle works on real RA
 
 **Files:**
-- Create: `tests/integration/test_bsv_smoke.py`
+- Create: `tests/integration/test_movie_smoke.py`
 
 This is the gate. If the canonical NCI command name is wrong on RA 1.22.2 the test fails loudly and we triage before going further. The test uses the existing `ra_harness` session fixture, mirrors the existing `test_transitions.py` style.
 
 - [ ] **Step 4.1: Write the smoke test.**
 
-Create `tests/integration/test_bsv_smoke.py`:
+Create `tests/integration/test_movie_smoke.py`:
 
 ```python
-"""Smoke tests for BSV record/playback against a live headless RetroArch.
+"""Smoke tests for movie record/playback against a live headless RetroArch.
 
 These are sequenced gates — the record-toggle test must pass before the
 recorder integration in Task 5 is meaningful. The determinism and
@@ -624,7 +624,7 @@ from pathlib import Path
 
 import pytest
 
-from spinlab.retroarch.bsv import BSVRecorder, discover_movie_dir
+from spinlab.retroarch.movie import MovieRecorder, discover_movie_dir
 from tests.integration.ra_harness import RAHarness
 
 pytestmark = pytest.mark.emulator
@@ -635,25 +635,25 @@ def _frame_advance_n(harness: RAHarness, n: int) -> None:
         harness.client.frame_advance()
 
 
-def test_bsv_record_toggle_creates_file(ra_harness: RAHarness, tmp_path: Path):
-    """Toggle BSV record on, advance frames, toggle off, expect a new .bsv."""
+def test_record_toggle_creates_file(ra_harness: RAHarness, tmp_path: Path):
+    """Toggle movie record on, advance frames, halt, expect a new .replay file."""
     movie_dir = discover_movie_dir(ra_harness.client)
     assert movie_dir.exists(), f"RA reports movie_directory={movie_dir!r} but it doesn't exist"
 
-    recorder = BSVRecorder(client=ra_harness.client, movie_dir=movie_dir)
-    dest = tmp_path / "smoke.bsv"
+    recorder = MovieRecorder(client=ra_harness.client, movie_dir=movie_dir)
+    dest = tmp_path / "smoke.replay"
 
     recorder.start(dest)
     _frame_advance_n(ra_harness, 30)
     recorder.stop()
 
-    assert dest.exists(), f"BSVRecorder.stop did not produce {dest}"
+    assert dest.exists(), f"MovieRecorder.stop did not produce {dest}"
     assert dest.stat().st_size > 0, f"{dest} is empty"
 
     # Confirm RA is still responsive — no deep-pause, no crash.
     status = ra_harness.client.get_status()
     assert status.state in ("PAUSED", "PLAYING"), (
-        f"RA in unexpected state {status.state!r} after BSV record"
+        f"RA in unexpected state {status.state!r} after movie record"
     )
 
     # Confirm FRAMEADVANCE still ticks the core.
@@ -662,33 +662,33 @@ def test_bsv_record_toggle_creates_file(ra_harness: RAHarness, tmp_path: Path):
     time.sleep(0.05)
     snap_after = ra_harness.client.read_ram(0x0000, 16)
     assert snap_before != snap_after, (
-        "FRAMEADVANCE no longer ticks core after BSV record toggle"
+        "FRAMEADVANCE no longer ticks core after movie record toggle"
     )
 ```
 
 - [ ] **Step 4.2: Run the smoke test against live RA.**
 
 ```bash
-python -m pytest tests/integration/test_bsv_smoke.py -v -m emulator
+python -m pytest tests/integration/test_movie_smoke.py -v -m emulator
 ```
 
-**Expected outcome 1 (the happy path):** test passes. The NCI command `BSV_RECORD_TOGGLE` works on RA 1.22.2 and the recorder finds the file. Proceed to Task 5.
+**Expected outcome 1 (the happy path):** test passes. The NCI command `RECORD_REPLAY` works on RA 1.22.2 and the recorder finds the file. Proceed to Task 5.
 
-**Expected outcome 2 (command name wrong):** test fails because `recorder.stop()` raises `FileNotFoundError` — RA never wrote a .bsv. STOP. Investigate alternatives in this order:
+**Expected outcome 2 (command name wrong):** test fails because `recorder.stop()` raises `FileNotFoundError` — RA never wrote a .replay file. STOP. Investigate alternatives in this order:
 1. Check `C:/RetroArch-Win64/.config/retroarch/retroarch.cfg` for `input_movie_record_toggle = "..."` — the bound key name hints at the NCI command name (RA's NCI command names mirror its input action names).
 2. Try `MOVIE_RECORD_TOGGLE` instead. Update `nci.py` Task 1.4 with the corrected command name.
-3. If neither works, try `--bsvrecord <path>` as a CLI flag on RA launch — that's a fallback path that requires changing `RAHarness` to accept a movie path.
+3. If neither works, try a `--record <path>` CLI flag on RA launch — that's a fallback path that requires changing `RAHarness` to accept a movie path.
 4. If nothing works, halt the plan and update the spec's "Risks and mitigations" section.
 
-**Expected outcome 3 (RA crashes / deep-pause):** test fails on the responsiveness check. STOP. This indicates BSV record toggle has destabilizing side effects on our setup. Investigate before continuing.
+**Expected outcome 3 (RA crashes / deep-pause):** test fails on the responsiveness check. STOP. This indicates movie record toggle has destabilizing side effects on our setup. Investigate before continuing.
 
 - [ ] **Step 4.3: If the test passed unmodified, commit.**
 
 ```bash
-git add tests/integration/test_bsv_smoke.py
-git commit -m "test(retroarch): BSV record-toggle smoke test against live RA
+git add tests/integration/test_movie_smoke.py
+git commit -m "test(retroarch): movie record-toggle smoke test against live RA
 
-Validates BSV_RECORD_TOGGLE NCI command produces a .bsv file and leaves
+Validates RECORD_REPLAY NCI command produces a .replay file and leaves
 RA responsive. Gate for the recorder integration in subsequent tasks.
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -698,13 +698,13 @@ If the test required NCI command-name fixes in Task 1, also include those in the
 
 ---
 
-## Task 5: Wire `BSVRecorder` into the orchestrator
+## Task 5: Wire `MovieRecorder` into the orchestrator
 
 **Files:**
 - Modify: `python/spinlab/retroarch/orchestrator.py`
 - Test: `tests/unit/test_retroarch_orchestrator.py` (existing)
 
-The orchestrator's `_on_reference_start` and `_on_reference_stop` are currently no-ops (logging only). This task makes them trigger BSV recording. The `BSVRecorder` instance is constructed in `build_orchestrator` and passed in.
+The orchestrator's `_on_reference_start` and `_on_reference_stop` are currently no-ops (logging only). This task makes them trigger movie recording. The `MovieRecorder` instance is constructed in `build_orchestrator` and passed in.
 
 - [ ] **Step 5.1: Read the existing orchestrator to find the no-op handlers.**
 
@@ -721,7 +721,7 @@ from pathlib import Path
 from spinlab.protocol import ReferenceStartCmd, ReferenceStopCmd
 
 
-class FakeBSVRecorder:
+class FakeMovieRecorder:
     def __init__(self):
         self.started_with: Path | None = None
         self.stopped: bool = False
@@ -742,7 +742,7 @@ async def test_on_reference_start_triggers_recorder(orchestrator_with_fake_recor
     orch, fake_rec = orchestrator_with_fake_recorder
     spinrec = "/data/game/rec/refid.spinrec"
     await orch._on_reference_start(ReferenceStartCmd(path=spinrec))
-    assert fake_rec.started_with == Path("/data/game/rec/refid.bsv")
+    assert fake_rec.started_with == Path("/data/game/rec/refid.replay")
 
 
 @pytest.mark.asyncio
@@ -760,7 +760,7 @@ async def test_on_reference_start_logs_warning_if_recorder_fails(
     orch, _ = orchestrator_with_failing_recorder
     # Should NOT raise — failures are non-fatal.
     await orch._on_reference_start(ReferenceStartCmd(path="/x/y/z.spinrec"))
-    assert any("BSV recording failed" in r.message for r in caplog.records)
+    assert any("movie recording failed" in r.message for r in caplog.records)
 
 
 @pytest.mark.asyncio
@@ -798,6 +798,7 @@ class FakePoller:
     async def stop(self): pass
 
 
+
 def _build_orch(recorder):
     return RetroArchOrchestrator(
         client=FakeNCI(),
@@ -806,13 +807,13 @@ def _build_orch(recorder):
         conditions=None,
         practice_timing=None,
         speed_run_timing=None,
-        bsv_recorder=recorder,
+        movie_recorder=recorder,
     )
 
 
 @pytest.fixture
 def orchestrator_with_fake_recorder():
-    rec = FakeBSVRecorder()
+    rec = FakeMovieRecorder()
     return _build_orch(rec), rec
 
 
@@ -839,11 +840,11 @@ If `tests/unit/test_retroarch_orchestrator.py` doesn't exist, create it with the
 python -m pytest tests/unit/test_retroarch_orchestrator.py -v -k "reference_start or reference_stop"
 ```
 
-Expected: failures (`TypeError: __init__ got unexpected keyword 'bsv_recorder'`, etc.).
+Expected: failures (`TypeError: __init__ got unexpected keyword 'movie_recorder'`, etc.).
 
-- [ ] **Step 5.4: Add `bsv_recorder` to `RetroArchOrchestrator.__init__`.**
+- [ ] **Step 5.4: Add `movie_recorder` to `RetroArchOrchestrator.__init__`.**
 
-In `python/spinlab/retroarch/orchestrator.py`, find the `__init__` signature (around line 65). Add `bsv_recorder` as a kwarg:
+In `python/spinlab/retroarch/orchestrator.py`, find the `__init__` signature (around line 65). Add `movie_recorder` as a kwarg:
 
 ```python
 def __init__(
@@ -854,16 +855,16 @@ def __init__(
     conditions,
     practice_timing,
     speed_run_timing,
-    bsv_recorder=None,  # Optional[BSVRecorder]
+    movie_recorder=None,  # Optional[MovieRecorder]
 ):
     # ... existing body ...
-    self._bsv_recorder = bsv_recorder
+    self._movie_recorder = movie_recorder
 ```
 
 Also add the import near the top of the file:
 
 ```python
-from spinlab.retroarch.bsv import BSVRecorder
+from spinlab.retroarch.movie import MovieRecorder
 ```
 
 (Add as `if TYPE_CHECKING:` if there's a circular import concern — check the file's existing import patterns.)
@@ -874,18 +875,18 @@ In `python/spinlab/retroarch/orchestrator.py`, replace the existing `_on_referen
 
 ```python
 async def _on_reference_start(self, cmd: ReferenceStartCmd) -> None:
-    """Trigger BSV recording if a recorder is configured. Failures are
-    non-fatal — reference runs are about state captures; BSV is supplementary.
+    """Trigger movie recording if a recorder is configured. Failures are
+    non-fatal — reference runs are about state captures; movie recording is supplementary.
     """
-    if self._bsv_recorder is None:
-        logger.info("Reference recording started (no BSV recorder configured)")
+    if self._movie_recorder is None:
+        logger.info("Reference recording started (no movie recorder configured)")
         return
-    bsv_path = Path(cmd.path).with_suffix(".bsv")
+    replay_path = Path(cmd.path).with_suffix(".replay")
     try:
-        await asyncio.to_thread(self._bsv_recorder.start, bsv_path)
-        logger.info("BSV recording started: %s", bsv_path)
+        await asyncio.to_thread(self._movie_recorder.start, replay_path)
+        logger.info("movie recording started: %s", replay_path)
     except Exception as exc:
-        logger.warning("BSV recording failed to start: %s", exc)
+        logger.warning("movie recording failed to start: %s", exc)
 ```
 
 - [ ] **Step 5.6: Replace `_on_reference_stop` with the recorder-stopping version.**
@@ -894,15 +895,15 @@ Replace the `_on_reference_stop` body:
 
 ```python
 async def _on_reference_stop(self, cmd: ReferenceStopCmd) -> None:
-    """Stop BSV recording if active. Failures are non-fatal."""
-    if self._bsv_recorder is None or not self._bsv_recorder.is_recording():
-        logger.info("Reference recording stopped (no BSV recorder active)")
+    """Stop movie recording if active. Failures are non-fatal."""
+    if self._movie_recorder is None or not self._movie_recorder.is_recording():
+        logger.info("Reference recording stopped (no movie recorder active)")
         return
     try:
-        path = await asyncio.to_thread(self._bsv_recorder.stop)
-        logger.info("BSV recording stopped: %s", path)
+        path = await asyncio.to_thread(self._movie_recorder.stop)
+        logger.info("movie recording stopped: %s", path)
     except Exception as exc:
-        logger.warning("BSV recording failed to stop: %s", exc)
+        logger.warning("movie recording failed to stop: %s", exc)
 ```
 
 Make sure `from pathlib import Path` and `import asyncio` are imported at the top of the file (they almost certainly already are; verify).
@@ -912,7 +913,7 @@ Make sure `from pathlib import Path` and `import asyncio` are imported at the to
 In `python/spinlab/retroarch/orchestrator.py`, find `build_orchestrator` (around line 397). After the `state_io` construction and before the `RetroArchOrchestrator(...)` call, add:
 
 ```python
-from spinlab.retroarch.bsv import BSVRecorder, discover_movie_dir
+from spinlab.retroarch.movie import MovieRecorder, discover_movie_dir
 
 if emu.ra_movie_dir is not None:
     movie_dir = emu.ra_movie_dir
@@ -921,15 +922,15 @@ else:
         movie_dir = discover_movie_dir(client)
     except Exception as exc:
         logger.warning(
-            "build_orchestrator: BSV recorder disabled — could not discover movie_dir: %s",
+            "build_orchestrator: movie recorder disabled — could not discover movie_dir: %s",
             exc,
         )
         movie_dir = None
 
-bsv_recorder = BSVRecorder(client=client, movie_dir=movie_dir) if movie_dir is not None else None
+movie_recorder = MovieRecorder(client=client, movie_dir=movie_dir) if movie_dir is not None else None
 ```
 
-And pass `bsv_recorder=bsv_recorder` into the `RetroArchOrchestrator(...)` constructor call.
+And pass `movie_recorder=movie_recorder` into the `RetroArchOrchestrator(...)` constructor call.
 
 - [ ] **Step 5.8: Run unit tests, expect pass.**
 
@@ -951,9 +952,9 @@ Expected: all green. If anything fails, fix before committing.
 
 ```bash
 git add python/spinlab/retroarch/orchestrator.py tests/unit/test_retroarch_orchestrator.py
-git commit -m "feat(retroarch): wire BSVRecorder into orchestrator reference handlers
+git commit -m "feat(retroarch): wire MovieRecorder into orchestrator reference handlers
 
-_on_reference_start/_stop now trigger BSV record toggle if a recorder
+_on_reference_start/_stop now trigger movie recording if a recorder
 is configured. Recorder is constructed in build_orchestrator from
 EmulatorConfig.ra_movie_dir (or auto-discovered via NCI). Failures are
 non-fatal — state captures remain the primary reference-run output.
@@ -966,7 +967,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 6: Andrew records the fixture (manual)
 
 **Files:**
-- Create: `tests/fixtures/love_yourself/one_level.bsv` (binary)
+- Create: `tests/fixtures/love_yourself/one_level.replay` (binary)
 - Create: `tests/fixtures/love_yourself/one_level.json` (metadata)
 
 This is **a manual step the human user performs.** Cannot be automated by an agent. The plan halts here until Andrew confirms the fixture is recorded.
@@ -981,18 +982,18 @@ spinlab dashboard --config config.yaml
 
 - [ ] **Step 6.2: Andrew starts a reference run, plays through one level, finishes the level (reach goal), and saves the run with name "phase_e_fixture_one_level".**
 
-The dashboard's reference recording flow handles state captures + (now) BSV. After save, two files exist in the data dir:
+The dashboard's reference recording flow handles state captures + (now) movie recording. After save, two files exist in the data dir:
 
 - `{data_dir}/{game_id}/rec/{ref_id}.mss`
-- `{data_dir}/{game_id}/rec/{ref_id}.bsv`  ← the new one
+- `{data_dir}/{game_id}/rec/{ref_id}.replay`  ← the new one
 
-If the `.bsv` is missing, BSV recording silently failed during the run. Check `{data_dir}/spinlab.log` for "BSV recording failed" warnings. If present, debug Task 4 / Task 5 wiring before continuing.
+If the `.replay` file is missing, movie recording silently failed during the run. Check `{data_dir}/spinlab.log` for "movie recording failed" warnings. If present, debug Task 4 / Task 5 wiring before continuing.
 
 - [ ] **Step 6.3: Andrew copies the fixture to the test fixtures dir.**
 
 ```bash
 # From project root, with the actual ref_id substituted:
-cp "{data_dir}/{game_id}/rec/{ref_id}.bsv" tests/fixtures/love_yourself/one_level.bsv
+cp "{data_dir}/{game_id}/rec/{ref_id}.replay" tests/fixtures/love_yourself/one_level.replay
 ```
 
 - [ ] **Step 6.4: Andrew creates the metadata file.**
@@ -1017,8 +1018,8 @@ The actual numbers come out of Task 7 (determinism test). For now write the file
 - [ ] **Step 6.5: Andrew commits the fixture.**
 
 ```bash
-git add tests/fixtures/love_yourself/one_level.bsv tests/fixtures/love_yourself/one_level.json
-git commit -m "fixtures: love_yourself one_level.bsv recorded via reference-run BSV path
+git add tests/fixtures/love_yourself/one_level.replay tests/fixtures/love_yourself/one_level.json
+git commit -m "fixtures: love_yourself one_level.replay recorded via reference-run movie path
 
 Phase E test fixture, replacing the Mesen-era two_level.spinrec. Recorded
 on $(date) via the dashboard reference-run flow with backend=retroarch.
@@ -1028,17 +1029,17 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
-## Task 7: Smoke test — BSV playback determinism
+## Task 7: Smoke test — movie playback determinism
 
 **Files:**
-- Modify: `tests/integration/test_bsv_smoke.py`
+- Modify: `tests/integration/test_movie_smoke.py`
 - Modify: `tests/fixtures/love_yourself/one_level.json` (refine numbers)
 
-This validates two things in one test: (a) BSV playback works at all, and (b) the same playback produces identical memory at the same frame, twice in a row.
+This validates two things in one test: (a) movie playback works at all, and (b) the same playback produces identical memory at the same frame, twice in a row.
 
-- [ ] **Step 7.1: Add the determinism test to `test_bsv_smoke.py`.**
+- [ ] **Step 7.1: Add the determinism test to `test_movie_smoke.py`.**
 
-Append to `tests/integration/test_bsv_smoke.py`:
+Append to `tests/integration/test_movie_smoke.py`:
 
 ```python
 import json
@@ -1052,9 +1053,9 @@ def _load_fixture_metadata() -> dict:
 
 def _play_and_read_at_frame(harness: RAHarness, fixture: Path, frame: int, addr: int) -> int:
     """Start playback, advance to `frame`, read byte at `addr`, stop."""
-    from spinlab.retroarch.bsv import BSVPlayer, discover_movie_dir
+    from spinlab.retroarch.movie import MoviePlayer, discover_movie_dir
     movie_dir = discover_movie_dir(harness.client)
-    player = BSVPlayer(client=harness.client, movie_dir=movie_dir)
+    player = MoviePlayer(client=harness.client, movie_dir=movie_dir)
     player.play(fixture)
     try:
         for _ in range(frame):
@@ -1068,17 +1069,17 @@ def _play_and_read_at_frame(harness: RAHarness, fixture: Path, frame: int, addr:
 
 
 @pytest.mark.skipif(
-    not (FIXTURE_DIR / "one_level.bsv").exists(),
-    reason="one_level.bsv fixture not recorded yet (Task 6)",
+    not (FIXTURE_DIR / "one_level.replay").exists(),
+    reason="one_level.replay fixture not recorded yet (Task 6)",
 )
-def test_bsv_playback_deterministic(ra_harness: RAHarness):
+def test_movie_playback_deterministic(ra_harness: RAHarness):
     """Same fixture, played twice in the same RA session, must produce identical
-    memory at the same frame. Validates BSV playback determinism under our
+    memory at the same frame. Validates movie playback determinism under our
     RA config (runahead=2, secondary-instance=true, cheevos-off).
     """
     meta = _load_fixture_metadata()
     probe = meta["determinism_probe"]
-    fixture = FIXTURE_DIR / "one_level.bsv"
+    fixture = FIXTURE_DIR / "one_level.replay"
 
     byte_run_1 = _play_and_read_at_frame(ra_harness, fixture, probe["frame"], probe["addr"])
     byte_run_2 = _play_and_read_at_frame(ra_harness, fixture, probe["frame"], probe["addr"])
@@ -1099,26 +1100,26 @@ def test_bsv_playback_deterministic(ra_harness: RAHarness):
 - [ ] **Step 7.2: Run the test (with placeholder metadata).**
 
 ```bash
-python -m pytest tests/integration/test_bsv_smoke.py::test_bsv_playback_deterministic -v
+python -m pytest tests/integration/test_movie_smoke.py::test_movie_playback_deterministic -v
 ```
 
 **Expected outcome 1:** the determinism check passes (`byte_run_1 == byte_run_2`) but the expected_byte assertion fails because metadata is placeholder. The error message tells you the actual measured byte.
 
-**Expected outcome 2:** determinism check fails (`byte_run_1 != byte_run_2`). STOP. This means BSV playback under runahead=2 is non-deterministic on our setup. Investigate:
+**Expected outcome 2:** determinism check fails (`byte_run_1 != byte_run_2`). STOP. This means movie playback under runahead=2 is non-deterministic on our setup. Investigate:
 1. Is `cheevos_hardcore_mode_enable = "false"` in `retroarch.cfg`? Re-verify.
 2. Is `run_ahead_secondary_instance = "true"`? Re-verify.
 3. Try with runahead disabled entirely (set `run_ahead_enabled = "false"` temporarily) — if determinism returns, the issue is runahead-specific and Phase E may need to gate replay on disabling runahead.
 
-**Expected outcome 3:** test errors out with NCI errors or RA hangs. STOP. BSV playback may be incompatible with our config; back off and investigate before going further.
+**Expected outcome 3:** test errors out with NCI errors or RA hangs. STOP. Movie playback may be incompatible with our config; back off and investigate before going further.
 
 - [ ] **Step 7.3: Update `one_level.json` with the actual measured value.**
 
-Edit `tests/fixtures/love_yourself/one_level.json`, replace `expected_byte` with the actual byte the previous run measured. Adjust `frame` and `addr` if the chosen probe address turns out to be a frame counter or RNG byte (which would still be deterministic under BSV but is a confusing probe).
+Edit `tests/fixtures/love_yourself/one_level.json`, replace `expected_byte` with the actual byte the previous run measured. Adjust `frame` and `addr` if the chosen probe address turns out to be a frame counter or RNG byte (which would still be deterministic under movie playback but is a confusing probe).
 
 - [ ] **Step 7.4: Re-run the test, expect pass.**
 
 ```bash
-python -m pytest tests/integration/test_bsv_smoke.py::test_bsv_playback_deterministic -v
+python -m pytest tests/integration/test_movie_smoke.py::test_movie_playback_deterministic -v
 ```
 
 Expected: pass.
@@ -1126,10 +1127,10 @@ Expected: pass.
 - [ ] **Step 7.5: Commit fixture metadata + the test.**
 
 ```bash
-git add tests/integration/test_bsv_smoke.py tests/fixtures/love_yourself/one_level.json
-git commit -m "test(retroarch): BSV playback determinism smoke test
+git add tests/integration/test_movie_smoke.py tests/fixtures/love_yourself/one_level.json
+git commit -m "test(retroarch): movie playback determinism smoke test
 
-Validates two consecutive playbacks of one_level.bsv produce identical
+Validates two consecutive playbacks of one_level.replay produce identical
 memory at the determinism-probe frame. Refines fixture metadata with
 the measured value.
 
@@ -1138,20 +1139,20 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
-## Task 8: Smoke test — Poller runs during BSV playback
+## Task 8: Smoke test — Poller runs during movie playback
 
 **Files:**
-- Modify: `tests/integration/test_bsv_smoke.py`
+- Modify: `tests/integration/test_movie_smoke.py`
 
-Validates that the production memory poller (which feeds `TransitionDetector`) can keep up while RA is in BSV playback. The replay-fixture test in Task 10 depends on this — if the poller starves, transitions get missed during replay.
+Validates that the production memory poller (which feeds `TransitionDetector`) can keep up while RA is in movie playback. The replay-fixture test in Task 10 depends on this — if the poller starves, transitions get missed during replay.
 
 - [ ] **Step 8.1: Read the existing Poller to understand its run loop.**
 
-Open `python/spinlab/retroarch/poller.py`. Note `Poller.run()` (the async loop) and `PollerDeps`. The test will construct a poller with a counting on_event callback and run it for K frames of BSV playback.
+Open `python/spinlab/retroarch/poller.py`. Note `Poller.run()` (the async loop) and `PollerDeps`. The test will construct a poller with a counting on_event callback and run it for K frames of movie playback.
 
-- [ ] **Step 8.2: Add the polling test to `test_bsv_smoke.py`.**
+- [ ] **Step 8.2: Add the polling test to `test_movie_smoke.py`.**
 
-Append to `tests/integration/test_bsv_smoke.py`:
+Append to `tests/integration/test_movie_smoke.py`:
 
 ```python
 import asyncio
@@ -1161,15 +1162,15 @@ from spinlab.retroarch.snapshot import read_snapshot
 
 
 @pytest.mark.skipif(
-    not (FIXTURE_DIR / "one_level.bsv").exists(),
-    reason="one_level.bsv fixture not recorded yet (Task 6)",
+    not (FIXTURE_DIR / "one_level.replay").exists(),
+    reason="one_level.replay fixture not recorded yet (Task 6)",
 )
 def test_poller_runs_during_playback(ra_harness: RAHarness):
-    """Poller reads RAM at 60Hz during BSV playback without errors or starvation."""
-    from spinlab.retroarch.bsv import BSVPlayer, discover_movie_dir
-    fixture = FIXTURE_DIR / "one_level.bsv"
+    """Poller reads RAM at 60Hz during movie playback without errors or starvation."""
+    from spinlab.retroarch.movie import MoviePlayer, discover_movie_dir
+    fixture = FIXTURE_DIR / "one_level.replay"
     movie_dir = discover_movie_dir(ra_harness.client)
-    player = BSVPlayer(client=ra_harness.client, movie_dir=movie_dir)
+    player = MoviePlayer(client=ra_harness.client, movie_dir=movie_dir)
 
     target_seconds = 1.0
     target_frames = int(target_seconds / DEFAULT_PERIOD_SEC)  # ~60 frames at 60Hz
@@ -1195,7 +1196,7 @@ def test_poller_runs_during_playback(ra_harness: RAHarness):
 
     player.play(fixture)
     try:
-        # During BSV playback the core advances frames automatically — no
+        # During movie playback the core advances frames automatically — no
         # frame_advance() needed. Just let the poller hammer NCI for K frames.
         asyncio.run(_run_for(target_seconds))
     finally:
@@ -1208,7 +1209,7 @@ def test_poller_runs_during_playback(ra_harness: RAHarness):
     actual = poller.poll_count if hasattr(poller, "poll_count") else len(events_seen)
     assert actual >= expected, (
         f"Poller hit {actual} polls in {target_seconds}s, expected ≥{expected}. "
-        f"BSV playback may be starving the poller."
+        f"movie playback may be starving the poller."
     )
 ```
 
@@ -1217,14 +1218,14 @@ If `Poller` doesn't expose a `poll_count` attribute (check `python/spinlab/retro
 - [ ] **Step 8.3: Run the test against live RA.**
 
 ```bash
-python -m pytest tests/integration/test_bsv_smoke.py::test_poller_runs_during_playback -v
+python -m pytest tests/integration/test_movie_smoke.py::test_poller_runs_during_playback -v
 ```
 
 **Expected outcome 1:** test passes. Poller keeps up. Proceed to Task 9.
 
-**Expected outcome 2:** test fails with poll count below threshold. Mitigation per spec: throttle BSV playback speed via NCI's `SLOWMOTION_RATIO` or equivalent. This requires:
+**Expected outcome 2:** test fails with poll count below threshold. Mitigation per spec: throttle movie playback speed via NCI's `SLOWMOTION_RATIO` or equivalent. This requires:
 1. Add `client.set_slowmotion_ratio(ratio)` to `nci.py` if not present.
-2. Have `BSVPlayer.play(src, speed_ratio=1.0)` accept a slow-motion factor.
+2. Have `MoviePlayer.play(src, speed_ratio=1.0)` accept a slow-motion factor.
 3. Re-run the test with `speed_ratio=2.0` (half speed).
 4. Document in the spec that replay runs at half speed under RA.
 
@@ -1233,10 +1234,10 @@ python -m pytest tests/integration/test_bsv_smoke.py::test_poller_runs_during_pl
 - [ ] **Step 8.4: Commit.**
 
 ```bash
-git add tests/integration/test_bsv_smoke.py python/spinlab/retroarch/poller.py
-git commit -m "test(retroarch): poller-during-BSV-playback smoke test
+git add tests/integration/test_movie_smoke.py python/spinlab/retroarch/poller.py
+git commit -m "test(retroarch): poller-during-movie-playback smoke test
 
-Validates the production memory poller can keep up with BSV playback at
+Validates the production memory poller can keep up with movie playback at
 60Hz under our NCI transport. Threshold 90% of expected polls allows for
 OS scheduling jitter without masking real starvation.
 
@@ -1245,7 +1246,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
-## Task 9: Wire `BSVPlayer` into `_on_replay_cmd`
+## Task 9: Wire `MoviePlayer` into `_on_replay_cmd`
 
 **Files:**
 - Modify: `python/spinlab/retroarch/orchestrator.py`
@@ -1261,7 +1262,7 @@ Append to `tests/unit/test_retroarch_orchestrator.py`:
 from spinlab.protocol import ReplayCmd, ReplayStopCmd
 
 
-class FakeBSVPlayer:
+class FakeMoviePlayer:
     def __init__(self):
         self.played: Path | None = None
         self.stopped: bool = False
@@ -1284,29 +1285,29 @@ def _build_orch_with_player(player):
         conditions=None,
         practice_timing=None,
         speed_run_timing=None,
-        bsv_recorder=None,
-        bsv_player=player,
+        movie_recorder=None,
+        movie_player=player,
     )
 
 
 @pytest.fixture
 def orchestrator_with_fake_player():
-    p = FakeBSVPlayer()
+    p = FakeMoviePlayer()
     return _build_orch_with_player(p), p
 
 
 @pytest.mark.asyncio
-async def test_on_replay_translates_spinrec_path_to_bsv(orchestrator_with_fake_player):
+async def test_on_replay_translates_spinrec_path_to_replay(orchestrator_with_fake_player):
     """Dashboard resolves ref_id to a .spinrec path; orchestrator translates."""
     orch, fake_player = orchestrator_with_fake_player
     await orch._on_replay(ReplayCmd(path="/data/game/rec/refid.spinrec", speed=0))
-    assert fake_player.played == Path("/data/game/rec/refid.bsv")
+    assert fake_player.played == Path("/data/game/rec/refid.replay")
 
 
 @pytest.mark.asyncio
 async def test_on_replay_stop_calls_player_stop(orchestrator_with_fake_player):
     orch, fake_player = orchestrator_with_fake_player
-    await orch._on_replay(ReplayCmd(path="/x.bsv", speed=0))
+    await orch._on_replay(ReplayCmd(path="/x.replay", speed=0))
     await orch._on_replay_stop(ReplayStopCmd())
     assert fake_player.stopped
 
@@ -1316,7 +1317,7 @@ async def test_on_replay_without_player_raises_backend_not_implemented():
     from spinlab.errors import BackendNotImplementedError
     orch = _build_orch_with_player(None)
     with pytest.raises(BackendNotImplementedError):
-        await orch._on_replay(ReplayCmd(path="/x.bsv", speed=0))
+        await orch._on_replay(ReplayCmd(path="/x.replay", speed=0))
 ```
 
 - [ ] **Step 9.2: Run tests, expect failures.**
@@ -1325,9 +1326,9 @@ async def test_on_replay_without_player_raises_backend_not_implemented():
 python -m pytest tests/unit/test_retroarch_orchestrator.py -v -k "replay"
 ```
 
-Expected: failures (`unexpected keyword 'bsv_player'` and missing `_on_replay`).
+Expected: failures (`unexpected keyword 'movie_player'` and missing `_on_replay`).
 
-- [ ] **Step 9.3: Add `bsv_player` to `RetroArchOrchestrator.__init__`.**
+- [ ] **Step 9.3: Add `movie_player` to `RetroArchOrchestrator.__init__`.**
 
 In `python/spinlab/retroarch/orchestrator.py`, add to `__init__`:
 
@@ -1340,11 +1341,11 @@ def __init__(
     conditions,
     practice_timing,
     speed_run_timing,
-    bsv_recorder=None,
-    bsv_player=None,
+    movie_recorder=None,
+    movie_player=None,
 ):
     # ... existing body ...
-    self._bsv_player = bsv_player
+    self._movie_player = movie_player
 ```
 
 - [ ] **Step 9.4: Replace dispatch entries for `ReplayCmd`/`ReplayStopCmd`.**
@@ -1369,25 +1370,25 @@ After `_on_reference_stop`, add. **Also extend the imports at the top of the fil
 
 ```python
 async def _on_replay(self, cmd: ReplayCmd) -> None:
-    """Start BSV playback. cmd.path is the .spinrec path the dashboard
+    """Start movie playback. cmd.path is the .spinrec path the dashboard
     resolved from the ref_id (the route layer is shared with the Mesen
-    backend); we translate the suffix to .bsv to find the RA-side fixture.
+    backend); we translate the suffix to .replay to find the RA-side fixture.
 
     Emits ReplayStartedEvent synthetically — the session manager's
     _handle_replay_started drives dashboard mode transitions, and the
     poller doesn't observe replay lifecycle (only memory state). frame_count
     comes from a sibling .json metadata file when present, else 0.
     """
-    if self._bsv_player is None:
+    if self._movie_player is None:
         from spinlab.errors import BackendNotImplementedError
-        logger.warning("RetroArchOrchestrator: ReplayCmd rejected — no BSV player configured")
+        logger.warning("RetroArchOrchestrator: ReplayCmd rejected — no movie player configured")
         raise BackendNotImplementedError()
-    bsv_path = Path(cmd.path).with_suffix(".bsv")
-    await asyncio.to_thread(self._bsv_player.play, bsv_path)
+    replay_path = Path(cmd.path).with_suffix(".replay")
+    await asyncio.to_thread(self._movie_player.play, replay_path)
 
     # Resolve frame count from sibling metadata if present.
     frame_count = 0
-    meta_path = bsv_path.with_suffix(".json")
+    meta_path = replay_path.with_suffix(".json")
     if meta_path.exists():
         try:
             import json as _json
@@ -1395,30 +1396,30 @@ async def _on_replay(self, cmd: ReplayCmd) -> None:
         except Exception as exc:
             logger.warning("Could not read frame_count from %s: %s", meta_path, exc)
 
-    self.on_poller_event(ReplayStartedEvent(path=str(bsv_path), frame_count=frame_count))
-    logger.info("BSV replay started: %s (frames=%d)", bsv_path, frame_count)
+    self.on_poller_event(ReplayStartedEvent(path=str(replay_path), frame_count=frame_count))
+    logger.info("movie replay started: %s (frames=%d)", replay_path, frame_count)
 
 
 async def _on_replay_stop(self, cmd: ReplayStopCmd) -> None:
-    """Stop BSV playback and emit ReplayFinishedEvent. Idempotent."""
-    if self._bsv_player is None or not self._bsv_player.is_playing():
+    """Stop movie playback and emit ReplayFinishedEvent. Idempotent."""
+    if self._movie_player is None or not self._movie_player.is_playing():
         return
-    await asyncio.to_thread(self._bsv_player.stop)
+    await asyncio.to_thread(self._movie_player.stop)
     self.on_poller_event(ReplayFinishedEvent())
-    logger.info("BSV replay stopped")
+    logger.info("movie replay stopped")
 ```
 
-- [ ] **Step 9.6: Update `build_orchestrator` to construct and pass `BSVPlayer`.**
+- [ ] **Step 9.6: Update `build_orchestrator` to construct and pass `MoviePlayer`.**
 
-In `build_orchestrator`, after the `BSVRecorder` construction, add:
+In `build_orchestrator`, after the `MovieRecorder` construction, add:
 
 ```python
-from spinlab.retroarch.bsv import BSVPlayer
+from spinlab.retroarch.movie import MoviePlayer
 
-bsv_player = BSVPlayer(client=client, movie_dir=movie_dir) if movie_dir is not None else None
+movie_player = MoviePlayer(client=client, movie_dir=movie_dir) if movie_dir is not None else None
 ```
 
-And add `bsv_player=bsv_player` to the `RetroArchOrchestrator(...)` call.
+And add `movie_player=movie_player` to the `RetroArchOrchestrator(...)` call.
 
 - [ ] **Step 9.7: Delete or rename `_unsupported_phase_e`.**
 
@@ -1450,7 +1451,7 @@ Expected: all green.
 
 ```bash
 git add python/spinlab/retroarch/orchestrator.py tests/unit/test_retroarch_orchestrator.py
-git commit -m "feat(retroarch): wire BSVPlayer into ReplayCmd/ReplayStopCmd
+git commit -m "feat(retroarch): wire MoviePlayer into ReplayCmd/ReplayStopCmd
 
 Replaces _unsupported_phase_e — ReplayCmd no longer raises 501. Player
 is constructed in build_orchestrator alongside the recorder, sharing
@@ -1463,19 +1464,19 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
-## Task 10: Add `BSVPlayer` unit tests
+## Task 10: Add `MoviePlayer` unit tests
 
 **Files:**
-- Create: `tests/unit/test_bsv_player.py`
+- Create: `tests/unit/test_movie_player.py`
 
 Coverage for the player's lifecycle and error paths against a fake NCI client + tmp filesystem. Mirrors the recorder unit-test pattern from Task 3.
 
 - [ ] **Step 10.1: Write the unit tests.**
 
-Create `tests/unit/test_bsv_player.py`:
+Create `tests/unit/test_movie_player.py`:
 
 ```python
-"""Unit tests for BSVPlayer against a fake NCI client + tmp filesystem."""
+"""Unit tests for MoviePlayer against a fake NCI client + tmp filesystem."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -1483,79 +1484,79 @@ from pathlib import Path
 
 import pytest
 
-from spinlab.retroarch.bsv import BSVPlayer
+from spinlab.retroarch.movie import MoviePlayer
 
 
 @dataclass
 class FakePlayerNCI:
     calls: list[str] = field(default_factory=list)
 
-    def bsv_play(self) -> None:
-        self.calls.append("bsv_play")
+    def play_replay(self) -> None:
+        self.calls.append("play_replay")
 
-    def bsv_stop(self) -> None:
-        self.calls.append("bsv_stop")
+    def halt_replay(self) -> None:
+        self.calls.append("halt_replay")
 
     def get_status(self):
         return type("S", (), {"state": "PLAYING"})()
 
 
 def test_player_starts_idle(tmp_path):
-    player = BSVPlayer(client=FakePlayerNCI(), movie_dir=tmp_path)
+    player = MoviePlayer(client=FakePlayerNCI(), movie_dir=tmp_path)
     assert not player.is_playing()
 
 
-def test_play_copies_file_into_movie_dir_and_toggles(tmp_path):
-    src = tmp_path / "source.bsv"
-    src.write_bytes(b"BSV1content")
+def test_play_copies_file_into_movie_dir_and_triggers(tmp_path):
+    src = tmp_path / "source.replay"
+    src.write_bytes(b"RPLYcontent")
     movie_dir = tmp_path / "movies"
     fake = FakePlayerNCI()
-    player = BSVPlayer(client=fake, movie_dir=movie_dir)
+    player = MoviePlayer(client=fake, movie_dir=movie_dir)
     player.play(src)
-    staged = movie_dir / "spinlab_replay.bsv"
+    staged = movie_dir / "spinlab_replay.replay"
     assert staged.exists()
-    assert staged.read_bytes() == b"BSV1content"
-    assert fake.calls == ["bsv_play"]
+    assert staged.read_bytes() == b"RPLYcontent"
+    assert fake.calls == ["play_replay"]
     assert player.is_playing()
 
 
-def test_stop_toggles_off_and_unstages(tmp_path):
-    src = tmp_path / "source.bsv"
+def test_stop_halts_and_unstages(tmp_path):
+    src = tmp_path / "source.replay"
     src.write_bytes(b"x")
     movie_dir = tmp_path / "movies"
     fake = FakePlayerNCI()
-    player = BSVPlayer(client=fake, movie_dir=movie_dir)
+    player = MoviePlayer(client=fake, movie_dir=movie_dir)
     player.play(src)
     player.stop()
-    assert fake.calls == ["bsv_play", "bsv_stop"]
-    assert not (movie_dir / "spinlab_replay.bsv").exists()
+    assert fake.calls == ["play_replay", "halt_replay"]
+    assert not (movie_dir / "spinlab_replay.replay").exists()
     assert not player.is_playing()
 
 
 def test_stop_is_idempotent_when_not_playing(tmp_path):
-    player = BSVPlayer(client=FakePlayerNCI(), movie_dir=tmp_path)
+    player = MoviePlayer(client=FakePlayerNCI(), movie_dir=tmp_path)
     player.stop()  # no-op, no error
 
 
 def test_play_raises_if_already_playing(tmp_path):
-    src = tmp_path / "x.bsv"
+    src = tmp_path / "x.replay"
     src.write_bytes(b"x")
-    player = BSVPlayer(client=FakePlayerNCI(), movie_dir=tmp_path)
+    player = MoviePlayer(client=FakePlayerNCI(), movie_dir=tmp_path)
     player.play(src)
     with pytest.raises(RuntimeError, match="already playing"):
         player.play(src)
 
 
 def test_play_raises_if_source_missing(tmp_path):
-    player = BSVPlayer(client=FakePlayerNCI(), movie_dir=tmp_path)
+    player = MoviePlayer(client=FakePlayerNCI(), movie_dir=tmp_path)
     with pytest.raises(FileNotFoundError):
-        player.play(tmp_path / "doesnt_exist.bsv")
+        player.play(tmp_path / "doesnt_exist.replay")
 ```
 
 - [ ] **Step 10.2: Run tests.**
 
 ```bash
-python -m pytest tests/unit/test_bsv_player.py -v
+python -m pytest tests/unit/test_movie_player.py -v
 ```
 
 Expected: 6 passes.
@@ -1563,15 +1564,15 @@ Expected: 6 passes.
 - [ ] **Step 10.3: Commit.**
 
 ```bash
-git add tests/unit/test_bsv_player.py
-git commit -m "test(retroarch): BSVPlayer unit tests against fake NCI
+git add tests/unit/test_movie_player.py
+git commit -m "test(retroarch): MoviePlayer unit tests against fake NCI
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 11: Port `test_replay_fixture.py` to RA + BSV
+## Task 11: Port `test_replay_fixture.py` to RA + movie replay
 
 **Files:**
 - Modify: `tests/integration/conftest.py` (add `replay_ra_dashboard` fixture)
@@ -1684,7 +1685,7 @@ Open `tests/integration/test_replay_fixture.py`. Replace the entire file content
 headless RetroArch and verify the capture pipeline produces correct segments
 and save states.
 
-Requires: RetroArch + Love Yourself ROM + tests/fixtures/love_yourself/one_level.bsv
+Requires: RetroArch + Love Yourself ROM + tests/fixtures/love_yourself/one_level.replay
 (see Task 6 of phase-e plan for fixture creation).
 
 Replaces the Mesen-bound .spinrec version of this test as part of Phase E.
@@ -1704,7 +1705,7 @@ from tests.integration.conftest import LOVE_YOURSELF_GAME_ID, skip_no_love_yours
 pytestmark = [pytest.mark.emulator, skip_no_love_yourself]
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "love_yourself"
-FIXTURE_BSV = FIXTURE_DIR / "one_level.bsv"
+FIXTURE_REPLAY = FIXTURE_DIR / "one_level.replay"
 FIXTURE_META = FIXTURE_DIR / "one_level.json"
 
 REPLAY_TIMEOUT_S = 60
@@ -1756,8 +1757,8 @@ def _wait_for_idle_with_progress(
 
 
 @pytest.mark.skipif(
-    not FIXTURE_BSV.exists(),
-    reason=f"BSV fixture not recorded yet: {FIXTURE_BSV} (see Task 6 of phase-e plan)",
+    not FIXTURE_REPLAY.exists(),
+    reason=f"movie fixture not recorded yet: {FIXTURE_REPLAY} (see Task 6 of phase-e plan)",
 )
 class TestReplayFixture:
     """Replay a one-level Love Yourself recording and verify capture output."""
@@ -1776,8 +1777,8 @@ class TestReplayFixture:
         game_rec_dir = tmp_path / LOVE_YOURSELF_GAME_ID / "rec"
         game_rec_dir.mkdir(parents=True, exist_ok=True)
         self.ref_id = "fixture_phase_e"
-        # Copy BSV under the ref_id name expected by the replay path.
-        shutil.copy2(FIXTURE_BSV, game_rec_dir / f"{self.ref_id}.bsv")
+        # Copy the movie file under the ref_id name expected by the replay path.
+        shutil.copy2(FIXTURE_REPLAY, game_rec_dir / f"{self.ref_id}.replay")
         # The orchestrator's _on_replay reads a sibling .json for frame_count
         # to populate ReplayStartedEvent.
         shutil.copy2(FIXTURE_META, game_rec_dir / f"{self.ref_id}.json")
@@ -1844,7 +1845,7 @@ class TestReplayFixture:
             )
 ```
 
-The fixture copies the `.bsv` into the dashboard's expected `<game_id>/rec/<ref_id>.bsv` location. The dashboard's `/api/replay/start` resolves `ref_id` to that file — same path the production code uses.
+The fixture copies the `.replay` file into the dashboard's expected `<game_id>/rec/<ref_id>.replay` location. The dashboard's `/api/replay/start` resolves `ref_id` to that file — same path the production code uses.
 
 - [ ] **Step 11.4: Run the integration test.**
 
@@ -1854,20 +1855,20 @@ python -m pytest tests/integration/test_replay_fixture.py -v -m emulator
 
 **Expected outcome 1:** test passes. Phase E (option a) is essentially done. Move to Task 12.
 
-**Expected outcome 2:** test fails because the `replay.total` is 0 in the dashboard state. This means the synthetic `ReplayStartedEvent` from Task 9 didn't carry the right `frame_count` — likely the metadata file wasn't co-located with the `.bsv`. Verify `<ref_id>.json` exists next to `<ref_id>.bsv` in the test temp dir. Update Task 11.3's `_setup` if you missed copying the metadata.
+**Expected outcome 2:** test fails because the `replay.total` is 0 in the dashboard state. This means the synthetic `ReplayStartedEvent` from Task 9 didn't carry the right `frame_count` — likely the metadata file wasn't co-located with the `.replay` file. Verify `<ref_id>.json` exists next to `<ref_id>.replay` in the test temp dir. Update Task 11.3's `_setup` if you missed copying the metadata.
 
 **Expected outcome 3:** test fails because segment count mismatches. Update `tests/fixtures/love_yourself/one_level.json` `expected_segments` field with the actual segment count produced.
 
-**Expected outcome 4:** test fails because dashboard never enters `replay` mode. Task 9 already emits `ReplayStartedEvent`, so the most likely cause is that the metadata file isn't being co-located with the `.bsv` fixture. Update the test setup in `_setup` to also copy `one_level.json` to `<ref_id>.json` next to the `.bsv`, so the orchestrator's metadata read finds it. If after that the test still fails to enter replay mode, trace `session_manager._handle_replay_started` to see whether the event is reaching it.
+**Expected outcome 4:** test fails because dashboard never enters `replay` mode. Task 9 already emits `ReplayStartedEvent`, so the most likely cause is that the metadata file isn't being co-located with the `.replay` fixture. Update the test setup in `_setup` to also copy `one_level.json` to `<ref_id>.json` next to the `.replay` file, so the orchestrator's metadata read finds it. If after that the test still fails to enter replay mode, trace `session_manager._handle_replay_started` to see whether the event is reaching it.
 
 - [ ] **Step 11.5: If the test required additional `_on_replay` wiring, commit those changes too.**
 
 ```bash
 git add tests/integration/test_replay_fixture.py tests/integration/conftest.py python/spinlab/retroarch/orchestrator.py
-git commit -m "test(retroarch): port test_replay_fixture to RA + BSV
+git commit -m "test(retroarch): port test_replay_fixture to RA + movie replay
 
-Replaces Mesen+.spinrec replay fixture test with RA+.bsv equivalent.
-Uses one_level.bsv recorded via the production reference-run path. New
+Replaces Mesen+.spinrec replay fixture test with RA+.replay equivalent.
+Uses one_level.replay recorded via the production reference-run path. New
 replay_ra_dashboard fixture in conftest.py mirrors replay_dashboard but
 points the dashboard at the ra_harness-launched RetroArch.
 
@@ -1932,7 +1933,7 @@ Expected: all green. No tests should reference the deleted fixtures.
 git add tests/integration/conftest.py tests/fixtures/love_yourself/
 git commit -m "chore(tests): delete Mesen-bound replay fixture infra
 
-test_replay_fixture.py ported to RA+BSV in the previous commit. The
+test_replay_fixture.py ported to RA+movie replay in the previous commit. The
 Mesen process fixture, dashboard fixture, and .spinrec/.mss fixture
 files have no remaining callers.
 
@@ -1960,7 +1961,7 @@ In `docs/retroarch-migration/status.md`:
 1. In the "What works" section, add a bullet:
 
 ```markdown
-- **Replay via BSV (option a, 2026-05-XX).** `tests/integration/test_replay_fixture.py` runs through RA + BSV end-to-end. `BSVRecorder` writes `.bsv` alongside `.mss` during reference runs (orchestrator's `_on_reference_start`/`_stop`). `BSVPlayer` drives `ReplayCmd` via the orchestrator's `_on_replay`/`_on_replay_stop`. Smoke tests in `tests/integration/test_bsv_smoke.py` cover record-toggle, playback determinism (runahead=2, secondary instance), and poller-during-playback. Fixture: `tests/fixtures/love_yourself/one_level.bsv` recorded 2026-05-XX. **Awaits Andrew's smoke testing before committing to (b) — full-parity user-facing replay.**
+- **Replay via movie (option a, 2026-05-XX).** `tests/integration/test_replay_fixture.py` runs through RA + movie replay end-to-end. `MovieRecorder` writes `.replay` alongside `.mss` during reference runs (orchestrator's `_on_reference_start`/`_stop`). `MoviePlayer` drives `ReplayCmd` via the orchestrator's `_on_replay`/`_on_replay_stop`. Smoke tests in `tests/integration/test_movie_smoke.py` cover record-toggle, playback determinism (runahead=2, secondary instance), and poller-during-playback. Fixture: `tests/fixtures/love_yourself/one_level.replay` recorded 2026-05-XX. **Awaits Andrew's smoke testing before committing to (b) — full-parity user-facing replay.**
 ```
 
 2. In the "Known broken / untested" section, remove or update the bullet about replay being 501. The new state is "(a) works, (b) gated on smoke testing."
@@ -1982,19 +1983,19 @@ user-facing replay endpoint pending Andrew's smoke testing).*
 2. Update P0.3:
 
 ```markdown
-### P0.3 — Phase E: BSV input recording + replay
+### P0.3 — Phase E: movie input recording + replay
 
-**Status (2026-05-XX):** Option (a) shipped. `BSVRecorder` integrated into
-reference-run flow; `BSVPlayer` wired to orchestrator's `ReplayCmd`. Smoke
+**Status (2026-05-XX):** Option (a) shipped. `MovieRecorder` integrated into
+reference-run flow; `MoviePlayer` wired to orchestrator's `ReplayCmd`. Smoke
 tests cover the three foundational unknowns (control path, determinism,
 polling-during-playback). `test_replay_fixture.py` ported from Mesen to RA.
 
 **Remaining for full parity (option b):** user-facing replay endpoint
-restoration, BSV-by-default in dashboard, `.spinrec` → `.bsv` converter
+restoration, movie-by-default in dashboard, `.spinrec` → `.replay` converter
 (low priority). Gated on Andrew's smoke testing of (a).
 ```
 
-3. Update the "full parity" definition (line 92): item 1 changes from "✗ inputs" to "✓ inputs (BSV recorded during reference runs as of 2026-05-XX)".
+3. Update the "full parity" definition (line 92): item 1 changes from "✗ inputs" to "✓ inputs (movie recorded during reference runs as of 2026-05-XX)".
 
 4. Update item 6: "Not implemented" → "Implemented (option a) 2026-05-XX, full-parity (b) pending."
 
@@ -2004,7 +2005,7 @@ restoration, BSV-by-default in dashboard, `.spinrec` → `.bsv` converter
 git add docs/retroarch-migration/status.md docs/retroarch-migration/path-to-parity.md
 git commit -m "docs(retroarch): status + parity reflect Phase E option (a) landing
 
-BSV record/replay validated via test fixture path. Full-parity (option b)
+movie record/replay validated via test fixture path. Full-parity (option b)
 remains gated on Andrew's smoke testing.
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -2024,22 +2025,22 @@ Expected: all green. Per `feedback_run_all_tests.md`, this is the gate before de
 
 - [ ] **Verify the spec's Definition of Done items, in order:**
 
-Open [`docs/superpowers/specs/2026-05-08-phase-e-bsv-replay-design.md`](../specs/2026-05-08-phase-e-bsv-replay-design.md) and walk the "Definition of done" checklist. Each item should be checkable against this plan's commits:
+Open [`docs/superpowers/specs/2026-05-08-phase-e-movie-replay-design.md`](../specs/2026-05-08-phase-e-movie-replay-design.md) and walk the "Definition of done" checklist. Each item should be checkable against this plan's commits:
 
-- [ ] `test_bsv_smoke.py` — three tests pass under `backend=retroarch` ← Tasks 4, 7, 8
-- [ ] `BSVRecorder` integrated into the reference-run flow; `.bsv` written alongside `.mss` ← Task 5
-- [ ] `BSVPlayer` drives `ReplayCmd`; no longer raises `BackendNotImplementedError` ← Task 9
-- [ ] `tests/fixtures/love_yourself/one_level.bsv` + `one_level.json` committed ← Tasks 6, 7
+- [ ] `test_movie_smoke.py` — three tests pass under `backend=retroarch` ← Tasks 4, 7, 8
+- [ ] `MovieRecorder` integrated into the reference-run flow; `.replay` written alongside `.mss` ← Task 5
+- [ ] `MoviePlayer` drives `ReplayCmd`; no longer raises `BackendNotImplementedError` ← Task 9
+- [ ] `tests/fixtures/love_yourself/one_level.replay` + `one_level.json` committed ← Tasks 6, 7
 - [ ] `tests/integration/test_replay_fixture.py` ported, passes 5 consecutive runs ← Task 11
 - [ ] Mesen-side `test_replay_fixture.py` deleted ← Task 11/12
-- [ ] `tests/unit/test_bsv_recorder.py` and `test_bsv_player.py` cover the recorder and player ← Tasks 3, 10
+- [ ] `tests/unit/test_movie_recorder.py` and `test_movie_player.py` cover the recorder and player ← Tasks 3, 10
 - [ ] `python -m pytest` runs clean ← This step
 
 - [ ] **Hand off to Andrew for smoke testing.**
 
 Per the spec, the gates from option (a) → (b) are:
 - Replay-fixture test passes 5 consecutive runs (DoD above ✓)
-- A real reference run on a hack other than Love Yourself produces a `.bsv` whose replay reproduces the same segment count + structure as the original capture
+- A real reference run on a hack other than Love Yourself produces a `.replay` file whose playback reproduces the same segment count + structure as the original capture
 - Memory state at known frames is byte-identical between original capture and replay (manual probe)
 
 Andrew runs the smoke testing in his own session, then decides whether to proceed to option (b).
