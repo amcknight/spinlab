@@ -506,7 +506,16 @@ def build_orchestrator(config) -> "RetroArchOrchestrator":
     if emu.ra_movie_dir is not None:
         movie_dir = emu.ra_movie_dir
     elif emu.savestate_dir is not None and emu.ra_core_subdir:
-        movie_dir = emu.savestate_dir / emu.ra_core_subdir
+        # Don't double-append if savestate_dir already ends with ra_core_subdir.
+        # Both conventions are seen in the wild: RA's actual savestate_directory
+        # is typically the parent dir (e.g. C:\RetroArch-Win64\states), but
+        # users sometimes set savestate_dir to the per-core subdir directly
+        # (e.g. C:\RetroArch-Win64\states\Snes9x) since that's where their
+        # .state files actually live for snes9x.
+        if emu.savestate_dir.name == emu.ra_core_subdir:
+            movie_dir = emu.savestate_dir
+        else:
+            movie_dir = emu.savestate_dir / emu.ra_core_subdir
         logger.info("build_orchestrator: movie_dir derived as %s", movie_dir)
     else:
         logger.info(

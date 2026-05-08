@@ -94,3 +94,18 @@ def test_movie_dir_none_disables_recorder_and_player(tmp_path):
     orch = build_orchestrator(cfg)
     assert orch._movie_recorder is None
     assert orch._movie_player is None
+
+
+def test_movie_dir_no_double_append_when_savestate_dir_already_includes_subdir(tmp_path):
+    """Branch 2 corner: if savestate_dir already ends with ra_core_subdir, don't
+    double-append. RA users sometimes set savestate_dir to the per-core dir
+    directly (e.g. C:\\RetroArch-Win64\\states\\Snes9x) since that's where their
+    .state files actually live for snes9x."""
+    savestate_per_core = tmp_path / "ra" / "Snes9x"
+    cfg = _config(tmp_path, savestate_dir=savestate_per_core,
+                  ra_movie_dir=None, ra_core_subdir="Snes9x")
+    orch = build_orchestrator(cfg)
+    assert orch._movie_recorder is not None
+    assert orch._movie_recorder.movie_dir == savestate_per_core  # NOT savestate_per_core / "Snes9x"
+    assert orch._movie_player is not None
+    assert orch._movie_player.movie_dir == savestate_per_core
