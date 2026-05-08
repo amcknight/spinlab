@@ -1,5 +1,5 @@
+from spinlab.protocol import SpawnEvent
 from spinlab.retroarch.cold_fill import ColdFillSpawnDetector
-from spinlab.retroarch.events import Spawn
 from spinlab.retroarch.snapshot import MemorySnapshot
 
 
@@ -29,7 +29,7 @@ def test_active_waits_for_death_then_spawn():
     assert cf.step(_snap(player_anim=9, level_start=0), timestamp_ms=32) is None
     # Spawn: level_start 0 -> 1 -> emits Spawn, deactivates.
     e = cf.step(_snap(player_anim=0, level_start=1), timestamp_ms=48)
-    assert isinstance(e, Spawn)
+    assert isinstance(e, SpawnEvent)
     assert e.is_cold_cp is True
     assert e.state_captured is True
     assert cf.is_active() is False
@@ -43,7 +43,7 @@ def test_fast_retry_path():
     cf.step(_snap(player_anim=0, level_start=1), timestamp_ms=0)
     cf.step(_snap(player_anim=9, level_start=1), timestamp_ms=16)
     e = cf.step(_snap(player_anim=0, level_start=1), timestamp_ms=32)
-    assert isinstance(e, Spawn)
+    assert isinstance(e, SpawnEvent)
 
 
 def test_pit_fall_death_via_exit_mode_then_spawn():
@@ -63,7 +63,7 @@ def test_pit_fall_death_via_exit_mode_then_spawn():
     # Respawn: level_start back to 1.
     e = cf.step(_snap(player_anim=0, level_start=1, exit_mode=0), timestamp_ms=48)
 
-    assert isinstance(e, Spawn), \
+    assert isinstance(e, SpawnEvent), \
         "pit-fall death should advance through to spawn capture"
     assert e.is_cold_cp is True
     assert e.segment_id == "seg-pit"
@@ -94,7 +94,7 @@ def test_cp_respawn_via_playable_check():
     # Player respawns at CP — back to playable.
     e = cf.step(_snap(player_anim=0, level_start=1, exit_mode=0), timestamp_ms=48)
 
-    assert isinstance(e, Spawn), \
+    assert isinstance(e, SpawnEvent), \
         "cp-respawn must capture spawn once player is back in playable state"
     assert e.is_cold_cp is True
     assert e.segment_id == "seg-cp"

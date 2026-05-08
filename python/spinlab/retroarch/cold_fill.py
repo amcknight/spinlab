@@ -13,8 +13,8 @@ off-screen, which only shows up as an exit_mode change.
 """
 from __future__ import annotations
 
+from spinlab.protocol import SpawnEvent
 from spinlab.retroarch import addresses as a
-from spinlab.retroarch.events import Spawn
 from spinlab.retroarch.predicates import (
     FANFARE_ACTIVE,
     LEVEL_START_ACTIVE,
@@ -43,11 +43,11 @@ class ColdFillSpawnDetector:
         self._prev_level_start = 0
         self._prev_exit_mode = 0
 
-    def step(self, curr: MemorySnapshot, timestamp_ms: int) -> Spawn | None:
+    def step(self, curr: MemorySnapshot, timestamp_ms: int) -> SpawnEvent | None:
         if not self._active:
             return None
 
-        emitted: Spawn | None = None
+        emitted: SpawnEvent | None = None
 
         if not self._waiting_spawn:
             died_sprite = (
@@ -88,7 +88,7 @@ class ColdFillSpawnDetector:
                 and curr.player_anim != PLAYER_ANIM_DEAD
             )
             if edge_spawn or fast_retry or playable:
-                emitted = Spawn(
+                emitted = SpawnEvent(
                     timestamp_ms=timestamp_ms,
                     level_num=curr.level_num,
                     is_cold_cp=True,
