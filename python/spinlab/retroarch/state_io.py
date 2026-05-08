@@ -236,6 +236,12 @@ class StateIO:
         SpinLab path. Raises StateSaveTimeout if no file changed across all
         attempts.
         """
+        # Refresh basename from RA before saving, in case the user switched
+        # ROMs since the last connect. Without this, RA writes
+        # `<NewROM>.state...` while we watch `<OldROM>.state*` and time out
+        # forever. Best-effort: if GET_STATUS fails we keep the cached value.
+        self._refresh_game_basename_from_ra()
+
         if not self._game_basename:
             raise RuntimeError(
                 "StateIO: game basename not set; orchestrator must connect first."
@@ -260,10 +266,29 @@ class StateIO:
             if attempt + 1 < SAVE_RETRY_ATTEMPTS:
                 time.sleep(SAVE_RETRY_BACKOFF_SEC)
 
+        # Diagnostic: ask RA what game it actually has loaded right now. If
+        # this differs from our basename, the user changed ROMs after the
+        # orchestrator connected and our cached basename is stale.
+        try:
+            cur_status = self._client.get_status()
+            cur_game = cur_status.game or "<none>"
+        except Exception:
+            cur_game = "<get_status failed>"
         raise StateSaveTimeout(
             f"SAVE_STATE for segment {segment_id!r} failed after "
-            f"{SAVE_RETRY_ATTEMPTS} attempts: {last_err}"
+            f"{SAVE_RETRY_ATTEMPTS} attempts: {last_err}. "
+            f"Watching pattern={pattern!r}; RA reports game={cur_game!r}."
         )
+
+    def _refresh_game_basename_from_ra(self) -> None:
+        """Best-effort: ask RA what's loaded and update basename if it changed."""
+        try:
+            status = self._client.get_status()
+        except Exception:
+            return
+        new_basename = status.game
+        if new_basename and new_basename != self._game_basename:
+            self.update_game_basename(new_basename)
 
     def _try_one_save(self, pattern: str) -> Path | None:
         """One SAVE_STATE round: snapshot, fire, poll. Returns the new file or None."""
