@@ -71,6 +71,44 @@ def test_checkpoint_then_spawn_after_death():
     assert any(isinstance(e, Spawn) and e.is_cold_cp for e in spawn_events)
 
 
+def test_resync_after_state_load_clears_died_flag():
+    """Regression: practice mode reloads state on death; the next death must
+    still fire. Before the fix, died_flag stuck True across the resync and
+    suppressed all subsequent Death events forever."""
+    d = TransitionDetector()
+    # Step into PLAYING.
+    d.step(_snap(level_num=5, level_start=1), timestamp_ms=0)
+    # Player dies — Death fires, died_flag=True.
+    e1 = d.step(_snap(level_num=5, level_start=1, player_anim=9), timestamp_ms=16)
+    assert any(isinstance(e, Death) for e in e1)
+
+    # Practice loop reloads the state. resync replaces prev with the loaded
+    # snapshot — and (post-fix) clears died_flag.
+    d.resync_after_state_load(_snap(level_num=5, level_start=1, player_anim=0))
+
+    # Player dies again. Death MUST fire — died_flag must have been cleared.
+    e2 = d.step(_snap(level_num=5, level_start=1, player_anim=9), timestamp_ms=32)
+    assert any(isinstance(e, Death) for e in e2), \
+        "second death after state-load was suppressed (died_flag stuck)"
+
+
+def test_resync_after_state_load_clears_cp_acquired_and_exit_flag():
+    """Same pattern — cp_acquired and exit_this_frame must reset, otherwise
+    cold-fill sees stale flags and a level_exit on the load-frame can suppress
+    a fresh entrance."""
+    d = TransitionDetector()
+    # Step into PLAYING with a checkpoint hit so cp_acquired and cp_ordinal advance.
+    d.step(_snap(level_num=5, midway=0, level_start=1), timestamp_ms=0)
+    d.step(_snap(level_num=5, midway=1, level_start=1), timestamp_ms=16)
+    assert d._cp_acquired is True
+    assert d._state.cp_ordinal == 1
+
+    d.resync_after_state_load(_snap(level_num=5, level_start=1))
+    assert d._cp_acquired is False
+    assert d._state.cp_ordinal == 0
+    assert d._exit_this_frame is False
+
+
 def test_exit_this_frame_does_not_bleed_to_next_frame():
     """A LevelExit one frame must not suppress LevelEntrance the next frame."""
     d = TransitionDetector()

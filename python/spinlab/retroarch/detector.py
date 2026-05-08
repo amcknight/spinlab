@@ -52,12 +52,23 @@ class TransitionDetector:
         self._exit_this_frame = False
 
     def resync_after_state_load(self, snapshot: MemorySnapshot) -> None:
-        """Replace prev wholesale after a save state load.
+        """Replace prev wholesale after a save state load and clear flags.
 
         Mirrors lua/spinlab.lua's `state_just_loaded` re-sync: avoid phantom
         edge transitions on the first frame after load by treating the loaded
         state as if it were the previous frame's reading too.
+
+        ALSO clears died_flag / cp_acquired / exit_this_frame: a state load
+        is semantically a fresh start, and stale flags from before the load
+        would suppress real events afterward (e.g., died_flag stuck from a
+        previous death prevents subsequent Death events from firing — this
+        bit practice mode hard, where every reload-on-death loaded the
+        state but kept died_flag=True, blocking all later death detections).
+        We do NOT reset _frame_counter (it's a monotonic session clock).
         """
+        self._state.reset()
+        self._cp_acquired = False
+        self._exit_this_frame = False
         self._prev = snapshot
 
     def step(self, curr: MemorySnapshot, timestamp_ms: int) -> list[TransitionEvent]:
