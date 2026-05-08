@@ -25,14 +25,15 @@ Explicitly deferred to other plans:
 
 ```
 tests/integration/
-├── ra_harness.py          NEW  RAHarness: launch + lifecycle + NCI client
-├── ra_poke_engine.py      NEW  RAPokeEngine: per-frame poke→advance→read loop
-├── poke_parser.py         (unchanged)
-├── addresses.py           UPDATED  re-export from spinlab.retroarch.addresses
-├── conftest.py            UPDATED  run_scenario fixture switches on backend
-├── test_transitions.py    (unchanged)
-├── test_replay_fixture.py (untouched, still Mesen-only)
-└── scenarios/*.poke       (unchanged — 9 scenario files)
+├── ra_harness.py          NEW       RAHarness: launch + lifecycle + NCI client
+├── ra_poke_engine.py      NEW       RAPokeEngine: per-frame poke→advance→read loop
+├── poke_parser.py         unchanged
+├── addresses.py           UPDATED   re-export from spinlab.retroarch.addresses
+├── conftest.py            UPDATED   ra_harness + run_scenario fixtures (RA-only); deletes mesen_process, tcp_client
+├── test_transitions.py    unchanged (test bodies; some assertions may gain xfail markers)
+├── test_replay_fixture.py untouched (Mesen-bound, deferred to Phase E)
+├── test_smoke.py          untouched (Mesen-bound, deferred to Phase E/G)
+└── scenarios/*.poke       unchanged (9 scenario files)
 ```
 
 **Process model.** One RA process per pytest *session* (scope="session"). The fixture launches `retroarch.exe --video=null --audio=null -L <core> <rom>` from `config.rom_path` and `config.emulator.ra_core_path`, waits for NCI ping (1s timeout × 5 retries), confirms the core is running via `is_core_running(tick_addr=...)`, then `pause_toggle()` to halt. RA stays paused for the entire session except during `frame_advance()` calls inside scenarios. Teardown sends `client.quit()` and `Popen.terminate()` as fallback.
@@ -119,19 +120,21 @@ ADDR_MAP = {
 
 `poke_parser.py` already imports `ADDR_MAP` from this file — no changes there.
 
-### `tests/integration/conftest.py` — backend-aware run_scenario
+### `tests/integration/conftest.py` — RA-only run_scenario
 
-The existing `run_scenario` fixture targets Mesen. Add a backend gate so it picks the right engine:
+The existing `run_scenario` fixture targets Mesen via `tcp_client` and `mesen_process`. Both fixtures, plus the `run_scenario` body, exist solely to drive `test_transitions.py`. The RA harness replaces all three:
 
 ```python
 @pytest.fixture(scope="session")
 def ra_harness(emu_config) -> Iterator[RAHarness]:
-    if emu_config.backend != "retroarch":
-        pytest.skip("ra_harness requires backend=retroarch")
+    if not emu_config.retroarch_path or not emu_config.ra_core_path:
+        pytest.skip("ra_harness requires retroarch_path and core path configured")
+    if not emu_config.rom_path or not emu_config.rom_path.exists():
+        pytest.skip(f"ra_harness requires ROM at {emu_config.rom_path}")
     harness = RAHarness.launch(
         rom_path=emu_config.rom_path,
         core_path=emu_config.ra_core_path,
-        retroarch_exe=emu_config.retroarch_exe,
+        retroarch_exe=emu_config.retroarch_path,
     )
     try:
         yield harness
@@ -140,19 +143,16 @@ def ra_harness(emu_config) -> Iterator[RAHarness]:
 
 
 @pytest.fixture
-def run_scenario(emu_config, ra_harness, mesen_run_scenario, request):
-    if emu_config.backend == "retroarch":
-        def _run(filename: str) -> list[dict]:
-            scenario = parse_poke_file(SCENARIOS_DIR / filename)
-            return ra_harness.engine.run_scenario(scenario)
-        return _run
-    else:
-        return mesen_run_scenario  # existing behavior
+def run_scenario(ra_harness):
+    async def _run(filename: str, timeout: float = 30.0) -> list[dict]:
+        scenario = parse_poke_file(SCENARIOS_DIR / filename)
+        return await asyncio.to_thread(ra_harness.engine.run_scenario, scenario)
+    return _run
 ```
 
-Tests are oblivious to the switch — they just call `await run_scenario("...")`.
+The `mesen_process` and `tcp_client` fixtures are deleted in this plan — they have no other callers. The `run_scenario` async signature is preserved (test bodies use `await run_scenario(...)`); the body wraps the synchronous `RAPokeEngine.run_scenario` with `asyncio.to_thread`.
 
-(Async note: the existing Mesen `run_scenario` is async because Lua-via-TCP is. The RA version can be synchronous, but for fixture-shape compatibility we'll wrap it with `asyncio.to_thread` if test code calls it under `await`. Decided in implementation; the public test signature stays `await run_scenario(...)`.)
+The other Mesen-bound fixtures in `conftest.py` (`smoke_mesen_process`, `dashboard_server`, `replay_mesen_process`, `replay_dashboard`) are NOT touched — they support `test_smoke.py` and `test_replay_fixture.py`, both of which stay Mesen-bound until Phase E.
 
 ## The per-frame loop
 
@@ -194,11 +194,11 @@ Before each scenario, the engine writes `0` to every address in `ADDR_MAP` (~11 
 
 ## Migration story
 
-`test_transitions.py` test bodies don't change. Same 9 `.poke` files in `scenarios/`. Same assertions. The fixture switches engines based on `config.emulator.backend`.
+`test_transitions.py` test bodies don't change. Same 9 `.poke` files in `scenarios/`. Same assertions. The fixture is rewired to the RA harness; the Mesen-side fixtures `mesen_process`, `tcp_client`, and the Mesen-driven `run_scenario` body are deleted (no other callers).
 
-`test_replay_fixture.py` stays Mesen-only and untouched. It will move to BSV in Phase E.
+`test_replay_fixture.py` stays Mesen-only and untouched. It will move to BSV in Phase E. `test_smoke.py` likewise stays Mesen-only.
 
-`lua/poke_engine.lua` stays in the tree and stays runnable under `backend=mesen` until Phase G. Useful for parity-checking if a result on RA looks suspicious.
+`lua/poke_engine.lua` stays in the tree until Phase G — useful for ad-hoc parity-checking even though no test runs it anymore. The eventual deletion lands with the rest of the Mesen+Lua removal in Phase G.
 
 ## RetroArch gotchas (from the Phase 0 spike log)
 
@@ -222,12 +222,12 @@ The harness has to live with these:
 
 - [ ] `RAHarness.launch()` brings up RA paused with a working NCI client; teardown is clean.
 - [ ] `RAPokeEngine.run_scenario()` runs all 9 existing `.poke` scenarios.
-- [ ] `tests/integration/test_transitions.py` passes under `backend=retroarch` for the scenarios whose detector behavior is correct under both backends.
-- [ ] Any scenario that fails *only* under RA traces to a real production bug from `status.md` (not to a harness bug). Each such failure gets a `pytest.mark.xfail(reason="bug-tracker-link")` so the suite stays green and the failures stay visible.
+- [ ] `tests/integration/test_transitions.py` passes for scenarios whose detector behavior is correct.
+- [ ] Any scenario that fails traces to a real production bug from `status.md`, not a harness bug. Each such failure gets `pytest.mark.xfail(reason="...")` so the suite stays green and the failures stay visible.
 - [ ] `tests/integration/addresses.py` re-exports from `spinlab.retroarch.addresses` (single source of truth on the RA side).
-- [ ] Under `backend=retroarch`: `test_transitions.py` runs (driven by the new harness) and passes the should-pass scenarios; `test_replay_fixture.py` and other Mesen-bound emulator tests skip cleanly with a clear backend-mismatch reason. No crashes, no hangs, RA process exits cleanly.
-- [ ] Under `backend=mesen`: pre-existing emulator tests still run unchanged.
-- [ ] Verification command for completion: `python -m pytest --deselect tests/integration/test_replay_fixture.py --deselect tests/integration/test_smoke.py` (and any other Mesen-headless-bound tests) under `backend=retroarch`. The poke-driven scenarios are the load-bearing signal.
+- [ ] `mesen_process` and `tcp_client` fixtures are deleted from `conftest.py` (no callers remain).
+- [ ] `test_replay_fixture.py` and `test_smoke.py` continue to work under their existing Mesen-bound fixtures (untouched by this plan).
+- [ ] Verification command: `python -m pytest tests/integration/test_transitions.py tests/unit/` runs cleanly. Mesen-headless-only tests can be skipped via `--deselect tests/integration/test_replay_fixture.py --deselect tests/integration/test_smoke.py` when verifying this plan's scope without launching Mesen.
 
 ## Future work
 
