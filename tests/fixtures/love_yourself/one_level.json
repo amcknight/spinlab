@@ -1,0 +1,15 @@
+{
+  "_comment": "Metadata for one_level.replay — recorded 2026-05-08 by Andrew via the dashboard reference-run flow with backend=retroarch (Phase E option a). Frame count and determinism_probe are placeholders and will be refined by Task 7's determinism test.",
+  "_recorded_at": "2026-05-08",
+  "_source_run_id": "live_483cb243",
+  "_runtime_seconds": 40,
+  "frame_count": 2400,
+  "expected_segments": 2,
+  "_segments_breakdown": "Level 44: entrance->checkpoint, checkpoint->goal",
+  "determinism_probe": {
+    "frame": 1000,
+    "addr": 148,
+    "expected_byte": 0,
+    "_comment": "Placeholder probe — addr 0x94 is Mario X-low. expected_byte will be measured by Task 7."
+  }
+}
