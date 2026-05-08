@@ -87,9 +87,24 @@ class MovieRecorder:
         self._active_dest = None
         self._baseline_files = set()
         if new_file is None:
+            # The most common cause of this on a real install: RA's
+            # `replay_max_keep` config is 0 (the default), and there are already
+            # replay files in movie_dir, so RA silently refuses to create new
+            # ones. Detect that case and surface a clearer hint.
+            existing_replays = sum(
+                1 for f in self._baseline_files if f.suffix.startswith(".replay")
+            )
+            hint = ""
+            if existing_replays > 0:
+                hint = (
+                    f" — {existing_replays} existing .replay* file(s) in dir; "
+                    "this often means retroarch.cfg has replay_max_keep=0 "
+                    "(the default) and RA silently refuses to write more. "
+                    'Set replay_max_keep = "99" in retroarch.cfg.'
+                )
             raise FileNotFoundError(
                 f"MovieRecorder.stop: no new file appeared in {self.movie_dir} "
-                f"after {self._poll_attempts} attempts × {self._poll_interval_s}s"
+                f"after {self._poll_attempts} attempts × {self._poll_interval_s}s{hint}"
             )
         dest.parent.mkdir(parents=True, exist_ok=True)
         # On Windows, RA may still hold the file handle briefly after writing.
