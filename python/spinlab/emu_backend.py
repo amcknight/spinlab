@@ -32,3 +32,23 @@ class EmuBackend(Protocol):
     async def send_command(self, cmd: object) -> None: ...
 
     async def recv_event(self, timeout: float | None = ...) -> dict | None: ...
+
+    async def save_state(self, segment_id: str) -> None:
+        """Persist a savestate file for the given segment id.
+
+        Under RetroArch the orchestrator triggers an NCI SAVE_STATE and moves
+        the resulting file into SpinLab's segment-keyed directory. Under
+        Mesen this is a no-op because Lua writes states autonomously when
+        it observes save-eligible events; Python does not need to act.
+        """
+        ...
+
+    async def load_state(self, state_path: str) -> None:
+        """Load a savestate file from an absolute path.
+
+        Under RetroArch the orchestrator copies the file into RA's reserved
+        slot and fires LOAD_STATE_SLOT. Under Mesen this is a no-op because
+        Lua's practice loop loads states autonomously after every
+        ``practice_load`` command and on every detected death.
+        """
+        ...
