@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,6 +36,14 @@ ADDR_FRAME_COUNTER = 0x0014
 # Teardown timing.
 QUIT_GRACE_S = 2.0
 
+# Null-driver appendconfig content — suppresses video and audio output so
+# tests run headless. RA 1.22.2 does not accept --video=null style CLI flags;
+# --appendconfig is the correct way to override driver settings.
+_NULL_DRIVER_CFG = """\
+video_driver = "null"
+audio_driver = "null"
+"""
+
 
 class RAHarnessLaunchError(RuntimeError):
     """Raised when RA fails to launch into a usable state."""
@@ -44,6 +53,7 @@ class RAHarnessLaunchError(RuntimeError):
 class RAHarness:
     proc: subprocess.Popen
     client: NCIClient
+    _tmp_cfg: Path | None = field(default=None, repr=False)
     engine: RAPokeEngine = field(init=False)
 
     def __post_init__(self) -> None:
@@ -60,10 +70,22 @@ class RAHarness:
             if not p.exists():
                 raise RAHarnessLaunchError(f"{label} does not exist: {p}")
 
+        # Write a temporary appendconfig to enable null drivers.
+        # --appendconfig keys override the user's retroarch.cfg, so the main
+        # config's NCI settings (network_cmd_enable, network_cmd_port) are
+        # preserved while video/audio are suppressed.
+        tmp_cfg_fd, tmp_cfg_path_str = tempfile.mkstemp(suffix=".cfg", prefix="spinlab_ra_null_")
+        tmp_cfg_path = Path(tmp_cfg_path_str)
+        try:
+            with open(tmp_cfg_fd, "w") as f:
+                f.write(_NULL_DRIVER_CFG)
+        except Exception:
+            tmp_cfg_path.unlink(missing_ok=True)
+            raise
+
         cmd = [
             str(retroarch_exe),
-            "--video=null",
-            "--audio=null",
+            f"--appendconfig={tmp_cfg_path}",
             "-L", str(core_path),
             str(rom_path),
         ]
@@ -84,25 +106,73 @@ class RAHarness:
                 time.sleep(NCI_PING_INTERVAL_S)
         else:
             cls._kill(proc)
+            tmp_cfg_path.unlink(missing_ok=True)
             raise RAHarnessLaunchError(
                 f"NCI did not reply after {NCI_PING_RETRIES} attempts × {NCI_PING_INTERVAL_S}s"
             )
 
-        # Confirm core is running before pausing — guards against the
-        # spike-found "deep pause" trap.
-        if not client.is_core_running(tick_addr=ADDR_FRAME_COUNTER):
+        # Bring RA to a known paused state so FRAMEADVANCE is the only
+        # thing that advances the core.
+        #
+        # RA may launch already paused (common with null video driver —
+        # no display output triggers an auto-pause) or in PLAYING state.
+        # We detect via GET_STATUS and act accordingly:
+        #
+        #   PAUSED   → already where we want to be; nothing to do.
+        #   PLAYING  → pause it, then verify the toggle took effect.
+        #   other    → unexpected; abort.
+        #
+        # We do NOT use is_core_running() here because that method detects
+        # free-running frames and will incorrectly report False for a RA
+        # that is paused but FRAMEADVANCE-capable (which is the correct
+        # harness state).
+        try:
+            status = client.get_status()
+        except Exception as exc:
             cls._kill(proc)
+            tmp_cfg_path.unlink(missing_ok=True)
+            raise RAHarnessLaunchError(f"GET_STATUS failed: {exc}") from exc
+
+        if status.state == "PAUSED":
+            # Already paused — correct state for FRAMEADVANCE-driven tests.
+            pass
+        elif status.state == "PLAYING":
+            client.pause_toggle()
+            # Brief delay so the toggle takes effect before we verify.
+            time.sleep(NCI_PING_INTERVAL_S)
+            try:
+                after = client.get_status()
+            except Exception as exc:
+                cls._kill(proc)
+                tmp_cfg_path.unlink(missing_ok=True)
+                raise RAHarnessLaunchError(f"GET_STATUS after pause_toggle failed: {exc}") from exc
+            if after.state != "PAUSED":
+                cls._kill(proc)
+                tmp_cfg_path.unlink(missing_ok=True)
+                raise RAHarnessLaunchError(
+                    f"PAUSE_TOGGLE did not pause RA (status={after.state!r})"
+                )
+        else:
+            cls._kill(proc)
+            tmp_cfg_path.unlink(missing_ok=True)
             raise RAHarnessLaunchError(
-                "RA NCI replied but core is not advancing frames — refusing to pause"
+                f"Unexpected RA status after launch: {status.state!r} — expected PAUSED or PLAYING"
             )
 
-        client.pause_toggle()
-        # is_core_running with a fresh delay confirms the toggle landed.
-        if client.is_core_running(tick_addr=ADDR_FRAME_COUNTER):
+        # Final sanity: confirm FRAMEADVANCE actually advances the core.
+        # Read any WRAM byte, advance one frame, re-read — some byte must change.
+        snap_before = client.read_ram(0x0000, 16)
+        client.frame_advance()
+        time.sleep(NCI_PING_INTERVAL_S)
+        snap_after = client.read_ram(0x0000, 16)
+        if snap_before == snap_after:
             cls._kill(proc)
-            raise RAHarnessLaunchError("PAUSE_TOGGLE did not stop frame advance")
+            tmp_cfg_path.unlink(missing_ok=True)
+            raise RAHarnessLaunchError(
+                "FRAMEADVANCE did not change any WRAM byte — core may be in deep-freeze"
+            )
 
-        return cls(proc=proc, client=client)
+        return cls(proc=proc, client=client, _tmp_cfg=tmp_cfg_path)
 
     def teardown(self) -> None:
         try:
@@ -114,6 +184,9 @@ class RAHarness:
         except subprocess.TimeoutExpired:
             self._kill(self.proc)
         self.client.close()
+        if self._tmp_cfg is not None:
+            self._tmp_cfg.unlink(missing_ok=True)
+            self._tmp_cfg = None
 
     @staticmethod
     def _kill(proc: subprocess.Popen) -> None:

@@ -37,10 +37,22 @@ def fake_proc():
 
 @pytest.fixture
 def fake_client_running_then_paused():
-    """NCI client that reports running on first is_core_running, paused on second."""
+    """NCI client that reports PLAYING on first GET_STATUS, then PAUSED after toggle.
+
+    Also simulates a successful FRAMEADVANCE: read_ram returns different bytes
+    before and after the advance so the FRAMEADVANCE sanity check passes.
+    """
+    from spinlab.retroarch.responses import StatusInfo
+
     client = MagicMock()
     client.version.return_value = "1.0"
-    client.is_core_running.side_effect = [True, False]
+    # First call: PLAYING — harness will toggle. Second call: PAUSED — toggle confirmed.
+    client.get_status.side_effect = [
+        StatusInfo(state="PLAYING"),
+        StatusInfo(state="PAUSED"),
+    ]
+    # FRAMEADVANCE sanity: return different bytes before/after advance.
+    client.read_ram.side_effect = [b"\x00" * 16, b"\x01" * 16]
     return client
 
 
@@ -48,7 +60,8 @@ def test_launch_happy_path(fake_paths, fake_proc, fake_client_running_then_pause
     rom, core, exe = fake_paths
 
     with patch("tests.integration.ra_harness.subprocess.Popen", return_value=fake_proc), \
-         patch("tests.integration.ra_harness.NCIClient", return_value=fake_client_running_then_paused):
+         patch("tests.integration.ra_harness.NCIClient", return_value=fake_client_running_then_paused), \
+         patch("tests.integration.ra_harness.time.sleep"):
         harness = RAHarness.launch(rom_path=rom, core_path=core, retroarch_exe=exe)
 
     fake_client_running_then_paused.pause_toggle.assert_called_once()
@@ -80,16 +93,23 @@ def test_launch_raises_when_nci_never_replies(fake_paths, fake_proc):
 
 
 def test_launch_raises_when_pause_doesnt_stop_frames(fake_paths, fake_proc):
-    """Deep-pause guard: if PAUSE_TOGGLE doesn't stop advancing frames,
+    """Deep-pause guard: if PAUSE_TOGGLE doesn't result in PAUSED state,
     refuse to proceed rather than enter a hung state."""
+    from spinlab.retroarch.responses import StatusInfo
+
     rom, core, exe = fake_paths
     runaway_client = MagicMock()
     runaway_client.version.return_value = "1.0"
-    runaway_client.is_core_running.side_effect = [True, True]
+    # First GET_STATUS: PLAYING (triggers toggle). Second: still PLAYING (toggle failed).
+    runaway_client.get_status.side_effect = [
+        StatusInfo(state="PLAYING"),
+        StatusInfo(state="PLAYING"),
+    ]
 
     with patch("tests.integration.ra_harness.subprocess.Popen", return_value=fake_proc), \
-         patch("tests.integration.ra_harness.NCIClient", return_value=runaway_client):
-        with pytest.raises(RAHarnessLaunchError, match="did not stop frame advance"):
+         patch("tests.integration.ra_harness.NCIClient", return_value=runaway_client), \
+         patch("tests.integration.ra_harness.time.sleep"):
+        with pytest.raises(RAHarnessLaunchError, match="PAUSE_TOGGLE did not pause RA"):
             RAHarness.launch(rom_path=rom, core_path=core, retroarch_exe=exe)
 
 

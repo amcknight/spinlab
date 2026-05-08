@@ -8,7 +8,7 @@ def test_addr_map_keys_match_lua_keys_used_in_poke_files():
     """The .poke files reference these names — they must all be present."""
     expected_keys = {
         "game_mode", "level_num", "room_num", "level_start", "player_anim",
-        "exit_mode", "io_port", "fanfare", "boss_defeat", "midway", "cp_entrance",
+        "exit_mode", "io", "fanfare", "boss_defeat", "midway", "cp_entrance",
     }
     assert expected_keys.issubset(ADDR_MAP.keys())
 
@@ -20,7 +20,7 @@ def test_addr_map_values_match_spinlab_retroarch_addresses():
     assert ADDR_MAP["level_start"] == ra_addr.ADDR_LEVEL_START
     assert ADDR_MAP["player_anim"] == ra_addr.ADDR_PLAYER_ANIM
     assert ADDR_MAP["exit_mode"] == ra_addr.ADDR_EXIT_MODE
-    assert ADDR_MAP["io_port"] == ra_addr.ADDR_IO
+    assert ADDR_MAP["io"] == ra_addr.ADDR_IO
     assert ADDR_MAP["fanfare"] == ra_addr.ADDR_FANFARE
     assert ADDR_MAP["boss_defeat"] == ra_addr.ADDR_BOSS_DEFEAT
     assert ADDR_MAP["midway"] == ra_addr.ADDR_MIDWAY

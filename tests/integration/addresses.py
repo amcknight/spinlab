@@ -18,7 +18,7 @@ ADDR_MAP: dict[str, int] = {
     "level_start": _a.ADDR_LEVEL_START,
     "player_anim": _a.ADDR_PLAYER_ANIM,
     "exit_mode": _a.ADDR_EXIT_MODE,
-    "io_port": _a.ADDR_IO,
+    "io": _a.ADDR_IO,
     "fanfare": _a.ADDR_FANFARE,
     "boss_defeat": _a.ADDR_BOSS_DEFEAT,
     "midway": _a.ADDR_MIDWAY,
