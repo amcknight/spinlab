@@ -2,6 +2,8 @@
 
 What would be needed to fully retire the Mesen+Lua backend and use RetroArch exclusively. Items roughly ordered by what unblocks the most.
 
+*The Plan 2 RA test harness landed 2026-05-08, which closes P1.2 and unlocks future bug-fixing as TDD instead of smoke testing.*
+
 ## P0 — Blockers for daily-driving RA only
 
 ### P0.1 — Fix cold-fill on cp-respawn hacks
@@ -40,12 +42,7 @@ User opens dashboard with ROM A, then changes RA's ROM to ROM B. The basename au
 
 ### P1.2 — Skip Mesen-only tests when backend is RetroArch
 
-`tests/integration/test_transitions.py` and `tests/integration/test_replay_fixture.py` connect via `TcpManager`. Under RA backend they fail with `ConnectionError: Not connected`. Either:
-
-- Mark them with a backend-aware skip (`pytest.mark.skipif(backend == 'retroarch')`).
-- Or port them to drive the RA orchestrator directly.
-
-The first is easy and unblocks "full pytest is green." The second is more thorough but doubles the integration-test surface.
+**Status:** Resolved 2026-05-08 by the RA poke harness. `test_transitions.py` now runs through `RAHarness`/`RAPokeEngine` and passes all 9 scenarios. `test_replay_fixture.py` and `test_smoke.py` remain Mesen-bound — those move to RA in Phase E (replay) and possibly Phase G (smoke), respectively. See `docs/superpowers/plans/2026-05-08-headless-ra-test-harness.md`.
 
 ### P1.3 — Cold-fill timeout / abort
 
