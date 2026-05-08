@@ -225,8 +225,9 @@ The harness has to live with these:
 - [ ] `tests/integration/test_transitions.py` passes under `backend=retroarch` for the scenarios whose detector behavior is correct under both backends.
 - [ ] Any scenario that fails *only* under RA traces to a real production bug from `status.md` (not to a harness bug). Each such failure gets a `pytest.mark.xfail(reason="bug-tracker-link")` so the suite stays green and the failures stay visible.
 - [ ] `tests/integration/addresses.py` re-exports from `spinlab.retroarch.addresses` (single source of truth on the RA side).
-- [ ] `pytest -m emulator` runs cleanly under both backends (no crashes, no hangs, RA process exits cleanly).
-- [ ] Full `python -m pytest` runs cleanly with the chosen backend.
+- [ ] Under `backend=retroarch`: `test_transitions.py` runs (driven by the new harness) and passes the should-pass scenarios; `test_replay_fixture.py` and other Mesen-bound emulator tests skip cleanly with a clear backend-mismatch reason. No crashes, no hangs, RA process exits cleanly.
+- [ ] Under `backend=mesen`: pre-existing emulator tests still run unchanged.
+- [ ] Verification command for completion: `python -m pytest --deselect tests/integration/test_replay_fixture.py --deselect tests/integration/test_smoke.py` (and any other Mesen-headless-bound tests) under `backend=retroarch`. The poke-driven scenarios are the load-bearing signal.
 
 ## Future work
 
