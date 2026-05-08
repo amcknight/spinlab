@@ -21,6 +21,8 @@ def tcp():
     tcp.is_connected = True
     tcp.send = AsyncMock()
     tcp.send_command = AsyncMock()
+    tcp.save_state = AsyncMock()
+    tcp.load_state = AsyncMock()
     return tcp
 
 
@@ -133,6 +135,10 @@ class TestHandleColdFillSpawn:
             SpawnEvent(state_captured=True, state_path="/cold1.mss"),
         )
         assert done is False  # still have one more
+
+        # Backend save_state was called so the file gets written for the
+        # cold-fill segment (was the orchestrator's job under the old hook).
+        tcp.save_state.assert_awaited_with(cold_fill_db._seg1_id)
 
         # Verify cold save state stored in DB
         cold = cold_fill_db.get_save_state(cold_fill_db._wp_cp1_id, "cold")

@@ -22,6 +22,8 @@ def tcp():
     tcp.is_connected = True
     tcp.send = AsyncMock()
     tcp.send_command = AsyncMock()
+    tcp.save_state = AsyncMock()
+    tcp.load_state = AsyncMock()
     return tcp
 
 
