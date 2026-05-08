@@ -14,6 +14,7 @@ import asyncio
 import dataclasses
 import logging
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from spinlab.protocol import (
@@ -71,6 +72,7 @@ class RetroArchOrchestrator:
         conditions: ConditionRegistry,
         practice_timing: PracticeTiming,
         speed_run_timing: SpeedRunTiming,
+        movie_recorder=None,          # Optional[MovieRecorder] — None disables recording
     ) -> None:
         self._client = client
         self._state_io = state_io
@@ -78,6 +80,7 @@ class RetroArchOrchestrator:
         self._conditions = conditions
         self._practice_timing = practice_timing
         self._speed_run_timing = speed_run_timing
+        self._movie_recorder = movie_recorder
 
         # TcpManager public surface
         self.events: asyncio.Queue[dict] = asyncio.Queue()
@@ -315,19 +318,30 @@ class RetroArchOrchestrator:
         )
 
     async def _on_reference_start(self, cmd: ReferenceStartCmd) -> None:
-        """No-op under RA: ReferenceController owns recording state and the
-        save-on-event triggers via EmuBackend.save_state. Kept in the
-        dispatch table so unknown-cmd warnings don't fire."""
-        logger.info("Reference recording started (no-op for orchestrator)")
+        """Trigger movie recording if a recorder is configured. Failures are
+        non-fatal — reference runs are about state captures; movie capture is
+        supplementary.
+        """
+        if self._movie_recorder is None:
+            logger.info("Reference recording started (no movie recorder configured)")
+            return
+        movie_path = Path(cmd.path).with_suffix(".replay")
+        try:
+            await asyncio.to_thread(self._movie_recorder.start, movie_path)
+            logger.info("Movie recording started: %s", movie_path)
+        except Exception as exc:
+            logger.warning("Movie recording failed to start: %s", exc)
 
     async def _on_reference_stop(self, cmd: ReferenceStopCmd) -> None:
-        """No-op under RA: ReferenceController.stop_reference winds down its
-        own state. Previously emitted a synthetic ``rec_saved`` event for
-        cross-backend uniformity, but the resulting empty rec_path is only
-        consumed by the REPLAY-mode state_builder branch (REPLAY isn't
-        supported under RA), so the synthetic emit was workaround-for-nothing.
-        """
-        logger.info("Reference recording stopped (no-op for orchestrator)")
+        """Stop movie recording if active. Failures are non-fatal."""
+        if self._movie_recorder is None or not self._movie_recorder.is_recording():
+            logger.info("Reference recording stopped (no movie recorder active)")
+            return
+        try:
+            path = await asyncio.to_thread(self._movie_recorder.stop)
+            logger.info("Movie recording stopped: %s", path)
+        except Exception as exc:
+            logger.warning("Movie recording failed to stop: %s", exc)
 
     async def _unsupported_phase_e(self, cmd) -> None:
         # Surfaces as a clean HTTP 501 via the dashboard's ActionError handler.
@@ -445,6 +459,33 @@ def build_orchestrator(config) -> "RetroArchOrchestrator":
         conditions_registry=conditions,
     )
     poller = Poller(deps, period_sec=DEFAULT_PERIOD_SEC)
+
+    from spinlab.retroarch.movie import MovieRecorder, discover_movie_dir
+
+    # Resolve where RA writes movie files. Priority:
+    #   1. emu.ra_movie_dir (explicit override)
+    #   2. discover_movie_dir(client, emu.ra_core_subdir) if ra_core_subdir available
+    #   3. None — disables the recorder
+    movie_dir: Path | None
+    if emu.ra_movie_dir is not None:
+        movie_dir = emu.ra_movie_dir
+    elif emu.ra_core_subdir:
+        try:
+            movie_dir = discover_movie_dir(client, emu.ra_core_subdir)
+        except Exception as exc:
+            logger.warning(
+                "build_orchestrator: movie recorder disabled — could not discover movie_dir: %s",
+                exc,
+            )
+            movie_dir = None
+    else:
+        logger.info(
+            "build_orchestrator: movie recorder disabled — neither emu.ra_movie_dir nor emu.ra_core_subdir set"
+        )
+        movie_dir = None
+
+    movie_recorder = MovieRecorder(client=client, movie_dir=movie_dir) if movie_dir is not None else None
+
     orch = RetroArchOrchestrator(
         client=client,
         state_io=state_io,
@@ -452,6 +493,7 @@ def build_orchestrator(config) -> "RetroArchOrchestrator":
         conditions=conditions,
         practice_timing=practice_timing,
         speed_run_timing=speed_run_timing,
+        movie_recorder=movie_recorder,
     )
     # Wire the poller's event callback to the orchestrator now that it exists.
     deps.on_event = orch.on_poller_event
