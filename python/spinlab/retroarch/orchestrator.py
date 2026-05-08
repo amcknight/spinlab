@@ -209,6 +209,27 @@ class RetroArchOrchestrator:
 
         logger.info("RetroArchOrchestrator disconnected")
 
+    async def save_state(self, segment_id: str) -> None:
+        """EmuBackend Protocol method.
+
+        StateIO.save_segment_state is sync (mtime polls a slot file) so we
+        run it on a worker thread to keep the asyncio loop responsive.
+        Capture controllers call this from inside route_event handlers; we
+        await the worker so the caller can react to failures (logging,
+        skipping the recorder write).
+        """
+        await asyncio.to_thread(self._state_io.save_segment_state, segment_id)
+
+    async def load_state(self, state_path: str) -> None:
+        """EmuBackend Protocol method.
+
+        StateIO.load_state_from_path is sync (file copy + LOAD_STATE_SLOT)
+        and runs on a worker thread. Marking the poller after load suppresses
+        phantom-edge events on the snapshot taken right after RA reloads.
+        """
+        await asyncio.to_thread(self._state_io.load_state_from_path, state_path)
+        self._poller.mark_state_loaded()
+
     async def recv_event(self, timeout: float | None = None) -> dict | None:
         """Pull one event dict off the queue. Returns None on timeout."""
         try:

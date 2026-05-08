@@ -288,6 +288,33 @@ async def test_fill_gap_load_loads_state_no_cold_fill():
 
 
 @pytest.mark.asyncio
+async def test_save_state_runs_state_io_in_thread():
+    """EmuBackend.save_state hands off to StateIO.save_segment_state on a
+    worker thread. The orchestrator no longer drives saves from event
+    callbacks — capture controllers will call this method directly."""
+    orch, _, state_io, _, _ = _build_orchestrator()
+    await orch.connect()
+    await orch.events.get()
+    await orch.save_state("seg_123")
+    assert state_io.saved_segments == ["seg_123"]
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_load_state_runs_state_io_and_marks_loaded():
+    """EmuBackend.load_state copies the file into RA's reserved slot and
+    marks the poller so it skips phantom edges on the next snapshot."""
+    orch, _, state_io, poller, _ = _build_orchestrator()
+    await orch.connect()
+    await orch.events.get()
+    initial_marks = poller.mark_state_loaded_calls
+    await orch.load_state("/some/path/file.state")
+    assert state_io.load_path_calls == ["/some/path/file.state"]
+    assert poller.mark_state_loaded_calls == initial_marks + 1
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_reset_cmd_calls_client_reset():
     orch, client, state_io, poller, conditions = _build_orchestrator()
     await orch.connect()
