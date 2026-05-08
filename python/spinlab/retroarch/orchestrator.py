@@ -26,6 +26,8 @@ from spinlab.protocol import (
     ReferenceStartCmd,
     ReferenceStopCmd,
     ReplayCmd,
+    ReplayFinishedEvent,
+    ReplayStartedEvent,
     ReplayStopCmd,
     ResetCmd,
     SetConditionsCmd,
@@ -73,6 +75,7 @@ class RetroArchOrchestrator:
         practice_timing: PracticeTiming,
         speed_run_timing: SpeedRunTiming,
         movie_recorder=None,          # Optional[MovieRecorder] — None disables recording
+        movie_player=None,            # Optional[MoviePlayer] — None disables replay
     ) -> None:
         self._client = client
         self._state_io = state_io
@@ -81,6 +84,7 @@ class RetroArchOrchestrator:
         self._practice_timing = practice_timing
         self._speed_run_timing = speed_run_timing
         self._movie_recorder = movie_recorder
+        self._movie_player = movie_player
 
         # TcpManager public surface
         self.events: asyncio.Queue[dict] = asyncio.Queue()
@@ -113,8 +117,8 @@ class RetroArchOrchestrator:
             GameContextCmd: self._on_game_context,
             ReferenceStartCmd: self._on_reference_start,
             ReferenceStopCmd: self._on_reference_stop,
-            ReplayCmd: self._unsupported_phase_e,
-            ReplayStopCmd: self._unsupported_phase_e,
+            ReplayCmd: self._on_replay,
+            ReplayStopCmd: self._on_replay_stop,
         }
 
     # ------------------------------------------------------------------
@@ -343,16 +347,43 @@ class RetroArchOrchestrator:
         except Exception as exc:
             logger.warning("Movie recording failed to stop: %s", exc)
 
-    async def _unsupported_phase_e(self, cmd) -> None:
-        # Surfaces as a clean HTTP 501 via the dashboard's ActionError handler.
-        # Replay genuinely needs BSV (libretro deterministic movie format),
-        # which is the next migration phase.
-        from spinlab.errors import BackendNotImplementedError
-        logger.warning(
-            "RetroArchOrchestrator: %s rejected — BSV replay (Phase E) not wired",
-            type(cmd).__name__,
-        )
-        raise BackendNotImplementedError()
+    async def _on_replay(self, cmd: ReplayCmd) -> None:
+        """Start movie playback. cmd.path is the .spinrec path the dashboard
+        resolved from the ref_id (the route layer is shared with the Mesen
+        backend); we translate the suffix to .replay to find the RA-side fixture.
+
+        Emits ReplayStartedEvent synthetically — the session manager's
+        _handle_replay_started drives dashboard mode transitions, and the
+        poller doesn't observe replay lifecycle (only memory state). frame_count
+        comes from a sibling .json metadata file when present, else 0.
+        """
+        if self._movie_player is None:
+            from spinlab.errors import BackendNotImplementedError
+            logger.warning("RetroArchOrchestrator: ReplayCmd rejected — no MoviePlayer configured")
+            raise BackendNotImplementedError()
+        movie_path = Path(cmd.path).with_suffix(".replay")
+        await asyncio.to_thread(self._movie_player.play, movie_path)
+
+        # Resolve frame count from sibling metadata if present.
+        frame_count = 0
+        meta_path = movie_path.with_suffix(".json")
+        if meta_path.exists():
+            try:
+                import json as _json
+                frame_count = int(_json.loads(meta_path.read_text()).get("frame_count", 0))
+            except Exception as exc:
+                logger.warning("Could not read frame_count from %s: %s", meta_path, exc)
+
+        self.on_poller_event(ReplayStartedEvent(path=str(movie_path), frame_count=frame_count))
+        logger.info("Movie replay started: %s (frames=%d)", movie_path, frame_count)
+
+    async def _on_replay_stop(self, cmd: ReplayStopCmd) -> None:
+        """Stop movie playback and emit ReplayFinishedEvent. Idempotent."""
+        if self._movie_player is None or not self._movie_player.is_playing():
+            return
+        await asyncio.to_thread(self._movie_player.stop)
+        self.on_poller_event(ReplayFinishedEvent())
+        logger.info("Movie replay stopped")
 
     # ------------------------------------------------------------------
     # Event plumbing
@@ -381,8 +412,11 @@ class RetroArchOrchestrator:
             )
             return
         # Feed timing state machines so attempt_result / speed_run_* events fire.
-        self._practice_timing.observe_event(d)
-        self._speed_run_timing.observe_event(d)
+        # Guard against None for tests that construct with timing=None.
+        if self._practice_timing is not None:
+            self._practice_timing.observe_event(d)
+        if self._speed_run_timing is not None:
+            self._speed_run_timing.observe_event(d)
         self.events.put_nowait(d)
 
     def _enqueue_dict(self, d: dict) -> None:
@@ -460,12 +494,12 @@ def build_orchestrator(config) -> "RetroArchOrchestrator":
     )
     poller = Poller(deps, period_sec=DEFAULT_PERIOD_SEC)
 
-    from spinlab.retroarch.movie import MovieRecorder, discover_movie_dir
+    from spinlab.retroarch.movie import MoviePlayer, MovieRecorder, discover_movie_dir
 
     # Resolve where RA writes movie files. Priority:
     #   1. emu.ra_movie_dir (explicit override)
     #   2. discover_movie_dir(client, emu.ra_core_subdir) if ra_core_subdir available
-    #   3. None — disables the recorder
+    #   3. None — disables both the recorder and the player
     movie_dir: Path | None
     if emu.ra_movie_dir is not None:
         movie_dir = emu.ra_movie_dir
@@ -474,17 +508,18 @@ def build_orchestrator(config) -> "RetroArchOrchestrator":
             movie_dir = discover_movie_dir(client, emu.ra_core_subdir)
         except Exception as exc:
             logger.warning(
-                "build_orchestrator: movie recorder disabled — could not discover movie_dir: %s",
+                "build_orchestrator: movie recorder/player disabled — could not discover movie_dir: %s",
                 exc,
             )
             movie_dir = None
     else:
         logger.info(
-            "build_orchestrator: movie recorder disabled — neither emu.ra_movie_dir nor emu.ra_core_subdir set"
+            "build_orchestrator: movie recorder/player disabled — neither emu.ra_movie_dir nor emu.ra_core_subdir set"
         )
         movie_dir = None
 
     movie_recorder = MovieRecorder(client=client, movie_dir=movie_dir) if movie_dir is not None else None
+    movie_player = MoviePlayer(client=client, movie_dir=movie_dir) if movie_dir is not None else None
 
     orch = RetroArchOrchestrator(
         client=client,
@@ -494,6 +529,7 @@ def build_orchestrator(config) -> "RetroArchOrchestrator":
         practice_timing=practice_timing,
         speed_run_timing=speed_run_timing,
         movie_recorder=movie_recorder,
+        movie_player=movie_player,
     )
     # Wire the poller's event callback to the orchestrator now that it exists.
     deps.on_event = orch.on_poller_event

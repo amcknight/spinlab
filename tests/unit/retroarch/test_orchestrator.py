@@ -310,19 +310,29 @@ async def test_game_context_is_noop():
     await orch.disconnect()
 
 
-@pytest.mark.parametrize("cmd_cls", [ReplayCmd, ReplayStopCmd])
 @pytest.mark.asyncio
-async def test_replay_commands_raise_backend_not_implemented(cmd_cls):
-    """BSV replay genuinely needs Phase E; orchestrator must raise the typed
-    ActionError so the route layer surfaces it as HTTP 501 instead of 500."""
+async def test_replay_cmd_raises_backend_not_implemented_when_no_player():
+    """ReplayCmd raises BackendNotImplementedError (HTTP 501) when no MoviePlayer
+    is configured — matches the route layer's ActionError → 501 mapping."""
     from spinlab.errors import BackendNotImplementedError
 
     orch, _, _, _, _ = _build_orchestrator()
     await orch.connect()
     await orch.events.get()
     with pytest.raises(BackendNotImplementedError) as exc_info:
-        await orch.send_command(cmd_cls())
+        await orch.send_command(ReplayCmd())
     assert exc_info.value.http_code == 501
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_replay_stop_cmd_is_noop_when_no_player():
+    """ReplayStopCmd is idempotent — no player configured means no-op, no raise."""
+    orch, _, _, _, _ = _build_orchestrator()
+    await orch.connect()
+    await orch.events.get()
+    # Should not raise.
+    await orch.send_command(ReplayStopCmd())
     await orch.disconnect()
 
 
