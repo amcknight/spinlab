@@ -77,6 +77,29 @@ Andrew found one stale `entrance_46_10.state` file from an earlier session — p
 
 The temptation when NCI doesn't work is to fall back to `pyautogui` / SendInput / equivalent. Andrew called this out: "avoid the method of simulating presses in Windows or whatever until last resort, because I worry about desync slippage." Keypress injection is asynchronous to the emulator frame loop; a save fired by simulated F2 might land between any two frames, including frames the user cares about for input timing. NCI is synchronous to the emulator's command queue. Always prefer NCI.
 
+## RA 1.22.2 rejects `--video=null` CLI flag
+
+The expected null-driver invocation `retroarch --video=null --audio=null` works in some RA builds and fails to launch in others (1.22.2 specifically — silently exits with no error to stdout/stderr). The portable form is `--appendconfig <path>` pointing at a temp `retroarch.cfg` containing:
+
+```
+video_driver = "null"
+audio_driver = "null"
+```
+
+The cfg-file form has worked across every RA build we've tried. Caught during Plan 2 live-integration when `RAHarness.launch` hung on NCI ping retries. Don't trust a CLI flag form just because the docs list it.
+
+## Headless RA launches already-paused
+
+With `video_driver = "null"`, RA boots into a paused state with no rendering loop. The `is_core_running(tick_addr)` heuristic (read a byte, sleep 50ms, read again, compare) returns False not because the core is hung but because there are no frames to advance against the wall clock — same observation, different cause.
+
+Use `GET_STATUS` instead. Its reply explicitly reports `PAUSED` / `PLAYING` / etc. For pause-state confirmation, `GET_STATUS` is the right primitive; `is_core_running` is for detecting the deep-pause failure mode where the core thread froze. Don't conflate the two.
+
+## `.poke` scenario keys carry Lua-era normalization
+
+The poke-format key for the SPC I/O port is `io`, not `io_port`. This came from `lua/addresses.lua` defining `ADDR_IO = 0x1DFB` and the integration `addresses.py` parser normalizing `ADDR_IO` → `io` (strip `ADDR_`, lowercase). Every `.poke` scenario file was written against `io`.
+
+When porting `ADDR_MAP` to a hand-maintained Python re-export, it's tempting to clean up "io" to "io_port" — DON'T. The `.poke` files are the source of truth for the user-facing key vocabulary; the Python `ADDR_MAP` keys must match them character-for-character. A spec that says "io_port" needs to be silently corrected to "io" at implementation time.
+
 ## Subagent-driven plans don't survive the smoke test
 
 The migration was planned and executed via the subagent-driven-development skill: a multi-phase plan (B / C / D / E / F-live) with implementer + spec-reviewer + code-quality-reviewer subagents per task. The unit-test pass rates on each phase were near-perfect. The number of bugs that survived to live testing was double-digit.
