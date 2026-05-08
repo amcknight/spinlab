@@ -217,53 +217,6 @@ async def test_practice_stop_cmd_disarms():
 
 
 @pytest.mark.asyncio
-async def test_death_during_practice_triggers_state_reload():
-    """Regression: practice mode must reload the segment's start state on
-    Death (matches Lua's `pending_loads` queue). Without this, the player
-    retries from wherever they respawned, not from the segment boundary."""
-    from spinlab.protocol import DeathEvent
-
-    orch, _, state_io, poller, _ = _build_orchestrator()
-    await orch.connect()
-    await orch.events.get()  # drain rom_info
-
-    await orch.send_command(PracticeLoadCmd(
-        id="seg-x", state_path="/p/seg.state", end_type="goal",
-        auto_advance_delay_ms=200, death_penalty_ms=3200,
-    ))
-    # Initial load happened.
-    assert state_io.load_path_calls == ["/p/seg.state"]
-
-    # Simulate the player dying mid-segment.
-    orch.on_poller_event(DeathEvent(timestamp_ms=100, level_num=5))
-    await asyncio.sleep(0.05)  # let the worker-thread reload run
-
-    # Reload fired with the same state path.
-    assert state_io.load_path_calls == ["/p/seg.state", "/p/seg.state"]
-    # mark_state_loaded was called twice: once on PracticeLoad, once on death.
-    assert poller.mark_state_loaded_calls == 2
-
-    await orch.disconnect()
-
-
-@pytest.mark.asyncio
-async def test_death_outside_practice_does_not_reload():
-    """Death events outside practice (e.g. during reference) must NOT trigger
-    a state reload — that would clobber the user's recording."""
-    from spinlab.protocol import DeathEvent
-
-    orch, _, state_io, poller, _ = _build_orchestrator()
-    await orch.connect()
-    await orch.events.get()
-    # Not in practice — practice_timing is unarmed.
-    orch.on_poller_event(DeathEvent(timestamp_ms=0, level_num=5))
-    await asyncio.sleep(0.05)
-    # No load fired from the death.
-    assert state_io.load_path_calls == []
-    await orch.disconnect()
-
-
-@pytest.mark.asyncio
 async def test_cold_fill_load_activates_poller():
     orch, client, state_io, poller, conditions = _build_orchestrator()
     await orch.connect()
@@ -374,82 +327,20 @@ async def test_replay_commands_raise_backend_not_implemented(cmd_cls):
 
 
 @pytest.mark.asyncio
-async def test_reference_start_enables_recording_does_not_raise():
-    """ReferenceStart succeeds under RA backend (state captures, no BSV)."""
-    orch, _, _, _, _ = _build_orchestrator()
-    await orch.connect()
-    await orch.events.get()
-    assert orch._recording is False
-    await orch.send_command(ReferenceStartCmd(path="/tmp/seg.spinrec"))
-    assert orch._recording is True
-    await orch.disconnect()
-
-
-@pytest.mark.asyncio
-async def test_reference_stop_clears_recording_and_emits_rec_saved():
-    """ReferenceStop clears the flag and emits a synthetic rec_saved (empty path)."""
+async def test_reference_start_and_stop_are_noops_under_ra():
+    """ReferenceController owns recording lifecycle now. The orchestrator's
+    cmd handlers just log and return — no _recording flag, no synthetic
+    rec_saved emit. Save-on-event behavior is covered by
+    tests/unit/capture/test_reference.py::TestSaveOnEvent and
+    tests/unit/capture/test_cold_fill.py."""
     orch, _, _, _, _ = _build_orchestrator()
     await orch.connect()
     await orch.events.get()  # drain rom_info
+    # Both cmds resolve cleanly — the test is that nothing raises and no
+    # extra events get queued (queue should remain empty after these).
     await orch.send_command(ReferenceStartCmd(path="/tmp/seg.spinrec"))
     await orch.send_command(ReferenceStopCmd())
-    assert orch._recording is False
-    ev = await asyncio.wait_for(orch.events.get(), timeout=0.1)
-    assert ev == {"event": "rec_saved", "path": "", "frame_count": 0}
-    await orch.disconnect()
-
-
-@pytest.mark.asyncio
-async def test_reference_recording_triggers_save_on_level_entrance():
-    """During reference recording, LevelEntrance fires state_io.save_segment_state."""
-    from spinlab.protocol import LevelEntranceEvent
-
-    orch, _, state_io, _, _ = _build_orchestrator()
-    await orch.connect()
-    await orch.events.get()
-    await orch.send_command(ReferenceStartCmd(path="/tmp/x.spinrec"))
-
-    orch.on_poller_event(LevelEntranceEvent(timestamp_ms=0, level=5, room=2))
-    # Save happens in a worker thread to keep the event loop responsive;
-    # let the scheduled task run before asserting.
-    await asyncio.sleep(0.05)
-
-    # FakeStateIO records save_segment_state calls.
-    assert state_io.saved_segments == ["entrance_5_2"]
-    await orch.disconnect()
-
-
-@pytest.mark.asyncio
-async def test_no_save_outside_recording_for_entrance():
-    """Without reference recording active, LevelEntrance must NOT trigger a save."""
-    from spinlab.protocol import LevelEntranceEvent
-
-    orch, _, state_io, _, _ = _build_orchestrator()
-    await orch.connect()
-    await orch.events.get()
-
-    orch.on_poller_event(LevelEntranceEvent(timestamp_ms=0, level=5, room=2))
-    assert state_io.saved_segments == []
-    await orch.disconnect()
-
-
-@pytest.mark.asyncio
-async def test_cold_fill_spawn_always_saves_regardless_of_recording_flag():
-    """Cold-fill captures are decoupled from reference recording — they fire
-    through their own segment_id and must save independently."""
-    from spinlab.protocol import SpawnEvent
-
-    orch, _, state_io, _, _ = _build_orchestrator()
-    await orch.connect()
-    await orch.events.get()
-
-    orch.on_poller_event(SpawnEvent(
-        timestamp_ms=0, level_num=5,
-        is_cold_cp=True, state_captured=True,
-        cp_ordinal=1, segment_id="seg-cold-x",
-    ))
-    await asyncio.sleep(0.05)  # let the worker-thread save complete
-    assert state_io.saved_segments == ["seg-cold-x"]
+    assert orch.events.empty()
     await orch.disconnect()
 
 

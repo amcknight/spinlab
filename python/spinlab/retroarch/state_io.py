@@ -230,12 +230,11 @@ class StateIO:
         SpinLab path. Raises StateSaveTimeout if no file changed across all
         attempts.
         """
-        # Refresh basename from RA before saving, in case the user switched
-        # ROMs since the last connect. Without this, RA writes
-        # `<NewROM>.state...` while we watch `<OldROM>.state*` and time out
-        # forever. Best-effort: if GET_STATUS fails we keep the cached value.
-        self._refresh_game_basename_from_ra()
-
+        # Basename is set once at orchestrator connect() from RA's
+        # GET_STATUS reply. If the user hot-swaps ROMs in RA mid-session
+        # the dashboard does NOT auto-detect — they must reconnect (reload
+        # the dashboard page or restart). Trade-off: removes a per-save
+        # GET_STATUS round-trip that was hot-path overhead.
         if not self._game_basename:
             raise RuntimeError(
                 "StateIO: game basename not set; orchestrator must connect first."
@@ -273,16 +272,6 @@ class StateIO:
             f"{SAVE_RETRY_ATTEMPTS} attempts: {last_err}. "
             f"Watching pattern={pattern!r}; RA reports game={cur_game!r}."
         )
-
-    def _refresh_game_basename_from_ra(self) -> None:
-        """Best-effort: ask RA what's loaded and update basename if it changed."""
-        try:
-            status = self._client.get_status()
-        except Exception:
-            return
-        new_basename = status.game
-        if new_basename and new_basename != self._game_basename:
-            self.update_game_basename(new_basename)
 
     def _try_one_save(self, pattern: str) -> Path | None:
         """One SAVE_STATE round: snapshot, fire, poll. Returns the new file or None."""

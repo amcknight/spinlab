@@ -88,23 +88,11 @@ class RetroArchOrchestrator:
         self._poller_task: asyncio.Task | None = None
         self._tick_task: asyncio.Task | None = None
 
-        # When True, save_eligible transition events trigger StateIO saves.
-        # Set by ReferenceStart, cleared by ReferenceStop. State files are
-        # *separate* from BSV input recording — practice can use the captured
-        # states without ever recording inputs.
-        self._recording = False
-
         # Suppress the "NCI not reachable" warning after the first one in a
         # disconnect streak. The dashboard's event_loop polls connect() every
         # 2s; without suppression, an idle dashboard with RA not yet launched
         # spams the log. Reset on successful connect.
         self._not_reachable_warning_logged = False
-
-        # State path of the currently-armed practice segment, for reload-on-
-        # death. Lua's practice loop did `table.insert(pending_loads, ...)`
-        # whenever the player died; we replicate by remembering the path
-        # from PracticeLoadCmd and re-loading it on Death events.
-        self._practice_state_path: str | None = None
 
         # Build dispatch table once; handlers are bound methods.
         # ReferenceStart/Stop now succeed (state captures only — no BSV).
@@ -263,23 +251,16 @@ class RetroArchOrchestrator:
     async def _on_practice_load(self, cmd: PracticeLoadCmd) -> None:
         self._state_io.load_state_from_path(cmd.state_path)
         self._poller.mark_state_loaded()
-        self._practice_state_path = cmd.state_path
         self._practice_timing.arm(
             segment_id=cmd.id,
             end_type=cmd.end_type,
             death_penalty_ms=cmd.death_penalty_ms,
             auto_advance_delay_ms=cmd.auto_advance_delay_ms,
-            on_attempt_result=self._on_practice_attempt_result,
+            on_attempt_result=self._enqueue_dict,
         )
 
     async def _on_practice_stop(self, cmd: PracticeStopCmd) -> None:
         self._practice_timing.disarm()
-        self._practice_state_path = None
-
-    def _on_practice_attempt_result(self, result: dict) -> None:
-        """Practice attempt completed — clear state path and forward to session."""
-        self._practice_state_path = None
-        self._enqueue_dict(result)
 
     async def _on_speed_run_load(self, cmd: SpeedRunLoadCmd) -> None:
         self._state_io.load_state_from_path(cmd.state_path)
@@ -315,7 +296,9 @@ class RetroArchOrchestrator:
     async def _on_set_invalidate_combo(self, cmd: SetInvalidateComboCmd) -> None:
         # Under the RetroArch backend the invalidate combo is handled via a
         # dashboard button; there is no emulator-side hotkey to wire up.
-        logger.info(
+        # Debug-only because SessionManager sends this on every game switch
+        # and the message is unactionable.
+        logger.debug(
             "RetroArchOrchestrator: invalidate combo is dashboard-button only under RA backend; ignoring %r",
             cmd.combo,
         )
@@ -328,31 +311,19 @@ class RetroArchOrchestrator:
         )
 
     async def _on_reference_start(self, cmd: ReferenceStartCmd) -> None:
-        """Begin a reference run: enable state-capture-on-event.
-
-        Under RA backend we don't write a .spinrec input recording (that's BSV
-        — Phase E). But state captures and segment DB rows are independent of
-        input recording: they're driven by transition events. Setting
-        `_recording = True` causes save-eligible events (LevelEntrance,
-        Checkpoint) to trigger `state_io.save_segment_state` so the path
-        stamped on the event by `state_io.resolve_event_path` actually exists
-        on disk by the time the recorder consumes it.
-        """
-        self._recording = True
-        logger.info(
-            "Reference recording started under retroarch backend "
-            "(state captures only — no input recording until Phase E)"
-        )
+        """No-op under RA: ReferenceController owns recording state and the
+        save-on-event triggers via EmuBackend.save_state. Kept in the
+        dispatch table so unknown-cmd warnings don't fire."""
+        logger.info("Reference recording started (no-op for orchestrator)")
 
     async def _on_reference_stop(self, cmd: ReferenceStopCmd) -> None:
-        """End reference recording. Emit a synthetic rec_saved so session_manager
-        can finalize the run with an empty replay path."""
-        self._recording = False
-        # session_manager.handle_rec_saved just stores the path on the recorder.
-        # An empty path under RA correctly signals 'no replay file'; the
-        # captured states + segment rows are what the practice loop needs.
-        self._enqueue_dict({"event": "rec_saved", "path": "", "frame_count": 0})
-        logger.info("Reference recording stopped (no .spinrec under RA backend)")
+        """No-op under RA: ReferenceController.stop_reference winds down its
+        own state. Previously emitted a synthetic ``rec_saved`` event for
+        cross-backend uniformity, but the resulting empty rec_path is only
+        consumed by the REPLAY-mode state_builder branch (REPLAY isn't
+        supported under RA), so the synthetic emit was workaround-for-nothing.
+        """
+        logger.info("Reference recording stopped (no-op for orchestrator)")
 
     async def _unsupported_phase_e(self, cmd) -> None:
         # Surfaces as a clean HTTP 501 via the dashboard's ActionError handler.
@@ -370,31 +341,19 @@ class RetroArchOrchestrator:
     # ------------------------------------------------------------------
 
     def on_poller_event(self, ev: Any) -> None:
-        """Sync callback for the poller's on_event. Convert to protocol dict + enqueue.
+        """Sync callback for the poller's on_event. Convert to dict + enqueue.
 
         Public so the factory/builder that wires the poller (e.g. in
-        dashboard or build_orchestrator) can attach this as
-        ``poller.deps.on_event``.
+        ``build_orchestrator``) can attach this as ``poller.deps.on_event``.
+
+        Save-on-event and practice reload-on-death used to live here; they
+        moved out in the 2026-05-07 backend-layering refactor. Capture
+        controllers and PracticeSession now own those concerns by calling
+        ``EmuBackend.save_state`` / ``EmuBackend.load_state`` directly.
         """
-        # Persist a state file BEFORE handing off the event, so the path
-        # stamped on it by state_io.resolve_event_path actually exists by the
-        # time the recorder consumes it. (Lua wrote the file before emitting;
-        # under NCI, the orchestrator does.) Best-effort — failures log and
-        # the event still flows; the consumer's handling of a missing file is
-        # already in place (recorder skips entries with no state_path).
-        self._maybe_save_state_for(ev)
-
-        # Practice mode: reload the segment's start state on Death so the
-        # player retries from the segment boundary, not from wherever they
-        # respawned. Lua did `table.insert(pending_loads, segment.state_path)`;
-        # we run it in a worker thread so the asyncio loop stays responsive.
-        self._maybe_reload_state_on_death(ev)
-
         # The detector emits protocol dataclasses (LevelEntranceEvent etc.).
         # asdict already populates the discriminator `event` field from the
-        # dataclass default — no manual translation needed. Was an
-        # event_adapter module that hand-mapped fields and dropped the
-        # rich-shape extras (room/elapsed_ms/segment_id); deleting it here.
+        # dataclass default — no manual translation needed.
         try:
             d = dataclasses.asdict(ev)
         except TypeError:
@@ -407,122 +366,6 @@ class RetroArchOrchestrator:
         self._practice_timing.observe_event(d)
         self._speed_run_timing.observe_event(d)
         self.events.put_nowait(d)
-
-    def _maybe_save_state_for(self, ev: Any) -> None:
-        """Capture a savestate if this event needs to back its `state_path` field.
-
-        Two cases trigger a save:
-          - Cold-fill spawn (`is_cold_cp=True` with a segment_id): always save,
-            since the cold path is being captured into a segment regardless of
-            reference-recording mode.
-          - LevelEntrance / Checkpoint during reference recording: save so the
-            path the resolver stamped on the event resolves to a real file.
-
-        Practice and speed-run modes deliberately don't save here — they're
-        consumers, not producers. Saving in those modes would clobber the
-        reference's captured states.
-        """
-        from spinlab.protocol import CheckpointEvent, LevelEntranceEvent, SpawnEvent
-
-        if isinstance(ev, SpawnEvent):
-            if not (ev.is_cold_cp and ev.segment_id):
-                return
-        elif isinstance(ev, (LevelEntranceEvent, CheckpointEvent)):
-            if not self._recording:
-                return
-        else:
-            return
-        seg_id = self._state_io.segment_id_for_event(ev)
-        if seg_id is None:
-            return
-
-        # Run save in a worker thread so a slow SAVE_STATE (mtime polling can
-        # block up to save_timeout_sec) doesn't freeze the asyncio event loop.
-        # Without this, a single misbehaving save stalls the whole dashboard
-        # for the entire timeout window. The save still completes well before
-        # the user clicks Save & Finish — the recorder only stores state_path
-        # in the DB at handle-entrance time, it doesn't read the file then.
-        try:
-            asyncio.create_task(self._save_state_async(seg_id, type(ev).__name__))
-        except RuntimeError:
-            # No running loop (e.g., poller called us off-loop in a test). Fall
-            # back to synchronous save so unit tests still see the call.
-            self._save_state_sync(seg_id, type(ev).__name__)
-        return
-
-    async def _save_state_async(self, seg_id: str, ev_name: str) -> None:
-        try:
-            await asyncio.to_thread(self._state_io.save_segment_state, seg_id)
-        except Exception:
-            logger.exception(
-                "save_segment_state failed for %r (segment_id=%r); event "
-                "flowed with stale state_path",
-                ev_name, seg_id,
-            )
-
-    def _maybe_reload_state_on_death(self, ev: Any) -> None:
-        """Practice-mode death → reload the segment's start state.
-
-        Lua's `handle_practice` did this synchronously on every detected
-        death frame. The state path is the one PracticeLoadCmd handed us;
-        we reload via state_io.load_state_from_path on a worker thread so
-        SAVE/LOAD's mtime polling doesn't block the asyncio loop.
-
-        Also fires on pit-fall / death-fall LevelExits (goal=='abort'):
-        those are deaths from the player's perspective even though the
-        narrow `is_death_frame` (anim=9) doesn't catch them. Without this
-        the player has to wait for AttemptResult's auto_advance_delay_ms
-        before the reload kicks in via the next PracticeLoadCmd.
-        """
-        from spinlab.protocol import DeathEvent, LevelExitEvent
-
-        is_death = isinstance(ev, DeathEvent)
-        is_death_fall = isinstance(ev, LevelExitEvent) and ev.goal == "abort"
-        if not (is_death or is_death_fall):
-            return
-        if not self._practice_timing.is_armed:
-            logger.info(
-                "practice reload-on-death skipped: timing not armed (ev=%s)",
-                type(ev).__name__,
-            )
-            return
-        path = self._practice_state_path
-        if not path:
-            logger.warning(
-                "practice death observed but no state_path remembered — skipping reload"
-            )
-            return
-        logger.info(
-            "practice reload-on-death triggered (ev=%s, path=%s)",
-            type(ev).__name__, path,
-        )
-        try:
-            asyncio.create_task(self._reload_state_async(path))
-        except RuntimeError:
-            # No running loop (test contexts) — fall back to sync.
-            try:
-                self._state_io.load_state_from_path(path)
-                self._poller.mark_state_loaded()
-            except Exception:
-                logger.exception("practice reload-on-death (sync) failed")
-
-    async def _reload_state_async(self, path: str) -> None:
-        try:
-            await asyncio.to_thread(self._state_io.load_state_from_path, path)
-            self._poller.mark_state_loaded()
-            logger.info("practice reload-on-death: state loaded (path=%s)", path)
-        except Exception:
-            logger.exception("practice reload-on-death failed (path=%s)", path)
-
-    def _save_state_sync(self, seg_id: str, ev_name: str) -> None:
-        try:
-            self._state_io.save_segment_state(seg_id)
-        except Exception:
-            logger.exception(
-                "save_segment_state failed for %r (segment_id=%r); event "
-                "will flow with stale state_path",
-                ev_name, seg_id,
-            )
 
     def _enqueue_dict(self, d: dict) -> None:
         """Direct enqueue helper used as callback by PracticeTiming / SpeedRunTiming."""
