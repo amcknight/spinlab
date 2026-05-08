@@ -205,6 +205,53 @@ async def test_practice_stop_cmd_disarms():
 
 
 @pytest.mark.asyncio
+async def test_death_during_practice_triggers_state_reload():
+    """Regression: practice mode must reload the segment's start state on
+    Death (matches Lua's `pending_loads` queue). Without this, the player
+    retries from wherever they respawned, not from the segment boundary."""
+    from spinlab.retroarch.events import Death
+
+    orch, _, state_io, poller, _ = _build_orchestrator()
+    await orch.connect()
+    await orch.events.get()  # drain rom_info
+
+    await orch.send_command(PracticeLoadCmd(
+        id="seg-x", state_path="/p/seg.state", end_type="goal",
+        auto_advance_delay_ms=200, death_penalty_ms=3200,
+    ))
+    # Initial load happened.
+    assert state_io.load_path_calls == ["/p/seg.state"]
+
+    # Simulate the player dying mid-segment.
+    orch.on_poller_event(Death(timestamp_ms=100, level_num=5))
+    await asyncio.sleep(0.05)  # let the worker-thread reload run
+
+    # Reload fired with the same state path.
+    assert state_io.load_path_calls == ["/p/seg.state", "/p/seg.state"]
+    # mark_state_loaded was called twice: once on PracticeLoad, once on death.
+    assert poller.mark_state_loaded_calls == 2
+
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_death_outside_practice_does_not_reload():
+    """Death events outside practice (e.g. during reference) must NOT trigger
+    a state reload — that would clobber the user's recording."""
+    from spinlab.retroarch.events import Death
+
+    orch, _, state_io, poller, _ = _build_orchestrator()
+    await orch.connect()
+    await orch.events.get()
+    # Not in practice — practice_timing is unarmed.
+    orch.on_poller_event(Death(timestamp_ms=0, level_num=5))
+    await asyncio.sleep(0.05)
+    # No load fired from the death.
+    assert state_io.load_path_calls == []
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_cold_fill_load_activates_poller():
     orch, client, state_io, poller, conditions = _build_orchestrator()
     await orch.connect()

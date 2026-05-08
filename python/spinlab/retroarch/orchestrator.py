@@ -90,6 +90,12 @@ class RetroArchOrchestrator:
         # spams the log. Reset on successful connect.
         self._not_reachable_warning_logged = False
 
+        # State path of the currently-armed practice segment, for reload-on-
+        # death. Lua's practice loop did `table.insert(pending_loads, ...)`
+        # whenever the player died; we replicate by remembering the path
+        # from PracticeLoadCmd and re-loading it on Death events.
+        self._practice_state_path: str | None = None
+
         # Build dispatch table once; handlers are bound methods.
         # ReferenceStart/Stop now succeed (state captures only — no BSV).
         # Replay/ReplayStop still raise: those genuinely require BSV (Phase E).
@@ -226,16 +232,23 @@ class RetroArchOrchestrator:
     async def _on_practice_load(self, cmd: PracticeLoadCmd) -> None:
         self._state_io.load_state_from_path(cmd.state_path)
         self._poller.mark_state_loaded()
+        self._practice_state_path = cmd.state_path
         self._practice_timing.arm(
             segment_id=cmd.id,
             end_type=cmd.end_type,
             death_penalty_ms=cmd.death_penalty_ms,
             auto_advance_delay_ms=cmd.auto_advance_delay_ms,
-            on_attempt_result=self._enqueue_dict,
+            on_attempt_result=self._on_practice_attempt_result,
         )
 
     async def _on_practice_stop(self, cmd: PracticeStopCmd) -> None:
         self._practice_timing.disarm()
+        self._practice_state_path = None
+
+    def _on_practice_attempt_result(self, result: dict) -> None:
+        """Practice attempt completed — clear state path and forward to session."""
+        self._practice_state_path = None
+        self._enqueue_dict(result)
 
     async def _on_speed_run_load(self, cmd: SpeedRunLoadCmd) -> None:
         self._state_io.load_state_from_path(cmd.state_path)
@@ -340,6 +353,12 @@ class RetroArchOrchestrator:
         # already in place (recorder skips entries with no state_path).
         self._maybe_save_state_for(ev)
 
+        # Practice mode: reload the segment's start state on Death so the
+        # player retries from the segment boundary, not from wherever they
+        # respawned. Lua did `table.insert(pending_loads, segment.state_path)`;
+        # we run it in a worker thread so the asyncio loop stays responsive.
+        self._maybe_reload_state_on_death(ev)
+
         try:
             d = to_protocol_dict(ev)
         except TypeError:
@@ -403,6 +422,43 @@ class RetroArchOrchestrator:
                 "flowed with stale state_path",
                 ev_name, seg_id,
             )
+
+    def _maybe_reload_state_on_death(self, ev: TransitionEvent) -> None:
+        """Practice-mode death → reload the segment's start state.
+
+        Lua's `handle_practice` did this synchronously on every detected
+        death frame. The state path is the one PracticeLoadCmd handed us;
+        we reload via state_io.load_state_from_path on a worker thread so
+        SAVE/LOAD's mtime polling doesn't block the asyncio loop.
+        """
+        from spinlab.retroarch.events import Death
+
+        if not isinstance(ev, Death):
+            return
+        if not self._practice_timing.is_armed:
+            return  # not in practice; let other modes handle their own deaths
+        path = self._practice_state_path
+        if not path:
+            logger.warning(
+                "practice death observed but no state_path remembered — skipping reload"
+            )
+            return
+        try:
+            asyncio.create_task(self._reload_state_async(path))
+        except RuntimeError:
+            # No running loop (test contexts) — fall back to sync.
+            try:
+                self._state_io.load_state_from_path(path)
+                self._poller.mark_state_loaded()
+            except Exception:
+                logger.exception("practice reload-on-death (sync) failed")
+
+    async def _reload_state_async(self, path: str) -> None:
+        try:
+            await asyncio.to_thread(self._state_io.load_state_from_path, path)
+            self._poller.mark_state_loaded()
+        except Exception:
+            logger.exception("practice reload-on-death failed (path=%s)", path)
 
     def _save_state_sync(self, seg_id: str, ev_name: str) -> None:
         try:
