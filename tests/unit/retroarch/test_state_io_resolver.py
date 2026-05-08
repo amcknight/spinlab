@@ -75,18 +75,18 @@ def test_resolve_event_path_spawn_uses_segment_id(state_io, tmp_path):
     assert p.endswith("seg-cold-1.state")
 
 
-def test_resolve_event_path_spawn_without_segment_id_returns_empty(state_io):
-    """Defensive: if for some reason segment_id is unset, return '' (no path)."""
+def test_resolve_event_path_spawn_without_segment_id_returns_none(state_io):
+    """Defensive: if for some reason segment_id is unset, return None (no path)."""
     ev = SpawnEvent(timestamp_ms=0, level_num=5, segment_id="")
-    assert state_io.resolve_event_path(ev) == ""
+    assert state_io.resolve_event_path(ev) is None
 
 
-def test_resolve_event_path_death_returns_empty(state_io):
-    """Death has no state_path field — resolver returns ''."""
-    assert state_io.resolve_event_path(DeathEvent(timestamp_ms=0)) == ""
+def test_resolve_event_path_death_returns_none(state_io):
+    """Death has no state_path field — resolver returns None."""
+    assert state_io.resolve_event_path(DeathEvent(timestamp_ms=0)) is None
 
 
-def test_resolve_event_path_level_exit_returns_empty(state_io):
+def test_resolve_event_path_level_exit_returns_none(state_io):
     """LevelExit isn't path-tagged — that's per the Lua audit."""
     ev = LevelExitEvent(timestamp_ms=0, level=5, goal="normal")
-    assert state_io.resolve_event_path(ev) == ""
+    assert state_io.resolve_event_path(ev) is None

@@ -205,20 +205,21 @@ class StateIO:
             return event.segment_id
         return None
 
-    def resolve_event_path(self, event: Any) -> str:
+    def resolve_event_path(self, event: Any) -> str | None:
         """Resolver for `PollerDeps.state_path_for`.
 
-        Returns the absolute path string to stamp onto the event, or "" when no
-        path applies (Death, LevelExit, Spawn with no segment_id). The path
-        returned here is the file LOCATION; whether that file actually gets
-        created depends on the event flowing through the orchestrator's
-        save-on-event hook.
+        Returns the absolute path string to stamp onto the event, or ``None``
+        when no path applies (Death, LevelExit, Spawn with no segment_id).
+        The path returned here is the file LOCATION; whether that file
+        actually gets created depends on the event flowing through the
+        orchestrator's save-on-event hook.
 
-        Returns `str` (not `Path`) because the event field `state_path: str` is the
-        sink. Use `state_path_for(segment_id)` directly if you want a `Path` object.
+        Returns `str | None` rather than `str` so consumers don't need to
+        distinguish ``""`` from "no path" — protocol classes' ``state_path``
+        field is also ``str | None``.
         """
         seg_id = self.segment_id_for_event(event)
-        return str(self.state_path_for(seg_id)) if seg_id else ""
+        return str(self.state_path_for(seg_id)) if seg_id else None
 
     # -- save/load (Tasks 4 & 5; stubbed below until those tasks land) --------
 
