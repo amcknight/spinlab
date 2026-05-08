@@ -29,7 +29,7 @@ _TEST_CONDITION_NAME = "powerup"
 # if conditions appear in subsequent event payloads, the set succeeded.
 
 
-async def test_level_entrance_carries_conditions(run_scenario, tcp_client):
+async def test_level_entrance_carries_conditions(mesen_run_scenario, tcp_client):
     """After set_conditions, level_entrance event payload includes conditions key."""
     # (Re-)register conditions so this test is self-contained even when run alone.
     cmd = json.dumps({
@@ -41,7 +41,7 @@ async def test_level_entrance_carries_conditions(run_scenario, tcp_client):
     await tcp_client.send(cmd)
 
     # entrance_goal.poke: enter level 105, then exit normally.
-    events = await run_scenario("entrance_goal.poke")
+    events = await mesen_run_scenario("entrance_goal.poke")
 
     entrances = [e for e in events if e.get("event") == "level_entrance"]
     assert len(entrances) == 1, f"Expected 1 level_entrance, got {len(entrances)}"
@@ -59,7 +59,7 @@ async def test_level_entrance_carries_conditions(run_scenario, tcp_client):
     )
 
 
-async def test_level_exit_carries_conditions(run_scenario, tcp_client):
+async def test_level_exit_carries_conditions(mesen_run_scenario, tcp_client):
     """After set_conditions, level_exit event payload includes conditions key."""
     cmd = json.dumps({
         "event": "set_conditions",
@@ -69,7 +69,7 @@ async def test_level_exit_carries_conditions(run_scenario, tcp_client):
     })
     await tcp_client.send(cmd)
 
-    events = await run_scenario("entrance_goal.poke")
+    events = await mesen_run_scenario("entrance_goal.poke")
 
     exits = [e for e in events if e.get("event") == "level_exit"]
     assert len(exits) == 1, f"Expected 1 level_exit, got {len(exits)}"
@@ -80,7 +80,7 @@ async def test_level_exit_carries_conditions(run_scenario, tcp_client):
     )
 
 
-async def test_death_and_spawn_carry_conditions(run_scenario, tcp_client):
+async def test_death_and_spawn_carry_conditions(mesen_run_scenario, tcp_client):
     """After set_conditions, death and spawn events include conditions key."""
     cmd = json.dumps({
         "event": "set_conditions",
@@ -90,7 +90,7 @@ async def test_death_and_spawn_carry_conditions(run_scenario, tcp_client):
     })
     await tcp_client.send(cmd)
 
-    events = await run_scenario("entrance_death_spawn.poke")
+    events = await mesen_run_scenario("entrance_death_spawn.poke")
 
     deaths = [e for e in events if e.get("event") == "death"]
     spawns = [e for e in events if e.get("event") == "spawn"]
@@ -106,7 +106,7 @@ async def test_death_and_spawn_carry_conditions(run_scenario, tcp_client):
     )
 
 
-async def test_checkpoint_carries_conditions(run_scenario, tcp_client):
+async def test_checkpoint_carries_conditions(mesen_run_scenario, tcp_client):
     """After set_conditions, checkpoint event includes conditions key."""
     cmd = json.dumps({
         "event": "set_conditions",
@@ -116,7 +116,7 @@ async def test_checkpoint_carries_conditions(run_scenario, tcp_client):
     })
     await tcp_client.send(cmd)
 
-    events = await run_scenario("checkpoint_cold_spawn.poke")
+    events = await mesen_run_scenario("checkpoint_cold_spawn.poke")
 
     checkpoints = [e for e in events if e.get("event") == "checkpoint"]
     assert len(checkpoints) >= 1, f"Expected at least 1 checkpoint, got {len(checkpoints)}"
@@ -126,13 +126,13 @@ async def test_checkpoint_carries_conditions(run_scenario, tcp_client):
     )
 
 
-async def test_empty_conditions_when_not_set(run_scenario, tcp_client):
+async def test_empty_conditions_when_not_set(mesen_run_scenario, tcp_client):
     """When no conditions are configured, events still arrive with an empty conditions dict."""
     # Clear conditions by sending an empty array.
     cmd = json.dumps({"event": "set_conditions", "definitions": []})
     await tcp_client.send(cmd)
 
-    events = await run_scenario("entrance_goal.poke")
+    events = await mesen_run_scenario("entrance_goal.poke")
 
     entrances = [e for e in events if e.get("event") == "level_entrance"]
     assert len(entrances) == 1

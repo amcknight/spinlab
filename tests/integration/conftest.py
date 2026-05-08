@@ -7,7 +7,8 @@ Two independent Mesen processes run in the same session:
 Fixtures:
     mesen_process      — session-scoped: Mesen2 with poke_engine.lua for poke tests
     tcp_client         — session-scoped: TCP connection for poke tests
-    run_scenario       — function-scoped: sends poke scenario, collects events
+    mesen_run_scenario — function-scoped: sends poke scenario, collects events (Mesen/Lua path)
+    run_scenario       — function-scoped: sends poke scenario via RA harness (RA path)
     smoke_mesen_process — session-scoped: Mesen2 with spinlab.lua on a free port
     dashboard_server   — session-scoped: real FastAPI dashboard connected to smoke Mesen
     dashboard_url      — session-scoped: convenience alias for the dashboard base URL
@@ -215,8 +216,8 @@ async def tcp_client(mesen_process) -> AsyncGenerator[TcpManager, None]:
 
 
 @pytest.fixture
-def run_scenario(tcp_client):
-    """Send a poke scenario and collect events until scenario_done sentinel."""
+def mesen_run_scenario(tcp_client):
+    """Send a poke scenario and collect events until scenario_done sentinel (Mesen/Lua path)."""
 
     async def _run(scenario_name: str, timeout: float = 30.0) -> list[dict]:
         """Send a poke scenario and collect events until scenario_done.
@@ -643,6 +644,64 @@ async def replay_dashboard(replay_mesen_process):
     db.close()
     import shutil as _shutil_cleanup
     _shutil_cleanup.rmtree(tmp, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# RetroArch poke harness (replaces the Lua poke_engine.lua path for transitions)
+# ---------------------------------------------------------------------------
+
+
+def _ra_paths() -> tuple[Path | None, Path | None, Path | None]:
+    """Resolve (retroarch_exe, ra_core_path, rom_path) from env/config."""
+    config = _load_config()
+    emu = config.get("emulator", {})
+    retroarch_exe = emu.get("retroarch_path")
+    ra_core_path = emu.get("ra_core_path")
+    rom_path = _test_rom_path()
+    return (
+        Path(retroarch_exe) if retroarch_exe else None,
+        Path(ra_core_path) if ra_core_path else None,
+        Path(rom_path) if rom_path else None,
+    )
+
+
+@pytest.fixture(scope="session")
+def ra_harness():
+    """Launch one RetroArch process per pytest session for poke-driven tests."""
+    from tests.integration.ra_harness import RAHarness, RAHarnessLaunchError
+
+    retroarch_exe, ra_core_path, rom_path = _ra_paths()
+    missing = [
+        label for label, p in
+        [("retroarch_path", retroarch_exe), ("ra_core_path", ra_core_path), ("rom", rom_path)]
+        if p is None or not p.exists()
+    ]
+    if missing:
+        pytest.skip(f"ra_harness requires: {', '.join(missing)} (set in config.yaml emulator section)")
+
+    try:
+        harness = RAHarness.launch(rom_path=rom_path, core_path=ra_core_path, retroarch_exe=retroarch_exe)
+    except RAHarnessLaunchError as exc:
+        pytest.skip(f"ra_harness launch failed: {exc}")
+
+    try:
+        yield harness
+    finally:
+        harness.teardown()
+
+
+@pytest.fixture
+def run_scenario(ra_harness):
+    """Send a poke scenario through the RA harness and collect events."""
+
+    async def _run(scenario_name: str, timeout: float = 30.0) -> list[dict]:
+        scenario_path = SCENARIO_DIR / scenario_name
+        if not scenario_path.exists():
+            pytest.fail(f"Scenario file not found: {scenario_path}")
+        scenario = parse_poke_file(str(scenario_path))
+        return await asyncio.to_thread(ra_harness.engine.run_scenario, scenario)
+
+    return _run
 
 
 # ---------------------------------------------------------------------------
