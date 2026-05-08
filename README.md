@@ -20,13 +20,19 @@ In `retroarch.cfg` (typically `<RetroArch dir>/retroarch.cfg`):
 network_cmd_enable = "true"
 network_cmd_port = "55355"
 cheevos_hardcore_mode_enable = "false"
+run_ahead_secondary_instance = "true"
+replay_max_keep = "99"
 ```
 
-The first two enable the Network Command Interface SpinLab uses. **The third one is non-obvious but required:** when `cheevos_hardcore_mode_enable = "true"`, RetroArch silently drops NCI hotkey-style commands (SAVE_STATE, LOAD_STATE_SLOT, PAUSE_TOGGLE, MENU_TOGGLE) — even when `cheevos_enable = "false"`. The hardcore flag is checked independently. Manual gamepad save state continues to work, so this fails silently and is genuinely confusing if you don't know to look. SpinLab needs hardcore-mode off to drive its automated saves/loads.
+The first two enable the Network Command Interface SpinLab uses. **`cheevos_hardcore_mode_enable` is non-obvious but required:** when set to `"true"`, RetroArch silently drops NCI hotkey-style commands (SAVE_STATE, LOAD_STATE_SLOT, PAUSE_TOGGLE, MENU_TOGGLE) — even when `cheevos_enable = "false"`. The hardcore flag is checked independently. Manual gamepad save state continues to work, so this fails silently and is genuinely confusing if you don't know to look. SpinLab needs hardcore-mode off to drive its automated saves/loads.
+
+**`run_ahead_secondary_instance = "true"`** is required if you use runahead (recommended). With single-instance runahead, RetroArch corrupts state buffers on save/load — Phase 0 spent hours debugging an "INCONCLUSIVE" `SAVE_STATE` finding that was actually this. Force secondary-instance runahead and state I/O works reliably.
+
+**`replay_max_keep = "99"`** (default `"0"`) is required for movie recording. With `0`, RetroArch silently refuses to create new `.replay` files when any already exist for the loaded game — `RECORD_REPLAY` no-ops without an error reply, and `MovieRecorder.stop` reports "no new file appeared". Set to `99` (or any large value) to allow multiple recordings per game.
 
 Restart RetroArch fully after editing — the cfg is read once at startup. SpinLab talks to RetroArch over UDP using the libretro Network Command Interface (NCI). The default port `55355` matches RA's default; SpinLab's `network.nci_port` config will track it.
 
-Run-ahead is fully compatible with all NCI commands SpinLab uses; enable it for low input latency. Verified with `run_ahead_enabled = "true"` and `run_ahead_frames = "3"`.
+Run-ahead is fully compatible with all NCI commands SpinLab uses; enable it for low input latency. Verified with `run_ahead_enabled = "true"`, `run_ahead_frames = "2"` or `"3"`, and `run_ahead_secondary_instance = "true"` (see above).
 
 Quick sanity check from PowerShell with RA running:
 
