@@ -262,6 +262,38 @@ async def test_on_replay_stages_at_slot_from_ra_log(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_on_replay_picks_up_auto_index_from_record_start_log(tmp_path):
+    """Recording with replay_auto_index='true' bumps RA's runtime slot but
+    does NOT emit a 'Replay slot:' log line — only a 'Starting movie record
+    to "...replay<N>"' line. Parser must recognize this form, otherwise
+    PLAY_REPLAY targets the stale pre-record slot."""
+    from spinlab.protocol import ReplayCmd
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "retroarch__2026_05_08__19_38_14.log").write_text(
+        "[INFO] [Replay] Found last replay slot: #64\n"
+        "[INFO] [Replay] Starting movie record to "
+        '"C:\\RetroArch-Win64\\states\\Snes9x\\Toothpaste.replay65".\n'
+        "[INFO] [Replay] Stopping movie record.\n",
+        encoding="utf-8",
+    )
+    fake_player = FakeMoviePlayer()
+    orch = RetroArchOrchestrator(
+        client=FakeNCI(),
+        state_io=FakeStateIO(),
+        poller=FakePoller(),
+        conditions=None,
+        practice_timing=None,
+        speed_run_timing=None,
+        movie_recorder=None,
+        movie_player=fake_player,
+        ra_log_dir=log_dir,
+    )
+    await orch._on_replay(ReplayCmd(path="/x.spinrec", speed=0))
+    assert fake_player.played_slot == 65
+
+
+@pytest.mark.asyncio
 async def test_on_replay_emits_error_event_when_playback_does_not_advance(
     orchestrator_with_stalled_nci,
 ):

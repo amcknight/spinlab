@@ -55,12 +55,21 @@ def _rom_info_dict(status: StatusInfo) -> dict:
 logger = logging.getLogger(__name__)
 
 # Pattern for parsing RA's log lines that report the current replay slot.
-# RA emits both at startup ("Found last replay slot: #N") and after each
-# SLOT_PLUS/MINUS hotkey ("Replay slot: N"). The latest match in the log
-# is RA's current runtime slot — used to stage `<game>.replay<N>` at the
-# slot RA will actually look up on PLAY_REPLAY.
+# RA emits in three forms:
+#   - At startup: "[Replay] Found last replay slot: #N"
+#   - After SLOT_PLUS/MINUS: "[Replay] Replay slot: N"
+#   - When recording starts: "[Replay] Starting movie record to "<path>.replay<N>"."
+#     This last one is critical: with replay_auto_index="true", RA bumps the
+#     runtime slot to N when starting a recording, but does NOT emit a
+#     "Replay slot:" line. Without this third match, the parser misses the
+#     auto-index bump and stages at the stale pre-record slot.
+# The latest match in the log is RA's current runtime slot.
 _REPLAY_SLOT_LOG_PATTERN = re.compile(
-    r"\[Replay\] (?:Replay slot: |Found last replay slot: #)(\d+)",
+    r'\[Replay\] (?:'
+    r"Replay slot: |"
+    r"Found last replay slot: #|"
+    r'Starting movie record to "[^"]*\.replay'
+    r")(\d+)"
 )
 
 # 20 Hz tick — fast enough for auto_advance_delay_ms precision without
