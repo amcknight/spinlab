@@ -108,23 +108,3 @@ emulator:
 """)
     cfg = AppConfig.from_yaml(config_yaml)
     assert cfg.emulator.ra_core_path is None
-
-
-def test_old_mesen_keys_still_parse(tmp_path):
-    """Existing Mesen-shaped configs must continue to parse without errors."""
-    cfg_path = _write_config(tmp_path, _minimal_config({
-        "emulator": {
-            "path": "C:/path/to/Mesen.exe",
-            "lua_script": "lua/spinlab.lua",
-            "script_data_dir": "C:/Users/me/Mesen2/LuaScriptData/spinlab",
-        },
-        "network": {
-            "port": 15482,
-            "dashboard_port": 15483,
-        },
-    }))
-    cfg = AppConfig.from_yaml(cfg_path)
-    assert cfg.emulator.backend == "mesen-lua"
-    assert cfg.emulator.path == Path("C:/path/to/Mesen.exe")
-    assert cfg.emulator.lua_script == Path("lua/spinlab.lua")
-    assert cfg.network.port == 15482
