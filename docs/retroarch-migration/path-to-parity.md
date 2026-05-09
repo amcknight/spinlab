@@ -2,7 +2,7 @@
 
 What would be needed to fully retire the Mesen+Lua backend and use RetroArch exclusively. Items roughly ordered by what unblocks the most.
 
-*The Plan 2 RA test harness landed 2026-05-08, which closes P1.2 and unlocks future bug-fixing as TDD instead of smoke testing.*
+*The Plan 2 RA test harness landed 2026-05-08 (closes P1.2). Phase E option (a) landed 2026-05-08 — record + playback + determinism validated; user-facing replay endpoint no longer 501s. The remaining replay gap (poller starvation under uncapped playback breaks segment capture) is captured below; the throttle fix is the last piece before option (b) full parity.*
 
 ## P0 — Blockers for daily-driving RA only
 
@@ -22,17 +22,22 @@ What would be needed to fully retire the Mesen+Lua backend and use RetroArch exc
 
 The added logging discriminates between these. Run, read the log, fix the actual cause.
 
-### P0.3 — Phase E: BSV input recording + replay
+### P0.3 — Phase E: movie input recording + replay
 
-The single biggest missing piece. Replay is currently a hard 501 under RA backend.
+**Status (2026-05-08):** Option (a) shipped. The historical "BSV" framing in the original spec was wrong on RA 1.22.2 — the actual NCI commands are `RECORD_REPLAY` / `HALT_REPLAY` / `PLAY_REPLAY`, the format is `.replay<slot>`, output dir is `<savestate_directory>/<core_name>/`, and the implementation was renamed `MovieRecorder` / `MoviePlayer` / `movie.py` accordingly.
 
-**What's needed:**
+**What landed:**
+- `MovieRecorder` integrated into reference-run flow; `.replay` written alongside `.mss` state files
+- `MoviePlayer` wired into `RetroArchOrchestrator._on_replay`; `ReplayCmd` no longer 501s
+- Smoke tests cover record-toggle + playback-determinism (both pass on live RA)
+- `tests/integration/test_replay_fixture.py` ported off Mesen, fixture `one_level.replay` recorded
+- `replay_max_keep = "99"` and `run_ahead_secondary_instance = "true"` documented as required cfg in README
 
-- BSV writer: capture libretro deterministic movie format from a live RA session. Probably driven by NCI commands `BSV_RECORD_TOGGLE` and friends, plus filesystem capture of the resulting `.bsv`.
-- BSV → events: replay a `.bsv` through RA, watch transitions emit naturally (same code path as live), tag events with `source: "replay"`.
-- File format bridge: existing `.spinrec` files (Mesen format) are not BSV; either retain Mesen replay capability or write a one-time converter.
+**Remaining for option (b) full parity:**
+- **Throttle playback speed via NCI** so the production poller can keep up. Under uncapped playback the poller hits ~32Hz instead of 60Hz, missing transitions during segment capture. `test_poller_runs_during_playback` and `test_replay_fixture` xfail on this. NCI candidates: `slowmotion_ratio`, `--speed=` flag, or temp cfg override. Once landed, both xfails should auto-clear (strict=False).
+- `.spinrec` → `.replay` converter — low priority; Andrew has acknowledged re-recording is acceptable.
 
-**Estimate:** large. Phase E's spec lives in `docs/superpowers/specs/2026-05-06-retroarch-migration-design.md`. Treat it as a starting point but expect new realities — the live-testing phase has changed our understanding of every other phase substantially.
+Phase E's planning artifacts: spec at [`docs/superpowers/specs/2026-05-08-phase-e-movie-replay-design.md`](../superpowers/specs/2026-05-08-phase-e-movie-replay-design.md), plan at [`docs/superpowers/plans/2026-05-08-phase-e-movie-replay.md`](../superpowers/plans/2026-05-08-phase-e-movie-replay.md). The 2026-05-06 frozen spec is now historical context only.
 
 ## P1 — Quality-of-life
 
@@ -91,13 +96,13 @@ Out of scope today (one game per session). RA supports core swapping which would
 
 When the following are true, the Mesen backend can be deleted:
 
-1. Reference recording captures inputs (.bsv) AND state files. Both are written to disk at known paths. ✓ states  ✗ inputs
+1. Reference recording captures inputs (`.replay`) AND state files. Both are written to disk at known paths. ✓ states  ✓ inputs (Phase E option (a), 2026-05-08)
 2. Reference run can be saved, finished, resumed, and discarded end-to-end. Field-tested. ✓ except discard 500 (cascade FK fix needs verify)
 3. Practice loop runs N segments without intervention, including reload-on-death after every death. ✗ second-death issue
 4. Cold-fill captures cold variants for hacks that use cp-respawn. ✗ in-progress
 5. Speed-run mode runs a full level start-to-finish with checkpoint splits. Untested.
-6. Replay loads a `.bsv` and reproduces transitions identically. Not implemented (Phase E).
-7. Full pytest suite green under `backend == "retroarch"` config. ✗ (10 Mesen-specific failures)
+6. Replay loads a `.replay` and reproduces transitions identically. ⚠ partial — playback works and is deterministic; segment capture during replay xfailed pending playback-throttle (P0.3).
+7. Full pytest suite green under `backend == "retroarch"` config. ✓ (Phase E xfails are intentional and strict=False)
 8. At least one full real speedrun (e.g. "Love Yourself" any%) completed end-to-end with no manual workaround.
 
 Items 1-5 are P0. Item 6 is Phase E. Items 7-8 are gates; clearing them is the actual ship signal.
