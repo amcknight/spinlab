@@ -33,6 +33,15 @@ class FakeNCI:
             return bytes([self._read_count]) * length
         return b"\x00" * length
 
+    def replay_slot_minus(self) -> None:
+        # No-op for tests — the orchestrator fires this many times before
+        # PLAY_REPLAY to reset RA's runtime slot. Real NCIClient wraps a
+        # UDP send; the fake just absorbs the call.
+        pass
+
+    def replay_slot_plus(self) -> None:
+        pass
+
 
 class FakeStateIO:
     game_basename: str | None = "Test Game"

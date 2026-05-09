@@ -53,6 +53,11 @@ def _rom_info_dict(status: StatusInfo) -> dict:
 
 logger = logging.getLogger(__name__)
 
+# How many REPLAY_SLOT_MINUS calls to fire when resetting RA's runtime
+# replay slot before PLAY_REPLAY. Andrew's RA was at slot 64 at startup;
+# 200 gives a healthy margin. RA clamps at 0 so overshoot is safe.
+_REPLAY_SLOT_RESET_COUNT = 200
+
 # 20 Hz tick — fast enough for auto_advance_delay_ms precision without
 # burning unnecessary CPU. The poller already runs at ~60 Hz; this only
 # drives timing deadlines, not frame-by-frame detection.
@@ -375,6 +380,16 @@ class RetroArchOrchestrator:
         # if for some reason it's missing, we fall back to the generic stage
         # name (RA will likely fail-to-load and the verification below catches it).
         basename = getattr(self._state_io, "game_basename", None) or None
+
+        # Reset RA's runtime replay slot to 0 before staging. RA's
+        # `replay_auto_index = "true"` makes the runtime slot diverge from
+        # cfg `replay_slot` after recordings, and there is no NCI command
+        # to query/set the slot directly. Fire SLOT_MINUS aggressively to
+        # converge — RA clamps at 0, so overshoot is harmless. See
+        # docs/retroarch-migration/slot-management.md for the full story.
+        for _ in range(_REPLAY_SLOT_RESET_COUNT):
+            self._client.replay_slot_minus()
+
         await asyncio.to_thread(
             self._movie_player.play, movie_path,
             staged_basename=basename, staged_slot=0,

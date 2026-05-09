@@ -223,6 +223,28 @@ class NCIClient:
         """
         self._send_no_reply("PLAY_REPLAY")
 
+    def replay_slot_minus(self) -> None:
+        """Decrement RA's runtime replay slot by 1. Fire-and-forget.
+
+        RA's `replay_auto_index = "true"` advances the runtime slot when
+        recording, and persists per-game across sessions. At startup RA
+        picks up wherever it left off (e.g. slot 64) regardless of cfg
+        `replay_slot`. There is no NCI "set slot to N" command, so we
+        navigate via SLOT_MINUS to converge to 0 — RA clamps at 0 so
+        over-firing is safe.
+
+        Command name is provisional. If RA 1.22.2 doesn't expose it,
+        this is a no-op and PLAY_REPLAY's verification will catch the
+        downstream failure.
+        """
+        self._send_no_reply("REPLAY_SLOT_MINUS")
+
+    def replay_slot_plus(self) -> None:
+        """Increment RA's runtime replay slot by 1. Fire-and-forget.
+        See replay_slot_minus for the broader story.
+        """
+        self._send_no_reply("REPLAY_SLOT_PLUS")
+
     def quit(self) -> None:
         """Tell RetroArch to shut down."""
         self._send_no_reply("QUIT")
