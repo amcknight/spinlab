@@ -47,7 +47,7 @@ The Phase E option (a) work shipped enough — record/playback validated, the br
 - `python/spinlab/capture/reference.py` — drop the `path=spinrec_path` argument from `ReferenceStartCmd` callers; spinrec is gone. Adjust `start_reference`/`resume_reference` accordingly.
 - `python/spinlab/session_manager.py` — drop any backend conditionals.
 - `python/spinlab/condition_registry.py` — Mesen Lua-callback hooks if any. Cold-fill and predicate framework already RA-only.
-- `python/spinlab/db/capture_runs.py`, `db/capture_sessions.py`, `db/core.py` — schema may have `spinrec_path` columns. **Decision 2:** drop the column (small migration) vs. leave it nullable for backwards-compat with existing dbs.
+- `python/spinlab/db/capture_runs.py`, `db/capture_sessions.py`, `db/core.py` — drop `spinrec_path` column from schema and any code referencing it (per Decision 2). No migration provided; existing databases require `spinlab db reset` to upgrade.
 - Anything referencing `MESEN_PATH` env var.
 - `tests/integration/conftest.py` — drop `mesen_process`, `tcp_client`, `mesen_run_scenario`, `smoke_mesen_process`, `dashboard_server`, `replay_mesen_process`, `replay_dashboard` fixtures (some already deleted in Task 12 of Phase E; double-check).
 - `tests/conftest.py` — `FakeTcpManager` if still referenced.
@@ -63,43 +63,33 @@ The Phase E option (a) work shipped enough — record/playback validated, the br
 - Various spec/plan docs in `docs/superpowers/` reference Mesen — leave as historical artifacts (they're frozen per project memory).
 - `CLAUDE.md` — remove Mesen-specific guidance; simplify test markers if any.
 
-## Open decisions (need Andrew input)
+## Decisions (resolved 2026-05-08)
 
-### Decision 1 — keep or drop `EmulatorConfig.backend` field?
+### Decision 1 — `EmulatorConfig.backend` field: drop entirely
 
-Two options:
+YAGNI. Only RA exists; if a future emulator gets added, the field gets re-introduced with whatever shape it actually needs. Keeping it as a forward-compat hook invites confusion ("which backends does it support?"). Existing user `config.yaml` files with `backend: "retroarch"` get the line silently ignored or removed.
 
-- **(a) Drop `backend` entirely.** Only RA exists. `config.yaml`'s `emulator.backend` is ignored or rejected.
-- **(b) Keep `backend` but only `"retroarch"` is valid.** Forwards-compat in case a future backend (a different libretro core, or a different emulator entirely) gets added.
+### Decision 2 — DB schema: drop `spinrec_path` column
 
-I'd lean (a) — YAGNI. If a third emulator gets added later, this gets re-introduced then. Keeping it as a forward-compat hook is cheap but invites confusion ("which backends does it support?").
+**Resolved (2026-05-08):** drop the column. Andrew's local DB attempt history is test data, not real runs; loss on upgrade is acceptable. No migration script — the schema file just gets edited and existing databases need `spinlab db reset` to upgrade. Keeps Phase G focused on deletion rather than carrying a migration tool.
 
-### Decision 2 — DB schema: drop or nullable-keep `spinrec_path` column?
+Documented as breaking change: README + status.md will note that running Phase-G-or-later against a pre-Phase-G database requires a one-line `spinlab db reset`.
 
-Two options:
+### Decision 3 — `test_smoke.py`: just delete
 
-- **(a) Drop the column.** Small migration. Existing databases need a `spinlab db migrate` invocation. Cleaner long-term.
-- **(b) Leave nullable.** Existing databases work as-is. Column sits unused. Less invasive.
+The current Mesen-bound full-stack smoke goes away with the Mesen backend. `test_replay_fixture.py` (currently xfailed pending the playback throttle work) is the closest RA equivalent and would substantially overlap with a port. Cleaner to delete and add an RA-side smoke as a follow-up if desired post-throttle-work.
 
-I'd lean (b) — Andrew's local DB has months of attempt history; not breaking it is worth a few unused bytes per row. The column can be dropped in a later cleanup.
+### Decision 4 — ordering: 5-7 sequenced commits
 
-### Decision 3 — port `test_smoke.py` to RA, or just delete?
+Mirrors the BSV→Movie rename pass that worked well. Each commit independently reviewable, independently revertable, full test suite green at every step:
 
-The current Mesen-bound `test_smoke.py` is a full-stack smoke (dashboard + DB + emulator). After Phase G, it goes. Two options:
-
-- **(a) Just delete.** Other coverage exists: `test_replay_fixture.py` (currently xfailed) is the closest equivalent. Unit + RA harness tests cover most failure modes.
-- **(b) Port to RA.** Write `tests/integration/test_smoke_ra.py` mirroring the original's assertions but on RA backend. ~2 hours of work.
-
-I'd lean (a) for the Phase G commit (just delete) and add (b) as a follow-up if desired. Keeps Phase G's diff focused on deletion.
-
-### Decision 4 — ordering: one big commit or several?
-
-Phase G is a "big delete-fest" per existing notes. Options:
-
-- **(a) Single commit** — one big diff. Hard to review but no half-state. ~30 file changes, ~5k lines deleted.
-- **(b) 5-7 commits in sequence** — e.g.: (1) tests, (2) lua/, (3) tcp_manager, (4) spinrec, (5) config + routes, (6) docs. Each easier to review; main works at every commit.
-
-I'd lean (b) — match the rename pass we did for BSV→movie. Each commit is verifiable independently.
+1. **Tests cleanup** — delete `test_lua_conditions.py`, `test_smoke.py`, `test_tcp_manager.py`; clean Mesen-only test fixtures.
+2. **`lua/` directory** — `git rm -r lua/`.
+3. **`tcp_manager.py` + `spinrec.py`** — the two production files.
+4. **`config.py` + `routes/system.py`** — drop Mesen-only fields, drop `backend` field, simplify launch path.
+5. **`capture/reference.py` + `routes/reference.py` + `session_manager.py`** — drop Mesen branches, simplify spinrec→replay path resolution.
+6. **DB schema** — drop `spinrec_path` column from `capture_sessions`/`capture_runs` schema files. No migration. Document `spinlab db reset` requirement in README.
+7. **Docs** — README, ARCHITECTURE, status.md, path-to-parity.md, CLAUDE.md.
 
 ## Acceptance criteria
 
