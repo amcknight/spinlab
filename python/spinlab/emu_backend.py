@@ -1,9 +1,8 @@
-"""EmuBackend — duck-typed surface shared by TcpManager and RetroArchOrchestrator.
+"""EmuBackend — Protocol defining the emulator backend surface.
 
-The dashboard talks to one emulator backend at a time, selected at startup
-from `config.emulator.backend`. Both backends expose the same surface so
-the rest of the codebase (SessionManager, capture controllers, practice/
-speed-run loops) doesn't need to know which one is wired up.
+The dashboard talks to a RetroArchOrchestrator via this protocol. The rest of
+the codebase (SessionManager, capture controllers, practice/speed-run loops)
+depends only on this surface, not on any concrete backend implementation.
 """
 from __future__ import annotations
 
@@ -13,11 +12,10 @@ from typing import Protocol, runtime_checkable
 
 @runtime_checkable
 class EmuBackend(Protocol):
-    """The subset of TcpManager that capture/practice/dashboard code uses.
+    """Protocol satisfied by RetroArchOrchestrator (and any future backend).
 
-    Both `TcpManager` (Mesen-Lua) and `RetroArchOrchestrator` (RetroArch NCI)
-    satisfy this protocol via duck typing. No inheritance — the protocol is
-    structural so the two backends remain free of a common base class.
+    Structural duck-typing — implementations inherit from nothing; the protocol
+    checks structural compatibility only.
     """
 
     on_disconnect: Callable | None
@@ -36,19 +34,15 @@ class EmuBackend(Protocol):
     async def save_state(self, segment_id: str) -> None:
         """Persist a savestate file for the given segment id.
 
-        Under RetroArch the orchestrator triggers an NCI SAVE_STATE and moves
-        the resulting file into SpinLab's segment-keyed directory. Under
-        Mesen this is a no-op because Lua writes states autonomously when
-        it observes save-eligible events; Python does not need to act.
+        The orchestrator triggers an NCI SAVE_STATE and moves the resulting
+        file into SpinLab's segment-keyed directory.
         """
         ...
 
     async def load_state(self, state_path: str) -> None:
         """Load a savestate file from an absolute path.
 
-        Under RetroArch the orchestrator copies the file into RA's reserved
-        slot and fires LOAD_STATE_SLOT. Under Mesen this is a no-op because
-        Lua's practice loop loads states autonomously after every
-        ``practice_load`` command and on every detected death.
+        The orchestrator copies the file into RA's reserved slot and fires
+        LOAD_STATE_SLOT via NCI.
         """
         ...

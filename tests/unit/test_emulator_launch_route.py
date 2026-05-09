@@ -1,10 +1,9 @@
-"""POST /api/emulator/launch behavior under both backends."""
+"""POST /api/emulator/launch behavior."""
 from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
@@ -15,24 +14,17 @@ from spinlab.db import Database
 def _app(
     tmp_path: Path,
     *,
-    backend: str,
-    emu_path: Path | None = None,
     retroarch_path: Path | None = None,
     rom_dir: Path | None = None,
 ) -> TestClient:
     db = Database(":memory:")
-    emu_kwargs = {"backend": backend}
-    if emu_path is not None:
-        emu_kwargs["path"] = emu_path
-    if backend == "retroarch":
-        # build_orchestrator requires these regardless of retroarch_path.
-        emu_kwargs.update(
-            savestate_dir=tmp_path / "ra",
-            spinlab_state_dir=tmp_path / "sl",
-            ra_game_basename="Test",
-        )
-        if retroarch_path is not None:
-            emu_kwargs["retroarch_path"] = retroarch_path
+    emu_kwargs: dict = dict(
+        savestate_dir=tmp_path / "ra",
+        spinlab_state_dir=tmp_path / "sl",
+        ra_game_basename="Test",
+    )
+    if retroarch_path is not None:
+        emu_kwargs["retroarch_path"] = retroarch_path
     cfg = AppConfig(
         network=NetworkConfig(),
         emulator=EmulatorConfig(**emu_kwargs),
@@ -42,21 +34,13 @@ def _app(
     return TestClient(create_app(db, config=cfg))
 
 
-def test_launch_emulator_mesen_lua_unchanged_path_check(tmp_path):
-    """Under mesen-lua backend, missing emulator.path still 400s as before — no regression."""
-    with _app(tmp_path, backend="mesen-lua", emu_path=None) as client:
-        resp = client.post("/api/emulator/launch", json={"rom": "x.smc"})
-    assert resp.status_code == 400
-    assert "Emulator not found" in resp.json()["detail"]
-
-
 def test_retroarch_launch_400_when_retroarch_path_missing(tmp_path):
     """Under retroarch with no retroarch_path configured, 400 with helpful message."""
     rom_dir = tmp_path / "roms"
     rom_dir.mkdir()
     (rom_dir / "test.smc").write_bytes(b"\x00" * 1024)
     with patch("spinlab.routes.system._retroarch_already_running", return_value=False), \
-         _app(tmp_path, backend="retroarch", retroarch_path=None, rom_dir=rom_dir) as client:
+         _app(tmp_path, retroarch_path=None, rom_dir=rom_dir) as client:
         resp = client.post("/api/emulator/launch", json={"rom": "test.smc"})
     assert resp.status_code == 400
     assert "retroarch_path" in resp.json()["detail"]
@@ -68,7 +52,7 @@ def test_retroarch_launch_returns_already_running_when_ra_alive(tmp_path):
     fake_ra.write_bytes(b"")
     with patch("spinlab.routes.system._retroarch_already_running", return_value=True), \
          patch("spinlab.routes.system.subprocess.Popen") as mock_popen, \
-         _app(tmp_path, backend="retroarch", retroarch_path=fake_ra) as client:
+         _app(tmp_path, retroarch_path=fake_ra) as client:
         resp = client.post("/api/emulator/launch", json={"rom": "x.smc"})
     assert resp.status_code == 200
     assert resp.json() == {"status": "already_running"}
@@ -86,7 +70,7 @@ def test_retroarch_launch_spawns_with_rom_when_not_running(tmp_path):
 
     with patch("spinlab.routes.system._retroarch_already_running", return_value=False), \
          patch("spinlab.routes.system.subprocess.Popen") as mock_popen, \
-         _app(tmp_path, backend="retroarch", retroarch_path=fake_ra, rom_dir=rom_dir) as client:
+         _app(tmp_path, retroarch_path=fake_ra, rom_dir=rom_dir) as client:
         resp = client.post("/api/emulator/launch", json={"rom": "test.smc"})
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
@@ -114,7 +98,7 @@ def test_retroarch_launch_uses_libretro_core_when_present(tmp_path):
 
     with patch("spinlab.routes.system._retroarch_already_running", return_value=False), \
          patch("spinlab.routes.system.subprocess.Popen") as mock_popen, \
-         _app(tmp_path, backend="retroarch", retroarch_path=fake_ra, rom_dir=rom_dir) as client:
+         _app(tmp_path, retroarch_path=fake_ra, rom_dir=rom_dir) as client:
         resp = client.post("/api/emulator/launch", json={"rom": "test.smc"})
     assert resp.status_code == 200
     cmd = mock_popen.call_args[0][0]
@@ -128,7 +112,7 @@ def test_retroarch_launch_400_when_rom_missing_from_rom_dir(tmp_path):
     rom_dir = tmp_path / "roms"
     rom_dir.mkdir()
     with patch("spinlab.routes.system._retroarch_already_running", return_value=False), \
-         _app(tmp_path, backend="retroarch", retroarch_path=fake_ra, rom_dir=rom_dir) as client:
+         _app(tmp_path, retroarch_path=fake_ra, rom_dir=rom_dir) as client:
         resp = client.post("/api/emulator/launch", json={"rom": "missing.smc"})
     assert resp.status_code == 400
     assert "ROM not found" in resp.json()["detail"]
@@ -141,7 +125,7 @@ def test_retroarch_launch_rejects_path_traversal(tmp_path):
     rom_dir = tmp_path / "roms"
     rom_dir.mkdir()
     with patch("spinlab.routes.system._retroarch_already_running", return_value=False), \
-         _app(tmp_path, backend="retroarch", retroarch_path=fake_ra, rom_dir=rom_dir) as client:
+         _app(tmp_path, retroarch_path=fake_ra, rom_dir=rom_dir) as client:
         resp = client.post("/api/emulator/launch", json={"rom": "../escape.smc"})
     assert resp.status_code == 400
     assert "outside rom_dir" in resp.json()["detail"]

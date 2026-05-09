@@ -25,12 +25,12 @@ class TestAppConfig:
             "data": {"dir": "/data"},
             "network": {"host": "0.0.0.0", "port": 9999, "dashboard_port": 8080},
             "rom": {"dir": "/roms"},
-            "emulator": {"path": "/emu", "lua_script": "script.lua"},
+            "emulator": {"retroarch_path": "/retroarch.exe", "savestate_dir": "/states"},
             "game": {"category": "100%"},
         }))
         cfg = AppConfig.from_yaml(config_file)
         assert cfg.rom_dir == Path("/roms")
-        assert cfg.emulator.path == Path("/emu")
+        assert cfg.emulator.retroarch_path == Path("/retroarch.exe")
         assert cfg.category == "100%"
 
     def test_from_yaml_defaults(self, tmp_path):

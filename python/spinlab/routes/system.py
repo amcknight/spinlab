@@ -104,13 +104,12 @@ def _retroarch_already_running(nci_port: int) -> bool:
         client.close()
 
 
-def _launch_retroarch(body: dict | None, config: AppConfig):
+def _launch_emulator(body: dict | None, config: AppConfig):
     """Launch RetroArch with the requested ROM, or no-op if RA's already running.
 
-    Mirrors the Mesen-launch UX: click a game in the dashboard → emulator pops
-    up with that ROM loaded. If RA is already running we don't launch a second
-    instance (it would fight over the NCI port); the user can switch ROMs from
-    inside RA's Quick Menu.
+    Click a game in the dashboard → emulator pops up with that ROM loaded.
+    If RA is already running we don't launch a second instance (it would fight
+    over the NCI port); the user can switch ROMs from inside RA's Quick Menu.
     """
     emu = config.emulator
     if _retroarch_already_running(config.network.nci_port):
@@ -153,44 +152,7 @@ def _launch_retroarch(body: dict | None, config: AppConfig):
 
 @router.post("/emulator/launch")
 def launch_emulator(body: dict | None = None, config: AppConfig = Depends(get_config)):
-    if config.emulator.backend == "retroarch":
-        return _launch_retroarch(body, config)
-    emu_path = config.emulator.path
-    if not emu_path or not emu_path.exists():
-        raise HTTPException(status_code=400, detail=f"Emulator not found: {emu_path}")
-
-    # ROM: from request body, or fall back to config
-    rom_dir = config.rom_dir
-    rom_name = (body or {}).get("rom", "")
-    if rom_name and rom_dir:
-        rom_path = rom_dir / rom_name
-    else:
-        rom_path = Path("")
-
-    if rom_dir:
-        resolved_rom = rom_path.resolve()
-        resolved_dir = rom_dir.resolve()
-        if not str(resolved_rom).startswith(str(resolved_dir)):
-            raise HTTPException(status_code=400, detail="ROM path outside rom_dir")
-
-    if not rom_path.is_file():
-        raise HTTPException(status_code=400, detail=f"ROM not found: {rom_path}")
-
-    lua_script = config.emulator.lua_script
-    cmd = [str(emu_path), str(rom_path)]
-    if lua_script:
-        script_path = lua_script if lua_script.is_absolute() else Path.cwd() / lua_script
-        if script_path.exists():
-            cmd.append(str(script_path))
-            # Write breadcrumb so Lua can find addresses.lua even when Mesen auto-loads
-            script_data_dir = config.emulator.script_data_dir
-            if script_data_dir:
-                lua_dir = str(script_path.resolve().parent) + "/"
-                breadcrumb = Path(script_data_dir) / "lua_dir.txt"
-                breadcrumb.parent.mkdir(parents=True, exist_ok=True)
-                breadcrumb.write_text(lua_dir, encoding="utf-8")
-    subprocess.Popen(cmd)
-    return {"status": "ok"}
+    return _launch_emulator(body, config)
 
 
 @router.post("/shutdown")

@@ -319,9 +319,12 @@ class TestErrorStates:
         assert resp.json()["detail"] == "not_in_reference"
 
     def test_launch_emulator_no_config(self, bare_client):
-        resp = bare_client.post("/api/emulator/launch")
+        from unittest.mock import patch
+        # Patch out RA-running check so we hit the missing-retroarch_path 400.
+        with patch("spinlab.routes.system._retroarch_already_running", return_value=False):
+            resp = bare_client.post("/api/emulator/launch", json={"rom": "x.smc"})
         assert resp.status_code == 400
-        assert "Emulator not found" in resp.json()["detail"]
+        assert "retroarch_path" in resp.json()["detail"]
 
 
 # -- Game switching ----------------------------------------------------------
@@ -372,8 +375,7 @@ def test_fresh_db_reference_start_creates_game(tmp_path):
     fresh_db = Database(tmp_path / "fresh.db")
     app = create_app(db=fresh_db, config=make_test_config())
     _sync_switch(app, "test_game", "Test Game")
-    with patch.object(type(app.state.tcp), "is_connected", new_callable=PropertyMock, return_value=True), \
-         patch.object(app.state.tcp, "send", new_callable=AsyncMock):
+    with patch.object(type(app.state.tcp), "is_connected", new_callable=PropertyMock, return_value=True):
         c = TestClient(app)
         resp = c.post("/api/reference/start")
         assert resp.status_code == 200

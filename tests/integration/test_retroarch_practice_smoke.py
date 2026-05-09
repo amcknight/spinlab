@@ -37,7 +37,6 @@ def test_orchestrator_connects_to_live_retroarch(tmp_path):
     cfg = AppConfig(
         network=NetworkConfig(),
         emulator=EmulatorConfig(
-            backend="retroarch",
             savestate_dir=tmp_path / "ra",
             spinlab_state_dir=tmp_path / "sl",
             ra_game_basename="LiveRATest",

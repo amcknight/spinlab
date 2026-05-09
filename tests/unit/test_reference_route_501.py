@@ -24,7 +24,6 @@ def test_reference_start_does_not_500_under_retroarch(tmp_path):
     cfg = AppConfig(
         network=NetworkConfig(),
         emulator=EmulatorConfig(
-            backend="retroarch",
             savestate_dir=tmp_path / "ra",
             spinlab_state_dir=tmp_path / "sl",
             ra_game_basename="Test",
@@ -48,7 +47,6 @@ def test_replay_start_returns_501_under_retroarch(tmp_path):
     cfg = AppConfig(
         network=NetworkConfig(),
         emulator=EmulatorConfig(
-            backend="retroarch",
             savestate_dir=tmp_path / "ra",
             spinlab_state_dir=tmp_path / "sl",
             ra_game_basename="Test",

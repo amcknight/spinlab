@@ -9,7 +9,6 @@ from spinlab.retroarch.orchestrator import RetroArchOrchestrator, build_orchestr
 
 def _config(tmp_path, **emu_overrides) -> AppConfig:
     base = dict(
-        backend="retroarch",
         savestate_dir=tmp_path / "ra",
         spinlab_state_dir=tmp_path / "sl",
         ra_game_basename="Test Game",
@@ -27,17 +26,6 @@ def test_build_orchestrator_returns_orchestrator(tmp_path):
     cfg = _config(tmp_path)
     orch = build_orchestrator(cfg)
     assert isinstance(orch, RetroArchOrchestrator)
-
-
-def test_build_orchestrator_rejects_mesen_backend(tmp_path):
-    cfg = AppConfig(
-        network=NetworkConfig(),
-        emulator=EmulatorConfig(backend="mesen-lua"),
-        data_dir=tmp_path,
-        rom_dir=None,
-    )
-    with pytest.raises(ValueError, match="retroarch"):
-        build_orchestrator(cfg)
 
 
 def test_build_orchestrator_rejects_missing_savestate_dir(tmp_path):

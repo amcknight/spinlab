@@ -13,7 +13,10 @@ def test_invalidate_returns_ok_when_no_attempt(tmp_path):
     db = Database(":memory:")
     cfg = AppConfig(
         network=NetworkConfig(),
-        emulator=EmulatorConfig(backend="mesen-lua"),
+        emulator=EmulatorConfig(
+            savestate_dir=tmp_path / "ra",
+            spinlab_state_dir=tmp_path / "sl",
+        ),
         data_dir=tmp_path,
         rom_dir=None,
     )

@@ -556,10 +556,6 @@ def build_orchestrator(config) -> "RetroArchOrchestrator":
     create cycles via dashboard.py → orchestrator.py → config.py → ...).
     """
     emu = config.emulator
-    if emu.backend != "retroarch":
-        raise ValueError(
-            f"build_orchestrator requires backend='retroarch', got {emu.backend!r}"
-        )
     # ra_game_basename is intentionally NOT in the required list: the
     # orchestrator overrides it from RA's GET_STATUS at connect() time.
     # Listing it as required led users to set a stale/wrong value that

@@ -1,7 +1,6 @@
 """Tests for RetroArch backend config additions."""
 from pathlib import Path
 
-import pytest
 import yaml
 
 from spinlab.config import AppConfig
@@ -25,25 +24,6 @@ def _minimal_config(extras: dict | None = None) -> dict:
             else:
                 base[k] = v
     return base
-
-
-def test_default_backend_is_mesen_lua(tmp_path):
-    """Empty emulator block → backend defaults to mesen-lua."""
-    cfg_path = _write_config(tmp_path, _minimal_config())
-    cfg = AppConfig.from_yaml(cfg_path)
-    assert cfg.emulator.backend == "mesen-lua"
-
-
-def test_backend_retroarch_explicit(tmp_path):
-    cfg_path = _write_config(tmp_path, _minimal_config({"emulator": {"backend": "retroarch"}}))
-    cfg = AppConfig.from_yaml(cfg_path)
-    assert cfg.emulator.backend == "retroarch"
-
-
-def test_unknown_backend_raises_value_error(tmp_path):
-    cfg_path = _write_config(tmp_path, _minimal_config({"emulator": {"backend": "snes9x"}}))
-    with pytest.raises(ValueError, match="backend"):
-        AppConfig.from_yaml(cfg_path)
 
 
 def test_retroarch_paths_parse(tmp_path):

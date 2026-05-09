@@ -12,9 +12,15 @@ from spinlab.models import Segment, Waypoint, WaypointSaveState
 
 def make_test_config(**overrides) -> AppConfig:
     """Build an AppConfig for tests. Override any field via kwargs."""
+    # savestate_dir and spinlab_state_dir are required by build_orchestrator.
+    # Tests that never actually connect to RA can use dummy paths.
+    default_emu = EmulatorConfig(
+        savestate_dir=Path("/tmp/test-ra-states"),
+        spinlab_state_dir=Path("/tmp/test-spinlab-states"),
+    )
     return AppConfig(
         network=NetworkConfig(port=overrides.get("port", 59999)),
-        emulator=overrides.get("emulator", EmulatorConfig()),
+        emulator=overrides.get("emulator", default_emu),
         data_dir=overrides.get("data_dir", Path("data")),
         rom_dir=overrides.get("rom_dir"),
         category=overrides.get("category", "any%"),

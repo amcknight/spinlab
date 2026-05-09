@@ -15,8 +15,6 @@ from .db import Database
 from .emu_backend import EmuBackend
 from .errors import ActionError
 from .session_manager import SessionManager
-from .tcp_manager import TcpManager
-
 logger = logging.getLogger(__name__)
 
 TCP_CONNECT_TIMEOUT_S = 2
@@ -56,11 +54,8 @@ def create_app(
             rom_dir=None,
         )
 
-    if config.emulator.backend == "retroarch":
-        from spinlab.retroarch.orchestrator import build_orchestrator
-        tcp: EmuBackend = build_orchestrator(config)
-    else:
-        tcp = TcpManager(config.network.host, config.network.port)
+    from spinlab.retroarch.orchestrator import build_orchestrator
+    tcp: EmuBackend = build_orchestrator(config)
     session = SessionManager(
         db, tcp, config.rom_dir, config.category,
         data_dir=config.data_dir,

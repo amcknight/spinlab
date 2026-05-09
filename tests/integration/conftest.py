@@ -161,7 +161,10 @@ async def fake_dashboard_server():
 
     config = AppConfig(
         network=NetworkConfig(host="127.0.0.1", port=fake_tcp_port, dashboard_port=dashboard_port),
-        emulator=EmulatorConfig(),
+        emulator=EmulatorConfig(
+            savestate_dir=tmp_path / "ra",
+            spinlab_state_dir=tmp_path / "sl",
+        ),
         data_dir=tmp_path,
         rom_dir=None,
         practice=PracticeConfig(),
@@ -388,7 +391,6 @@ def replay_ra_dashboard(ra_harness_love_yourself):
             nci_port=config_raw.get("network", {}).get("nci_port", 55355),
         ),
         emulator=EmulatorConfig(
-            backend="retroarch",
             savestate_dir=savestate_dir,
             spinlab_state_dir=spinlab_state_dir,
             ra_core_subdir=ra_core_subdir,
