@@ -154,24 +154,53 @@ class MoviePlayer:
 
     Stateless across plays — each call to play() copies the source into
     movie_dir under a deterministic name and tells RA to start playback.
+
+    The staged filename matters: RA's PLAY_REPLAY loads
+    `<game_basename>.replay<replay_slot>` (per RA's config), NOT an
+    arbitrary filename. If `staged_basename` is provided, the source is
+    copied to that name; otherwise it falls back to a generic name
+    that's only useful for unit tests with a fake NCI client.
     """
 
     client: _NCIPlayer
     movie_dir: Path
     _staged_path: Path | None = field(default=None, init=False, repr=False)
     _is_playing: bool = field(default=False, init=False, repr=False)
-    _staged_name: str = field(default="spinlab_movie.replay", init=False, repr=False)
+    _fallback_staged_name: str = field(default="spinlab_movie.replay", init=False, repr=False)
 
     def is_playing(self) -> bool:
         return self._is_playing
 
-    def play(self, src: Path) -> None:
+    def play(
+        self,
+        src: Path,
+        *,
+        staged_basename: str | None = None,
+        staged_slot: int = 0,
+    ) -> None:
+        """Stage `src` and trigger PLAY_REPLAY.
+
+        Args:
+            src: source .replay file (will be copied, not moved).
+            staged_basename: ROM basename RA expects for replay lookup
+                (e.g. "Toothpaste"). If provided, source is staged as
+                `<staged_basename>.replay<staged_slot>` matching RA's
+                naming convention. If None (e.g. unit tests against a
+                fake NCI client where RA's lookup doesn't matter), use
+                a generic name.
+            staged_slot: slot number to match RA's `replay_slot` cfg
+                (defaults to 0, matching the typical default).
+        """
         if self._is_playing:
             raise RuntimeError("already playing")
         if not src.exists():
             raise FileNotFoundError(f"Movie source not found: {src}")
         self.movie_dir.mkdir(parents=True, exist_ok=True)
-        staged = self.movie_dir / self._staged_name
+        if staged_basename is not None:
+            staged_name = f"{staged_basename}.replay{staged_slot}"
+        else:
+            staged_name = self._fallback_staged_name
+        staged = self.movie_dir / staged_name
         shutil.copy2(str(src), str(staged))
         self._staged_path = staged
         self.client.play_replay()

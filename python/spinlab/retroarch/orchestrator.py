@@ -26,6 +26,7 @@ from spinlab.protocol import (
     ReferenceStartCmd,
     ReferenceStopCmd,
     ReplayCmd,
+    ReplayErrorEvent,
     ReplayFinishedEvent,
     ReplayStartedEvent,
     ReplayStopCmd,
@@ -352,9 +353,17 @@ class RetroArchOrchestrator:
         resolved from the ref_id (the route layer is shared with the Mesen
         backend); we translate the suffix to .replay to find the RA-side fixture.
 
-        Emits ReplayStartedEvent synthetically — the session manager's
-        _handle_replay_started drives dashboard mode transitions, and the
-        poller doesn't observe replay lifecycle (only memory state). frame_count
+        Stages the source as `<game_basename>.replay0` so RA's PLAY_REPLAY
+        finds it (RA looks for `<game>.replay<replay_slot>` where slot
+        defaults to 0; our replay_max_keep=99 cfg keeps it from clobbering
+        user data).
+
+        Verifies playback actually started by sampling memory before/after
+        a brief sleep — if RA refused the file (e.g. ROM-checksum mismatch),
+        the popup error is invisible to NCI but memory will not advance.
+        On verification failure: emits ReplayErrorEvent + halts.
+
+        Emits ReplayStartedEvent synthetically on success. frame_count
         comes from a sibling .json metadata file when present, else 0.
         """
         if self._movie_player is None:
@@ -362,7 +371,29 @@ class RetroArchOrchestrator:
             logger.warning("RetroArchOrchestrator: ReplayCmd rejected — no MoviePlayer configured")
             raise BackendNotImplementedError()
         movie_path = Path(cmd.path).with_suffix(".replay")
-        await asyncio.to_thread(self._movie_player.play, movie_path)
+        # game_basename is auto-set on connect() from RA's GET_STATUS reply;
+        # if for some reason it's missing, we fall back to the generic stage
+        # name (RA will likely fail-to-load and the verification below catches it).
+        basename = getattr(self._state_io, "game_basename", None) or None
+        await asyncio.to_thread(
+            self._movie_player.play, movie_path,
+            staged_basename=basename, staged_slot=0,
+        )
+
+        # Verify RA actually started playing the movie. RA's "Failed to load
+        # movie file" popup is in-app only — invisible over NCI. If the file
+        # didn't load, the core stays where it was and memory won't advance.
+        # Sample any WRAM byte before/after a small sleep to confirm progress.
+        if not await self._verify_playback_advanced():
+            await asyncio.to_thread(self._movie_player.stop)
+            msg = (
+                f"RA refused to load movie file {movie_path.name} (likely "
+                "ROM-checksum mismatch or unreadable file). Check RA's log "
+                "(retroarch.cfg log_to_file=\"true\") for the underlying error."
+            )
+            logger.error("Movie replay verification failed: %s", msg)
+            self.on_poller_event(ReplayErrorEvent(message=msg))
+            return
 
         # Resolve frame count from sibling metadata if present.
         frame_count = 0
@@ -376,6 +407,20 @@ class RetroArchOrchestrator:
 
         self.on_poller_event(ReplayStartedEvent(path=str(movie_path), frame_count=frame_count))
         logger.info("Movie replay started: %s (frames=%d)", movie_path, frame_count)
+
+    async def _verify_playback_advanced(self) -> bool:
+        """Returns True if WRAM advances over a brief sample window — i.e.
+        RA is actively running frames. Used after PLAY_REPLAY to detect
+        silent load failures.
+        """
+        try:
+            before = await asyncio.to_thread(self._client.read_ram, 0x0000, 16)
+            await asyncio.sleep(0.15)  # >= 9 frames at 60Hz; reliably caught
+            after = await asyncio.to_thread(self._client.read_ram, 0x0000, 16)
+        except Exception as exc:
+            logger.warning("Movie replay verification: read_ram failed: %s", exc)
+            return False
+        return before != after
 
     async def _on_replay_stop(self, cmd: ReplayStopCmd) -> None:
         """Stop movie playback and emit ReplayFinishedEvent. Idempotent."""

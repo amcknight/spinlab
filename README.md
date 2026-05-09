@@ -49,6 +49,18 @@ $udp.Close()
 
 Should print RA's version string. If it times out, NCI isn't reachable — re-check the cfg edits and that RA was restarted, not just reloaded.
 
+### Following RetroArch's log
+
+RA's in-app popups (e.g. "Failed to load movie file" when `PLAY_REPLAY` rejects a `.replay`) are invisible if the dashboard launched RA into the background, or with the null video driver in tests. To get them in a tailable file, add to `retroarch.cfg`:
+
+```
+log_to_file = "true"
+log_to_file_timestamp = "true"
+log_verbosity = "true"
+```
+
+Logs land in `<RetroArch dir>/logs/retroarch__YYYY_MM_DD__HH_MM_SS.log`. Restart RA to apply. The most recent file in that dir corresponds to the current RA session; tail it from another terminal during a SpinLab session.
+
 A standalone validation spike lives at [`scripts/spike_retroarch.py`](scripts/spike_retroarch.py) — runs five tests (NCI handshake, memory read, sustained 60Hz polling, runahead coexistence, savestate round-trip) and reports pass/fail per step. Used to prove the migration is feasible; kept as a regression check.
 
 ## Setup

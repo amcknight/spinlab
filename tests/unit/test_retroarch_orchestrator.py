@@ -17,12 +17,27 @@ from spinlab.retroarch.orchestrator import RetroArchOrchestrator
 
 
 class FakeNCI:
+    def __init__(self, advancing: bool = True) -> None:
+        # Two consecutive read_ram calls return different bytes when
+        # advancing=True (simulates RA running frames), same bytes when
+        # False (simulates a stalled core, e.g. failed PLAY_REPLAY).
+        self._advancing = advancing
+        self._read_count = 0
+
     def get_status(self):
         return type("S", (), {"state": "PLAYING", "system": None, "game": None, "crc32": None})()
 
+    def read_ram(self, addr: int, length: int) -> bytes:
+        self._read_count += 1
+        if self._advancing:
+            return bytes([self._read_count]) * length
+        return b"\x00" * length
+
 
 class FakeStateIO:
-    def update_game_basename(self, name): pass
+    game_basename: str | None = "Test Game"
+
+    def update_game_basename(self, name): self.game_basename = name
     def resolve_event_path(self, ev): return None
 
 
@@ -140,11 +155,16 @@ async def test_on_reference_start_skips_when_recorder_is_none(
 class FakeMoviePlayer:
     def __init__(self):
         self.played: Path | None = None
+        self.played_basename: str | None = None
+        self.played_slot: int | None = None
         self.stopped: bool = False
         self._is_playing: bool = False
 
-    def play(self, src: Path) -> None:
+    def play(self, src: Path, *, staged_basename: str | None = None,
+             staged_slot: int = 0) -> None:
         self.played = src
+        self.played_basename = staged_basename
+        self.played_slot = staged_slot
         self._is_playing = True
 
     def stop(self) -> None:
@@ -155,10 +175,31 @@ class FakeMoviePlayer:
         return self._is_playing
 
 
+def _build_orch_with_nci(recorder=None, player=None, nci=None):
+    return RetroArchOrchestrator(
+        client=nci or FakeNCI(),
+        state_io=FakeStateIO(),
+        poller=FakePoller(),
+        conditions=None,
+        practice_timing=None,
+        speed_run_timing=None,
+        movie_recorder=recorder,
+        movie_player=player,
+    )
+
+
 @pytest.fixture
 def orchestrator_with_fake_player():
     p = FakeMoviePlayer()
     return _build_orch(player=p), p
+
+
+@pytest.fixture
+def orchestrator_with_stalled_nci():
+    """Orchestrator whose NCI's read_ram returns the same bytes both times —
+    simulates a failed PLAY_REPLAY where the core didn't advance frames."""
+    p = FakeMoviePlayer()
+    return _build_orch_with_nci(player=p, nci=FakeNCI(advancing=False)), p
 
 
 @pytest.fixture
@@ -173,6 +214,27 @@ async def test_on_replay_translates_spinrec_path_to_replay(orchestrator_with_fak
     orch, fake_player = orchestrator_with_fake_player
     await orch._on_replay(ReplayCmd(path="/data/game/rec/refid.spinrec", speed=0))
     assert fake_player.played == Path("/data/game/rec/refid.replay")
+    # Orchestrator must pass game_basename so MoviePlayer stages with the
+    # filename RA's PLAY_REPLAY actually looks for.
+    assert fake_player.played_basename == "Test Game"
+    assert fake_player.played_slot == 0
+
+
+@pytest.mark.asyncio
+async def test_on_replay_emits_error_event_when_playback_does_not_advance(
+    orchestrator_with_stalled_nci,
+):
+    """When PLAY_REPLAY silently fails (e.g. ROM-checksum mismatch), memory
+    doesn't advance. Orchestrator must surface this as ReplayErrorEvent
+    instead of leaving the dashboard stuck in 'replaying'."""
+    from spinlab.protocol import ReplayCmd
+    orch, fake_player = orchestrator_with_stalled_nci
+    await orch._on_replay(ReplayCmd(path="/x.spinrec", speed=0))
+    ev = await asyncio.wait_for(orch.events.get(), timeout=1.0)
+    assert ev["event"] == "replay_error"
+    assert "RA refused to load" in ev["message"]
+    # Player.stop must have been called to clean up the staged file.
+    assert fake_player.stopped
 
 
 @pytest.mark.asyncio
