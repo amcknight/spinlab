@@ -64,7 +64,8 @@ describe("Save & Finish button", () => {
     document.getElementById("btn-save-and-finish")!.click();
     await Promise.resolve();
     const call = mockFetch.mock.calls[0];
-    expect(JSON.parse(call[1].body)).toEqual({ name: "Untitled" });
+    expect(call).toBeDefined();
+    expect(JSON.parse(call![1].body)).toEqual({ name: "Untitled" });
   });
 });
 

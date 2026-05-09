@@ -93,8 +93,12 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
   });
 
   const selectedRef = refs.find((r) => r.id === sel.value);
+  // Either a Mesen-era .spinrec or an RA-era .replay enables replay — the
+  // orchestrator's _on_replay translates suffixes either way.
+  const hasReplayable =
+    !!(selectedRef?.has_spinrec || selectedRef?.has_replay);
   btnReplay.disabled =
-    busy || pausedRun != null || !selectedRef?.has_spinrec || !lastState?.tcp_connected;
+    busy || pausedRun != null || !hasReplayable || !lastState?.tcp_connected;
 
   const cfBanner = document.getElementById("cold-fill-banner") as HTMLElement | null;
   if (cfBanner) {

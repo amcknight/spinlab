@@ -84,14 +84,19 @@ def list_references(session: SessionManager = Depends(get_session), db: Database
         ref_id = d["id"]
         sessions = db.list_capture_sessions_for_run(ref_id)
         if sessions:
-            # has_spinrec = True if any session's file is present on disk
-            d["has_spinrec"] = any(
-                Path(s["spinrec_path"]).is_file() for s in sessions
-            )
+            # has_spinrec = True if any session's spinrec is on disk (Mesen path).
+            # has_replay  = True if any session's .replay sibling is on disk (RA path).
+            # Either alone is enough for the Replay button — the orchestrator's
+            # _on_replay translates the suffix to whichever the backend uses.
+            paths = [Path(s["spinrec_path"]) for s in sessions]
+            d["has_spinrec"] = any(p.is_file() for p in paths)
+            d["has_replay"] = any(p.with_suffix(".replay").is_file() for p in paths)
         else:
             # Legacy single-file layout (no capture_sessions rows)
-            legacy_path = session.data_dir / gid / "rec" / f"{ref_id}.spinrec"
-            d["has_spinrec"] = legacy_path.is_file()
+            legacy_spinrec = session.data_dir / gid / "rec" / f"{ref_id}.spinrec"
+            legacy_replay = session.data_dir / gid / "rec" / f"{ref_id}.replay"
+            d["has_spinrec"] = legacy_spinrec.is_file()
+            d["has_replay"] = legacy_replay.is_file()
         out.append(d)
     return {"references": out}
 

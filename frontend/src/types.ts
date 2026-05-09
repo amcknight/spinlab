@@ -212,6 +212,7 @@ export interface Reference {
   active: number;
   draft: number;
   has_spinrec: boolean;
+  has_replay: boolean;
 }
 
 /** One completed attempt as returned by GET /api/segments/{id}/history. */
