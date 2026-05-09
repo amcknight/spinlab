@@ -26,7 +26,6 @@ from .protocol import (
     GameContextEvent,
     LevelEntranceEvent,
     LevelExitEvent,
-    RecSavedEvent,
     ReplayErrorEvent,
     ReplayFinishedEvent,
     ReplayProgressEvent,
@@ -103,7 +102,6 @@ class SessionManager:
             SpawnEvent: self._handle_spawn,
             LevelExitEvent: self._handle_level_exit,
             AttemptResultEvent: self._handle_attempt_result,
-            RecSavedEvent: self._handle_rec_saved,
             ReplayStartedEvent: self._handle_replay_started,
             ReplayProgressEvent: self._handle_replay_progress,
             ReplayFinishedEvent: self._handle_replay_finished,
@@ -315,9 +313,6 @@ class SessionManager:
         if self.practice_session:
             self.practice_session.receive_result(event)
         await self._notify_sse()
-
-    async def _handle_rec_saved(self, event: RecSavedEvent) -> None:
-        self.capture.handle_rec_saved(event)
 
     async def _handle_replay_started(self, event: ReplayStartedEvent) -> None:
         self.replay_frame = 0

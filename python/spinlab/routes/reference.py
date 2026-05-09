@@ -24,33 +24,28 @@ async def reference_stop(session: SessionManager = Depends(get_session)):
     return (await session.stop_reference()).to_response()
 
 
-def _resolve_spinrec_path(
+def _resolve_replay_path(
     ref_id: str,
     session: "SessionManager",
     db: Database,
     session_id: str | None = None,
 ) -> str | None:
-    """Return the spinrec_path for a reference run.
-
-    Lookup strategy:
-    1. If session_id is given, use that session's spinrec_path directly.
-    2. Otherwise use the first session's spinrec_path (ordinal 1).
-    3. Fall back to the legacy ``{ref_id}.spinrec`` path for runs created before
-       multi-session support (i.e. runs with no capture_sessions rows).
-
-    Returns None if no path can be determined.
-    """
+    """Return the .replay path for a reference run. Returns None if no
+    replay file exists for the requested ref/session."""
+    gid = session.game_id or "unknown"
     sessions = db.list_capture_sessions_for_run(ref_id)
     if sessions:
-        if session_id:
+        if session_id is not None:
             target = next((s for s in sessions if s["id"] == session_id), None)
-            return target["spinrec_path"] if target else None
-        return sessions[0]["spinrec_path"]
-    # Legacy single-file layout: a run with no capture_sessions rows still has
-    # a spinrec at the path named after the run id.
-    gid = session.game_id or "unknown"
-    legacy_path = session.data_dir / gid / "rec" / f"{ref_id}.spinrec"
-    return str(legacy_path.resolve())
+            if target is None:
+                return None
+            ordinal = target["ordinal"]
+        else:
+            ordinal = sessions[0]["ordinal"]
+        path = session.data_dir / gid / "rec" / f"{ref_id}__sess{ordinal:03d}.replay"
+    else:
+        path = session.data_dir / gid / "rec" / f"{ref_id}.replay"
+    return str(path) if path.is_file() else None
 
 
 @router.post("/replay/start")
@@ -61,10 +56,10 @@ async def replay_start(req: Request, session: SessionManager = Depends(get_sessi
     speed = body.get("speed", SPEED_UNCAPPED)
     if not ref_id:
         raise HTTPException(status_code=400, detail="ref_id required")
-    spinrec_path = _resolve_spinrec_path(ref_id, session, db, session_id=session_id)
-    if not spinrec_path:
-        raise HTTPException(status_code=404, detail="spinrec_not_found")
-    return (await session.start_replay(spinrec_path, speed=speed)).to_response()
+    replay_path = _resolve_replay_path(ref_id, session, db, session_id=session_id)
+    if not replay_path:
+        raise HTTPException(status_code=404, detail="replay_not_found")
+    return (await session.start_replay(replay_path, speed=speed)).to_response()
 
 
 @router.post("/replay/stop")
@@ -84,18 +79,12 @@ def list_references(session: SessionManager = Depends(get_session), db: Database
         ref_id = d["id"]
         sessions = db.list_capture_sessions_for_run(ref_id)
         if sessions:
-            # has_spinrec = True if any session's spinrec is on disk (Mesen path).
-            # has_replay  = True if any session's .replay sibling is on disk (RA path).
-            # Either alone is enough for the Replay button — the orchestrator's
-            # _on_replay translates the suffix to whichever the backend uses.
-            paths = [Path(s["spinrec_path"]) for s in sessions]
-            d["has_spinrec"] = any(p.is_file() for p in paths)
-            d["has_replay"] = any(p.with_suffix(".replay").is_file() for p in paths)
+            d["has_replay"] = any(
+                (session.data_dir / gid / "rec" / f"{ref_id}__sess{s['ordinal']:03d}.replay").is_file()
+                for s in sessions
+            )
         else:
-            # Legacy single-file layout (no capture_sessions rows)
-            legacy_spinrec = session.data_dir / gid / "rec" / f"{ref_id}.spinrec"
             legacy_replay = session.data_dir / gid / "rec" / f"{ref_id}.replay"
-            d["has_spinrec"] = legacy_spinrec.is_file()
             d["has_replay"] = legacy_replay.is_file()
         out.append(d)
     return {"references": out}
@@ -139,11 +128,11 @@ def list_capture_sessions(
     return {"sessions": db.list_capture_sessions_for_run(run_id)}
 
 
-@router.get("/references/{ref_id}/spinrec")
-def check_spinrec(ref_id: str, session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
-    spinrec_path = _resolve_spinrec_path(ref_id, session, db)
-    if spinrec_path and Path(spinrec_path).is_file():
-        return {"exists": True, "path": spinrec_path}
+@router.get("/references/{ref_id}/replay")
+def check_replay(ref_id: str, session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
+    replay_path = _resolve_replay_path(ref_id, session, db)
+    if replay_path:
+        return {"exists": True, "path": replay_path}
     return {"exists": False}
 
 

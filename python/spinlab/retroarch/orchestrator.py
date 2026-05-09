@@ -351,7 +351,7 @@ class RetroArchOrchestrator:
         if self._movie_recorder is None:
             logger.info("Reference recording started (no movie recorder configured)")
             return
-        movie_path = Path(cmd.path).with_suffix(".replay")
+        movie_path = Path(cmd.path)  # already a .replay path post-Phase-G
         try:
             await asyncio.to_thread(self._movie_recorder.start, movie_path)
             logger.info("Movie recording started: %s", movie_path)
@@ -370,9 +370,8 @@ class RetroArchOrchestrator:
             logger.warning("Movie recording failed to stop: %s", exc)
 
     async def _on_replay(self, cmd: ReplayCmd) -> None:
-        """Start movie playback. cmd.path is the .spinrec path the dashboard
-        resolved from the ref_id (the route layer is shared with the Mesen
-        backend); we translate the suffix to .replay to find the RA-side fixture.
+        """Start movie playback. cmd.path is the .replay path the dashboard
+        resolved from the ref_id.
 
         Stages the source as `<game_basename>.replay0` so RA's PLAY_REPLAY
         finds it (RA looks for `<game>.replay<replay_slot>` where slot
@@ -391,7 +390,7 @@ class RetroArchOrchestrator:
             from spinlab.errors import BackendNotImplementedError
             logger.warning("RetroArchOrchestrator: ReplayCmd rejected — no MoviePlayer configured")
             raise BackendNotImplementedError()
-        movie_path = Path(cmd.path).with_suffix(".replay")
+        movie_path = Path(cmd.path)  # already a .replay path post-Phase-G
         # game_basename is auto-set on connect() from RA's GET_STATUS reply;
         # if for some reason it's missing, we fall back to the generic stage
         # name (RA will likely fail-to-load and the verification below catches it).

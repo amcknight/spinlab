@@ -211,7 +211,6 @@ export interface Reference {
   created_at: string;
   active: number;
   draft: number;
-  has_spinrec: boolean;
   has_replay: boolean;
 }
 

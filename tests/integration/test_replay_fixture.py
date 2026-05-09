@@ -159,14 +159,12 @@ class TestReplayFixture:
         # (e.g. "Love Yourself"), so the session_manager may fall back to a
         # filename-derived ID ("file_love_yourself") rather than the CRC-based one.
         # We use whichever game_id the dashboard actually has so our staged
-        # fixture ends up in the path _resolve_spinrec_path will search.
+        # fixture ends up in the path _resolve_replay_path will search.
         state = _api(base_url, "get", "/api/state").json()
         actual_game_id = state.get("game_id") or LOVE_YOURSELF_GAME_ID
 
         # Stage fixture under the ref_id the dashboard will look up.
-        # _resolve_spinrec_path (legacy path) builds:
-        #   <data_dir>/<game_id>/rec/<ref_id>.spinrec
-        # The orchestrator's _on_replay translates .spinrec → .replay:
+        # _resolve_replay_path (legacy path, no capture_sessions rows) builds:
         #   <data_dir>/<game_id>/rec/<ref_id>.replay
         # The sibling .json provides frame_count for the ReplayStartedEvent.
         game_rec_dir = tmp_path / actual_game_id / "rec"

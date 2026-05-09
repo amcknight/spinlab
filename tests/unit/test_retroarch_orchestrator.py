@@ -118,15 +118,15 @@ def orchestrator_without_recorder():
 @pytest.mark.asyncio
 async def test_on_reference_start_triggers_recorder(orchestrator_with_fake_recorder):
     orch, fake_rec = orchestrator_with_fake_recorder
-    spinrec = "/data/game/rec/refid.spinrec"
-    await orch._on_reference_start(ReferenceStartCmd(path=spinrec))
+    replay_path = "/data/game/rec/refid.replay"
+    await orch._on_reference_start(ReferenceStartCmd(path=replay_path))
     assert fake_rec.started_with == Path("/data/game/rec/refid.replay")
 
 
 @pytest.mark.asyncio
 async def test_on_reference_stop_triggers_recorder_stop(orchestrator_with_fake_recorder):
     orch, fake_rec = orchestrator_with_fake_recorder
-    await orch._on_reference_start(ReferenceStartCmd(path="/x/y/z.spinrec"))
+    await orch._on_reference_start(ReferenceStartCmd(path="/x/y/z.replay"))
     await orch._on_reference_stop(ReferenceStopCmd())
     assert fake_rec.stopped
 
@@ -137,7 +137,7 @@ async def test_on_reference_start_logs_warning_if_recorder_fails(
 ):
     orch, _ = orchestrator_with_failing_recorder
     # Should NOT raise — failures are non-fatal.
-    await orch._on_reference_start(ReferenceStartCmd(path="/x/y/z.spinrec"))
+    await orch._on_reference_start(ReferenceStartCmd(path="/x/y/z.replay"))
     # The exact warning text is implementation-defined; assert that a WARNING
     # log was emitted that mentions "movie recording" or similar.
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
@@ -153,7 +153,7 @@ async def test_on_reference_start_skips_when_recorder_is_none(
 ):
     # No-op path preserved for installs that don't have ra_movie_dir configured.
     orch = orchestrator_without_recorder
-    await orch._on_reference_start(ReferenceStartCmd(path="/x/y/z.spinrec"))
+    await orch._on_reference_start(ReferenceStartCmd(path="/x/y/z.replay"))
     # No exception, no behavior change from current state.
 
 
@@ -217,11 +217,11 @@ def orchestrator_without_player():
 
 
 @pytest.mark.asyncio
-async def test_on_replay_translates_spinrec_path_to_replay(orchestrator_with_fake_player):
-    """Dashboard resolves ref_id to a .spinrec path; orchestrator translates."""
+async def test_on_replay_uses_replay_path_directly(orchestrator_with_fake_player):
+    """Dashboard resolves ref_id to a .replay path; orchestrator uses it as-is."""
     from spinlab.protocol import ReplayCmd
     orch, fake_player = orchestrator_with_fake_player
-    await orch._on_replay(ReplayCmd(path="/data/game/rec/refid.spinrec", speed=0))
+    await orch._on_replay(ReplayCmd(path="/data/game/rec/refid.replay", speed=0))
     assert fake_player.played == Path("/data/game/rec/refid.replay")
     # Orchestrator must pass game_basename so MoviePlayer stages with the
     # filename RA's PLAY_REPLAY actually looks for.
@@ -256,7 +256,7 @@ async def test_on_replay_stages_at_slot_from_ra_log(tmp_path):
         movie_player=fake_player,
         ra_log_dir=log_dir,
     )
-    await orch._on_replay(ReplayCmd(path="/x.spinrec", speed=0))
+    await orch._on_replay(ReplayCmd(path="/x.replay", speed=0))
     # Should pick slot 44 — the most recent in the log file.
     assert fake_player.played_slot == 44
 
@@ -289,7 +289,7 @@ async def test_on_replay_picks_up_auto_index_from_record_start_log(tmp_path):
         movie_player=fake_player,
         ra_log_dir=log_dir,
     )
-    await orch._on_replay(ReplayCmd(path="/x.spinrec", speed=0))
+    await orch._on_replay(ReplayCmd(path="/x.replay", speed=0))
     assert fake_player.played_slot == 65
 
 
@@ -302,7 +302,7 @@ async def test_on_replay_emits_error_event_when_playback_does_not_advance(
     instead of leaving the dashboard stuck in 'replaying'."""
     from spinlab.protocol import ReplayCmd
     orch, fake_player = orchestrator_with_stalled_nci
-    await orch._on_replay(ReplayCmd(path="/x.spinrec", speed=0))
+    await orch._on_replay(ReplayCmd(path="/x.replay", speed=0))
     ev = await asyncio.wait_for(orch.events.get(), timeout=1.0)
     assert ev["event"] == "replay_error"
     assert "RA refused to load" in ev["message"]
@@ -315,7 +315,7 @@ async def test_on_replay_emits_replay_started_event(orchestrator_with_fake_playe
     """Orchestrator must emit ReplayStartedEvent for the session manager to enter replay mode."""
     from spinlab.protocol import ReplayCmd
     orch, _ = orchestrator_with_fake_player
-    await orch._on_replay(ReplayCmd(path="/x.spinrec", speed=0))
+    await orch._on_replay(ReplayCmd(path="/x.replay", speed=0))
     # Pull the emitted event off the orchestrator's event queue
     ev = await asyncio.wait_for(orch.events.get(), timeout=1.0)
     assert ev["event"] == "replay_started"
@@ -325,17 +325,16 @@ async def test_on_replay_emits_replay_started_event(orchestrator_with_fake_playe
 async def test_on_replay_reads_frame_count_from_sibling_json(
     orchestrator_with_fake_player, tmp_path,
 ):
-    """Frame count for ReplayStartedEvent comes from <bsv_path>.json sibling if present."""
+    """Frame count for ReplayStartedEvent comes from <replay_path>.json sibling if present."""
     import json
     from spinlab.protocol import ReplayCmd
-    bsv_path = tmp_path / "fixture.replay"
-    bsv_path.write_bytes(b"")
+    replay_path = tmp_path / "fixture.replay"
+    replay_path.write_bytes(b"")
     meta_path = tmp_path / "fixture.json"
     meta_path.write_text(json.dumps({"frame_count": 1234}))
-    spinrec_path = tmp_path / "fixture.spinrec"
 
     orch, _ = orchestrator_with_fake_player
-    await orch._on_replay(ReplayCmd(path=str(spinrec_path), speed=0))
+    await orch._on_replay(ReplayCmd(path=str(replay_path), speed=0))
     ev = await asyncio.wait_for(orch.events.get(), timeout=1.0)
     assert ev["frame_count"] == 1234
 
@@ -347,7 +346,7 @@ async def test_on_replay_stop_calls_player_stop_and_emits_finished(
     """Stop calls MoviePlayer.stop() and emits ReplayFinishedEvent."""
     from spinlab.protocol import ReplayCmd, ReplayStopCmd
     orch, fake_player = orchestrator_with_fake_player
-    await orch._on_replay(ReplayCmd(path="/x.spinrec", speed=0))
+    await orch._on_replay(ReplayCmd(path="/x.replay", speed=0))
     await orch.events.get()  # consume the started event
     await orch._on_replay_stop(ReplayStopCmd())
     assert fake_player.stopped
@@ -364,4 +363,4 @@ async def test_on_replay_without_player_raises_backend_not_implemented(
     from spinlab.protocol import ReplayCmd
     orch = orchestrator_without_player
     with pytest.raises(BackendNotImplementedError):
-        await orch._on_replay(ReplayCmd(path="/x.spinrec", speed=0))
+        await orch._on_replay(ReplayCmd(path="/x.replay", speed=0))

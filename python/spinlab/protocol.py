@@ -87,12 +87,6 @@ class AttemptResultEvent:
     clean_tail_ms: int | None = None
 
 @dataclass
-class RecSavedEvent:
-    event: str = "rec_saved"
-    path: str = ""
-    frame_count: int = 0
-
-@dataclass
 class ReplayStartedEvent:
     event: str = "replay_started"
     path: str = ""
@@ -235,7 +229,6 @@ _EVENT_REGISTRY: dict[str, type] = {
     "spawn": SpawnEvent,
     "level_exit": LevelExitEvent,
     "attempt_result": AttemptResultEvent,
-    "rec_saved": RecSavedEvent,
     "replay_started": ReplayStartedEvent,
     "replay_progress": ReplayProgressEvent,
     "replay_finished": ReplayFinishedEvent,

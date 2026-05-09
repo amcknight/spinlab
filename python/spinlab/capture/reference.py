@@ -46,7 +46,6 @@ from ..protocol import (
     FillGapLoadCmd,
     LevelEntranceEvent,
     LevelExitEvent,
-    RecSavedEvent,
     ReferenceStartCmd,
     ReferenceStopCmd,
     ReplayCmd,
@@ -199,12 +198,6 @@ class ReferenceController:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def _new_session_spinrec_path(
-        self, data_dir: Path, game_id: str, run_id: str, ordinal: int,
-    ) -> str:
-        path = self._game_rec_dir(data_dir, game_id) / f"{run_id}__sess{ordinal:03d}.spinrec"
-        return str(path.resolve())
-
     def _end_current_session(self, end_reason: str) -> None:
         """End the current capture session (if any). Run remains draft=1.
 
@@ -245,17 +238,16 @@ class ReferenceController:
         else:
             self._enter_idle()
 
-    def _create_new_session(self, run_id: str, data_dir: Path, game_id: str) -> tuple[str, str]:
-        """Create a new capture_session row + spinrec path. Returns (session_id, spinrec_path)."""
+    def _create_new_session(self, run_id: str, data_dir: Path, game_id: str) -> tuple[str, int]:
+        """Create a new capture_session row. Returns (session_id, ordinal)."""
         next_ord = self.db.max_session_ordinal_for_run(run_id) + 1
         sess_id = f"sess_{uuid.uuid4().hex[:8]}"
-        spinrec_path = self._new_session_spinrec_path(data_dir, game_id, run_id, next_ord)
         self.db.create_capture_session(
             session_id=sess_id, capture_run_id=run_id,
-            ordinal=next_ord, spinrec_path=spinrec_path,
+            ordinal=next_ord, spinrec_path="",  # column drops in Task 5
         )
         logger.info("session: created sess=%s run=%s ordinal=%d", sess_id, run_id, next_ord)
-        return sess_id, spinrec_path
+        return sess_id, next_ord
 
     async def start_reference(
         self, mode: Mode,
@@ -274,12 +266,13 @@ class ReferenceController:
         run_id = f"live_{uuid.uuid4().hex[:8]}"
         run_name = run_name or f"Live {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
         self.db.create_capture_run(run_id, game_id, run_name, draft=True)
-        sess_id, spinrec_path = self._create_new_session(run_id, data_dir, game_id)
+        sess_id, ordinal = self._create_new_session(run_id, data_dir, game_id)
+        replay_path = self._game_rec_dir(data_dir, game_id) / f"{run_id}__sess{ordinal:03d}.replay"
 
         self._enter_recording(run_id, sess_id)
 
         logger.info("reference: started run=%s name=%r", run_id, run_name)
-        await self.tcp.send_command(ReferenceStartCmd(path=spinrec_path))
+        await self.tcp.send_command(ReferenceStartCmd(path=str(replay_path)))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REFERENCE)
 
     async def resume_reference(
@@ -295,11 +288,12 @@ class ReferenceController:
             raise NotConnectedError()
 
         run_id = self.paused_run_id
-        sess_id, spinrec_path = self._create_new_session(run_id, data_dir, game_id)
+        sess_id, ordinal = self._create_new_session(run_id, data_dir, game_id)
+        replay_path = self._game_rec_dir(data_dir, game_id) / f"{run_id}__sess{ordinal:03d}.replay"
         self._enter_recording(run_id, sess_id)
 
         logger.info("reference: resumed run=%s sess=%s", run_id, sess_id)
-        await self.tcp.send_command(ReferenceStartCmd(path=spinrec_path))
+        await self.tcp.send_command(ReferenceStartCmd(path=str(replay_path)))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REFERENCE)
 
     async def stop_reference(self, mode: Mode) -> ActionResult:
@@ -485,10 +479,12 @@ class ReferenceController:
         ).fetchone()
         if not row or row[0] != 1:
             raise SessionDeleteAfterFinalizeError()
-        try:
-            Path(sess["spinrec_path"]).unlink(missing_ok=True)
-        except OSError as exc:
-            logger.warning("Failed to unlink spinrec %s: %s", sess["spinrec_path"], exc)
+        spinrec_path = sess.get("spinrec_path") or ""
+        if spinrec_path:  # empty string = no file recorded (post-Task-4 sessions)
+            try:
+                Path(spinrec_path).unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("Failed to unlink spinrec %s: %s", spinrec_path, exc)
         self.db.delete_capture_session(session_id)
         logger.info("session: deleted sess=%s from run=%s", session_id, run_id)
         return ActionResult(status=Status.OK)
@@ -496,7 +492,7 @@ class ReferenceController:
 
     async def start_replay(
         self, mode: Mode,
-        game_id: str, spinrec_path: str, speed: int = SPEED_UNCAPPED,
+        game_id: str, replay_path: str, speed: int = SPEED_UNCAPPED,
     ) -> ActionResult:
         if self.paused_run_id:
             raise DraftPendingError()
@@ -517,11 +513,11 @@ class ReferenceController:
         sess_id = f"sess_{uuid.uuid4().hex[:8]}"
         self.db.create_capture_session(
             session_id=sess_id, capture_run_id=run_id,
-            ordinal=1, spinrec_path=spinrec_path,
+            ordinal=1, spinrec_path="",  # column drops in Task 5
         )
         self._enter_recording(run_id, sess_id)
 
-        await self.tcp.send_command(ReplayCmd(path=spinrec_path, speed=speed))
+        await self.tcp.send_command(ReplayCmd(path=replay_path, speed=speed))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REPLAY)
 
     async def stop_replay(self, mode: Mode) -> ActionResult:
@@ -628,9 +624,6 @@ class ReferenceController:
         logger.info("capture: exit level=%s", event.level)
         self.recorder.handle_exit(event, game_id, self.db,
                                      self.condition_registry)
-
-    def handle_rec_saved(self, event: RecSavedEvent) -> None:
-        self.recorder.rec_path = event.path
 
     def handle_replay_finished(self) -> None:
         # End the session and leave the run paused — the user can finalize or discard.

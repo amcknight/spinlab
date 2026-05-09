@@ -144,10 +144,13 @@ class CaptureRunsMixin:
         self.conn.execute("DELETE FROM capture_runs WHERE id = ?", (run_id,))
         self.conn.commit()
 
-        # Remove spinrec files from disk. Collect failures and raise at the end
-        # so the caller learns about orphans instead of silently leaking files.
+        # Remove spinrec files from disk (legacy; empty string = no file to unlink).
+        # Collect failures and raise at the end so the caller learns about orphans
+        # instead of silently leaking files.
         unlink_failures: list[tuple[str, OSError]] = []
         for path_str in session_paths:
+            if not path_str:  # empty string: no file recorded (post-Task-4 sessions)
+                continue
             try:
                 Path(path_str).unlink(missing_ok=True)
             except OSError as exc:
