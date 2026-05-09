@@ -244,7 +244,7 @@ class ReferenceController:
         sess_id = f"sess_{uuid.uuid4().hex[:8]}"
         self.db.create_capture_session(
             session_id=sess_id, capture_run_id=run_id,
-            ordinal=next_ord, spinrec_path="",  # column drops in Task 5
+            ordinal=next_ord,
         )
         logger.info("session: created sess=%s run=%s ordinal=%d", sess_id, run_id, next_ord)
         return sess_id, next_ord
@@ -479,12 +479,6 @@ class ReferenceController:
         ).fetchone()
         if not row or row[0] != 1:
             raise SessionDeleteAfterFinalizeError()
-        spinrec_path = sess.get("spinrec_path") or ""
-        if spinrec_path:  # empty string = no file recorded (post-Task-4 sessions)
-            try:
-                Path(spinrec_path).unlink(missing_ok=True)
-            except OSError as exc:
-                logger.warning("Failed to unlink spinrec %s: %s", spinrec_path, exc)
         self.db.delete_capture_session(session_id)
         logger.info("session: deleted sess=%s from run=%s", session_id, run_id)
         return ActionResult(status=Status.OK)
@@ -513,7 +507,7 @@ class ReferenceController:
         sess_id = f"sess_{uuid.uuid4().hex[:8]}"
         self.db.create_capture_session(
             session_id=sess_id, capture_run_id=run_id,
-            ordinal=1, spinrec_path="",  # column drops in Task 5
+            ordinal=1,
         )
         self._enter_recording(run_id, sess_id)
 

@@ -56,6 +56,19 @@ Should print RA's version string. If it times out, NCI isn't reachable — re-ch
 
 A standalone validation spike lives at [`scripts/spike_retroarch.py`](scripts/spike_retroarch.py) — runs five tests (NCI handshake, memory read, sustained 60Hz polling, runahead coexistence, savestate round-trip) and reports pass/fail per step. Used to prove the migration is feasible; kept as a regression check.
 
+### Upgrading from pre-Phase-G
+
+Phase G dropped the Mesen backend and the `spinrec_path` column from
+the `capture_sessions` table. If you have an existing SpinLab database
+from before this change, run:
+
+```bash
+spinlab db reset --config config.yaml
+```
+
+This deletes and recreates the database with the new schema. Saved
+practice attempts will be lost; recapture as needed.
+
 ## Setup
 
 ```bash

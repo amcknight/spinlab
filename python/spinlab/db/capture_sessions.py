@@ -18,7 +18,6 @@ class CaptureSessionRow(TypedDict):
     ordinal: int
     started_at: str
     ended_at: str | None
-    spinrec_path: str
     end_reason: str | None
     segment_count: int
 
@@ -33,21 +32,21 @@ class CaptureSessionsMixin:
 
     def create_capture_session(
         self, session_id: str, capture_run_id: str,
-        ordinal: int, spinrec_path: str,
+        ordinal: int,
     ) -> None:
         now = datetime.now(UTC).isoformat()
         self.conn.execute(
             "INSERT INTO capture_sessions "
-            "(id, capture_run_id, ordinal, started_at, spinrec_path) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (session_id, capture_run_id, ordinal, now, spinrec_path),
+            "(id, capture_run_id, ordinal, started_at) "
+            "VALUES (?, ?, ?, ?)",
+            (session_id, capture_run_id, ordinal, now),
         )
         self.conn.commit()
 
     def get_capture_session(self, session_id: str) -> CaptureSessionRow | None:
         row = self.conn.execute(
             "SELECT s.id, s.capture_run_id, s.ordinal, s.started_at, s.ended_at, "
-            "s.spinrec_path, s.end_reason, "
+            "s.end_reason, "
             "(SELECT COUNT(*) FROM segments WHERE capture_session_id = s.id) "
             "  AS segment_count "
             "FROM capture_sessions s WHERE s.id = ?",
@@ -69,7 +68,7 @@ class CaptureSessionsMixin:
     def list_capture_sessions_for_run(self, capture_run_id: str) -> list[CaptureSessionRow]:
         rows = self.conn.execute(
             "SELECT s.id, s.capture_run_id, s.ordinal, s.started_at, s.ended_at, "
-            "s.spinrec_path, s.end_reason, "
+            "s.end_reason, "
             "(SELECT COUNT(*) FROM segments WHERE capture_session_id = s.id) "
             "  AS segment_count "
             "FROM capture_sessions s "

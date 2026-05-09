@@ -210,7 +210,7 @@ class TestReplayByRefId:
         db.create_capture_run("run1", "test_game", "Run 1", draft=True)
         db.create_capture_session(
             session_id="sess_a", capture_run_id="run1",
-            ordinal=1, spinrec_path="",
+            ordinal=1,
         )
 
         resp = client.post("/api/replay/start", json={"ref_id": "run1", "speed": 2})
@@ -256,7 +256,7 @@ class TestListReferencesHasReplay:
         replay_file.write_bytes(b"RPLA")
         db.create_capture_session(
             session_id="sess_001", capture_run_id="ref2",
-            ordinal=1, spinrec_path="",
+            ordinal=1,
         )
         # Promote to non-draft so list_capture_runs returns it
         db.promote_draft("ref2", "Run 2")

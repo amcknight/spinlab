@@ -111,17 +111,7 @@ class CaptureRunsMixin:
         self.conn.commit()
 
     def hard_delete_capture_run(self, run_id: str) -> None:
-        """Hard delete: remove run, segments, model_state, attempts, sessions, recorded times, and spinrec files."""
-        from pathlib import Path
-
-        # Collect spinrec paths before deleting
-        session_paths = [
-            r[0] for r in self.conn.execute(
-                "SELECT spinrec_path FROM capture_sessions WHERE capture_run_id = ?",
-                (run_id,),
-            ).fetchall()
-        ]
-
+        """Hard delete: remove run, segments, model_state, attempts, sessions, and recorded times."""
         seg_ids = [
             r[0] for r in self.conn.execute(
                 "SELECT id FROM segments WHERE reference_id = ?", (run_id,)
@@ -143,24 +133,6 @@ class CaptureRunsMixin:
         # capture_sessions and recorded_segment_times CASCADE from capture_runs
         self.conn.execute("DELETE FROM capture_runs WHERE id = ?", (run_id,))
         self.conn.commit()
-
-        # Remove spinrec files from disk (legacy; empty string = no file to unlink).
-        # Collect failures and raise at the end so the caller learns about orphans
-        # instead of silently leaking files.
-        unlink_failures: list[tuple[str, OSError]] = []
-        for path_str in session_paths:
-            if not path_str:  # empty string: no file recorded (post-Task-4 sessions)
-                continue
-            try:
-                Path(path_str).unlink(missing_ok=True)
-            except OSError as exc:
-                unlink_failures.append((path_str, exc))
-        if unlink_failures:
-            paths = ", ".join(p for p, _ in unlink_failures)
-            raise OSError(
-                f"hard_delete_capture_run({run_id}) committed DB delete but failed to "
-                f"unlink {len(unlink_failures)} spinrec file(s): {paths}"
-            ) from unlink_failures[0][1]
 
     def get_segments_by_reference(self, reference_id: str) -> list[ReferenceSegmentRow]:
         # state_path is always NULL — populate via waypoint_save_states join in caller.

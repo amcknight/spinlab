@@ -9,8 +9,8 @@ def db():
     d = Database(":memory:")
     d.upsert_game("smw", "Super Mario World", "any%")
     d.create_capture_run("run_1", "smw", "Test Run", draft=True)
-    d.create_capture_session("sess_1", "run_1", 1, "/tmp/1.spinrec")
-    d.create_capture_session("sess_2", "run_1", 2, "/tmp/2.spinrec")
+    d.create_capture_session("sess_1", "run_1", 1)
+    d.create_capture_session("sess_2", "run_1", 2)
     yield d
     d.close()
 
@@ -37,7 +37,7 @@ def test_drain_only_pulls_from_specified_run(db):
     # one-paused-run-per-game unique index. Drain filters by run_id and
     # doesn't care about draft state.
     db.create_capture_run("run_other", "smw", "Other", draft=False)
-    db.create_capture_session("sess_other", "run_other", 1, "/tmp/o.spinrec")
+    db.create_capture_session("sess_other", "run_other", 1)
     db.add_recorded_segment_time("sess_1", "seg_x", time_ms=100, deaths=0, clean_tail_ms=100)
     db.add_recorded_segment_time("sess_other", "seg_y", time_ms=200, deaths=0, clean_tail_ms=200)
     drained = db.drain_recorded_segment_times_for_run("run_1")

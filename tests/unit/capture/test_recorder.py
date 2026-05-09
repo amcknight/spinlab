@@ -11,7 +11,7 @@ def db():
     d = Database(":memory:")
     d.upsert_game("g1", "Game", "any%")
     d.create_capture_run("run1", "g1", "Test Run", draft=True)
-    d.create_capture_session("sess1", "run1", 1, "/tmp/sess1.spinrec")
+    d.create_capture_session("sess1", "run1", 1)
     yield d
     d.close()
 

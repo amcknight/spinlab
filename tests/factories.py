@@ -118,11 +118,10 @@ def make_incomplete(
     )
 
 
-def make_capture_session(db, run_id, ordinal=1, session_id=None, spinrec_path=None):
+def make_capture_session(db, run_id, ordinal=1, session_id=None):
     import uuid
     sid = session_id or f"sess_{uuid.uuid4().hex[:8]}"
-    path = spinrec_path or f"/tmp/{sid}.spinrec"
-    db.create_capture_session(sid, run_id, ordinal, path)
+    db.create_capture_session(sid, run_id, ordinal)
     return sid
 
 

@@ -7,7 +7,7 @@ def test_segment_persists_capture_session_id():
     d = Database(":memory:")
     d.upsert_game("smw", "Super Mario World", "any%")
     d.create_capture_run("run_1", "smw", "Test Run", draft=True)
-    d.create_capture_session("sess_1", "run_1", 1, "/tmp/1.spinrec")
+    d.create_capture_session("sess_1", "run_1", 1)
     wp_a = Waypoint.make("smw", 1, EndpointType.ENTRANCE, 0, {})
     wp_b = Waypoint.make("smw", 1, EndpointType.GOAL, 0, {})
     d.upsert_waypoint(wp_a)

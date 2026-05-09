@@ -267,7 +267,7 @@ def test_session_end_log_includes_ordinal_duration_segments(db, caplog):
     segment count to aid post-hoc debugging."""
     db.upsert_game("smw", "SMW", "any%")
     db.create_capture_run("run_x", "smw", "X", draft=True)
-    db.create_capture_session("sess_x", "run_x", 3, "/tmp/x.spinrec")
+    db.create_capture_session("sess_x", "run_x", 3)
     # Add one segment so segment count > 0
     db.conn.execute(
         "INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal, "
@@ -299,8 +299,8 @@ def test_session_end_log_includes_ordinal_duration_segments(db, caplog):
 def test_list_capture_sessions_includes_segment_count(db):
     db.upsert_game("smw", "SMW", "any%")
     db.create_capture_run("run_y", "smw", "Y", draft=True)
-    db.create_capture_session("s1", "run_y", 1, "/tmp/1.spinrec")
-    db.create_capture_session("s2", "run_y", 2, "/tmp/2.spinrec")
+    db.create_capture_session("s1", "run_y", 1)
+    db.create_capture_session("s2", "run_y", 2)
     # 2 segments in s1, 1 in s2
     for sid, csid in [("a", "s1"), ("b", "s1"), ("c", "s2")]:
         db.conn.execute(
@@ -320,8 +320,8 @@ def test_list_capture_sessions_includes_segment_count(db):
 def test_get_segments_by_reference_includes_session_ordinal(db):
     db.upsert_game("smw", "SMW", "any%")
     db.create_capture_run("run_z", "smw", "Z", draft=True)
-    db.create_capture_session("s1", "run_z", 1, "/tmp/1.spinrec")
-    db.create_capture_session("s2", "run_z", 2, "/tmp/2.spinrec")
+    db.create_capture_session("s1", "run_z", 1)
+    db.create_capture_session("s2", "run_z", 2)
     db.conn.execute(
         "INSERT INTO segments (id, game_id, level_number, start_type, "
         "start_ordinal, end_type, end_ordinal, capture_session_id, "
@@ -352,7 +352,7 @@ def test_finalize_rebuilds_scheduler_even_when_zero_segments(db):
 
     db.upsert_game("smw", "SMW", "any%")
     db.create_capture_run("run_e", "smw", "Empty", draft=True)
-    db.create_capture_session("s_e", "run_e", 1, "/tmp/e.spinrec")
+    db.create_capture_session("s_e", "run_e", 1)
 
     class RecordingScheduler:
         def __init__(self): self.rebuild_calls = 0
@@ -411,7 +411,7 @@ def test_delete_active_capture_session_raises_session_in_use(db):
     from spinlab.errors import SessionInUseError
     db.upsert_game("smw", "SMW", "any%")
     db.create_capture_run("run_d", "smw", "D", draft=True)
-    db.create_capture_session("active_sess", "run_d", 1, "/tmp/d.spinrec")
+    db.create_capture_session("active_sess", "run_d", 1)
 
     ctl = ReferenceController(db, FakeTcpManager(connected=False))
     ctl.recorder.capture_run_id = "run_d"

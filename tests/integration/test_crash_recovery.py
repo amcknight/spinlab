@@ -85,7 +85,7 @@ def test_paused_run_survives_replay_then_dashboard_restart(db):
     """
     # 1. Paused run A with one segment captured.
     db.create_capture_run("run_A", "smw", "A paused", draft=True)
-    db.create_capture_session("sA1", "run_A", 1, "/tmp/A1.spinrec")
+    db.create_capture_session("sA1", "run_A", 1)
     db.conn.execute(
         "INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal, "
         "end_type, end_ordinal, capture_session_id, reference_id, "
@@ -98,7 +98,7 @@ def test_paused_run_survives_replay_then_dashboard_restart(db):
     # 3. Simulate replay: an ephemeral replay_xxx capture_run draft exists with
     #    one segment.
     db.create_capture_run("replay_abc", "smw", "Replay X", draft=True)
-    db.create_capture_session("sR", "replay_abc", 1, "/tmp/R.spinrec")
+    db.create_capture_session("sR", "replay_abc", 1)
     db.conn.execute(
         "INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal, "
         "end_type, end_ordinal, capture_session_id, reference_id, "

@@ -120,7 +120,6 @@ CREATE TABLE IF NOT EXISTS capture_sessions (
   ordinal INTEGER NOT NULL,
   started_at TEXT NOT NULL,
   ended_at TEXT,
-  spinrec_path TEXT NOT NULL,
   end_reason TEXT,
   UNIQUE (capture_run_id, ordinal)
 );
