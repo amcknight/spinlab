@@ -506,14 +506,11 @@ def _collect_diagnostics(item: pytest.Item) -> str:
     parts: list[str] = []
 
     # --- Dashboard API state ---
-    for fixture_name in ("dashboard_server", "replay_ra_dashboard"):
+    for fixture_name in ("replay_ra_dashboard",):
         fixture_val = item.funcargs.get(fixture_name)
         if fixture_val is None:
             continue
-        if fixture_name == "dashboard_server":
-            base_url, db = fixture_val
-        else:
-            base_url, db, _ = fixture_val
+        base_url, db, _ = fixture_val
         try:
             state = http_requests.get(f"{base_url}/api/state", timeout=2).json()
             parts.append(f"  /api/state: {json.dumps(state, indent=2)}")
