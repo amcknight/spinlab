@@ -11,8 +11,6 @@ import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-SOCKET_CONNECT_TIMEOUT_S = 2
-
 # Where startup errors land when the regular file logger isn't configured yet
 # (e.g. config-not-found before _setup_file_logging runs). AHK launches the
 # dashboard minimized; without this, any pre-logger crash vanishes from view.
@@ -162,15 +160,11 @@ def main(args: list[str] | None = None) -> None:
         "--port", type=int, default=None, help="Dashboard port (overrides config)"
     )
 
-    p_replay = sub.add_parser("replay", help="Replay a .spinrec file to regenerate a reference run")
-    p_replay.add_argument("path", help="Path to .spinrec file")
+    p_replay = sub.add_parser("replay", help="Trigger replay of a .replay file via the dashboard")
+    p_replay.add_argument("path", help="Path to .replay file (only the stem is used as ref_id)")
     p_replay.add_argument("--speed", type=int, default=0, help="Emulation speed (0=max, 100=normal)")
     p_replay.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     p_replay.add_argument("--port", type=int, default=None, help="Dashboard port (overrides config)")
-
-    p_lua = sub.add_parser("lua-cmd", help="Send raw commands to the Lua TCP server")
-    p_lua.add_argument("commands", nargs="+", help="Commands to send (e.g. practice_stop reset)")
-    p_lua.add_argument("--config", default="config.yaml", help="Path to config.yaml")
 
     p_db = sub.add_parser("db", help="Database management commands")
     db_sub = p_db.add_subparsers(dest="db_command", required=True)
@@ -210,23 +204,6 @@ def main(args: list[str] | None = None) -> None:
             json={"ref_id": ref_id, "speed": parsed.speed},
         )
         print(resp.json())
-
-    elif parsed.command == "lua-cmd":
-        import socket
-
-        import yaml
-        config_path = Path(parsed.config)
-        with config_path.open(encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-        network = config.get("network", {})
-        tcp_host = network.get("host", "127.0.0.1")
-        tcp_port = network.get("port", 15482)
-        try:
-            with socket.create_connection((tcp_host, tcp_port), timeout=SOCKET_CONNECT_TIMEOUT_S) as s:
-                for cmd in parsed.commands:
-                    s.sendall((cmd + "\n").encode())
-        except OSError:
-            pass
 
     elif parsed.command == "db":
         if parsed.db_command == "reset":
