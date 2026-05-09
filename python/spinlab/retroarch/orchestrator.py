@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -53,15 +54,14 @@ def _rom_info_dict(status: StatusInfo) -> dict:
 
 logger = logging.getLogger(__name__)
 
-# How many REPLAY_SLOT_MINUS calls to fire when resetting RA's runtime
-# replay slot before PLAY_REPLAY. Andrew's RA was at slot 64 at startup;
-# 200 gives a healthy margin. RA clamps at 0 so overshoot is safe.
-_REPLAY_SLOT_RESET_COUNT = 200
-# Spacing between SLOT_MINUS fires. RA debounces hotkey-style commands —
-# 2026-05-08 evidence: 200 fires with no spacing only landed 1 decrement
-# in the RA log. 16ms (~1 frame at 60Hz) gives RA's input poll a tick
-# between each.
-_REPLAY_SLOT_RESET_INTERVAL_S = 0.016
+# Pattern for parsing RA's log lines that report the current replay slot.
+# RA emits both at startup ("Found last replay slot: #N") and after each
+# SLOT_PLUS/MINUS hotkey ("Replay slot: N"). The latest match in the log
+# is RA's current runtime slot — used to stage `<game>.replay<N>` at the
+# slot RA will actually look up on PLAY_REPLAY.
+_REPLAY_SLOT_LOG_PATTERN = re.compile(
+    r"\[Replay\] (?:Replay slot: |Found last replay slot: #)(\d+)",
+)
 
 # 20 Hz tick — fast enough for auto_advance_delay_ms precision without
 # burning unnecessary CPU. The poller already runs at ~60 Hz; this only
@@ -87,6 +87,7 @@ class RetroArchOrchestrator:
         speed_run_timing: SpeedRunTiming,
         movie_recorder=None,          # Optional[MovieRecorder] — None disables recording
         movie_player=None,            # Optional[MoviePlayer] — None disables replay
+        ra_log_dir: Path | None = None,  # RA's logs/ dir; used to find runtime replay slot
     ) -> None:
         self._client = client
         self._state_io = state_io
@@ -96,6 +97,7 @@ class RetroArchOrchestrator:
         self._speed_run_timing = speed_run_timing
         self._movie_recorder = movie_recorder
         self._movie_player = movie_player
+        self._ra_log_dir = ra_log_dir
 
         # TcpManager public surface
         self.events: asyncio.Queue[dict] = asyncio.Queue()
@@ -386,20 +388,23 @@ class RetroArchOrchestrator:
         # name (RA will likely fail-to-load and the verification below catches it).
         basename = getattr(self._state_io, "game_basename", None) or None
 
-        # Reset RA's runtime replay slot to 0 before staging. RA's
-        # `replay_auto_index = "true"` makes the runtime slot diverge from
-        # cfg `replay_slot` after recordings, and there is no NCI command
-        # to query/set the slot directly. Fire SLOT_MINUS with a tiny
-        # delay between each — RA debounces hotkey-style commands and
-        # ignores back-to-back fires (2026-05-08 evidence: 200 unspaced
-        # fires landed only 1 decrement). RA clamps at 0 so overshoot is
-        # safe. See docs/retroarch-migration/slot-management.md for the
-        # full story.
-        await asyncio.to_thread(self._reset_replay_slot)
+        # Find what slot RA's currently at by reading RA's log. RA's
+        # `replay_auto_index = "true"` persists the runtime slot per-game
+        # across sessions and there's no NCI command to query/set it
+        # (SLOT_MINUS works but RA debounces it to ~6Hz, making slot
+        # navigation prohibitively slow). Reading the log is the cleanest
+        # signal — RA always logs "Found last replay slot: #N" at startup
+        # and "Replay slot: N" after each SLOT change. Default to 0 if
+        # we can't read the log.
+        # See docs/retroarch-migration/slot-management.md for the full story.
+        target_slot = self._find_current_replay_slot() or 0
+        logger.info(
+            "Movie replay: staging at slot %d (per RA log)", target_slot
+        )
 
         await asyncio.to_thread(
             self._movie_player.play, movie_path,
-            staged_basename=basename, staged_slot=0,
+            staged_basename=basename, staged_slot=target_slot,
         )
 
         # Verify RA actually started playing the movie. RA's "Failed to load
@@ -430,14 +435,32 @@ class RetroArchOrchestrator:
         self.on_poller_event(ReplayStartedEvent(path=str(movie_path), frame_count=frame_count))
         logger.info("Movie replay started: %s (frames=%d)", movie_path, frame_count)
 
-    def _reset_replay_slot(self) -> None:
-        """Fire REPLAY_SLOT_MINUS many times with spacing to converge RA's
-        runtime slot to 0. Called from a worker thread; uses time.sleep.
+    def _find_current_replay_slot(self) -> int | None:
+        """Read RA's most recent log file to find the current runtime
+        replay slot. RA logs "Found last replay slot: #N" at startup and
+        "Replay slot: N" after each slot navigation. The latest match in
+        the log is RA's current slot. Returns None if log unavailable
+        (file not enabled, dir missing, no replay log lines yet).
         """
-        import time as _time
-        for _ in range(_REPLAY_SLOT_RESET_COUNT):
-            self._client.replay_slot_minus()
-            _time.sleep(_REPLAY_SLOT_RESET_INTERVAL_S)
+        if self._ra_log_dir is None or not self._ra_log_dir.exists():
+            return None
+        log_files = sorted(
+            self._ra_log_dir.glob("retroarch__*.log"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if not log_files:
+            return None
+        latest = log_files[0]
+        try:
+            text = latest.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            logger.warning("Could not read RA log %s: %s", latest, exc)
+            return None
+        matches = _REPLAY_SLOT_LOG_PATTERN.findall(text)
+        if not matches:
+            return None
+        return int(matches[-1])
 
     async def _verify_playback_advanced(self) -> bool:
         """Returns True if WRAM advances over a brief sample window — i.e.
@@ -603,6 +626,20 @@ def build_orchestrator(config) -> "RetroArchOrchestrator":
     movie_recorder = MovieRecorder(client=client, movie_dir=movie_dir) if movie_dir is not None else None
     movie_player = MoviePlayer(client=client, movie_dir=movie_dir) if movie_dir is not None else None
 
+    # RA's logs/ dir, derived from retroarch_path. Used by _on_replay to
+    # find RA's runtime replay slot (see _find_current_replay_slot).
+    ra_log_dir: Path | None = None
+    if emu.retroarch_path is not None:
+        candidate = emu.retroarch_path.parent / "logs"
+        if candidate.exists():
+            ra_log_dir = candidate
+        else:
+            logger.info(
+                "build_orchestrator: RA logs dir not found at %s — replay "
+                "slot lookup will fall back to slot 0. Enable log_to_file "
+                'in retroarch.cfg to fix.', candidate,
+            )
+
     orch = RetroArchOrchestrator(
         client=client,
         state_io=state_io,
@@ -612,6 +649,7 @@ def build_orchestrator(config) -> "RetroArchOrchestrator":
         speed_run_timing=speed_run_timing,
         movie_recorder=movie_recorder,
         movie_player=movie_player,
+        ra_log_dir=ra_log_dir,
     )
     # Wire the poller's event callback to the orchestrator now that it exists.
     deps.on_event = orch.on_poller_event

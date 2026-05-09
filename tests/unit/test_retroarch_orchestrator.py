@@ -226,7 +226,39 @@ async def test_on_replay_translates_spinrec_path_to_replay(orchestrator_with_fak
     # Orchestrator must pass game_basename so MoviePlayer stages with the
     # filename RA's PLAY_REPLAY actually looks for.
     assert fake_player.played_basename == "Test Game"
+    # Slot 0 is the fallback when no RA log is configured (the test
+    # orchestrator doesn't pass an ra_log_dir).
     assert fake_player.played_slot == 0
+
+
+@pytest.mark.asyncio
+async def test_on_replay_stages_at_slot_from_ra_log(tmp_path):
+    """If RA's log dir is configured and contains 'Replay slot: N' lines,
+    the orchestrator stages at the most recent slot found."""
+    from spinlab.protocol import ReplayCmd
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "retroarch__2026_05_08__19_08_23.log").write_text(
+        "[INFO] [Replay] Found last replay slot: #64\n"
+        "[INFO] [Replay] Replay slot: 63\n"
+        "[INFO] [Replay] Replay slot: 44\n",
+        encoding="utf-8",
+    )
+    fake_player = FakeMoviePlayer()
+    orch = RetroArchOrchestrator(
+        client=FakeNCI(),
+        state_io=FakeStateIO(),
+        poller=FakePoller(),
+        conditions=None,
+        practice_timing=None,
+        speed_run_timing=None,
+        movie_recorder=None,
+        movie_player=fake_player,
+        ra_log_dir=log_dir,
+    )
+    await orch._on_replay(ReplayCmd(path="/x.spinrec", speed=0))
+    # Should pick slot 44 — the most recent in the log file.
+    assert fake_player.played_slot == 44
 
 
 @pytest.mark.asyncio
