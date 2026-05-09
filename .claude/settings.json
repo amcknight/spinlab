@@ -94,7 +94,11 @@
       "Bash(tasklist *)",
       "Bash(where *)",
       "Bash(pip show *)",
-      "Bash(curl -s http://127.0.0.1:*)"
+      "Bash(curl -s http://127.0.0.1:*)",
+      "Bash(git restore *)",
+      "Bash(git reset *)",
+      "Bash(timeout 600 sh -c 'while ! grep -q \"passed\" \"C:\\\\Users\\\\thedo\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-thedo-git-spinlab\\\\c87a2c3b-5e36-4859-afbf-a29e756bad3b\\\\tasks\\\\b430wanrg.output\" 2>/dev/null; do sleep 5; done; cat \"C:\\\\Users\\\\thedo\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-thedo-git-spinlab\\\\c87a2c3b-5e36-4859-afbf-a29e756bad3b\\\\tasks\\\\b430wanrg.output\" | tail -5')",
+      "Bash(tee /tmp/pytest_output.txt)"
     ],
     "additionalDirectories": [
       "C:\\RetroArch-Win64"
