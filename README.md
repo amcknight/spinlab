@@ -22,6 +22,9 @@ network_cmd_port = "55355"
 cheevos_hardcore_mode_enable = "false"
 run_ahead_secondary_instance = "true"
 replay_max_keep = "99"
+log_to_file = "true"
+log_to_file_timestamp = "true"
+log_verbosity = "true"
 ```
 
 The first two enable the Network Command Interface SpinLab uses. **`cheevos_hardcore_mode_enable` is non-obvious but required:** when set to `"true"`, RetroArch silently drops NCI hotkey-style commands (SAVE_STATE, LOAD_STATE_SLOT, PAUSE_TOGGLE, MENU_TOGGLE) — even when `cheevos_enable = "false"`. The hardcore flag is checked independently. Manual gamepad save state continues to work, so this fails silently and is genuinely confusing if you don't know to look. SpinLab needs hardcore-mode off to drive its automated saves/loads.
@@ -29,6 +32,8 @@ The first two enable the Network Command Interface SpinLab uses. **`cheevos_hard
 **`run_ahead_secondary_instance = "true"`** is required if you use runahead (recommended). With single-instance runahead, RetroArch corrupts state buffers on save/load — Phase 0 spent hours debugging an "INCONCLUSIVE" `SAVE_STATE` finding that was actually this. Force secondary-instance runahead and state I/O works reliably.
 
 **`replay_max_keep = "99"`** (default `"0"`) is required for movie recording. With `0`, RetroArch silently refuses to create new `.replay` files when any already exist for the loaded game — `RECORD_REPLAY` no-ops without an error reply, and `MovieRecorder.stop` reports "no new file appeared". Set to `99` (or any large value) to allow multiple recordings per game.
+
+**`log_to_file = "true"`** (with the two companion keys) is strongly recommended, not just for debugging. Several RA failure modes are silent over NCI — RA shows an in-app popup ("Failed to load movie file", "savestate failed", etc.) but the NCI command appears to succeed. SpinLab's only window into those failures is RA's log file. With these on, logs land in `<RetroArch dir>/logs/retroarch__YYYY_MM_DD__HH_MM_SS.log`. When something seems off, `tail -f` the most recent file in that dir while exercising the dashboard.
 
 Restart RetroArch fully after editing — the cfg is read once at startup. SpinLab talks to RetroArch over UDP using the libretro Network Command Interface (NCI). The default port `55355` matches RA's default; SpinLab's `network.nci_port` config will track it.
 
@@ -48,18 +53,6 @@ $udp.Close()
 ```
 
 Should print RA's version string. If it times out, NCI isn't reachable — re-check the cfg edits and that RA was restarted, not just reloaded.
-
-### Following RetroArch's log
-
-RA's in-app popups (e.g. "Failed to load movie file" when `PLAY_REPLAY` rejects a `.replay`) are invisible if the dashboard launched RA into the background, or with the null video driver in tests. To get them in a tailable file, add to `retroarch.cfg`:
-
-```
-log_to_file = "true"
-log_to_file_timestamp = "true"
-log_verbosity = "true"
-```
-
-Logs land in `<RetroArch dir>/logs/retroarch__YYYY_MM_DD__HH_MM_SS.log`. Restart RA to apply. The most recent file in that dir corresponds to the current RA session; tail it from another terminal during a SpinLab session.
 
 A standalone validation spike lives at [`scripts/spike_retroarch.py`](scripts/spike_retroarch.py) — runs five tests (NCI handshake, memory read, sustained 60Hz polling, runahead coexistence, savestate round-trip) and reports pass/fail per step. Used to prove the migration is feasible; kept as a regression check.
 
