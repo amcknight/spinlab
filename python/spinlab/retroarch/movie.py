@@ -86,7 +86,12 @@ class MovieRecorder:
         assert dest is not None
         self.client.halt_replay()
         # Poll for a "changed" file: either new (not in baseline) or in-place
-        # rewrite (in baseline but mtime advanced).
+        # rewrite (in baseline but mtime advanced). Two-phase poll: first
+        # find the file that changed; then wait for its mtime to STABILIZE
+        # (no further writes for a full poll interval) before declaring it
+        # safe to copy. RA's halt_replay is fire-and-forget — without the
+        # stability check we caught the file mid-flush and ended up with
+        # a truncated .replay whose input track ends after a few seconds.
         changed_file: Path | None = None
         for _ in range(self._poll_attempts):
             for f in self.movie_dir.iterdir():
@@ -101,6 +106,20 @@ class MovieRecorder:
             if changed_file is not None:
                 break
             time.sleep(self._poll_interval_s)
+
+        # Wait for the file to stop changing — RA finishes flushing on its
+        # own time after halt_replay, and copying mid-write produces a
+        # truncated .replay whose input track ends prematurely.
+        if changed_file is not None:
+            last_size = changed_file.stat().st_size
+            last_mtime = changed_file.stat().st_mtime
+            for _ in range(self._poll_attempts):
+                time.sleep(self._poll_interval_s)
+                cur = changed_file.stat()
+                if cur.st_size == last_size and cur.st_mtime == last_mtime:
+                    break  # stable
+                last_size = cur.st_size
+                last_mtime = cur.st_mtime
         baseline_snapshot = self._baseline_mtimes
         self._active_dest = None
         self._baseline_mtimes = {}
