@@ -1,62 +1,98 @@
-# RetroArch Migration — Status (as of 2026-05-08)
+# RetroArch Migration — Status (Phase G shipped 2026-05-09)
 
-What works, what's broken, what's untested. The frozen historical artifacts are in `docs/superpowers/specs/2026-05-06-retroarch-migration-design.md` plus the per-phase plans in `docs/superpowers/plans/`. This doc supersedes them as the live picture.
+The migration is complete. RA is the only backend. SpinLab no longer ships or supports Mesen+Lua. This doc is now historical — post-migration follow-ups are tracked in `path-to-parity.md`.
 
-## TL;DR
+## What shipped
 
-The RetroArch backend (NCI + Python orchestrator) replaces the Lua-in-Mesen path. The full reference → cold-fill → practice loop runs end-to-end against `snes9x_libretro.dll` on Windows. **Phase E option (a) — movie record + playback validation — landed 2026-05-08.** Recording works; playback is deterministic; the integration glue between playback and segment capture (the production poller observing transitions during replay) is the one remaining gap, xfail'd on the spec's mitigation path (throttle playback speed via NCI).
+- **NCI transport** (`retroarch/nci.py`). UDP 55355 to RetroArch. `VERSION`, `GET_STATUS`, `READ_CORE_RAM`, `SAVE_STATE`, `LOAD_STATE_SLOT`, `RESET`, `RECORD_REPLAY`, `HALT_REPLAY`, `PLAY_REPLAY`. Reconnect-on-failure with log-spam suppression.
+- **Memory polling** (`retroarch/poller.py`). `Poller` reads SMW WRAM at 60 Hz, drives `TransitionDetector` and `ColdFillSpawnDetector`, emits typed events.
+- **Save/Load via filesystem shuffle** (`retroarch/state_io.py`). NCI `SAVE_STATE` → mtime-poll → move to SpinLab-keyed path. Load is reverse via reserved slot 9999. Retries to handle Windows file-lock delays.
+- **RA poke test harness** (`tests/integration/conftest.py`, `RAHarness`, `RAPokeEngine`). All 9 `.poke` transition scenarios pass through the production `TransitionDetector`. Landed 2026-05-08.
+- **Reference recording**. State captures at entrance and checkpoint events. Segment DB rows written.
+- **Cold-fill capture**. Field-confirmed on Toothpaste and Love Yourself (2026-05-08). Death detected via `player_anim` 0→9 OR `exit_mode` 0→non-zero. Spawn captured on `exit_mode==0 and anim!=9` while `_waiting_spawn=True`. Hack-independent.
+- **Practice loop**. Loads segment start state on `practice_load`. Reload-on-death on `Death` or `LevelExit(goal='abort')` while `PracticeTiming.is_armed`.
+- **Phase E option (a): movie record + isolated playback** (`retroarch/movie.py`). Landed 2026-05-08. See section below.
+- **Phase G: Mesen deletion**. Shipped 2026-05-09. `lua/`, `tcp_manager.py`, `spinrec.py`, `spinrec_path` DB column, and all dual-backend conditionals gone. README is RA-only.
 
-Mesen + Lua still works in parallel — backend selected via `config.yaml` `emulator.backend`. No code path runs both at once.
+## Phase E state — read carefully
 
-## What works
+Phase E option (a) "validate movie record/playback works in isolation" **SHIPPED 2026-05-08**. Phase E option (b) "full parity" — replay-during-reference + segment capture during replay — **DID NOT SHIP**. The nuance matters: the code paths for BSV record and play exist and work in isolation, but they cannot be combined with SpinLab's normal reference flow without corrupting the recording.
 
-- **Transition-detection tests under RA.** `tests/integration/test_transitions.py` runs through the new `RAHarness`/`RAPokeEngine` poke harness (added 2026-05-08). All 9 `.poke` scenarios exercise the production `TransitionDetector` directly. Three harness-level bugs surfaced and got fixed during integration: RA 1.22.2 rejects the `--video=null` CLI form (use `--appendconfig` with a temp cfg writing `video_driver = "null"` instead); RA launches already-paused with the null video driver, so `GET_STATUS` is the right pause-detection primitive (not `is_core_running`); `.poke` files use the symbolic key `io` (not `io_port`).
-- **NCI transport.** UDP 55355 to RetroArch. `NCIClient` (`python/spinlab/retroarch/nci.py`) — VERSION, GET_STATUS, READ_CORE_RAM, SAVE_STATE, LOAD_STATE_SLOT, RESET. Reconnect-on-failure with suppression-after-first to avoid log spam.
-- **Memory polling.** `Poller` (`python/spinlab/retroarch/poller.py`) reads SMW WRAM at 60 Hz via `read_snapshot`, drives a stateful `TransitionDetector`, and emits typed events (`Death`, `LevelExit`, `Checkpoint`, `LevelEntrance`, `Spawn`).
-- **Save/Load via filesystem shuffle.** `StateIO` (`python/spinlab/retroarch/state_io.py`) — fires NCI `SAVE_STATE`, mtime-polls for the new `<game>.state*` file RA wrote, moves it to a SpinLab-keyed path. Load is the reverse via reserved slot 9999. Retries the save (3×) and the move (5×) to ride out transient locks/no-ops.
-- **Reference recording.** State captures at level entrance and checkpoint events. Segment DB rows are written from those events. **Movie input recording** lands as a `.replay` file alongside states (Phase E option (a), 2026-05-08) when `EmulatorConfig.ra_core_subdir` is set — `MovieRecorder` toggles `RECORD_REPLAY`/`HALT_REPLAY` over NCI and shuffles the resulting `.replay<slot>` file (RA-chosen name) into `<data_dir>/<game_id>/rec/<ref_id>.replay` via mtime-aware baseline detection.
-- **Movie playback (NCI).** `MoviePlayer` toggles `PLAY_REPLAY`/`HALT_REPLAY` against a staged `.replay` file. Playback is deterministic under runahead=2 + secondary-instance=true (validated by `tests/integration/test_movie_smoke.py::test_movie_playback_deterministic`). The orchestrator's `_on_replay` translates `cmd.path` from `.spinrec` to `.replay` (the route layer is shared with the Mesen backend) and emits `ReplayStartedEvent` / `ReplayFinishedEvent` synthetically since the poller can't observe replay lifecycle from NCI alone.
-- **Cold-fill capture.** Field-confirmed end-to-end on Toothpaste and Love Yourself (2026-05-08). Loads a hot CP state, watches for death-then-respawn, captures the post-respawn frame as the cold variant. Detects death via two paths: (a) `player_anim` 0→9 (sprite hit), (b) `exit_mode` 0→non-zero with no goal flag (pit-fall / other deaths that skip anim=9). Fires the spawn capture once `_waiting_spawn=True` and `exit_mode==0 and player_anim != 9` — the "death sequence is over" signal. Earlier attempts gated on `level_start==1` ([$1935](python/spinlab/retroarch/addresses.py)) and then `game_mode==20` ([$0100](python/spinlab/retroarch/addresses.py)); both failed because Lunar Magic deprecates `$1935` and SMW uses several valid playable `game_mode` values (20 and 22 both observed live across hacks/sublevels). The current `exit_mode + anim` check is hack-independent. **`ColdFillSpawnDetector.resync_after_state_load()`** also wired into the poller alongside `TransitionDetector`'s — without it, `activate()` left `prev_exit_mode=0` and the first poll after a hot-state load whose saved `exit_mode != 0` instantly fired a phantom `died_via_exit`.
-- **Practice loop.** Loads segment start state on `practice_load`. Reload-on-death triggers when either a `Death` event OR a `LevelExit(goal='abort')` fires while `PracticeTiming.is_armed`. Replicates Lua's `pending_loads` behavior in async.
-- **Speed-run mode.** `SpeedRunTiming` (`timing.py`) ports the Lua state machine. Untested in the field under RA backend.
-- **RA auto-launch.** `routes/system._launch_retroarch` starts `retroarch.exe` with the configured ROM if NCI ping fails.
-- **Auto-recovery of basename.** Orchestrator sets `state_io.game_basename` from RA's `GET_STATUS` at connect, ignoring `config.ra_game_basename`. Eliminates the silent save-failure when configured basename != loaded ROM.
-- **Stale slot file cleanup.** Reserved slot file gets unlinked on connect and after every load.
-- **Vite descendant cleanup.** Windows Job Object with `KILL_ON_JOB_CLOSE` ensures `node.exe` children die when the dashboard exits.
+### What works (Phase E option a)
 
-## Known broken / untested
+- Movie record via NCI `RECORD_REPLAY` / `HALT_REPLAY` (`MovieRecorder` in `python/spinlab/retroarch/movie.py`). Produces `.replay` files discovered by mtime baseline diff and moved to `<data_dir>/<game_id>/rec/<ref_id>.replay`.
+- Movie playback via NCI `PLAY_REPLAY` (`MoviePlayer`). A WRAM-advance verification heuristic detects whether RA actually loaded the file; emits `ReplayErrorEvent` on failure instead of leaving the dashboard stuck.
+- Determinism smoke: `tests/integration/test_movie_smoke.py::test_movie_playback_deterministic` passes on live RA. **Caveat: this test may be a false positive** — see slot-management.md for why.
+- Three smoke tests in `tests/integration/test_movie_smoke.py` pass on live RA.
+- The dashboard's `_on_reference_start` triggers `MovieRecorder.start` alongside state captures (BUT see "what's broken" below).
 
-- **Replay playback — RA refuses staged movie file.** Phase E option (a) landed 2026-05-08; record path works. Playback path: MoviePlayer stages our `<ref_id>.replay` as `<game_basename>.replay0` matching `replay_slot = "0"` cfg, then `PLAY_REPLAY`. RA pops "Failed to load movie file" in-app (invisible over NCI) and refuses. Verification heuristic (memory-advance check) correctly detects the failure now and emits `ReplayErrorEvent` instead of leaving the dashboard stuck in 'replaying' — but actually loading the file still doesn't work. **The full set of slot-management issues is documented frankly in [`slot-management.md`](slot-management.md); the doc explicitly notes that the determinism smoke test may be a false positive and lists what proper verification would look like.** Diagnosis is gated on RA's `log_to_file` output (next test pass).
-- **Replay end-to-end (segment capture during playback).** Even when playback eventually loads, the production memory poller hits ~32Hz instead of the 60Hz target during uncapped movie playback (NCI bandwidth contention). `tests/integration/test_movie_smoke.py::test_poller_runs_during_playback` xfails on this. End-to-end `tests/integration/test_replay_fixture.py` xfails on top of that because segment capture misses transitions at that rate. Spec mitigation: throttle playback speed via NCI (`slowmotion_ratio` or equivalent). When that lands both xfails should auto-clear (strict=False).
-- **Practice reload-on-death after first death.** Reproducer (Andrew, 2026-05-07): first koopa hit reloads correctly; second identical hit does not. Diagnostic logging now lives on `PracticeSession.handle_death` (the reload-on-death logic moved out of `RetroArchOrchestrator` in the 2026-05-07 backend-layering refactor — see `docs/superpowers/plans/2026-05-07-backend-layering.md`). Next test should reveal whether `_current_state_path` is None when expected to be set, or whether the Death/LevelExit event itself stopped firing.
-- **Practice doesn't end on goal (2026-05-08).** Andrew ran `lev 1 v12` Toothpaste reference, started practice on `L39 cp1 > goal`, reached the goal — only a `CheckpointEvent` logged, no `LevelExitEvent`. Suspected: `session_manager._handle_level_exit` ([session_manager.py:302-309](python/spinlab/session_manager.py#L302-L309)) only handles `mode == PRACTICE` for the `goal == "abort"` (death) path; a normal goal exit during practice falls through to the `mode not in (REFERENCE, REPLAY)` early return and does nothing. Either the detector didn't emit the LevelExit (less likely — same code emits it cleanly during reference), or the practice handler swallows it. First debug step: enable `PracticeSession`/`PracticeTiming` event-trace logging during a goal-exit attempt.
-- **Stale segments leak into cold-fill / practice queues (2026-05-08).** Cold-fill's `segments_missing_cold(game_id)` and the practice scheduler both query segments game-wide rather than scoping to the latest reference run. Field-observed effects: cold-fill keeps prompting for L58 even after running a L44-only reference (L58 segment is from a prior run), and practice opened with `L46 start > goal` from a much earlier `lev 1 v##` run. Either filter the queue to "segments from the latest run" or surface a "skip this segment" UI; punt for now.
-- **Spurious checkpoint+entrance events on overworld (2026-05-08).** Between exiting one level and entering the next, a `CheckpointEvent` (with `cp_ordinal=2` for the level you just exited) and a `LevelEntranceEvent` for that same prior level fire while the player is on the overworld. Cause: `check_checkpoint_hit` ([predicates.py:45-72](python/spinlab/retroarch/predicates.py#L45-L72)) fires on `cp_entrance` byte changes and `midway` 0→1 edges regardless of game state — overworld memory transitions briefly look like checkpoint hits. Fix: gate checkpoint detection on "actually in a level" (some `game_mode` set, with all the hack-variance caveats we just learned).
-- **Reset button needs to be pressed twice (2026-05-08).** Likely a debounce/double-click guard introduced in the RA port. Small UI bug.
-- **"Cold state already captured during reference run" mismatch (2026-05-08).** Reference run logs `capture: spawn level=58 state_captured=True`, but cold-fill still reports L58 needs a cold state. Either the spawn-captured state isn't being persisted with `variant_type='cold'`/`is_default=True`, or `segments_missing_cold` is checking the wrong waypoint. Worth a separate investigation — the segments table + `waypoint_save_states` join is the place to start.
-- **`test_smoke.py`** stays Mesen-bound until Phase G. It exercises the full dashboard+emulator+DB smoke stack and hasn't been ported to RA yet. Skips cleanly when the Mesen fixtures aren't available. (`test_replay_fixture.py` was ported to RA + movie in Phase E option (a), 2026-05-08 — but xfails on the poller starvation issue noted above.)
-- **Multi-ROM hot-swap.** If the user changes RA's loaded ROM mid-session, basename auto-refresh works on the next save attempt but the dashboard's game context doesn't follow. Tested only one-direction: open dashboard → RA already has ROM loaded.
-- **Cheevos hardcore mode silently disables NCI savestate commands.** Set `cheevos_hardcore_mode_enable = "false"` in `retroarch.cfg`. Documented in `spike-log.md`.
-- **Runahead with `run_ahead_secondary_instance = false` corrupts saves.** This was the root cause of Phase 0's "INCONCLUSIVE" SAVE_STATE finding. Single-instance runahead overwrites the save buffer. Force `run_ahead_secondary_instance = "true"` in `retroarch.cfg`.
+### What's broken / xfailed
 
-## Untested but should work
+**1. SAVE_STATE during BSV recording corrupts the recording.**
 
-- Speed-run mode end-to-end. Unit tests pass; never exercised live.
-- `.smw`-anything-other-than-Toothpaste. Address map is SMW-specific; RA backend assumes SMW core memory layout via `addresses.py`.
-- Conditions framework (`ConditionRegistry`). Wired through Poller; not exercised in practice tests.
+This is a hard limitation in RA 1.22.2 with snes9x_libretro and bsnes_libretro. When SpinLab's reference flow fires `SAVE_STATE` on segment events while `RECORD_REPLAY` is active, RA's `bsv_movie_write_checkpoint()` returns -1 and silently terminates the recording. Result: `.replay` files written during reference runs are truncated — the input track ends at the first `SAVE_STATE`. The state files are unaffected and written correctly; only the BSV is broken.
 
-## Next test pass priorities
+Confirmed test matrix (`replay_checkpoint_interval = "0"` and `"1"` both fail; `"0"` truncates silently, `"1"` logs `[ERROR] [Replay] failed to write checkpoint, exiting record`).
 
-1. ~~Cold-fill cp-respawn — re-run under Toothpaste, confirm Spawn fires and cold CP state is captured.~~ ✅ Done 2026-05-08 (works on Toothpaste + Love Yourself).
-2. **Practice doesn't end on goal.** Wire trace logging into `PracticeSession`/`PracticeTiming` and reproduce; confirm whether `session_manager._handle_level_exit` is the gap.
-3. **Practice reload-on-death** — second-hit failure. Logs will tell us where it stopped.
-4. **Spurious overworld checkpoints / phantom entrance for prior level.** Gate `check_checkpoint_hit` on a "we're in a level" signal.
-5. **Stale-segment leak into cold-fill/practice queues.** Decide between scoping to latest run vs. surfacing a "skip" UI.
-6. **"Cold already captured during reference" mismatch.** Walk the DB rows to find the missing variant_type=cold link.
-7. Save & finish run — end-to-end with the new state-only-no-spinrec path.
-8. Delete reference run — was 500ing on cascade FK; nulling `capture_session_id` first should have fixed it. Re-verify.
+Documented exhaustively in `slot-management.md` including four workaround paths (decouple recording from saves, multi-segment recording, core swap, RA patch) — none implemented. The current de facto state: `_on_reference_start` starts `MovieRecorder`, but the resulting `.replay` files are corrupt and unused. The code path is wired but not delivering working output.
 
-## Recent debug-session notes
+**2. Poller starvation under uncapped playback.**
 
-- **2026-05-08 cold-fill debug session.** Three rounds of fixes converged the detector to its current form. Worth re-reading the conversation if anyone re-opens this code: (a) the "wrong byte" trap — `$1935`/`level_start` is Lunar-Magic-deprecated free RAM, not a reliable "in-level" signal; (b) the "wrong byte 2" trap — `game_mode` is real but uses 20 *and* 22 (and 3 in Toothpaste) for valid playable contexts, so single-value gates fail; (c) the "phantom edge on state load" trap — the same class of bug `mark_state_loaded` fixes for `TransitionDetector` exists for `ColdFillSpawnDetector` and required its own `resync_after_state_load`. Final detector is hack-independent: `exit_mode==0 and anim!=9` while `_waiting_spawn=True`.
-- **`anim` value 22 observed (2026-05-08).** `$0071` is documented to max at `0x0D`. The detector saw `anim=22` after a particular hot-state load on Love Yourself L58 — likely a stale snapshot read mid-load (the snapshot was inconsistent with the just-loaded state). Phantom-death fix sidesteps this for cold-fill, but if a future bug points at `anim` reading garbage, "is the snapshot actually consistent with the loaded state?" is the right first question.
+The production poller hits ~32 Hz instead of 60 Hz during `PLAY_REPLAY` (NCI bandwidth contention). Transitions are missed at that rate. Spec mitigation: throttle playback speed via NCI (`slowmotion_ratio` or `--speed=` flag). Not implemented.
+
+xfailed: `tests/integration/test_movie_smoke.py::test_poller_runs_during_playback`.
+
+**3. End-to-end replay → segment capture broken.**
+
+Depends on (2) above. Even when playback eventually loads, segment capture fails due to missed transitions.
+
+xfailed: `tests/integration/test_replay_fixture.py::TestReplayFixture::test_replay_produces_segments`.
+
+**4. Replay playback — RA slot resolution.**
+
+`MoviePlayer` stages our `<ref_id>.replay` as `<game_basename>.replay<N>` for the slot RA's runtime expects. The runtime slot differs from the cfg slot because `replay_auto_index = "true"` persists across sessions in an internal RA file (not `retroarch.cfg`, not the `.lrtl` tracker). The orchestrator parses RA's log file for the latest `[Replay] Replay slot: N` line and uses that as the staged slot. This is fragile and tightly coupled to RA's log format. `log_to_file = "true"` is required cfg for this to work. Without it, falls back to slot 0 which may not match.
+
+### Slot-management hackiness (worth reading before touching this code)
+
+`docs/retroarch-migration/slot-management.md` documents the full picture: RA's slot system (state slot 9999 strategy, replay slot inferred from log parsing), file-discovery via mtime baseline, WRAM-advance verification heuristic, and what "good" would look like. **The smoke test that "validates determinism" may be a false positive** — documented in slot-management.md. Don't trust it as evidence movie playback works without verifying with a content-based check (two different `.replay` files producing different WRAM bytes).
+
+## Post-migration follow-ups
+
+These are not blockers for daily use. Tracked in `path-to-parity.md`.
+
+- Practice doesn't end on goal (need trace logging to confirm — possibly `session_manager._handle_level_exit` swallows the event).
+- Practice reload-on-death fails after the first death (diagnostic logging added; next test pass needed).
+- Spurious checkpoint+entrance events on overworld between level exits and entrances.
+- Stale segments leak into cold-fill and practice queues (segments from prior runs show up).
+- "Cold already captured" mismatch — reference logs `state_captured=True` but cold-fill still prompts.
+- Reset button needs pressing twice (likely debounce guard).
+- Speed-run mode end-to-end untested on live RA.
+- Phase E option (b) full parity (replay → segment capture) — depends on BSV+SAVE_STATE fix and poller starvation fix.
+- Hot-swap ROM mid-session (basename auto-refresh works; game context in dashboard doesn't follow).
+
+## RetroArch cfg requirements (RA 1.22.2)
+
+Required in `retroarch.cfg` for SpinLab to work:
+
+```
+network_cmd_enable = "true"
+network_cmd_port = "55355"
+cheevos_hardcore_mode_enable = "false"
+run_ahead_secondary_instance = "true"
+replay_max_keep = "99"
+log_to_file = "true"
+log_to_file_timestamp = "true"
+log_verbosity = "true"
+```
+
+See README for explanations of each. `cheevos_hardcore_mode_enable` and `run_ahead_secondary_instance` are non-obvious and cause silent failures if wrong.
+
+## Historical debug-session notes
+
+**2026-05-08 cold-fill debug session.** Three rounds of fixes. Key traps: (a) `$1935`/`level_start` is Lunar-Magic-deprecated free RAM — not a reliable "in-level" signal; (b) `game_mode` uses 20, 22, and 3 for valid playable contexts across hacks, so single-value gates fail; (c) `ColdFillSpawnDetector` needs its own `resync_after_state_load` (same class of bug as `TransitionDetector`'s `mark_state_loaded` — without it, phantom deaths fire on the first poll after a hot-state load). Final detector: `exit_mode==0 and anim!=9` while `_waiting_spawn=True`.
+
+**`anim` value 22 observed (2026-05-08).** `$0071` is documented to max at `0x0D`. Seen after a hot-state load on Love Yourself L58 — likely a stale snapshot mid-load. Phantom-death fix sidesteps this for cold-fill. If a future bug points at `anim` reading garbage, ask "is the snapshot consistent with the just-loaded state?" first.
+
+**Phase 0 INCONCLUSIVE `SAVE_STATE` finding.** The Phase 0 spike couldn't get NCI `SAVE_STATE` to work. Root cause: `run_ahead_secondary_instance = "false"` (the default). Single-instance runahead corrupts the state buffer; `SAVE_STATE` produces wrong/missing output silently. Fix: force `run_ahead_secondary_instance = "true"`.
+
+**2026-05-08 RA test harness integration lessons.** Three harness-level bugs found: RA 1.22.2 rejects `--video=null` CLI form (use `--appendconfig` with a temp cfg writing `video_driver = "null"` instead); RA launches already-paused with null video driver, so `GET_STATUS` is the right pause-detection primitive (not `is_core_running`); `.poke` files use the symbolic key `io` (not `io_port`).

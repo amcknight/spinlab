@@ -2,17 +2,14 @@
 
 Spaced-repetition practice for SNES romhack speedrunning. Records save states at split points during reference runs, then serves them back in a scheduled practice loop using a Kalman filter to estimate performance and a value-of-information allocator to pick what you need most. Rate difficulty with your controller after each attempt.
 
-Input recording captures every frame's controller state during reference runs into `.spinrec` binary files. Replay mode feeds those inputs back at any emulation speed to regenerate reference data without human input.
-
-> **Migration in progress.** SpinLab is being ported from Mesen + Lua to RetroArch + snes9x_libretro on the `worktree/retroarch-port` branch. Most content below describes the current Mesen-based system; the RetroArch setup notes are at the end of this section. See [`docs/superpowers/specs/2026-05-06-retroarch-migration-design.md`](docs/superpowers/specs/2026-05-06-retroarch-migration-design.md) for context.
+SpinLab records `.replay` (BSV format) files alongside save states during reference runs. Replay mode feeds those inputs back to regenerate reference data. See [Phase E state](#phase-e-state--movie-replay) below for the current limits of this path.
 
 ## Requirements
 
-- [Mesen2](https://www.mesen.ca/) (has LuaSocket built in) — current
-- [RetroArch](https://retroarch.com) + snes9x_libretro core (installed via RA's Online Updater) — post-migration
+- [RetroArch](https://retroarch.com) + snes9x_libretro core (installed via RA's Online Updater)
 - Python 3.11+
 
-## RetroArch Setup (post-migration)
+## RetroArch Setup
 
 In `retroarch.cfg` (typically `<RetroArch dir>/retroarch.cfg`):
 
@@ -29,7 +26,7 @@ log_verbosity = "true"
 
 The first two enable the Network Command Interface SpinLab uses. **`cheevos_hardcore_mode_enable` is non-obvious but required:** when set to `"true"`, RetroArch silently drops NCI hotkey-style commands (SAVE_STATE, LOAD_STATE_SLOT, PAUSE_TOGGLE, MENU_TOGGLE) — even when `cheevos_enable = "false"`. The hardcore flag is checked independently. Manual gamepad save state continues to work, so this fails silently and is genuinely confusing if you don't know to look. SpinLab needs hardcore-mode off to drive its automated saves/loads.
 
-**`run_ahead_secondary_instance = "true"`** is required if you use runahead (recommended). With single-instance runahead, RetroArch corrupts state buffers on save/load — Phase 0 spent hours debugging an "INCONCLUSIVE" `SAVE_STATE` finding that was actually this. Force secondary-instance runahead and state I/O works reliably.
+**`run_ahead_secondary_instance = "true"`** is required if you use runahead (recommended). With single-instance runahead, RetroArch corrupts state buffers on save/load. Force secondary-instance runahead and state I/O works reliably.
 
 **`replay_max_keep = "99"`** (default `"0"`) is required for movie recording. With `0`, RetroArch silently refuses to create new `.replay` files when any already exist for the loaded game — `RECORD_REPLAY` no-ops without an error reply, and `MovieRecorder.stop` reports "no new file appeared". Set to `99` (or any large value) to allow multiple recordings per game.
 
@@ -54,39 +51,47 @@ $udp.Close()
 
 Should print RA's version string. If it times out, NCI isn't reachable — re-check the cfg edits and that RA was restarted, not just reloaded.
 
-A standalone validation spike lives at [`scripts/spike_retroarch.py`](scripts/spike_retroarch.py) — runs five tests (NCI handshake, memory read, sustained 60Hz polling, runahead coexistence, savestate round-trip) and reports pass/fail per step. Used to prove the migration is feasible; kept as a regression check.
+A standalone validation spike lives at [`scripts/spike_retroarch.py`](scripts/spike_retroarch.py) — runs five tests (NCI handshake, memory read, sustained 60Hz polling, runahead coexistence, savestate round-trip) and reports pass/fail per step.
 
 ### Upgrading from pre-Phase-G
 
-Phase G dropped the Mesen backend and the `spinrec_path` column from
-the `capture_sessions` table. If you have an existing SpinLab database
-from before this change, run:
+Phase G dropped the Mesen backend and the `spinrec_path` column from the `capture_sessions` table. If you have an existing SpinLab database from before this change, run:
 
 ```bash
 spinlab db reset --config config.yaml
 ```
 
-This deletes and recreates the database with the new schema. Saved
-practice attempts will be lost; recapture as needed.
+This deletes and recreates the database with the new schema. Saved practice attempts will be lost; recapture as needed.
 
 ## Setup
 
 ```bash
 pip install -e ./python          # installs spinlab CLI + dependencies
 cp config.example.yaml config.yaml
-# Edit config.yaml: set emulator.path, rom.path, script_data_dir
+# Edit config.yaml — see Config Reference below
 ```
+
+Key fields to set in `config.yaml`:
+
+```yaml
+emulator:
+  retroarch_path: "C:/RetroArch-Win64/retroarch.exe"
+  savestate_dir: "C:/RetroArch-Win64/saves/states"
+  spinlab_state_dir: "data/spinlab_states"
+  ra_core_subdir: "snes9x"        # subdir RA uses under savestate_dir for movie files
+  ra_game_basename: "My Hack"     # ROM filename without extension (optional — auto-detected)
+
+rom:
+  dir: "C:/path/to/your/romhacks"
+```
+
+See [config.example.yaml](config.example.yaml) for the full template with all options.
 
 ## Quick Start
 
-### 1. Launch Mesen with SpinLab
+### 1. Open RetroArch and load your ROM
 
-```bash
-./scripts/launch.sh                  # load ROM from Mesen UI
-./scripts/launch.sh path/to/rom.sfc  # or pass ROM directly
-```
-
-On Windows: run `scripts\launch.bat` instead.
+Launch RetroArch normally (with the cfg edits above applied). Load your SNES ROM/hack. SpinLab will connect to the already-running RA instance when the dashboard starts, or can launch RA for you via the "Launch Emulator" button in the dashboard.
 
 ### 2. Start the dashboard
 
@@ -94,17 +99,21 @@ On Windows: run `scripts\launch.bat` instead.
 spinlab dashboard
 ```
 
-Open `http://localhost:5173`. The dashboard spawns a Vite dev server (frontend) and a FastAPI backend (default port 15483); the frontend proxies `/api` calls to the backend, and the backend connects to Mesen's Lua TCP server (default port 15482).
+Open `http://localhost:5173`. The dashboard spawns a Vite dev server (frontend) and a FastAPI backend (default port 15483); the frontend proxies `/api` calls to the backend. The backend connects to RetroArch over NCI (UDP port 55355) and polls SNES WRAM at 60 Hz to detect transitions.
 
 ### 3. Record a reference run
 
-Click **Start Reference**, play through the run, and click **Stop Reference** when done. The Lua script records every transition, saves `.mss` state files at level entrances/checkpoints/cold spawns, and captures controller inputs into a `.spinrec` file.
+Click **Start Reference**, play through the run, and click **Stop Reference** when done. SpinLab saves `.mss` state files at level entrances, checkpoints, and cold spawns. A `.replay` file (BSV input recording) is also written alongside the states. See [Phase E state](#phase-e-state--movie-replay) for the current limits of BSV recording.
 
 A reference run can span multiple sessions: stopping leaves the run paused; **Resume** opens a new capture session under the same run, then **Save & Finish** finalizes it as your active reference. Use this when a long run gets played across multiple sittings.
 
 ### 4. Practice
 
 The dashboard's **Practice** tab loads save states for segments from your active reference and tracks each attempt. Each completion updates the per-segment estimator (mean, uncertainty, drift). The greedy allocator picks whichever segment has the highest expected improvement — where another attempt is likely to teach the most.
+
+### Phase E state — movie replay
+
+SpinLab writes `.replay` (BSV) files during reference runs (Phase E option a, shipped 2026-05-08). Isolated movie record and playback work. However, **SAVE_STATE during BSV recording corrupts the recording** — a hard limitation in RA 1.22.2 with snes9x_libretro and bsnes_libretro. When SpinLab's reference flow fires SAVE_STATE on segment events while recording is active, the recording is silently truncated at the first save. `.replay` files produced during reference runs are therefore partial and not usable for replay-driven segment capture. The known workaround paths (decouple recording from saves, multi-segment recording, core swap, RA patch) are documented in [`docs/retroarch-migration/slot-management.md`](docs/retroarch-migration/slot-management.md). Full replay-driven segment capture (Phase E option b) is not yet implemented.
 
 ## Dashboard
 
@@ -121,8 +130,6 @@ The web dashboard is the primary interface. Tabs:
 | Command | Description |
 |---------|-------------|
 | `spinlab dashboard` | Start the web dashboard (primary interface) |
-| `spinlab replay <path>` | Replay a `.spinrec` file to regenerate a reference run |
-| `spinlab lua-cmd <cmds>` | Send raw commands to the Lua TCP server |
 | `spinlab db reset` | Delete and recreate the SQLite database |
 | `spinlab stats` | Stub — prints a placeholder message |
 
@@ -132,12 +139,16 @@ See [config.example.yaml](config.example.yaml) for the full template.
 
 | Key | Description |
 |-----|-------------|
-| `emulator.path` | Absolute path to `Mesen.exe` |
-| `emulator.lua_script` | Path to `lua/spinlab.lua` (relative to project root) |
-| `emulator.script_data_dir` | Where Lua writes state files and logs |
+| `emulator.retroarch_path` | Absolute path to `retroarch.exe` |
+| `emulator.savestate_dir` | Where RA writes save state files (e.g. `<RA dir>/saves/states`) |
+| `emulator.spinlab_state_dir` | Where SpinLab stores its keyed state files (relative or absolute) |
+| `emulator.ra_core_subdir` | Core name subdir RA uses under `savestate_dir` for movie files (e.g. `snes9x`) |
+| `emulator.ra_game_basename` | ROM filename without extension — auto-detected from RA if omitted |
+| `emulator.ra_movie_dir` | Override movie file directory if RA puts movies elsewhere |
+| `emulator.ra_core_path` | Path to the libretro core `.dll` (used when launching RA from dashboard) |
 | `rom.dir` | Directory containing ROM files (`.sfc`/`.smc`) |
 | `game.category` | Default category for auto-discovered games (e.g. `any%`) |
-| `network.port` | TCP port for Lua ↔ Python IPC (default `15482`, must match `TCP_PORT` in Lua) |
+| `network.nci_port` | RetroArch NCI UDP port (default `55355`, must match `network_cmd_port` in RA cfg) |
 | `network.dashboard_port` | Dashboard HTTP port (default `15483`) |
 | `network.host` | Bind host (default `127.0.0.1`) |
 | `scheduler.estimator` | Active estimator: `kalman`, `rolling_mean`, or `exp_decay` |
@@ -147,36 +158,29 @@ See [config.example.yaml](config.example.yaml) for the full template.
 ## How It Works
 
 ```
-Vite (5173)  ──proxies /api──▶  FastAPI (15483)  ◀──TCP──▶  Mesen2 + Lua (15482)
-                                ┌──────────────────────┐    ┌────────────────────┐
-                                │  session manager     │    │  spinlab.lua       │
-                                │  reference + replay  │    │  - transition log  │
-                                │  practice loop       │    │  - .spinrec I/O    │
-                                │  scheduler (Kalman / │    │  - state load/save │
-                                │   rolling / decay)   │    │  - practice overlay│
-                                │  SQLite DB           │    │  - input replay    │
-                                └──────────────────────┘    └────────────────────┘
+Vite (5173)  ──proxies /api──▶  FastAPI (15483)  ◀──NCI/UDP──▶  RetroArch (55355)
+                                ┌──────────────────────┐
+                                │  session manager     │
+                                │  reference + replay  │
+                                │  practice loop       │
+                                │  scheduler (Kalman / │
+                                │   rolling / decay)   │
+                                │  SQLite DB           │
+                                └──────────────────────┘
 ```
 
-The Lua script runs inside Mesen2 and switches between five modes (idle, reference, replay, practice, fill-gap) on dashboard commands:
-- **Idle** (default): watches SNES memory addresses each frame and emits transition events.
-- **Reference**: idle + records controller inputs into a `.spinrec` and saves states at level entrances, checkpoints, and cold spawns.
-- **Replay**: loads a `.spinrec` plus its frame-0 `.mss`, injects recorded inputs via `emu.setInput()`, and lets the existing detection pipeline produce segment events tagged `source: "replay"`.
-- **Practice**: loads save states on command, detects completion/death, draws the overlay, reads the controller for ratings, auto-advances after a configurable delay.
-- **Fill-gap / Cold-fill**: loads a "hot" state so the player can die and capture the missing "cold" variant.
+SpinLab owns all transition detection in Python. A `Poller` reads SMW WRAM at 60 Hz via NCI `READ_CORE_RAM`, drives a `TransitionDetector`, and emits typed events (`LevelEntrance`, `Checkpoint`, `Death`, `Spawn`, `LevelExit`). The dashboard backend orchestrates reference capture, cold-fill, and practice via these events. State I/O uses NCI `SAVE_STATE` / `LOAD_STATE_SLOT` with a filesystem shuffle to associate slot files with logical segment IDs.
 
-For the full architecture — components, multi-session reference state machine, IPC contract, database schema — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+For the full architecture — components, multi-session reference state machine, database schema — see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Project Layout
 
 ```
-lua/spinlab.lua              # Mesen2 Lua script (idle + practice + replay + speed-run)
-lua/poke_engine.lua          # Memory-poke engine for integration tests
 python/spinlab/              # CLI, dashboard, scheduler, DB
-  cli.py                     # Entry point (dashboard, replay, lua-cmd, db)
+  cli.py                     # Entry point (dashboard, db)
   dashboard.py               # FastAPI app, route registration
   session_manager.py         # Mode coordinator, event routing, SSE
-  capture/                   # Reference/replay/cold-fill orchestration
+  capture/                   # Reference/cold-fill orchestration
     reference.py             #   ReferenceController (multi-session lifecycle)
     recorder.py              #   SegmentRecorder (event pairing → DB)
     cold_fill.py             #   ColdFillController (batch cold-variant capture)
@@ -186,20 +190,25 @@ python/spinlab/              # CLI, dashboard, scheduler, DB
   estimators/                # kalman, rolling_mean, exp_decay
   allocators/                # greedy, round_robin, random, least_played, mix
   db/                        # SQLite interface (mixin-composed package)
-  tcp_manager.py             # Async TCP client for Lua socket
   protocol.py                # Typed dataclasses for every IPC message
   sse.py                     # SSE broadcaster
-  spinrec.py                 # .spinrec binary format reader/writer
+  retroarch/                 # RetroArch backend
+    nci.py                   #   NCIClient — UDP NCI transport
+    poller.py                #   Poller — 60Hz WRAM reader + event emitter
+    state_io.py              #   StateIO — save/load via filesystem shuffle
+    movie.py                 #   MovieRecorder + MoviePlayer (BSV .replay)
+    orchestrator.py          #   RetroArchOrchestrator — wires it all together
+    predicates.py            #   TransitionDetector + cold-fill spawn detector
+    addresses.py             #   SMW WRAM address map
   routes/                    # FastAPI route modules
   state_builder.py           # Builds the snapshot served by /api/state and SSE
   vite.py                    # Spawns/manages the Vite dev server subprocess
 frontend/                    # TypeScript + Vite frontend (built into static/)
-scripts/launch.sh            # Launch harness (mac/linux)
-scripts/launch.bat           # Launch harness (Windows)
 scripts/spinlab.ahk          # Windows hotkeys (Ctrl+Alt+W/X)
+scripts/spike_retroarch.py   # NCI validation spike (5 tests, pass/fail)
 config.yaml                  # Your local config (gitignored)
-docs/ARCHITECTURE.md         # Components, state machine, DB schema, IPC contract
+docs/ARCHITECTURE.md         # Components, state machine, DB schema
 docs/GLOSSARY.md             # Domain terms
 docs/BACKLOG.md              # Open follow-ups and ideas
-docs/model-improvements-spec.md  # Estimator design and roadmap
+docs/retroarch-migration/    # Migration history and Phase E state
 ```

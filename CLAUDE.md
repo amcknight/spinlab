@@ -5,7 +5,6 @@ Efficient practice system for SNES romhack speedrunning. Captures save states at
 ## Coding Guidelines
 
 - Python 3.11+. Type hints everywhere. `dataclasses` for models.
-- Lua: readable, liberal comments. Memory addresses in config section at top of script.
 - YAML for config (Andrew's preference).
 - The kaizosplits C# code in `reference/` is read-only reference — never import or compile it.
 
@@ -22,10 +21,9 @@ Efficient practice system for SNES romhack speedrunning. Captures save states at
 Red-Green TDD. Keep only tests that document behavior or catch regressions.
 
 - **Fast tests:** `pytest -m "not (emulator or slow or frontend)"` (~23s). Run after any code change.
-- **Slow tests:** `pytest -m slow` (~4s). Run when touching practice loop or TCP wait logic.
-- **Emulator tests:** `pytest -m emulator` (~6s). Run when touching Lua scripts or transition detection.
-- **Smoke tests:** Included in `pytest -m emulator`. Full-stack: Mesen headless + dashboard + DB. See `tests/integration/test_smoke.py`.
-- **Replay fixture tests:** Included in `pytest -m emulator`. Replays a two-level Love Yourself recording through headless Mesen. Requires `Love Yourself.smc` in `rom.dir` (or set `SPINLAB_REPLAY_ROM`). See `docs/superpowers/specs/2026-04-11-replay-fixture-design.md` for recording instructions.
+- **Slow tests:** `pytest -m slow` (~4s). Run when touching practice loop or timing wait logic.
+- **Emulator tests:** `pytest -m emulator` (~6s). Run when touching RA backend, transition detection, or poke scenarios. Requires RetroArch installed. Includes the RA poke harness (`RAHarness`/`RAPokeEngine`) driving all transition scenarios, movie smoke tests, and the replay fixture test (currently xfailed on poller starvation — see `docs/retroarch-migration/status.md`).
+- **Replay fixture:** `tests/integration/test_replay_fixture.py`. Uses `tests/fixtures/love_yourself/one_level.replay` recorded on live RA. Xfailed until Phase E option (b) (poller starvation + BSV+SAVE_STATE fix).
 - **Static asset tests:** `pytest -m frontend`. Requires `cd frontend && npm run build` first.
 - **Everything:** `python -m pytest` (~30s). **This is the command you must run before reporting work as done.** Not `pytest -m "not ..."`, not a subset — the full unfiltered suite. Fix all failures, even pre-existing ones unrelated to your current work. A red suite is never acceptable.
 - **DB reset:** `spinlab db reset [--config config.yaml]` — deletes and recreates the database. Useful after schema changes during development.
@@ -40,18 +38,18 @@ Red-Green TDD. Keep only tests that document behavior or catch regressions.
 
 ### Integration test diagnostics
 
-When an emulator/integration test fails, a diagnostic block is automatically appended to the pytest report showing: `/api/state` snapshot, DB row counts (segments, capture_runs, drafts), Mesen process status, and the last 30 lines from the `spinlab` logger ring buffer. Implemented in `tests/integration/conftest.py` via `pytest_runtest_makereport` hook. Use this output to diagnose intermittent failures — it captures the state that would otherwise be lost.
+When an emulator/integration test fails, a diagnostic block is automatically appended to the pytest report showing: `/api/state` snapshot, DB row counts (segments, capture_runs, drafts), RA process status, and the last 30 lines from the `spinlab` logger ring buffer. Implemented in `tests/integration/conftest.py` via `pytest_runtest_makereport` hook. Use this output to diagnose intermittent failures — it captures the state that would otherwise be lost.
 
 ### Gotchas
 
-- `emu.isKeyPressed()` crashes in `--testRunner` — guarded with `pcall` in `spinlab.lua`
-- ROM overwrites memory every frame — poke engine holds values persistently
-- TCP requires `tcp-nodelay` to avoid Nagle buffering at max emulation speed
+- ROM overwrites memory every frame — RA poke engine holds values persistently (see `RAPokeEngine` in test conftest)
+- `cheevos_hardcore_mode_enable = "false"` required in `retroarch.cfg` — RA silently drops NCI savestate commands when hardcore is on
+- `run_ahead_secondary_instance = "true"` required — single-instance runahead corrupts save state buffers
+- RA `log_to_file = "true"` is required cfg for the log-based replay slot parser in `MoviePlayer` to work
 
 ### Address maps (must stay in sync)
 
-- `lua/spinlab.lua` lines 43-53 (source of truth)
-- `lua/poke_engine.lua` ADDR_MAP
+- `python/spinlab/retroarch/addresses.py` ADDR_MAP (source of truth)
 - `tests/integration/addresses.py` ADDR_MAP
 
 ## Frontend (TypeScript + Vite)

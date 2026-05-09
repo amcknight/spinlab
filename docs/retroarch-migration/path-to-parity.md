@@ -1,14 +1,16 @@
 # Path to Full Parity
 
-What would be needed to fully retire the Mesen+Lua backend and use RetroArch exclusively. Items roughly ordered by what unblocks the most.
+**Phase G shipped 2026-05-09. Mesen+Lua is gone. RA is the only backend.**
 
-*The Plan 2 RA test harness landed 2026-05-08 (closes P1.2). Phase E option (a) landed 2026-05-08 — record + playback + determinism validated; user-facing replay endpoint no longer 501s. The remaining replay gap (poller starvation under uncapped playback breaks segment capture) is captured below; the throttle fix is the last piece before option (b) full parity.*
+The items below are post-migration follow-ups, not prerequisites for daily use. P0 blockers (cold-fill, practice reload-on-death, Phase E option (b)) are the highest priority. P1 and P2 are quality-of-life and architecture cleanup.
+
+*History: Plan 2 RA test harness landed 2026-05-08 (closed P1.2). Phase E option (a) landed 2026-05-08. Phase G landed 2026-05-09 (closed P2.2).*
 
 ## P0 — Blockers for daily-driving RA only
 
 ### P0.1 — Fix cold-fill on cp-respawn hacks
 
-**Status:** Two attempts landed (`exit_recover` edge-trigger, then `playable` level-trigger). Neither field-tested as of 2026-05-07.
+**Status (2026-05-08): Resolved.** Field-confirmed on Toothpaste and Love Yourself. Detector: `exit_mode==0 and anim!=9` while `_waiting_spawn=True`. Hack-independent.
 
 **If the level-triggered fix still fails:** instrument the poller to dump raw `MemorySnapshot` values to the log every time `_waiting_spawn` is True. We're guessing at SMW behavior in this hack; one death's worth of real data settles the question.
 
@@ -47,7 +49,7 @@ User opens dashboard with ROM A, then changes RA's ROM to ROM B. The basename au
 
 ### P1.2 — Skip Mesen-only tests when backend is RetroArch
 
-**Status:** Resolved 2026-05-08 by the RA poke harness. `test_transitions.py` now runs through `RAHarness`/`RAPokeEngine` and passes all 9 scenarios. `test_replay_fixture.py` and `test_smoke.py` remain Mesen-bound — those move to RA in Phase E (replay) and possibly Phase G (smoke), respectively. See `docs/superpowers/plans/2026-05-08-headless-ra-test-harness.md`.
+**Resolved 2026-05-08/2026-05-09.** RA poke harness landed 2026-05-08 — all 9 transition scenarios run through `RAHarness`/`RAPokeEngine`. Phase G (2026-05-09) deleted the remaining Mesen-bound tests; the suite is now fully RA-backed.
 
 ### P1.3 — Cold-fill timeout / abort
 
@@ -68,9 +70,9 @@ When something doesn't work, RA's verbose log (`log_verbosity = "true"` + `log_t
 
 `PracticeTiming.observe_event` and `SpeedRunTiming.observe_event` both inspect `event_dict.get("event")` strings. The dispatch is fine, but the two state machines are nearly disjoint and could share less. Worth a refactor only if a third timing mode appears.
 
-### P2.2 — Remove Mesen-specific code paths once Phase E lands
+### P2.2 — Remove Mesen-specific code paths
 
-`TcpManager`, `lua/spinlab.lua`, the `.spinrec` reader/writer, the Lua-aware addresses in `lua/poke_engine.lua`, the dual-backend conditional in `routes/system.py`. Big delete-fest. Don't do this until Phase E is stable AND at least one full speedrun has been completed end-to-end on RA.
+**Resolved 2026-05-09.** Phase G shipped: `lua/`, `tcp_manager.py`, `spinrec.py`, `spinrec_path` DB column, and Mesen-aware code paths across config / dashboard / routes / capture / protocol / session_manager all gone. README is RA-only. ARCHITECTURE.md rewritten for RA-only. Existing pre-Phase-G databases require `spinlab db reset` to upgrade.
 
 ### P2.3 — `state_path_for` resolver leaks anonymous keys
 
@@ -92,17 +94,15 @@ Out of scope today (one game per session). RA supports core swapping which would
 
 ---
 
-## Definition of "full parity"
+## Definition of "daily-driver quality" (post-migration follow-ups)
 
-When the following are true, the Mesen backend can be deleted:
+Phase G shipped and the Mesen backend is gone. The remaining items below are quality-of-life improvements, not migration gates:
 
-1. Reference recording captures inputs (`.replay`) AND state files. Both are written to disk at known paths. ✓ states  ✓ inputs (Phase E option (a), 2026-05-08)
-2. Reference run can be saved, finished, resumed, and discarded end-to-end. Field-tested. ✓ except discard 500 (cascade FK fix needs verify)
-3. Practice loop runs N segments without intervention, including reload-on-death after every death. ✗ second-death issue
-4. Cold-fill captures cold variants for hacks that use cp-respawn. ✗ in-progress
-5. Speed-run mode runs a full level start-to-finish with checkpoint splits. Untested.
-6. Replay loads a `.replay` and reproduces transitions identically. ⚠ partial — playback works and is deterministic; segment capture during replay xfailed pending playback-throttle (P0.3).
-7. Full pytest suite green under `backend == "retroarch"` config. ✓ (Phase E xfails are intentional and strict=False)
-8. At least one full real speedrun (e.g. "Love Yourself" any%) completed end-to-end with no manual workaround.
-
-Items 1-5 are P0. Item 6 is Phase E. Items 7-8 are gates; clearing them is the actual ship signal.
+1. Reference recording captures inputs (`.replay`) AND state files. ✓ states  ⚠ inputs — `.replay` files are written but truncated by SAVE_STATE-during-record (Phase E option b outstanding)
+2. Reference run saved, finished, resumed, discarded end-to-end. ✓ mostly field-tested; discard cascade FK needs re-verify
+3. Practice loop runs N segments, reload-on-death after every death. ⚠ second-death failure unresolved
+4. Cold-fill captures cold variants for cp-respawn hacks. ✓ field-confirmed (2026-05-08)
+5. Speed-run mode runs a full level start-to-finish with checkpoint splits. Untested on RA.
+6. Replay loads a `.replay` and reproduces transitions identically. ⚠ partial — isolated playback deterministic; segment capture during replay xfailed (poller starvation + BSV+SAVE_STATE)
+7. Full pytest suite green. ✓ (Phase E xfails are intentional, strict=False)
+8. At least one full real speedrun (e.g. "Love Yourself" any%) completed end-to-end with no manual workaround. Untested.
