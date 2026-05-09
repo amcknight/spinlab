@@ -57,6 +57,11 @@ logger = logging.getLogger(__name__)
 # replay slot before PLAY_REPLAY. Andrew's RA was at slot 64 at startup;
 # 200 gives a healthy margin. RA clamps at 0 so overshoot is safe.
 _REPLAY_SLOT_RESET_COUNT = 200
+# Spacing between SLOT_MINUS fires. RA debounces hotkey-style commands —
+# 2026-05-08 evidence: 200 fires with no spacing only landed 1 decrement
+# in the RA log. 16ms (~1 frame at 60Hz) gives RA's input poll a tick
+# between each.
+_REPLAY_SLOT_RESET_INTERVAL_S = 0.016
 
 # 20 Hz tick — fast enough for auto_advance_delay_ms precision without
 # burning unnecessary CPU. The poller already runs at ~60 Hz; this only
@@ -384,11 +389,13 @@ class RetroArchOrchestrator:
         # Reset RA's runtime replay slot to 0 before staging. RA's
         # `replay_auto_index = "true"` makes the runtime slot diverge from
         # cfg `replay_slot` after recordings, and there is no NCI command
-        # to query/set the slot directly. Fire SLOT_MINUS aggressively to
-        # converge — RA clamps at 0, so overshoot is harmless. See
-        # docs/retroarch-migration/slot-management.md for the full story.
-        for _ in range(_REPLAY_SLOT_RESET_COUNT):
-            self._client.replay_slot_minus()
+        # to query/set the slot directly. Fire SLOT_MINUS with a tiny
+        # delay between each — RA debounces hotkey-style commands and
+        # ignores back-to-back fires (2026-05-08 evidence: 200 unspaced
+        # fires landed only 1 decrement). RA clamps at 0 so overshoot is
+        # safe. See docs/retroarch-migration/slot-management.md for the
+        # full story.
+        await asyncio.to_thread(self._reset_replay_slot)
 
         await asyncio.to_thread(
             self._movie_player.play, movie_path,
@@ -422,6 +429,15 @@ class RetroArchOrchestrator:
 
         self.on_poller_event(ReplayStartedEvent(path=str(movie_path), frame_count=frame_count))
         logger.info("Movie replay started: %s (frames=%d)", movie_path, frame_count)
+
+    def _reset_replay_slot(self) -> None:
+        """Fire REPLAY_SLOT_MINUS many times with spacing to converge RA's
+        runtime slot to 0. Called from a worker thread; uses time.sleep.
+        """
+        import time as _time
+        for _ in range(_REPLAY_SLOT_RESET_COUNT):
+            self._client.replay_slot_minus()
+            _time.sleep(_REPLAY_SLOT_RESET_INTERVAL_S)
 
     async def _verify_playback_advanced(self) -> bool:
         """Returns True if WRAM advances over a brief sample window — i.e.
