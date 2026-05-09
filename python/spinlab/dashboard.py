@@ -15,6 +15,7 @@ from .db import Database
 from .emu_backend import EmuBackend
 from .errors import ActionError
 from .session_manager import SessionManager
+
 logger = logging.getLogger(__name__)
 
 TCP_CONNECT_TIMEOUT_S = 2

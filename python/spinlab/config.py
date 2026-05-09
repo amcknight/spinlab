@@ -17,7 +17,6 @@ class NetworkConfig:
 
 @dataclass
 class EmulatorConfig:
-    # RetroArch keys:
     retroarch_path: Path | None = None
     ra_core_path: Path | None = None
     savestate_dir: Path | None = None

@@ -29,7 +29,6 @@ def _minimal_config(extras: dict | None = None) -> dict:
 def test_retroarch_paths_parse(tmp_path):
     cfg_path = _write_config(tmp_path, _minimal_config({
         "emulator": {
-            "backend": "retroarch",
             "retroarch_path": "C:/RetroArch-Win64/retroarch.exe",
             "savestate_dir": "C:/RetroArch-Win64/saves/states",
             "spinlab_state_dir": "data/spinlab_states",
@@ -44,7 +43,7 @@ def test_retroarch_paths_parse(tmp_path):
 
 
 def test_retroarch_paths_default_to_none_when_omitted(tmp_path):
-    cfg_path = _write_config(tmp_path, _minimal_config({"emulator": {"backend": "retroarch"}}))
+    cfg_path = _write_config(tmp_path, _minimal_config({"emulator": {}}))
     cfg = AppConfig.from_yaml(cfg_path)
     assert cfg.emulator.retroarch_path is None
     assert cfg.emulator.savestate_dir is None
@@ -70,7 +69,6 @@ def test_ra_core_path_parsed_from_yaml(tmp_path):
 data:
   dir: /tmp/data
 emulator:
-  backend: retroarch
   retroarch_path: C:/RetroArch-Win64/retroarch.exe
   ra_core_path: C:/RetroArch-Win64/cores/snes9x_libretro.dll
 """)
@@ -83,8 +81,7 @@ def test_ra_core_path_defaults_to_none_when_absent(tmp_path):
     config_yaml.write_text("""
 data:
   dir: /tmp/data
-emulator:
-  backend: retroarch
+emulator: {}
 """)
     cfg = AppConfig.from_yaml(config_yaml)
     assert cfg.emulator.ra_core_path is None
