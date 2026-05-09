@@ -104,6 +104,41 @@ The 16-byte WRAM-advance check after `PLAY_REPLAY` catches the obvious "RA didn'
 
 A proper verification would compare playback against the recorded movie's expected memory state at a known frame. We don't do that.
 
+## SAVE_STATE during BSV recording is broken in current RA — confirmed hard constraint
+
+This was the longest single thread of debugging in Phase E. **Conclusion: with snes9x_libretro and bsnes_libretro on RA 1.22.2, you cannot fire SAVE_STATE during a BSV recording session without breaking the recording.**
+
+Empirical evidence (2026-05-08, confirmed via direct NCI probes — no SpinLab in the loop):
+
+| `replay_checkpoint_interval` | Result with 3 SAVE_STATE calls during 20s recording |
+|---|---|
+| `"0"` (default) | Playback EOFs at first SAVE_STATE point. RA log shows clean `Stopping movie record`. The .replay file's input track is truncated to pre-first-save inputs. |
+| `"60"` | Same as `"0"`. No checkpoint fires within the 20s window because interval is in seconds, not frames. |
+| `"1"` | RA log shows `[ERROR] [Replay] failed to write checkpoint, exiting record` after the first SAVE_STATE. Recording silently ends; subsequent SAVE_STATE calls go through but BSV is already done. |
+
+The relevant RA source is `input/bsv/bsvmovie.c` `bsv_movie_write_checkpoint()`: SAVE_STATE during a recording sets `BSV_FLAG_MOVIE_FORCE_CHECKPOINT`, which on the next frame triggers `core_serialize() → encode (RAW or STATESTREAM) → compress (NONE/ZLIB/ZSTD) → file write`. If any step returns -1, RA logs the error and ends the recording.
+
+**Tested cores:**
+- `snes9x_libretro.dll` — fails as above
+- `bsnes_libretro.dll` — same pause-on-save behavior; checkpoint write also fails
+
+**Note on bsnes:** RA also logs `[WARN] [Run-Ahead] Run-Ahead unavailable because this core lacks deterministic save state support` for bsnes. So bsnes can't be used for production anyway (Andrew needs runahead for low-latency live play). Bsnes was tested as the "BSV is bsnes-native, should work better" hypothesis; it doesn't.
+
+### Background reading
+
+- [Issue #14886 (closed): Re-recording support in savestates](https://github.com/libretro/RetroArch/issues/14886) — the feature request
+- [PR #15070 (merged 2023-03-07): Associate states with replays](https://github.com/libretro/RetroArch/pull/15070) — the implementation that *should* enable mid-record SAVE_STATE
+- [Issue #15806 (open): My request to fix RetroArch Replay](https://github.com/libretro/RetroArch/issues/15806) — community report that `replay_checkpoint_interval = "1"` is the only working setting; we can't reproduce that working
+- [PR #17042 (merged 2024-10-04): Replay format improvements](https://github.com/libretro/RetroArch/pull/17042) — version-bump to v2 BSV
+- `input/bsv/bsvmovie.c` in libretro/RetroArch source — the actual code
+
+### Workarounds we considered
+
+1. **Decouple — disable BSV recording during reference runs.** Reference flow goes back to states-only (the working pre-Phase-E behavior). BSV is opt-in elsewhere. **This is the de facto current state** — the broken auto-recording in `_on_reference_start` writes corrupt files but they sit unused; the production replay path uses manually-recorded BSV fixtures only.
+2. **Multi-segment recording (HALT → SAVE → RECORD per segment).** Halt the BSV right before each SAVE_STATE, restart it right after. Stitch the resulting N `.replay` files into one (or treat each segment as its own playable unit). **Not implemented.** Plausible but real engineering — BSV files are self-anchored to their initial state, so concat needs to strip duplicate state snapshots and renumber frame counters.
+3. **Switch core (bsnes/mesen-s).** Tested bsnes — same checkpoint-write failure. mesen-s untested. Switching cost is real (state files don't transfer).
+4. **Patch RA upstream.** The fix would be to make `bsv_movie_write_checkpoint()` more graceful — fall back to RAW encoding if STATESTREAM fails, or skip-with-warning rather than terminate the recording. Probably small (~20 lines). Real upstream contribution opportunity. Concern: running modified RA is non-stock, problematic for competitive speedrunning.
+
 ## What "good" would look like
 
 Some of these are big lifts; many would simplify a lot of the above. Listed for the future cleanup pass.
