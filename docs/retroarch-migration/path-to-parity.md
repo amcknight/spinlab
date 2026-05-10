@@ -39,6 +39,8 @@ The added logging discriminates between these. Run, read the log, fix the actual
 - **Throttle playback speed via NCI** so the production poller can keep up. Under uncapped playback the poller hits ~32Hz instead of 60Hz, missing transitions during segment capture. `test_poller_runs_during_playback` and `test_replay_fixture` xfail on this. NCI candidates: `slowmotion_ratio`, `--speed=` flag, or temp cfg override. Once landed, both xfails should auto-clear (strict=False).
 - `.spinrec` → `.replay` converter — low priority; Andrew has acknowledged re-recording is acceptable.
 
+**Resolved 2026-05-09:** the BSV+SAVE_STATE-during-record bug (slot-management.md) is fixed on a vendored RA build at `C:/RetroArch-Win64-fixed/`. Root cause was a one-line C99 update-mode violation in upstream `replay_get_serialized_data`; fix is `intfstream_seek(handle->file, file_end, SEEK_SET)` after the read. Verified end-to-end: `count_replay_frames.py` shows `parsed=1201, header=1201, MATCH` for a 20s recording with three saves. See `upstream-fix-findings-2026-05-09.md` and memory `project_ra_vendored_build.md`.
+
 Phase E's planning artifacts: spec at [`docs/superpowers/specs/2026-05-08-phase-e-movie-replay-design.md`](../superpowers/specs/2026-05-08-phase-e-movie-replay-design.md), plan at [`docs/superpowers/plans/2026-05-08-phase-e-movie-replay.md`](../superpowers/plans/2026-05-08-phase-e-movie-replay.md). The 2026-05-06 frozen spec is now historical context only.
 
 ## P1 — Quality-of-life
@@ -98,11 +100,11 @@ Out of scope today (one game per session). RA supports core swapping which would
 
 Phase G shipped and the Mesen backend is gone. The remaining items below are quality-of-life improvements, not migration gates:
 
-1. Reference recording captures inputs (`.replay`) AND state files. ✓ states  ⚠ inputs — `.replay` files are written but truncated by SAVE_STATE-during-record (Phase E option b outstanding)
+1. Reference recording captures inputs (`.replay`) AND state files. ✓ states  ✓ inputs (verified 2026-05-09 on vendored RA with BSV-checkpoint fix; stock RA still produces truncated `.replay`)
 2. Reference run saved, finished, resumed, discarded end-to-end. ✓ mostly field-tested; discard cascade FK needs re-verify
 3. Practice loop runs N segments, reload-on-death after every death. ⚠ second-death failure unresolved
 4. Cold-fill captures cold variants for cp-respawn hacks. ✓ field-confirmed (2026-05-08)
 5. Speed-run mode runs a full level start-to-finish with checkpoint splits. Untested on RA.
-6. Replay loads a `.replay` and reproduces transitions identically. ⚠ partial — isolated playback deterministic; segment capture during replay xfailed (poller starvation + BSV+SAVE_STATE)
+6. Replay loads a `.replay` and reproduces transitions identically. ⚠ partial — isolated playback deterministic; segment capture during replay xfailed on poller starvation. (BSV+SAVE_STATE blocker resolved 2026-05-09; only the throttle remains.)
 7. Full pytest suite green. ✓ (Phase E xfails are intentional, strict=False)
 8. At least one full real speedrun (e.g. "Love Yourself" any%) completed end-to-end with no manual workaround. Untested.

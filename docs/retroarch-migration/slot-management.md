@@ -104,7 +104,11 @@ The 16-byte WRAM-advance check after `PLAY_REPLAY` catches the obvious "RA didn'
 
 A proper verification would compare playback against the recorded movie's expected memory state at a known frame. We don't do that.
 
-## SAVE_STATE during BSV recording is broken in current RA — confirmed hard constraint
+## SAVE_STATE during BSV recording — fixed locally (2026-05-09)
+
+> **2026-05-09 update:** the conclusion below ("hard constraint", `bsv_movie_write_checkpoint` is the failing function, `replay_checkpoint_interval` matters) is **wrong on the mechanism**. The bug is real but it's in `replay_get_serialized_data` ([`input/bsv/bsvmovie.c:1121`](https://github.com/libretro/RetroArch/blob/v1.22.2/input/bsv/bsvmovie.c#L1121)), not the checkpoint writer. Root cause is C99/C11 §7.21.5.3: streams opened in update mode (`r+`/`w+`) require a positioning call between input and output. RA's `replay_get_serialized_data` does an `intfstream_rewind` + `intfstream_read` to embed the in-progress recording into the `.state` file, then returns without seeking — and every subsequent `intfstream_write` from `bsv_movie_next_frame` silently no-ops on Windows MSVCRT. The `frame_counter` keeps advancing, so end-of-recording header writes a frame count that doesn't match the actual on-disk content. **Fixed on a vendored RA build** with one line — `intfstream_seek(handle->file, file_end, SEEK_SET);` after the read. Upstream PR pending.
+>
+> **Full investigation log:** [`upstream-fix-findings-2026-05-09.md`](upstream-fix-findings-2026-05-09.md). The original analysis below is preserved as a record of what was thought at the time but should not be trusted as a description of the bug.
 
 This was the longest single thread of debugging in Phase E. **Conclusion: with snes9x_libretro and bsnes_libretro on RA 1.22.2, you cannot fire SAVE_STATE during a BSV recording session without breaking the recording.**
 
@@ -116,7 +120,9 @@ Empirical evidence (2026-05-08, confirmed via direct NCI probes — no SpinLab i
 | `"60"` | Same as `"0"`. No checkpoint fires within the 20s window because interval is in seconds, not frames. |
 | `"1"` | RA log shows `[ERROR] [Replay] failed to write checkpoint, exiting record` after the first SAVE_STATE. Recording silently ends; subsequent SAVE_STATE calls go through but BSV is already done. |
 
-The relevant RA source is `input/bsv/bsvmovie.c` `bsv_movie_write_checkpoint()`: SAVE_STATE during a recording sets `BSV_FLAG_MOVIE_FORCE_CHECKPOINT`, which on the next frame triggers `core_serialize() → encode (RAW or STATESTREAM) → compress (NONE/ZLIB/ZSTD) → file write`. If any step returns -1, RA logs the error and ends the recording.
+> *Note on the table above:* the row labeled `"1"` was either misobserved or was testing under different conditions — the actual bug doesn't fire `bsv_movie_write_checkpoint` and so wouldn't produce that error log. Treat that row with suspicion.
+
+The relevant RA source ~~is `input/bsv/bsvmovie.c` `bsv_movie_write_checkpoint()`: SAVE_STATE during a recording sets `BSV_FLAG_MOVIE_FORCE_CHECKPOINT`, which on the next frame triggers `core_serialize() → encode (RAW or STATESTREAM) → compress (NONE/ZLIB/ZSTD) → file write`. If any step returns -1, RA logs the error and ends the recording.~~ **(retracted: SAVE_STATE does NOT set BSV_FLAG_MOVIE_FORCE_CHECKPOINT — that flag is set only by the separate `SAVE_REPLAY_CHECKPOINT` NCI command. SAVE_STATE goes through `replay_get_serialized_data` instead. See findings doc.)**
 
 **Tested cores:**
 - `snes9x_libretro.dll` — fails as above
@@ -134,10 +140,12 @@ The relevant RA source is `input/bsv/bsvmovie.c` `bsv_movie_write_checkpoint()`:
 
 ### Workarounds we considered
 
-1. **Decouple — disable BSV recording during reference runs.** Reference flow goes back to states-only (the working pre-Phase-E behavior). BSV is opt-in elsewhere. **This is the de facto current state** — the broken auto-recording in `_on_reference_start` writes corrupt files but they sit unused; the production replay path uses manually-recorded BSV fixtures only.
-2. **Multi-segment recording (HALT → SAVE → RECORD per segment).** Halt the BSV right before each SAVE_STATE, restart it right after. Stitch the resulting N `.replay` files into one (or treat each segment as its own playable unit). **Not implemented.** Plausible but real engineering — BSV files are self-anchored to their initial state, so concat needs to strip duplicate state snapshots and renumber frame counters.
-3. **Switch core (bsnes/mesen-s).** Tested bsnes — same checkpoint-write failure. mesen-s untested. Switching cost is real (state files don't transfer).
-4. **Patch RA upstream.** The fix would be to make `bsv_movie_write_checkpoint()` more graceful — fall back to RAW encoding if STATESTREAM fails, or skip-with-warning rather than terminate the recording. Probably small (~20 lines). Real upstream contribution opportunity. Concern: running modified RA is non-stock, problematic for competitive speedrunning.
+> **Resolved 2026-05-09:** option (4) shipped. Workarounds (1)-(3) below are no longer needed. The patched RA build does the right thing.
+
+1. ~~**Decouple — disable BSV recording during reference runs.**~~ No longer the de facto state once the patched RA is deployed.
+2. ~~**Multi-segment recording (HALT → SAVE → RECORD per segment).**~~ Not needed.
+3. ~~**Switch core (bsnes/mesen-s).**~~ Not needed — the bug was in RA's BSV layer, not the core.
+4. **Patch RA upstream.** ~~The fix would be to make `bsv_movie_write_checkpoint()` more graceful~~ — actual fix turned out to be a one-liner in `replay_get_serialized_data` adding `intfstream_seek(handle->file, file_end, SEEK_SET)` after the existing `intfstream_read`. See [`upstream-fix-findings-2026-05-09.md`](upstream-fix-findings-2026-05-09.md) for full root cause and PR-ready writeup.
 
 ## What "good" would look like
 
