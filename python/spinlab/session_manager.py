@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -78,6 +79,14 @@ class SessionManager:
 
         self.state = SystemState()  # SystemState is the single source of truth
         self.scheduler = None  # Scheduler | None, lazy-init
+        # FastAPI runs sync route handlers in a thread pool, so several requests
+        # to /api/model/params and friends can race on the very first lazy-init
+        # of Scheduler. Without this lock, two threads both see scheduler=None,
+        # both call Scheduler(...), and both hit the shared db.conn concurrently
+        # — which sqlite3 surfaces as InterfaceError: bad parameter or other API
+        # misuse. Double-checked locking serializes the init while keeping the
+        # cached fast path lock-free.
+        self._scheduler_lock = threading.Lock()
         self.practice_session = None  # PracticeSession | None
         self.practice_task: asyncio.Task | None = None
         self.speed_run_session = None  # SpeedRunSession | None
@@ -154,10 +163,17 @@ class SessionManager:
         return self._state_builder.build(self)
 
     def get_scheduler(self):
-        """Lazy-init scheduler for current game."""
+        """Lazy-init scheduler for current game.
+
+        Thread-safe: double-checked locking ensures Scheduler() runs exactly
+        once even when FastAPI dispatches multiple route handlers in parallel
+        worker threads.
+        """
         if self.scheduler is None:
-            from spinlab.scheduler import Scheduler
-            self.scheduler = Scheduler(self.db, self.require_game())
+            with self._scheduler_lock:
+                if self.scheduler is None:
+                    from spinlab.scheduler import Scheduler
+                    self.scheduler = Scheduler(self.db, self.require_game())
         return self.scheduler
 
     def require_game(self) -> str:
