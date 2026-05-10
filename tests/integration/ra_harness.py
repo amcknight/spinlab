@@ -38,6 +38,13 @@ WRAM_SANITY_PROBE_BYTES = 32
 # Teardown timing.
 QUIT_GRACE_S = 2.0
 
+# Sanity-probe retry config. RA occasionally launches in a state where the
+# first FRAMEADVANCE after PAUSE_TOGGLE is a no-op (likely runahead / save-
+# buffer warm-up). Retrying a few times gets past the warm-up without
+# masking a true deep-freeze (where no advance ever changes WRAM).
+WRAM_SANITY_RETRIES = 5
+WRAM_SANITY_RETRY_DELAY_S = 0.3
+
 # Null-driver appendconfig content — suppresses video and audio output so
 # tests run headless. RA 1.22.2 does not accept --video=null style CLI flags;
 # --appendconfig is the correct way to override driver settings.
@@ -176,15 +183,26 @@ class RAHarness:
 
         # Final sanity: confirm FRAMEADVANCE actually advances the core.
         # Read any WRAM byte, advance one frame, re-read — some byte must change.
+        # Retry a handful of times: on Windows + patched RA the first one or
+        # two FRAMEADVANCE calls after launch occasionally produce no observable
+        # WRAM change (likely runahead/save-buffer warm-up). A genuine
+        # deep-freeze would still fail every retry.
+        advanced = False
         snap_before = client.read_ram(0x0000, WRAM_SANITY_PROBE_BYTES)
-        client.frame_advance()
-        time.sleep(NCI_PING_INTERVAL_S)
-        snap_after = client.read_ram(0x0000, WRAM_SANITY_PROBE_BYTES)
-        if snap_before == snap_after:
+        for _ in range(WRAM_SANITY_RETRIES):
+            client.frame_advance()
+            time.sleep(WRAM_SANITY_RETRY_DELAY_S)
+            snap_after = client.read_ram(0x0000, WRAM_SANITY_PROBE_BYTES)
+            if snap_before != snap_after:
+                advanced = True
+                break
+            snap_before = snap_after
+        if not advanced:
             cls._kill(proc)
             tmp_cfg_path.unlink(missing_ok=True)
             raise RAHarnessLaunchError(
-                "FRAMEADVANCE did not change any WRAM byte — core may be in deep-freeze"
+                f"FRAMEADVANCE did not change any WRAM byte after "
+                f"{WRAM_SANITY_RETRIES} attempts — core may be in deep-freeze"
             )
 
         return cls(proc=proc, client=client, _tmp_cfg=tmp_cfg_path)
