@@ -23,8 +23,8 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "love_yourself"
 FIXTURE_REPLAY = FIXTURE_DIR / "one_level.replay"
 FIXTURE_META = FIXTURE_DIR / "one_level.json"
 
-# one_level.replay covers ~40 seconds of gameplay (2400 frames at 60fps).
-# 120s is generous enough to catch desync or poller-starvation regressions
+# one_level.replay covers ~38 seconds of gameplay (2273 frames at 60fps).
+# 120s is generous enough to catch desync or poller hang regressions
 # without masking real hangs.
 REPLAY_TIMEOUT_S = 120
 
@@ -119,22 +119,6 @@ def _wait_for_idle_with_progress(
 @pytest.mark.skipif(
     not FIXTURE_REPLAY.exists(),
     reason=f"Movie fixture not recorded: {FIXTURE_REPLAY}",
-)
-@pytest.mark.xfail(
-    reason=(
-        "End-to-end replay→segment capture not yet working under RA: "
-        "production poller hits ~32Hz during uncapped movie playback "
-        "(see test_poller_runs_during_playback xfail), missing transitions "
-        "that the segment-capture pipeline depends on. Replay itself "
-        "succeeds (mode reaches 'replay', frame total set, replay finishes), "
-        "but no LevelEntrance/Checkpoint/LevelExit events fire so no "
-        "segments get captured and finalize returns 409 no_paused_run. "
-        "Per spec mitigation: throttle movie playback speed via NCI "
-        "(slowmotion_ratio). xfail strict=False so this test starts "
-        "passing automatically once that throttle (or a poller throughput "
-        "improvement) lands."
-    ),
-    strict=False,
 )
 class TestReplayFixture:
     """Replay the one-level Love Yourself recording through RetroArch and verify capture.

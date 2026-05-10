@@ -26,20 +26,23 @@ The added logging discriminates between these. Run, read the log, fix the actual
 
 ### P0.3 — Phase E: movie input recording + replay
 
-**Status (2026-05-08):** Option (a) shipped. The historical "BSV" framing in the original spec was wrong on RA 1.22.2 — the actual NCI commands are `RECORD_REPLAY` / `HALT_REPLAY` / `PLAY_REPLAY`, the format is `.replay<slot>`, output dir is `<savestate_directory>/<core_name>/`, and the implementation was renamed `MovieRecorder` / `MoviePlayer` / `movie.py` accordingly.
+**Status (2026-05-10): Resolved.** Option (b) — replay → segment capture — verified end-to-end on the patched RA: `test_replay_fixture::test_replay_produces_segments` plays back `one_level.replay`, captures 2 segments (entrance→checkpoint, checkpoint→goal), and finalizes successfully. Option (a) shipped 2026-05-08; the BSV+SAVE_STATE blocker shipped 2026-05-09 on the vendored build (see `upstream-fix-findings-2026-05-09.md`).
 
-**What landed:**
-- `MovieRecorder` integrated into reference-run flow; `.replay` written alongside `.mss` state files
-- `MoviePlayer` wired into `RetroArchOrchestrator._on_replay`; `ReplayCmd` no longer 501s
-- Smoke tests cover record-toggle + playback-determinism (both pass on live RA)
-- `tests/integration/test_replay_fixture.py` ported off Mesen, fixture `one_level.replay` recorded
-- `replay_max_keep = "99"` and `run_ahead_secondary_instance = "true"` documented as required cfg in README
+**What's actually in place:**
+- `MovieRecorder` writes `.replay` alongside `.mss` state files during reference runs.
+- `MoviePlayer` wired through `RetroArchOrchestrator._on_replay`; basename + slot resolution via RA's log.
+- `tests/integration/test_replay_fixture.py` (un-xfailed 2026-05-10) drives a real dashboard against live RA, replays the fixture, asserts 2 segments and successful finalize.
+- `tests/integration/test_movie_smoke.py::test_poller_runs_during_playback` (un-xfailed 2026-05-10) guards against pathological poller starvation. Threshold is 40% of 60Hz target — under uncapped playback the poller measures ~32Hz on this hardware, which is plenty for SMW transitions (entrance / checkpoint / exit all sustain across many frames).
+- `replay_max_keep = "99"` and `run_ahead_secondary_instance = "true"` documented as required cfg in README.
 
-**Remaining for option (b) full parity:**
-- **Throttle playback speed via NCI** so the production poller can keep up. Under uncapped playback the poller hits ~32Hz instead of 60Hz, missing transitions during segment capture. `test_poller_runs_during_playback` and `test_replay_fixture` xfail on this. NCI candidates: `slowmotion_ratio`, `--speed=` flag, or temp cfg override. Once landed, both xfails should auto-clear (strict=False).
+**Things the original 2026-05-09 punch list got wrong:**
+- The "throttle playback via slowmotion" prescription was based on a faulty diagnosis. SLOWMOTION via NCI actually *worsens* poll throughput (live-measured: 32Hz unthrottled → 6Hz with slowmotion on; whatever RA does internally during slowmotion contends with NCI more, not less). And 32Hz is fine for transition detection regardless. No throttle is needed.
+- The "no segments captured" failure mode that motivated the throttle hypothesis was actually a separate `paused_run_id` race in `capture/reference.py::stop_replay` — `_end_current_session` ran twice (once via `ReplayFinishedEvent`, once at the end of `stop_replay`), and the second call wiped the paused state the event had just set. Fixed by removing the redundant call.
+
+**Outstanding follow-ups (none gating daily-driver use):**
+- Replay slot resolution still log-parses RA's text output. Fragile but works (see `slot-management.md`).
+- Dashboard's `-L core rom` launch path is still broken on the patched RA — workaround is menu-load, separate issue.
 - `.spinrec` → `.replay` converter — low priority; Andrew has acknowledged re-recording is acceptable.
-
-**Resolved 2026-05-09:** the BSV+SAVE_STATE-during-record bug (slot-management.md) is fixed on a vendored RA build at `C:/RetroArch-Win64-fixed/`. Root cause was a one-line C99 update-mode violation in upstream `replay_get_serialized_data`; fix is `intfstream_seek(handle->file, file_end, SEEK_SET)` after the read. Verified end-to-end: `count_replay_frames.py` shows `parsed=1201, header=1201, MATCH` for a 20s recording with three saves. See `upstream-fix-findings-2026-05-09.md` and memory `project_ra_vendored_build.md`.
 
 Phase E's planning artifacts: spec at [`docs/superpowers/specs/2026-05-08-phase-e-movie-replay-design.md`](../superpowers/specs/2026-05-08-phase-e-movie-replay-design.md), plan at [`docs/superpowers/plans/2026-05-08-phase-e-movie-replay.md`](../superpowers/plans/2026-05-08-phase-e-movie-replay.md). The 2026-05-06 frozen spec is now historical context only.
 
@@ -105,6 +108,6 @@ Phase G shipped and the Mesen backend is gone. The remaining items below are qua
 3. Practice loop runs N segments, reload-on-death after every death. ⚠ second-death failure unresolved
 4. Cold-fill captures cold variants for cp-respawn hacks. ✓ field-confirmed (2026-05-08)
 5. Speed-run mode runs a full level start-to-finish with checkpoint splits. Untested on RA.
-6. Replay loads a `.replay` and reproduces transitions identically. ⚠ partial — isolated playback deterministic; segment capture during replay xfailed on poller starvation. (BSV+SAVE_STATE blocker resolved 2026-05-09; only the throttle remains.)
-7. Full pytest suite green. ✓ (Phase E xfails are intentional, strict=False)
+6. Replay loads a `.replay` and reproduces transitions identically. ✓ end-to-end on patched RA (2026-05-10): `test_replay_fixture` un-xfailed; `MoviePlayer` + orchestrator + capture pipeline all work together to produce 2 segments from `one_level.replay`.
+7. Full pytest suite green. ✓ no Phase E xfails remaining
 8. At least one full real speedrun (e.g. "Love Yourself" any%) completed end-to-end with no manual workaround. Untested.

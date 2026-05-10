@@ -517,18 +517,31 @@ class ReferenceController:
     async def stop_replay(self, mode: Mode) -> ActionResult:
         if mode != Mode.REPLAY:
             raise NotReplayingError()
+        # Snapshot run_id BEFORE sending the command. send_command awaits and
+        # yields control; the resulting ReplayFinishedEvent runs the event
+        # loop's handle_replay_finished, which calls _end_current_session and
+        # transitions the recorder to paused (if segments were captured) or
+        # idle (if not). After that, recorder.capture_run_id is None — so
+        # capturing it here is the only reliable way to know what run we
+        # just ended.
+        run_id = self.recorder.capture_run_id
         if self.tcp.is_connected:
             await self.tcp.send_command(ReplayStopCmd())
-        run_id = self.recorder.capture_run_id
-        seg_count = self.db.conn.execute(
-            "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
-            (run_id,),
-        ).fetchone()[0] if run_id else 0
-        self._end_current_session(end_reason="stopped")
-        if run_id and seg_count == 0:
-            # Nothing captured — no value in keeping the run; delete it.
-            self.db.hard_delete_capture_run(run_id)
-            self._enter_idle()
+        # Do NOT call _end_current_session here: handle_replay_finished
+        # already ran from the event flow and drove the paused/idle
+        # transition. A second call would see an empty recorder and run
+        # _enter_idle, wiping the paused_run_id the event handler just set.
+        if run_id:
+            seg_count = self.db.conn.execute(
+                "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
+                (run_id,),
+            ).fetchone()[0]
+            if seg_count == 0:
+                # Nothing captured — no value in keeping the run; delete it.
+                # The event handler also drops to idle on no-segments via the
+                # draft check, but we still need to delete the empty draft row.
+                self.db.hard_delete_capture_run(run_id)
+                self._enter_idle()
         # If segments were captured, the run stays paused so the user can finalize.
         # recover_paused_capture_run excludes replay_ IDs, so this won't clobber
         # real paused reference runs on the next dashboard restart.
