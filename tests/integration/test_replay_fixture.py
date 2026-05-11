@@ -54,29 +54,22 @@ def _wait_for_replay_mode(base_url: str, timeout: float = 15.0) -> dict:
 
 def _wait_for_idle_with_progress(
     base_url: str,
-    expected_frames: int,
+    expected_segments: int,
     timeout: float = REPLAY_TIMEOUT_S,
-) -> tuple[dict, float, int]:
-    """Poll until mode returns to idle, tracking replay frame progress.
+) -> tuple[dict, float]:
+    """Poll until all expected segments have been captured, then stop the replay.
 
     With the RA backend, the orchestrator emits ReplayFinishedEvent only when
     /api/replay/stop is called explicitly — there is no automatic detection of
-    when RA finishes playback (RA does not signal the orchestrator).  This
-    helper therefore monitors elapsed time against expected_frames / 60fps and
-    calls /api/replay/stop once that wall-clock window has passed, triggering
-    the session_manager's mode transition to idle.
+    when RA finishes playback. This helper gates on the actual content milestone
+    (``sections_captured == expected_segments``) rather than a wall-clock window
+    so the test runs as fast as RA's playback rate allows. Under fast-forward,
+    that drops from ~38s to a few seconds.
 
-    Returns (final_state, elapsed_seconds, max_frame_seen).
+    Returns (final_state, elapsed_seconds).
     """
-    # How long the replay content should take at 60fps (plus a 20% margin
-    # for RA startup lag and OS scheduling).  This is the earliest we'll
-    # call /api/replay/stop.
-    FRAMES_PER_SEC = 60
-    replay_duration_s = (expected_frames / FRAMES_PER_SEC) * 1.2
-
     deadline = time.monotonic() + timeout
     start = time.monotonic()
-    max_frame = 0
     state: dict = {}
     stop_sent = False
 
@@ -86,32 +79,29 @@ def _wait_for_idle_with_progress(
     while time.monotonic() < deadline:
         resp = _api(base_url, "get", "/api/state")
         state = resp.json()
-        replay = state.get("replay")
-        if replay and replay.get("frame", 0) > max_frame:
-            max_frame = replay["frame"]
         elapsed = time.monotonic() - start
+        sections = state.get("sections_captured")
         _diag.info(
-            "replay poll: elapsed=%.1fs mode=%s sections=%s frame=%s",
-            elapsed,
-            state.get("mode"),
-            state.get("sections_captured"),
-            replay.get("frame") if replay else "N/A",
+            "replay poll: elapsed=%.1fs mode=%s sections=%s",
+            elapsed, state.get("mode"), sections,
         )
         if state.get("mode") == "idle":
-            return state, elapsed, max_frame
+            return state, elapsed
 
-        # After the expected replay duration, explicitly stop so the orchestrator
-        # emits ReplayFinishedEvent and the session transitions to idle.
-        if not stop_sent and elapsed >= replay_duration_s:
-            _diag.info("replay poll: sending explicit /api/replay/stop at %.1fs", elapsed)
+        # As soon as the expected segments have been captured, stop the replay.
+        # RA may still be running the post-goal tail of the .replay file when we
+        # send /api/replay/stop — that's fine; the segments we care about are
+        # already in the DB.
+        if not stop_sent and sections is not None and sections >= expected_segments:
+            _diag.info("replay poll: all %d segments captured at %.1fs — stopping",
+                       expected_segments, elapsed)
             _api(base_url, "post", "/api/replay/stop")
             stop_sent = True
 
         time.sleep(POLL_INTERVAL_S)
     pytest.fail(
-        f"Replay did not finish within {timeout}s. "
+        f"Replay did not produce {expected_segments} segments within {timeout}s. "
         f"Last state: mode={state.get('mode')}, "
-        f"replay={state.get('replay')}, "
         f"sections_captured={state.get('sections_captured')}"
     )
 
@@ -184,17 +174,13 @@ class TestReplayFixture:
             f"Expected replay total={self.expected_frames}, got {replay.get('total')}"
         )
 
-        idle_state, elapsed_s, max_frame = _wait_for_idle_with_progress(
-            self.base_url, expected_frames=self.expected_frames
+        idle_state, elapsed_s = _wait_for_idle_with_progress(
+            self.base_url, expected_segments=self.expected_segments
         )
 
-        # NOTE: with the RA backend, ReplayProgressEvent is not emitted (the
-        # orchestrator has no mechanism to observe frame-by-frame replay progress
-        # from NCI). max_frame will always be 0 here. The real end-to-end
-        # verification is the segment count assertion below: if segments were
-        # captured, the poller detected transitions during playback.
-
-        # Replay should complete well under the timeout.
+        # Replay should complete well under the timeout. Under fast-forward
+        # the 2273-frame movie typically finishes in a few seconds on a modern
+        # host (vs ~38s at native 60fps).
         assert elapsed_s < REPLAY_TIMEOUT_S, (
             f"Replay took {elapsed_s:.1f}s — expected under {REPLAY_TIMEOUT_S}s"
         )

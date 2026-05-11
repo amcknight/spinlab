@@ -49,6 +49,7 @@ class FakeRAClient:
         self.play_movie_calls: list[Path] = []
         self.press_calls: list[tuple[RAHotkey, int]] = []
         self.reset_calls = 0
+        self.fast_forward_toggles = 0
         self.connect_calls = 0
         self.disconnect_calls = 0
         self.read_ram_calls: list[tuple[int, int]] = []
@@ -162,6 +163,9 @@ class FakeRAClient:
     async def reset(self) -> None:
         self.reset_calls += 1
         await self.press(RAHotkey.RESET, taps=2)
+
+    def fast_forward_toggle(self) -> None:
+        self.fast_forward_toggles += 1
 
 
 class FakePoller:

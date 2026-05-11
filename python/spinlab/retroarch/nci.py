@@ -185,6 +185,20 @@ class NCIClient:
         """Toggle paused state."""
         self._send_no_reply("PAUSE_TOGGLE")
 
+    def fast_forward_toggle(self) -> None:
+        """Toggle fast-forward state.
+
+        RA runs the emulation as fast as the host CPU allows while
+        fast-forward is on. Honoured during PLAY_REPLAY — used to drop the
+        end-to-end replay-fixture test from real-time playback (~38s for a
+        2273-frame movie at 60fps) to host-bound playback (~3-5s).
+
+        Toggle semantics: every call flips the state. There's no NCI command
+        to query the current state, so callers must track whether they
+        toggled it on themselves and toggle it back off symmetrically.
+        """
+        self._send_no_reply("FAST_FORWARD")
+
     def frame_advance(self) -> None:
         """Advance one frame (only meaningful while paused)."""
         self._send_no_reply("FRAMEADVANCE")

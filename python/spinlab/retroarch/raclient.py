@@ -731,6 +731,14 @@ class RAClient:
         """
         await self.press(RAHotkey.RESET, taps=2)
 
+    def fast_forward_toggle(self) -> None:
+        """Toggle RA's fast-forward state. See ``NCIClient.fast_forward_toggle``
+        for semantics; the orchestrator uses this around ``PLAY_REPLAY`` so
+        ``speed=SPEED_UNCAPPED`` actually runs uncapped instead of being a
+        no-op hint that died with the Mesen/Lua era.
+        """
+        self._nci.fast_forward_toggle()
+
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -106,6 +106,67 @@ Legitimate remaining TCP/Mesen/Lua references (intentionally kept):
 - `tests/integration/conftest.py:412` — "RA backend uses NCI, not TCP"
   (accurate technical note on why a stale config field is unused)
 
+## Pass 3 — Emulator-suite speedup (2026-05-11 evening)
+
+Two surgical changes cut the full suite from ~190s → ~90s (-55%):
+
+**B. Wire `FAST_FORWARD` to `cmd.speed=SPEED_UNCAPPED`.** Discovered
+that `ReplayCmd.speed` was dead data: the orchestrator's `_on_replay`
+called `play_movie` and ignored the speed field. Lua used to honour it;
+the RA port never wired it. Added `NCIClient.fast_forward_toggle()`,
+exposed it on `RAClient`, and the orchestrator now toggles RA into
+fast-forward when `speed == SPEED_UNCAPPED` (which the replay test
+already passes) and toggles it back on stop. Symmetric — every call
+flips state, and there's no NCI command to query it.
+
+Independent fix: the replay test's `_wait_for_idle_with_progress`
+was hardcoded to a 45s wall-clock wait (2273 frames / 60fps × 1.2)
+before sending `/api/replay/stop`. That masked any RA-side speedup.
+Rewrote to gate on `sections_captured >= expected_segments` (the actual
+content milestone) and stop the moment RA has produced what we
+asserted on. Combined effect on the replay test: 47s → ~3s call /
+~9s total.
+
+**A. Batch `read_snapshot` reads.** Was 11 individual `READ_CORE_RAM`
+NCI calls per snapshot (one per address). Clustered into 6 contiguous
+ranges:
+
+- `$0071..$010B` (155B): `player_anim`, `game_mode`, `room_num`
+- `$0906..$0DD5` (1232B): `fanfare`, `exit_mode`
+- `$13BF..$13CE` (16B): `level_num`, `boss_defeat`, `midway`
+- `$1935`, `$1DFB`, `$1B403` (1B each): three loners far apart
+
+Saves 5 UDP round-trips per snapshot. Each transition test does this
+~65 times per scenario, so the test-suite impact is ~30% per test
+(~12s → ~6-8s). Production poller benefit too — the 60Hz `read_snapshot`
+in `python/spinlab/retroarch/poller.py` consumes the same function;
+the status doc mentions a "32 Hz observed" rate concern that this
+should mitigate. Per-byte ROM-overwrite semantics are unchanged (we
+still read whatever the ROM has put there).
+
+**Per-test before/after**:
+
+| Test | Before | After |
+|---|---|---|
+| `test_replay_produces_segments` | 47s | 3s call / 9s total |
+| 9× `test_transitions.py::*` | ~12s each | ~6-8s each |
+| **Emulator suite** | **171s** | **70s** (-59%) |
+| **Full suite** | **190s** | **86s** (-55%) |
+
+**Not done (deferred):**
+
+- C. Per-scenario `settle_frames` tuning (each transition scenario
+  currently waits 60 frames after the last poke; many transitions
+  complete in <20). Estimated additional ~5-10s. Skipped: the
+  suite is already fast enough that this isn't load-bearing.
+- D. `pytest-xdist` parallelism. The transition tests are isolated
+  (each `run_scenario` re-zeroes `ADDR_MAP` and uses its own
+  `TransitionDetector`); two harnesses coexist (see
+  `test_harness_isolation.py`). Dynamic UDP port allocation per
+  harness means k workers ≡ k RA processes on distinct ports.
+  Ceiling: ~70s → ~30s with 4 workers. Skipped: the 86s full
+  suite is comfortably under the "run every commit" threshold.
+
 ---
 
 ## 1. Test-category dashboard

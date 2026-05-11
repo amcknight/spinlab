@@ -17,6 +17,7 @@ from pathlib import Path
 
 from spinlab.condition_registry import ConditionRegistry
 from spinlab.protocol import (
+    SPEED_UNCAPPED,
     ColdFillLoadCmd,
     FillGapLoadCmd,
     PracticeLoadCmd,
@@ -91,6 +92,12 @@ class RetroArchOrchestrator:
         # Active recording/playback handles, set between start/stop.
         self._active_recording: MovieRecording | None = None
         self._active_playback: MoviePlayback | None = None
+
+        # Tracks whether we toggled RA into fast-forward during the current
+        # replay so the stop path can toggle it back. NCI's FAST_FORWARD is a
+        # flip with no state query, so symmetric toggling is the only safe
+        # way to drive it from code.
+        self._fast_forwarding: bool = False
 
         # Suppress the "NCI not reachable" warning after the first one in a
         # disconnect streak. The dashboard's event_loop polls connect() every
@@ -308,13 +315,21 @@ class RetroArchOrchestrator:
             self.on_poller_event(ReplayErrorEvent(message=str(exc)))
             return
 
+        # Honor cmd.speed=SPEED_UNCAPPED by toggling RA into fast-forward.
+        # RA's default is 60fps real-time playback; uncapped lets the host
+        # CPU run the core as fast as it can — replay-fixture test drops
+        # from ~47s (2273 frames @ 60fps) to a few seconds.
+        if cmd.speed == SPEED_UNCAPPED:
+            await asyncio.to_thread(self._raclient.fast_forward_toggle)
+            self._fast_forwarding = True
+
         self.on_poller_event(ReplayStartedEvent(
             path=str(movie_path),
             frame_count=self._active_playback.frame_count,
         ))
         logger.info(
-            "Movie replay started: %s (frames=%d)",
-            movie_path, self._active_playback.frame_count,
+            "Movie replay started: %s (frames=%d, fast_forward=%s)",
+            movie_path, self._active_playback.frame_count, self._fast_forwarding,
         )
 
     async def _on_replay_stop(self, cmd: ReplayStopCmd) -> None:
@@ -327,6 +342,10 @@ class RetroArchOrchestrator:
             logger.warning("Movie replay failed to stop: %s", exc)
         finally:
             self._active_playback = None
+            if self._fast_forwarding:
+                # Symmetric toggle: every FAST_FORWARD flips state.
+                await asyncio.to_thread(self._raclient.fast_forward_toggle)
+                self._fast_forwarding = False
         self.on_poller_event(ReplayFinishedEvent())
         logger.info("Movie replay stopped")
 
