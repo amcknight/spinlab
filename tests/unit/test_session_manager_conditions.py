@@ -1,19 +1,19 @@
 # tests/test_session_manager_conditions.py
-"""Tests for condition registry loading and TCP push wired into SessionManager."""
+"""Tests for condition registry loading and backend command wired into SessionManager."""
 
 
 from spinlab.protocol import RomInfoEvent, SetConditionsCmd
 from spinlab.session_manager import SessionManager
 
 
-def make_sm(mock_db, mock_tcp, **kwargs):
-    defaults = dict(db=mock_db, tcp=mock_tcp, rom_dir=None, default_category="any%")
+def make_sm(mock_db, mock_emu, **kwargs):
+    defaults = dict(db=mock_db, emu=mock_emu, rom_dir=None, default_category="any%")
     defaults.update(kwargs)
     return SessionManager(**defaults)
 
 
 class TestInstallConditionRegistry:
-    async def test_loads_registry_and_sets_on_capture(self, mock_db, mock_tcp, tmp_path):
+    async def test_loads_registry_and_sets_on_capture(self, mock_db, mock_emu, tmp_path):
         """install_condition_registry populates capture.condition_registry."""
         games_dir = tmp_path / "games" / "abc123"
         games_dir.mkdir(parents=True)
@@ -27,7 +27,7 @@ class TestInstallConditionRegistry:
             "    scope: game\n"
         )
 
-        sm = make_sm(mock_db, mock_tcp)
+        sm = make_sm(mock_db, mock_emu)
         # Patch games_root so load_registry_for_game finds the tmp dir.
         from spinlab import condition_registry as cr_mod
         orig_default = cr_mod.load_registry_for_game.__defaults__
@@ -51,9 +51,9 @@ class TestInstallConditionRegistry:
         assert sm.capture.condition_registry.definitions[0].name == "powerup"
 
     async def testinstall_condition_registry_sends_set_conditions_when_connected(
-        self, mock_db, mock_tcp, tmp_path, monkeypatch
+        self, mock_db, mock_emu, tmp_path, monkeypatch
     ):
-        """install_condition_registry sends set_conditions over TCP when connected."""
+        """install_condition_registry sends set_conditions over the backend when connected."""
         games_dir = tmp_path / "games" / "mygame"
         games_dir.mkdir(parents=True)
         (games_dir / "conditions.yaml").write_text(
@@ -66,8 +66,8 @@ class TestInstallConditionRegistry:
             "    scope: game\n"
         )
 
-        sm = make_sm(mock_db, mock_tcp)
-        mock_tcp.is_connected = True
+        sm = make_sm(mock_db, mock_emu)
+        mock_emu.is_connected = True
 
         # Monkeypatch load_registry_for_game to use the tmp games dir.
         import spinlab.condition_registry as cr_mod
@@ -84,9 +84,9 @@ class TestInstallConditionRegistry:
         # Registry should be set on capture controller.
         assert len(sm.capture.condition_registry.definitions) == 1
 
-        # TCP send_command should have been called — find the set_conditions call.
-        assert mock_tcp.send_command.called
-        sent_cmds = [c[0][0] for c in mock_tcp.send_command.call_args_list]
+        # send_command should have been called — find the set_conditions call.
+        assert mock_emu.send_command.called
+        sent_cmds = [c[0][0] for c in mock_emu.send_command.call_args_list]
         cond_cmds = [c for c in sent_cmds if isinstance(c, SetConditionsCmd)]
         assert len(cond_cmds) == 1
         payload = cond_cmds[0].definitions
@@ -96,11 +96,11 @@ class TestInstallConditionRegistry:
         assert payload[0]["size"] == 1
 
     async def testinstall_condition_registry_no_send_when_empty(
-        self, mock_db, mock_tcp, tmp_path, monkeypatch
+        self, mock_db, mock_emu, tmp_path, monkeypatch
     ):
         """install_condition_registry sends nothing when the registry is empty."""
-        sm = make_sm(mock_db, mock_tcp)
-        mock_tcp.is_connected = True
+        sm = make_sm(mock_db, mock_emu)
+        mock_emu.is_connected = True
 
         import spinlab.condition_registry as cr_mod
         monkeypatch.setattr(
@@ -111,12 +111,12 @@ class TestInstallConditionRegistry:
 
         await sm.install_condition_registry("unknown_game")
 
-        mock_tcp.send_command.assert_not_called()
+        mock_emu.send_command.assert_not_called()
 
     async def testinstall_condition_registry_no_send_when_disconnected(
-        self, mock_db, mock_tcp, tmp_path, monkeypatch
+        self, mock_db, mock_emu, tmp_path, monkeypatch
     ):
-        """install_condition_registry skips TCP send when not connected."""
+        """install_condition_registry skips backend send when not connected."""
         games_dir = tmp_path / "games" / "mygame"
         games_dir.mkdir(parents=True)
         (games_dir / "conditions.yaml").write_text(
@@ -129,8 +129,8 @@ class TestInstallConditionRegistry:
             "    scope: game\n"
         )
 
-        sm = make_sm(mock_db, mock_tcp)
-        mock_tcp.is_connected = False
+        sm = make_sm(mock_db, mock_emu)
+        mock_emu.is_connected = False
 
         import spinlab.condition_registry as cr_mod
         monkeypatch.setattr(
@@ -143,18 +143,18 @@ class TestInstallConditionRegistry:
 
         await sm.install_condition_registry("mygame")
 
-        # Registry still set, but no TCP send.
+        # Registry still set, but no backend send.
         assert len(sm.capture.condition_registry.definitions) == 1
-        mock_tcp.send_command.assert_not_called()
+        mock_emu.send_command.assert_not_called()
 
-    async def test_rom_info_triggers_install(self, mock_db, mock_tcp, tmp_path, monkeypatch):
+    async def test_rom_info_triggers_install(self, mock_db, mock_emu, tmp_path, monkeypatch):
         """rom_info event calls install_condition_registry for the resolved game_id."""
         rom_file = tmp_path / "roms" / "test.sfc"
         rom_file.parent.mkdir(parents=True)
         rom_file.write_bytes(b"\x00" * 512)
 
-        sm = make_sm(mock_db, mock_tcp, rom_dir=tmp_path / "roms")
-        mock_tcp.is_connected = True
+        sm = make_sm(mock_db, mock_emu, rom_dir=tmp_path / "roms")
+        mock_emu.is_connected = True
 
         installed = []
 

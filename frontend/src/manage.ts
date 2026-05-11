@@ -43,7 +43,7 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
 
   const noRefs = refs.length === 0;
   sel.disabled = busy || pausedRun != null;
-  btnStart.disabled = busy || pausedRun != null || !lastState?.tcp_connected;
+  btnStart.disabled = busy || pausedRun != null || !lastState?.emu_connected;
   (document.getElementById("btn-ref-rename") as HTMLButtonElement).disabled =
     busy || pausedRun != null || noRefs;
   (document.getElementById("btn-ref-delete") as HTMLButtonElement).disabled =
@@ -59,7 +59,7 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
   }
 
   (document.getElementById("btn-resume") as HTMLButtonElement).disabled =
-    !pausedRun || recording || !lastState?.tcp_connected;
+    !pausedRun || recording || !lastState?.emu_connected;
   (document.getElementById("btn-save-and-finish") as HTMLButtonElement).disabled =
     !pausedRun;
   (document.getElementById("btn-discard-run") as HTMLButtonElement).disabled =
@@ -95,7 +95,7 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
   const selectedRef = refs.find((r) => r.id === sel.value);
   const hasReplayable = !!selectedRef?.has_replay;
   btnReplay.disabled =
-    busy || pausedRun != null || !hasReplayable || !lastState?.tcp_connected;
+    busy || pausedRun != null || !hasReplayable || !lastState?.emu_connected;
 
   const cfBanner = document.getElementById("cold-fill-banner") as HTMLElement | null;
   if (cfBanner) {
@@ -235,7 +235,7 @@ export function initManageTab(): void {
   });
 
   document.getElementById("btn-ref-start")!.addEventListener("click", () => {
-    if (!lastState?.tcp_connected) return;
+    if (!lastState?.emu_connected) return;
     postJSON("/api/reference/start");
   });
 

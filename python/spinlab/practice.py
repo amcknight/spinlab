@@ -27,14 +27,14 @@ class PracticeSession:
 
     def __init__(
         self,
-        tcp: "EmuBackend",
+        emu: "EmuBackend",
         db: "Database",
         game_id: str,
         auto_advance_delay_ms: int = 1000,
         death_penalty_ms: int = 3200,
         on_attempt: Callable | None = None,
     ) -> None:
-        self.tcp = tcp
+        self.emu = emu
         self.db = db
         self.game_id = game_id
         self.auto_advance_delay_ms = auto_advance_delay_ms
@@ -138,7 +138,7 @@ class PracticeSession:
         if not path:
             return
         try:
-            await self.tcp.load_state(path)
+            await self.emu.load_state(path)
         except Exception:
             logger.exception("practice: load_state on death failed (path=%s)", path)
 
@@ -189,7 +189,7 @@ class PracticeSession:
         logger.info("practice: loading segment=%s label=%r state=%s",
                      cmd.id, label, cmd.state_path)
 
-        await self.tcp.send_command(PracticeLoadCmd(
+        await self.emu.send_command(PracticeLoadCmd(
             id=cmd.id,
             state_path=cmd.state_path,
             description=cmd.description,
@@ -203,7 +203,7 @@ class PracticeSession:
         self._result_event.clear()
         self._result_data = None
 
-        while self.is_running and self.tcp.is_connected:
+        while self.is_running and self.emu.is_connected:
             try:
                 await asyncio.wait_for(self._result_event.wait(), timeout=SEGMENT_LOAD_TIMEOUT_S)
                 break
@@ -241,12 +241,12 @@ class PracticeSession:
         """Run the full practice loop until stopped or no splits."""
         self.start()
         try:
-            while self.is_running and self.tcp.is_connected:
+            while self.is_running and self.emu.is_connected:
                 if not await self.run_one():
                     break
         finally:
             try:
-                await self.tcp.send_command(PracticeStopCmd())
+                await self.emu.send_command(PracticeStopCmd())
             except (ConnectionError, OSError):
                 pass
             self.stop()

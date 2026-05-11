@@ -16,7 +16,7 @@ import type {
 
 const IDLE_STATE: AppState = {
   mode: "idle",
-  tcp_connected: true,
+  emu_connected: true,
   game_id: "smw-kaizo",
   game_name: "Kaizo Mario World",
   current_segment: null,
@@ -33,7 +33,7 @@ const IDLE_STATE: AppState = {
 
 const PRACTICE_STATE: AppState = {
   mode: "practice",
-  tcp_connected: true,
+  emu_connected: true,
   game_id: "smw-kaizo",
   game_name: "Kaizo Mario World",
   current_segment: {

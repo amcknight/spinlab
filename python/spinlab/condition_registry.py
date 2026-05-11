@@ -139,8 +139,8 @@ class ConditionRegistry:
         — concretely, an ``NCIClient``, but the dependency is duck-typed so
         this module stays independent of the RA package.
 
-        Two-byte values are decoded little-endian (matches Mesen's
-        ``emu.readWord`` convention).
+        Two-byte values are decoded little-endian (matching SNES native word
+        order, which is what every condition author expects).
         """
         out: dict[str, int] = {}
         for d in self.definitions:

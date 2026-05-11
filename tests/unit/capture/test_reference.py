@@ -1,7 +1,7 @@
 """Tests for ReferenceController orchestration logic.
 
-Uses a real SQLite Database (tmp_path) and FakeTcpManager to exercise the
-controller's real interactions with the DB schema and TCP protocol.
+Uses a real SQLite Database (tmp_path) and FakeEmuBackend to exercise the
+controller's real interactions with the DB schema and backend protocol.
 Mocking both collaborators would reduce these to tautology tests.
 """
 import pytest
@@ -36,8 +36,8 @@ def db(tmp_path):
 
 
 @pytest.fixture
-def controller(db, fake_tcp):
-    return ReferenceController(db, fake_tcp)
+def controller(db, fake_emu):
+    return ReferenceController(db, fake_emu)
 
 
 class TestStartReference:
@@ -54,17 +54,17 @@ class TestStartReference:
         with pytest.raises(AlreadyReplayingError):
             await controller.start_reference(Mode.REPLAY, "g1", tmp_path)
 
-    async def test_guard_not_connected(self, controller, tmp_path, fake_tcp):
-        fake_tcp.is_connected = False
+    async def test_guard_not_connected(self, controller, tmp_path, fake_emu):
+        fake_emu.is_connected = False
         with pytest.raises(NotConnectedError):
             await controller.start_reference(Mode.IDLE, "g1", tmp_path)
 
-    async def test_happy_path(self, controller, tmp_path, fake_tcp):
+    async def test_happy_path(self, controller, tmp_path, fake_emu):
         result = await controller.start_reference(Mode.IDLE, "g1", tmp_path, run_name="my run")
         assert result.status == Status.STARTED
         assert result.new_mode == Mode.REFERENCE
-        assert len(fake_tcp.sent_commands) == 1
-        assert isinstance(fake_tcp.sent_commands[0], ReferenceStartCmd)
+        assert len(fake_emu.sent_commands) == 1
+        assert isinstance(fake_emu.sent_commands[0], ReferenceStartCmd)
         assert controller.recorder.capture_run_id is not None
 
 
@@ -73,7 +73,7 @@ class TestStopReference:
         with pytest.raises(NotInReferenceError):
             await controller.stop_reference(Mode.IDLE)
 
-    async def test_happy_path_pauses_run(self, controller, tmp_path, fake_tcp, db):
+    async def test_happy_path_pauses_run(self, controller, tmp_path, fake_emu, db):
         await controller.start_reference(Mode.IDLE, "g1", tmp_path)
         run_id = controller.recorder.capture_run_id
 
@@ -81,7 +81,7 @@ class TestStopReference:
 
         assert result.status == Status.STOPPED
         assert result.new_mode == Mode.IDLE
-        stop_cmds = [c for c in fake_tcp.sent_commands if isinstance(c, ReferenceStopCmd)]
+        stop_cmds = [c for c in fake_emu.sent_commands if isinstance(c, ReferenceStopCmd)]
         assert len(stop_cmds) == 1
         assert controller.paused_run_id == run_id
         row = db.conn.execute(
@@ -99,11 +99,11 @@ class TestStartReplay:
         with pytest.raises(AlreadyReplayingError):
             await controller.start_replay(Mode.REPLAY, "g1", "/tmp/foo.spinrec")
 
-    async def test_happy_path(self, controller, fake_tcp):
+    async def test_happy_path(self, controller, fake_emu):
         result = await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec", speed=2)
         assert result.status == Status.STARTED
         assert result.new_mode == Mode.REPLAY
-        replay_cmds = [c for c in fake_tcp.sent_commands if isinstance(c, ReplayCmd)]
+        replay_cmds = [c for c in fake_emu.sent_commands if isinstance(c, ReplayCmd)]
         assert len(replay_cmds) == 1
         assert replay_cmds[0].path == "/tmp/foo.spinrec"
         assert replay_cmds[0].speed == 2
@@ -114,7 +114,7 @@ class TestStopReplay:
         with pytest.raises(NotReplayingError):
             await controller.stop_replay(Mode.IDLE)
 
-    async def test_no_segments_hard_deletes_run(self, controller, db, fake_tcp):
+    async def test_no_segments_hard_deletes_run(self, controller, db, fake_emu):
         await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
         run_id = controller.recorder.capture_run_id
 
@@ -241,8 +241,8 @@ class TestHandleDisconnect:
 
 
 class TestStartFillGap:
-    async def test_not_connected(self, controller, fake_tcp):
-        fake_tcp.is_connected = False
+    async def test_not_connected(self, controller, fake_emu):
+        fake_emu.is_connected = False
         with pytest.raises(NotConnectedError):
             await controller.start_fill_gap("seg1")
 
@@ -262,7 +262,7 @@ class TestStartFillGap:
         with pytest.raises(NoHotVariantError):
             await controller.start_fill_gap("seg1")
 
-    async def test_happy_path(self, controller, db, tmp_path, fake_tcp):
+    async def test_happy_path(self, controller, db, tmp_path, fake_emu):
         wp_start = Waypoint.make("g1", 1, "entrance", 0, {})
         wp_end = Waypoint.make("g1", 1, "goal", 0, {})
         db.upsert_waypoint(wp_start)
@@ -284,7 +284,7 @@ class TestStartFillGap:
         result = await controller.start_fill_gap("seg1")
         assert result.status == Status.STARTED
         assert result.new_mode == Mode.FILL_GAP
-        fill_cmds = [c for c in fake_tcp.sent_commands if isinstance(c, FillGapLoadCmd)]
+        fill_cmds = [c for c in fake_emu.sent_commands if isinstance(c, FillGapLoadCmd)]
         assert len(fill_cmds) == 1
         assert fill_cmds[0].state_path == str(state_file)
 
@@ -432,35 +432,35 @@ class TestSaveOnEvent:
     while recording. Replaces the orchestrator's _maybe_save_state_for hook."""
 
     async def test_handle_entrance_saves_state_when_recording(
-        self, controller, fake_tcp,
+        self, controller, fake_emu,
     ):
         from spinlab.protocol import LevelEntranceEvent
         controller._enter_recording("run_x", "sess_x")
         await controller.handle_entrance(LevelEntranceEvent(level=5, room=2))
-        assert fake_tcp.save_state_calls == ["entrance_5_2"]
+        assert fake_emu.save_state_calls == ["entrance_5_2"]
 
     async def test_handle_entrance_does_not_save_when_idle(
-        self, controller, fake_tcp,
+        self, controller, fake_emu,
     ):
         from spinlab.protocol import LevelEntranceEvent
         await controller.handle_entrance(LevelEntranceEvent(level=5, room=2))
-        assert fake_tcp.save_state_calls == []
+        assert fake_emu.save_state_calls == []
 
     async def test_handle_checkpoint_saves_hot_state_when_recording(
-        self, controller, fake_tcp,
+        self, controller, fake_emu,
     ):
         from spinlab.protocol import CheckpointEvent
         controller._enter_recording("run_x", "sess_x")
         await controller.handle_checkpoint(
             CheckpointEvent(level_num=5, cp_ordinal=1), "g1",
         )
-        assert fake_tcp.save_state_calls == ["cp_5_1_hot"]
+        assert fake_emu.save_state_calls == ["cp_5_1_hot"]
 
     async def test_handle_checkpoint_does_not_save_when_idle(
-        self, controller, fake_tcp,
+        self, controller, fake_emu,
     ):
         from spinlab.protocol import CheckpointEvent
         await controller.handle_checkpoint(
             CheckpointEvent(level_num=5, cp_ordinal=1), "g1",
         )
-        assert fake_tcp.save_state_calls == []
+        assert fake_emu.save_state_calls == []

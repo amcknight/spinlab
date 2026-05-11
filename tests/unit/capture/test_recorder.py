@@ -161,7 +161,7 @@ async def test_handle_spawn_event_propagates_timestamp_ms(db, registry):
     """ReferenceController.handle_spawn must pass event.timestamp_ms through to
     the recorder's _last_spawn_ms, otherwise clean_tail_ms is always == time_ms
     for any segment with deaths. Regression test for the multi-session work."""
-    from tests.conftest import FakeTcpManager
+    from tests.conftest import FakeEmuBackend
 
     from spinlab.capture.reference import ReferenceController
     from spinlab.protocol import (
@@ -172,9 +172,9 @@ async def test_handle_spawn_event_propagates_timestamp_ms(db, registry):
     )
     # The module-level `db` fixture already pre-creates game="g1", run="run1",
     # session="sess1" — reuse those rather than building a parallel fixture.
-    # connected=True so handle_entrance's save_state call hits FakeTcpManager
+    # connected=True so handle_entrance's save_state call hits FakeEmuBackend
     # (no-op recorder; we're testing timing, not the save itself).
-    ctl = ReferenceController(db, FakeTcpManager(connected=True))
+    ctl = ReferenceController(db, FakeEmuBackend(connected=True))
     ctl.recorder.capture_run_id = "run1"
     ctl.recorder.current_capture_session_id = "sess1"
 

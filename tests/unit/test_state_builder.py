@@ -10,13 +10,13 @@ from spinlab.session_manager import SessionManager
 from spinlab.speed_run import SpeedRunSession
 
 
-def _make_sm(db, tcp):
-    return SessionManager(db=db, tcp=tcp, rom_dir=None, default_category="any%")
+def _make_sm(db, emu):
+    return SessionManager(db=db, emu=emu, rom_dir=None, default_category="any%")
 
 
 class TestIdleBaseCase:
-    def test_no_game_returns_bare_state(self, practice_db, mock_tcp):
-        sm = _make_sm(practice_db, mock_tcp)
+    def test_no_game_returns_bare_state(self, practice_db, mock_emu):
+        sm = _make_sm(practice_db, mock_emu)
         state = sm.get_state()
 
         assert state["mode"] == "idle"
@@ -30,12 +30,12 @@ class TestIdleBaseCase:
 
 
 class TestSpeedRunBranch:
-    def test_speed_run_populates_current_level(self, practice_db, mock_tcp):
-        sm = _make_sm(practice_db, mock_tcp)
+    def test_speed_run_populates_current_level(self, practice_db, mock_emu):
+        sm = _make_sm(practice_db, mock_emu)
         sm.game_id = "g"
         sm.game_name = "Game"
 
-        sr = SpeedRunSession(tcp=mock_tcp, db=practice_db, game_id="g")
+        sr = SpeedRunSession(emu=mock_emu, db=practice_db, game_id="g")
         sr.segments_recorded = 3
         sr.levels_completed = 2
         sm.speed_run_session = sr
@@ -53,8 +53,8 @@ class TestSpeedRunBranch:
 
 
 class TestColdFillBranch:
-    def test_cold_fill_includes_state(self, practice_db, mock_tcp):
-        sm = _make_sm(practice_db, mock_tcp)
+    def test_cold_fill_includes_state(self, practice_db, mock_emu):
+        sm = _make_sm(practice_db, mock_emu)
         sm.game_id = "g"
         sm.game_name = "Game"
         sm.mode = Mode.COLD_FILL
@@ -77,9 +77,9 @@ class TestColdFillBranch:
         assert state["cold_fill"]["current"] == 4
         assert state["cold_fill"]["total"] == 5
 
-    def test_cold_fill_none_state_omitted(self, practice_db, mock_tcp):
+    def test_cold_fill_none_state_omitted(self, practice_db, mock_emu):
         """When cold_fill has no current segment, no cold_fill key is added."""
-        sm = _make_sm(practice_db, mock_tcp)
+        sm = _make_sm(practice_db, mock_emu)
         sm.game_id = "g"
         sm.game_name = "Game"
         sm.mode = Mode.COLD_FILL
@@ -90,20 +90,20 @@ class TestColdFillBranch:
 
 
 class TestSectionsCaptured:
-    def test_sections_captured_none_when_idle(self, practice_db, mock_tcp):
+    def test_sections_captured_none_when_idle(self, practice_db, mock_emu):
         """sections_captured is None when no active recording session."""
-        sm = _make_sm(practice_db, mock_tcp)
+        sm = _make_sm(practice_db, mock_emu)
         sm.game_id = "g"
         sm.game_name = "Game"
         # No capture_run_id set → None
         state = sm.get_state()
         assert state["sections_captured"] is None
 
-    def test_sections_captured_count_when_recording(self, practice_db, mock_tcp):
+    def test_sections_captured_count_when_recording(self, practice_db, mock_emu):
         """sections_captured reflects DB segment count for the active capture run."""
         from spinlab.models import Mode
 
-        sm = _make_sm(practice_db, mock_tcp)
+        sm = _make_sm(practice_db, mock_emu)
         sm.game_id = "g"
         sm.game_name = "Game"
         sm.mode = Mode.REFERENCE
@@ -135,8 +135,8 @@ class TestSectionsCaptured:
 
 
 class TestDraftBranch:
-    def test_paused_run_state_included_when_active(self, practice_db, mock_tcp):
-        sm = _make_sm(practice_db, mock_tcp)
+    def test_paused_run_state_included_when_active(self, practice_db, mock_emu):
+        sm = _make_sm(practice_db, mock_emu)
         sm.game_id = "g"
         sm.game_name = "Game"
 

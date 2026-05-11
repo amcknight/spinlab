@@ -20,12 +20,13 @@ Efficient practice system for SNES romhack speedrunning. Captures save states at
 
 Red-Green TDD. Keep only tests that document behavior or catch regressions.
 
-- **Fast tests:** `pytest -m "not (emulator or slow or frontend)"` (~23s). Run after any code change.
-- **Slow tests:** `pytest -m slow` (~4s). Run when touching practice loop or timing wait logic.
-- **Emulator tests:** `pytest -m emulator` (~6s). Run when touching RA backend, transition detection, or poke scenarios. Requires RetroArch installed. Includes the RA poke harness (`RAHarness`/`RAPokeEngine`) driving all transition scenarios, movie smoke tests, and the replay fixture test (currently xfailed on poller starvation — see `docs/retroarch-migration/status.md`).
-- **Replay fixture:** `tests/integration/test_replay_fixture.py`. Uses `tests/fixtures/love_yourself/one_level.replay` recorded on live RA. Xfailed until Phase E option (b) (poller starvation + BSV+SAVE_STATE fix).
-- **Static asset tests:** `pytest -m frontend`. Requires `cd frontend && npm run build` first.
-- **Everything:** `python -m pytest` (~30s). **This is the command you must run before reporting work as done.** Not `pytest -m "not ..."`, not a subset — the full unfiltered suite. Fix all failures, even pre-existing ones unrelated to your current work. A red suite is never acceptable.
+Two markers, two suites:
+
+- **Fast tests:** `pytest -m "not emulator"` (~15s, ~790 tests). The default workhorse — runs after every code change. Includes the frontend smoke tests, which require `cd frontend && npm run build` first and a Playwright Chromium install (no `frontend` marker — the environment is assumed).
+- **Emulator tests:** `pytest -m emulator` (~170s, ~12 tests). Requires RetroArch installed. The RA poke harness (`RAHarness`/`RAPokeEngine`) drives every transition scenario, plus the end-to-end replay fixture (`test_replay_fixture.py`).
+- **Everything:** `python -m pytest` (~190s). **This is the command you must run before reporting work as done.** Not `pytest -m "not emulator"`, not a subset — the full unfiltered suite. Fix all failures, even pre-existing ones unrelated to your current work. A red suite is never acceptable.
+
+**Replay fixture:** `tests/integration/test_replay_fixture.py`. Uses `tests/fixtures/love_yourself/one_level.replay` recorded on live RA. Validates the full replay→segment-capture pipeline; expects `state["replay"]["total"]` to populate from `ReplayStartedEvent.frame_count`.
 - **DB reset:** `spinlab db reset [--config config.yaml]` — deletes and recreates the database. Useful after schema changes during development.
 - **Frontend tests:** `cd frontend && npm test` (~2s). Vitest + happy-dom. Pure logic and API contract tests.
 - **Coverage:** `./scripts/coverage.sh` (unit), `--all` (unit+emulator), `--html` (opens report).
@@ -47,10 +48,9 @@ When an emulator/integration test fails, a diagnostic block is automatically app
 - `run_ahead_secondary_instance = "true"` required — single-instance runahead corrupts save state buffers
 - RA `log_to_file = "true"` is required cfg for the log-based replay slot parser in `MoviePlayer` to work
 
-### Address maps (must stay in sync)
+### Address map
 
-- `python/spinlab/retroarch/addresses.py` ADDR_MAP (source of truth)
-- `tests/integration/addresses.py` ADDR_MAP
+`tests/integration/addresses.py` builds `ADDR_MAP` by importing constants from `python/spinlab/retroarch/addresses.py` (the source of truth). New SMW addresses get added once, in the production module; the integration map auto-picks them up.
 
 ## Frontend (TypeScript + Vite)
 

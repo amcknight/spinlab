@@ -169,7 +169,7 @@ class Attempt:
 
 @dataclass
 class SegmentCommand:
-    """Sent from orchestrator to Lua: which segment to load next."""
+    """Practice-loop directive: which segment to load next."""
     id: str
     state_path: str
     description: str

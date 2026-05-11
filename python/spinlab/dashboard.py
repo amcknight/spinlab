@@ -1,4 +1,4 @@
-"""SpinLab dashboard — FastAPI web app, session manager, TCP client."""
+"""SpinLab dashboard — FastAPI web app, session manager, emulator bridge."""
 from __future__ import annotations
 
 import asyncio
@@ -18,22 +18,22 @@ from .session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
 
-TCP_CONNECT_TIMEOUT_S = 2
-TCP_RETRY_DELAY_S = 2
-TCP_EVENT_TIMEOUT_S = 1.0
+EMU_CONNECT_TIMEOUT_S = 2
+EMU_RETRY_DELAY_S = 2
+EMU_EVENT_TIMEOUT_S = 1.0
 SSE_KEEPALIVE_S = 30
 
 
-async def event_loop(session: SessionManager, tcp: EmuBackend) -> None:
-    """Bridge TCP events to SessionManager. Extracted for testability."""
+async def event_loop(session: SessionManager, emu: EmuBackend) -> None:
+    """Bridge backend events to SessionManager. Extracted for testability."""
     while True:
-        if not tcp.is_connected:
-            await tcp.connect(timeout=TCP_CONNECT_TIMEOUT_S)
-            if not tcp.is_connected:
-                await asyncio.sleep(TCP_RETRY_DELAY_S)
+        if not emu.is_connected:
+            await emu.connect(timeout=EMU_CONNECT_TIMEOUT_S)
+            if not emu.is_connected:
+                await asyncio.sleep(EMU_RETRY_DELAY_S)
                 continue
         try:
-            event = await tcp.recv_event(timeout=TCP_EVENT_TIMEOUT_S)
+            event = await emu.recv_event(timeout=EMU_EVENT_TIMEOUT_S)
             if event:
                 await session.route_event(event)
         except Exception:
@@ -56,17 +56,17 @@ def create_app(
         )
 
     from spinlab.retroarch.orchestrator import build_orchestrator
-    tcp: EmuBackend = build_orchestrator(config)
+    emu: EmuBackend = build_orchestrator(config)
     session = SessionManager(
-        db, tcp, config.rom_dir, config.category,
+        db, emu, config.rom_dir, config.category,
         data_dir=config.data_dir,
         invalidate_combo=list(config.practice.invalidate_combo),
     )
-    tcp.on_disconnect = session.on_disconnect
+    emu.on_disconnect = session.on_disconnect
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        task = asyncio.create_task(event_loop(session, tcp))
+        task = asyncio.create_task(event_loop(session, emu))
         yield
         task.cancel()
         await session.shutdown()
@@ -86,7 +86,7 @@ def create_app(
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
     app.state.config = config
-    app.state.tcp = tcp
+    app.state.emu = emu
     app.state.session = session
     app.state.db = db
 

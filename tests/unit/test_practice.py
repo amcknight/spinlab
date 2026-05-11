@@ -17,12 +17,12 @@ from spinlab.scheduler import Scheduler
 async def test_practice_session_picks_and_sends(practice_db):
     """Practice session should pick a segment and send practice_load."""
     seg_id = practice_db._test_seg_id
-    mock_tcp = AsyncMock()
-    mock_tcp.is_connected = True
-    mock_tcp.send = AsyncMock()
-    mock_tcp.send_command = AsyncMock()
+    mock_emu = AsyncMock()
+    mock_emu.is_connected = True
+    mock_emu.send = AsyncMock()
+    mock_emu.send_command = AsyncMock()
 
-    session = PracticeSession(tcp=mock_tcp, db=practice_db, game_id="g")
+    session = PracticeSession(emu=mock_emu, db=practice_db, game_id="g")
     session.is_running = True
 
     # Deliver result via receive_result after a short delay
@@ -38,8 +38,8 @@ async def test_practice_session_picks_and_sends(practice_db):
     await session.run_one()
 
     # Verify practice_load was sent
-    mock_tcp.send_command.assert_called_once()
-    cmd = mock_tcp.send_command.call_args[0][0]
+    mock_emu.send_command.assert_called_once()
+    cmd = mock_emu.send_command.call_args[0][0]
     assert isinstance(cmd, PracticeLoadCmd)
 
     # Verify attempt was logged
@@ -50,7 +50,7 @@ async def test_practice_session_picks_and_sends(practice_db):
 
 @pytest.mark.asyncio
 async def test_practice_session_state(practice_db):
-    session = PracticeSession(tcp=AsyncMock(), db=practice_db, game_id="g")
+    session = PracticeSession(emu=AsyncMock(), db=practice_db, game_id="g")
     assert session.is_running is False
     assert session.current_segment_id is None
     assert session.segments_attempted == 0
@@ -60,14 +60,14 @@ class TestReceiveResult:
     @pytest.mark.asyncio
     async def test_receive_result_unblocks_run_one(self, practice_db):
         """run_one awaits asyncio.Event, receive_result sets it."""
-        tcp = MagicMock()
-        tcp.is_connected = True
-        tcp.send = AsyncMock()
-        tcp.send_command = AsyncMock()
+        emu = MagicMock()
+        emu.is_connected = True
+        emu.send = AsyncMock()
+        emu.send_command = AsyncMock()
 
         seg_id = practice_db._test_seg_id
 
-        ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
         ps.is_running = True
 
         # Schedule receive_result after a short delay
@@ -94,9 +94,9 @@ def test_snapshot_expected_times_at_start(practice_db):
     sched = Scheduler(practice_db, "g")
     sched.process_attempt(seg_id, time_ms=5000, completed=True, deaths=0)
 
-    tcp = AsyncMock()
-    tcp.is_connected = True
-    ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
+    emu = AsyncMock()
+    emu.is_connected = True
+    ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
     ps.start()
 
     assert ps.initial_expected_total_ms is not None
@@ -131,9 +131,9 @@ def test_snapshot_skips_segments_without_state_path(practice_db, tmp_path):
     sched.process_attempt(seg_id, time_ms=5000, completed=True, deaths=0)
     sched.process_attempt(seg2_id, time_ms=8000, completed=True, deaths=0)
 
-    tcp = AsyncMock()
-    tcp.is_connected = True
-    ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
+    emu = AsyncMock()
+    emu.is_connected = True
+    ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
     ps.start()
 
     # Only seg_id had a real state_path; seg2 contributes nothing.
@@ -144,10 +144,10 @@ def test_snapshot_skips_segments_without_state_path(practice_db, tmp_path):
 
 def test_snapshot_all_missing_returns_none(practice_db):
     """When no segment has estimates at session start, both snapshots are None."""
-    tcp = AsyncMock()
-    tcp.is_connected = True
+    emu = AsyncMock()
+    emu.is_connected = True
     # No process_attempt call -> no model state -> no expected_ms
-    ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
+    ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
     ps.start()
 
     assert ps.initial_expected_total_ms is None
@@ -158,11 +158,11 @@ def test_snapshot_all_missing_returns_none(practice_db):
 async def test_practice_session_passes_death_penalty_ms(practice_db):
     """PracticeSession should forward death_penalty_ms to PracticeLoadCmd."""
     seg_id = practice_db._test_seg_id
-    mock_tcp = AsyncMock()
-    mock_tcp.is_connected = True
-    mock_tcp.send_command = AsyncMock()
+    mock_emu = AsyncMock()
+    mock_emu.is_connected = True
+    mock_emu.send_command = AsyncMock()
 
-    session = PracticeSession(tcp=mock_tcp, db=practice_db, game_id="g", death_penalty_ms=2500)
+    session = PracticeSession(emu=mock_emu, db=practice_db, game_id="g", death_penalty_ms=2500)
     session.is_running = True
 
     async def deliver():
@@ -176,8 +176,8 @@ async def test_practice_session_passes_death_penalty_ms(practice_db):
     asyncio.create_task(deliver())
     await session.run_one()
 
-    mock_tcp.send_command.assert_called_once()
-    cmd = mock_tcp.send_command.call_args[0][0]
+    mock_emu.send_command.assert_called_once()
+    cmd = mock_emu.send_command.call_args[0][0]
     assert isinstance(cmd, PracticeLoadCmd)
     assert cmd.death_penalty_ms == 2500
 
@@ -229,9 +229,9 @@ def test_process_result_does_not_double_count_attempts(practice_db):
     consume `all_attempts_with_new` in `model_output` (rolling_mean, exp_decay)
     saw the most recent attempt twice and produced biased estimates."""
     seg_id = practice_db._test_seg_id
-    tcp = AsyncMock()
-    tcp.is_connected = True
-    ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
+    emu = AsyncMock()
+    emu.is_connected = True
+    ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
 
     cmd = SegmentCommand(
         id=seg_id, state_path="x", description="x",
@@ -259,9 +259,9 @@ def test_current_expected_times_reflects_model_updates(practice_db):
     sched = Scheduler(practice_db, "g")
     sched.process_attempt(seg_id, time_ms=5000, completed=True, deaths=0)
 
-    tcp = AsyncMock()
-    tcp.is_connected = True
-    ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
+    emu = AsyncMock()
+    emu.is_connected = True
+    ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
     ps.start()
     initial_total = ps.initial_expected_total_ms
 
@@ -281,49 +281,49 @@ class TestReloadOnDeath:
 
     @pytest.mark.asyncio
     async def test_handle_death_reloads_current_state_path(self, practice_db):
-        tcp = MagicMock()
-        tcp.is_connected = True
-        tcp.load_state = AsyncMock()
+        emu = MagicMock()
+        emu.is_connected = True
+        emu.load_state = AsyncMock()
 
-        ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
         ps._current_state_path = "/states/seg_x.state"
 
         await ps.handle_death()
-        tcp.load_state.assert_awaited_once_with("/states/seg_x.state")
+        emu.load_state.assert_awaited_once_with("/states/seg_x.state")
 
     @pytest.mark.asyncio
     async def test_handle_death_no_reload_when_unarmed(self, practice_db):
         """No state path set (between attempts) — death must NOT trigger reload."""
-        tcp = MagicMock()
-        tcp.is_connected = True
-        tcp.load_state = AsyncMock()
+        emu = MagicMock()
+        emu.is_connected = True
+        emu.load_state = AsyncMock()
 
-        ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
         # _current_state_path defaults to None.
 
         await ps.handle_death()
-        tcp.load_state.assert_not_awaited()
+        emu.load_state.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_handle_level_exit_abort_reloads(self, practice_db):
         """Pit-falls / death-falls don't fire a Death frame in SMW — they
         manifest as LevelExit(goal='abort'). Same reload behavior."""
-        tcp = MagicMock()
-        tcp.is_connected = True
-        tcp.load_state = AsyncMock()
+        emu = MagicMock()
+        emu.is_connected = True
+        emu.load_state = AsyncMock()
 
-        ps = PracticeSession(tcp=tcp, db=practice_db, game_id="g")
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
         ps._current_state_path = "/states/seg_y.state"
 
         await ps.handle_level_exit_abort()
-        tcp.load_state.assert_awaited_once_with("/states/seg_y.state")
+        emu.load_state.assert_awaited_once_with("/states/seg_y.state")
 
     @pytest.mark.asyncio
     async def test_receive_result_clears_current_state_path(self, practice_db):
         """Race fix: clear the armed flag the moment attempt_result arrives,
         so a Death event arriving in the same handler batch doesn't trigger
         a spurious post-attempt reload."""
-        ps = PracticeSession(tcp=AsyncMock(), db=practice_db, game_id="g")
+        ps = PracticeSession(emu=AsyncMock(), db=practice_db, game_id="g")
         ps._current_state_path = "/states/seg_z.state"
 
         ps.receive_result(AttemptResultEvent(

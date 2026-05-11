@@ -196,7 +196,7 @@ def test_delete_segment_unknown_id_returns_404(db, client):
 # -- POST /api/segments/:id/fill-gap -----------------------------------------
 
 def test_fill_gap_not_connected_returns_503(db, client):
-    """fill-gap requires TCP connection."""
+    """fill-gap requires backend connection."""
     seg = _seed_segment_with_conditions(db)
     resp = client.post(f"/api/segments/{seg.id}/fill-gap")
     assert resp.status_code == 503

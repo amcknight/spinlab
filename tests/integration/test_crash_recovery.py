@@ -6,17 +6,17 @@ Simulates: dashboard process dies mid-recording. On restart with same DB:
 - Segments and recorded_segment_times preserved
 - Resume creates a new session ordinal+1
 
-No Mesen, no real TCP, no Playwright — pure Python integration of
-ReferenceController against a real on-disk SQLite file.
+No live emulator, no real network I/O, no Playwright — pure Python
+integration of ReferenceController against a real on-disk SQLite file.
 """
 import pytest
-from tests.conftest import FakeTcpManager
+from tests.conftest import FakeEmuBackend
 
 from spinlab.capture import ReferenceController
 from spinlab.db import Database
 from spinlab.models import Mode
 
-# This test does not need Mesen — override the module-wide emulator mark set
+# This test does not need a live emulator — override the module-wide emulator mark set
 # by tests/integration/conftest.py so it runs in the default fast suite.
 pytestmark = []
 
@@ -37,8 +37,8 @@ def db(db_path):
 @pytest.mark.asyncio
 async def test_dashboard_crash_mid_session_recovers(db, db_path, tmp_path):
     # --- Pre-crash: start a run, capture some timing, die without graceful shutdown ---
-    tcp = FakeTcpManager(connected=True)
-    controller = ReferenceController(db, tcp)
+    emu = FakeEmuBackend(connected=True)
+    controller = ReferenceController(db, emu)
     await controller.start_reference(Mode.IDLE, "smw", tmp_path, run_name="Long Run")
     run_id = controller.recorder.capture_run_id
     sess_id_1 = controller.recorder.current_capture_session_id
@@ -50,7 +50,7 @@ async def test_dashboard_crash_mid_session_recovers(db, db_path, tmp_path):
 
     # --- Post-crash: new dashboard instance, same DB file ---
     db2 = Database(str(db_path))
-    tcp2 = FakeTcpManager(connected=True)
+    tcp2 = FakeEmuBackend(connected=True)
     controller2 = ReferenceController(db2, tcp2)
     controller2.recover_paused_run("smw")
 

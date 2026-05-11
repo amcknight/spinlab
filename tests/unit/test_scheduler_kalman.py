@@ -258,8 +258,7 @@ class TestSyncConfigFromDb:
         initial_name = sched.estimator.name
 
         other = [n for n in list_estimators() if n != initial_name]
-        if not other:
-            pytest.skip("Only one estimator registered — can't test switch")
+        assert other, "test setup expects 2+ registered estimators"
         new_name = other[0]
 
         db_with_segments.save_allocator_config("estimator", new_name)

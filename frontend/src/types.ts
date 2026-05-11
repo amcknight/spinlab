@@ -86,6 +86,7 @@ export interface PausedRunState {
 
 export interface ReplayState {
   rec_path: string | null;
+  total: number;
 }
 
 export interface ColdFillState {
@@ -149,7 +150,7 @@ export interface AttemptPatchResponse {
 /** GET /api/state and SSE event payload. */
 export interface AppState {
   mode: Mode;
-  tcp_connected: boolean;
+  emu_connected: boolean;
   game_id: string | null;
   game_name: string | null;
   current_segment: CurrentSegment | null;

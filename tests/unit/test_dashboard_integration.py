@@ -118,9 +118,9 @@ def active_client(seeded_db):
     app.state.session.game_id = GAME_ID
     app.state.session.game_name = "SMW Kaizo"
 
-    mock_tcp = AsyncMock()
-    mock_tcp.is_connected = True
-    ps = PracticeSession(tcp=mock_tcp, db=seeded_db, game_id=GAME_ID)
+    mock_emu = AsyncMock()
+    mock_emu.is_connected = True
+    ps = PracticeSession(emu=mock_emu, db=seeded_db, game_id=GAME_ID)
     ps.is_running = True
     ps.current_segment_id = "s1"
     ps.session_id = "sess1"
@@ -173,7 +173,7 @@ class TestApiState:
         assert resp.status_code == 200
         data = resp.json()
         assert data["mode"] in ("idle", "reference")
-        assert data["tcp_connected"] is False
+        assert data["emu_connected"] is False
 
     def test_no_game_loaded(self, no_game_client):
         data = no_game_client.get("/api/state").json()
@@ -375,7 +375,7 @@ def test_fresh_db_reference_start_creates_game(tmp_path):
     fresh_db = Database(tmp_path / "fresh.db")
     app = create_app(db=fresh_db, config=make_test_config())
     _sync_switch(app, "test_game", "Test Game")
-    with patch.object(type(app.state.tcp), "is_connected", new_callable=PropertyMock, return_value=True):
+    with patch.object(type(app.state.emu), "is_connected", new_callable=PropertyMock, return_value=True):
         c = TestClient(app)
         resp = c.post("/api/reference/start")
         assert resp.status_code == 200

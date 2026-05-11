@@ -67,7 +67,7 @@ describe("formatTrend", () => {
 describe("canStartPractice", () => {
   const BASE_STATE: AppState = {
     mode: "idle",
-    tcp_connected: true,
+    emu_connected: true,
     game_id: "game1",
     game_name: "Test Game",
     current_segment: null,
@@ -87,7 +87,7 @@ describe("canStartPractice", () => {
   });
 
   it("returns false when not connected", () => {
-    expect(canStartPractice({ ...BASE_STATE, tcp_connected: false })).toBe(false);
+    expect(canStartPractice({ ...BASE_STATE, emu_connected: false })).toBe(false);
   });
 
   it("returns false when no game loaded", () => {
@@ -160,7 +160,7 @@ describe("selectedEstimate edge cases", () => {
 test("canStartSpeedRun returns true when idle and connected", () => {
   const state = {
     mode: "idle" as const,
-    tcp_connected: true,
+    emu_connected: true,
     game_id: "g",
     game_name: "Game",
     current_segment: null,
@@ -180,7 +180,7 @@ test("canStartSpeedRun returns true when idle and connected", () => {
 test("canStartSpeedRun returns false during practice", () => {
   const state = {
     mode: "practice" as const,
-    tcp_connected: true,
+    emu_connected: true,
     game_id: "g",
     game_name: "Game",
     current_segment: null,

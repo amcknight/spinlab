@@ -16,14 +16,14 @@ from spinlab.protocol import ColdFillLoadCmd, SpawnEvent
 
 
 @pytest.fixture
-def tcp():
-    tcp = MagicMock()
-    tcp.is_connected = True
-    tcp.send = AsyncMock()
-    tcp.send_command = AsyncMock()
-    tcp.save_state = AsyncMock()
-    tcp.load_state = AsyncMock()
-    return tcp
+def emu():
+    emu = MagicMock()
+    emu.is_connected = True
+    emu.send = AsyncMock()
+    emu.send_command = AsyncMock()
+    emu.save_state = AsyncMock()
+    emu.load_state = AsyncMock()
+    return emu
 
 
 @pytest.fixture
@@ -90,20 +90,20 @@ def cold_fill_db(tmp_path):
 
 
 class TestStartColdFill:
-    async def test_start_cold_fill_sends_first_segment(self, tcp, cold_fill_db):
-        cc = ColdFillController(cold_fill_db, tcp)
+    async def test_start_cold_fill_sends_first_segment(self, emu, cold_fill_db):
+        cc = ColdFillController(cold_fill_db, emu)
         result = await cc.start("g")
 
         assert result.status == Status.STARTED
         assert result.new_mode == Mode.COLD_FILL
 
-        # Verify Lua command sent for first segment
-        cmd = tcp.send_command.call_args[0][0]
+        # Verify command sent for first segment
+        cmd = emu.send_command.call_args[0][0]
         assert isinstance(cmd, ColdFillLoadCmd)
         assert cmd.state_path == cold_fill_db._hot1_path
         assert cmd.segment_id == cold_fill_db._seg1_id
 
-    async def test_start_cold_fill_no_gaps(self, tcp, cold_fill_db):
+    async def test_start_cold_fill_no_gaps(self, emu, cold_fill_db):
         # Add cold save states so there are no gaps
         cold_fill_db.add_save_state(WaypointSaveState(
             waypoint_id=cold_fill_db._wp_cp1_id, variant_type="cold",
@@ -113,20 +113,20 @@ class TestStartColdFill:
             waypoint_id=cold_fill_db._wp_cp2_id, variant_type="cold",
             state_path="/cold2.mss", is_default=True,
         ))
-        cc = ColdFillController(cold_fill_db, tcp)
+        cc = ColdFillController(cold_fill_db, emu)
         result = await cc.start("g")
         assert result.status == Status.NO_GAPS
 
-    async def test_start_cold_fill_not_connected(self, tcp, cold_fill_db):
-        tcp.is_connected = False
-        cc = ColdFillController(cold_fill_db, tcp)
+    async def test_start_cold_fill_not_connected(self, emu, cold_fill_db):
+        emu.is_connected = False
+        cc = ColdFillController(cold_fill_db, emu)
         with pytest.raises(NotConnectedError):
             await cc.start("g")
 
 
 class TestHandleColdFillSpawn:
-    async def test_stores_cold_save_state_and_advances(self, tcp, cold_fill_db):
-        cc = ColdFillController(cold_fill_db, tcp)
+    async def test_stores_cold_save_state_and_advances(self, emu, cold_fill_db):
+        cc = ColdFillController(cold_fill_db, emu)
         await cc.start("g")
 
         # Simulate spawn event for first segment
@@ -137,7 +137,7 @@ class TestHandleColdFillSpawn:
 
         # Backend save_state was called so the file gets written for the
         # cold-fill segment (was the orchestrator's job under the old hook).
-        tcp.save_state.assert_awaited_with(cold_fill_db._seg1_id)
+        emu.save_state.assert_awaited_with(cold_fill_db._seg1_id)
 
         # Verify cold save state stored in DB
         cold = cold_fill_db.get_save_state(cold_fill_db._wp_cp1_id, "cold")
@@ -147,12 +147,12 @@ class TestHandleColdFillSpawn:
         assert cold.is_default is True
 
         # Verify second segment loaded
-        cmd = tcp.send_command.call_args[0][0]
+        cmd = emu.send_command.call_args[0][0]
         assert isinstance(cmd, ColdFillLoadCmd)
         assert cmd.segment_id == cold_fill_db._seg2_id
 
-    async def test_returns_true_when_queue_empty(self, tcp, cold_fill_db):
-        cc = ColdFillController(cold_fill_db, tcp)
+    async def test_returns_true_when_queue_empty(self, emu, cold_fill_db):
+        cc = ColdFillController(cold_fill_db, emu)
         await cc.start("g")
 
         # Process both segments
@@ -164,8 +164,8 @@ class TestHandleColdFillSpawn:
         )
         assert done is True
 
-    async def test_ignores_spawn_without_state(self, tcp, cold_fill_db):
-        cc = ColdFillController(cold_fill_db, tcp)
+    async def test_ignores_spawn_without_state(self, emu, cold_fill_db):
+        cc = ColdFillController(cold_fill_db, emu)
         await cc.start("g")
 
         done = await cc.handle_spawn(
@@ -177,12 +177,12 @@ class TestHandleColdFillSpawn:
 
 
 class TestGetColdFillState:
-    async def test_returns_none_before_start(self, tcp, cold_fill_db):
-        cc = ColdFillController(cold_fill_db, tcp)
+    async def test_returns_none_before_start(self, emu, cold_fill_db):
+        cc = ColdFillController(cold_fill_db, emu)
         assert cc.get_state() is None
 
-    async def test_returns_progress_mid_fill(self, tcp, cold_fill_db):
-        cc = ColdFillController(cold_fill_db, tcp)
+    async def test_returns_progress_mid_fill(self, emu, cold_fill_db):
+        cc = ColdFillController(cold_fill_db, emu)
         await cc.start("g")
 
         state = cc.get_state()
@@ -190,8 +190,8 @@ class TestGetColdFillState:
         assert state["total"] == 2
         assert state["segment_label"] == "L105 cp1 > cp2"
 
-    async def test_progress_advances(self, tcp, cold_fill_db):
-        cc = ColdFillController(cold_fill_db, tcp)
+    async def test_progress_advances(self, emu, cold_fill_db):
+        cc = ColdFillController(cold_fill_db, emu)
         await cc.start("g")
 
         await cc.handle_spawn(
@@ -202,8 +202,8 @@ class TestGetColdFillState:
         assert state["total"] == 2
         assert state["segment_label"] == "L105 cp2 > goal"
 
-    async def test_returns_none_after_complete(self, tcp, cold_fill_db):
-        cc = ColdFillController(cold_fill_db, tcp)
+    async def test_returns_none_after_complete(self, emu, cold_fill_db):
+        cc = ColdFillController(cold_fill_db, emu)
         await cc.start("g")
         await cc.handle_spawn(
             SpawnEvent(state_captured=True, state_path="/cold1.mss"),
@@ -213,11 +213,11 @@ class TestGetColdFillState:
         )
         assert cc.get_state() is None
 
-    async def test_uses_description_when_present(self, tcp, cold_fill_db):
+    async def test_uses_description_when_present(self, emu, cold_fill_db):
         # Update segment description in DB
         cold_fill_db.update_segment(cold_fill_db._seg1_id, description="My Custom Name")
 
-        cc = ColdFillController(cold_fill_db, tcp)
+        cc = ColdFillController(cold_fill_db, emu)
         await cc.start("g")
         state = cc.get_state()
         assert state["segment_label"] == "My Custom Name"

@@ -13,7 +13,7 @@ export async function loadRomList(): Promise<void> {
 export function updateHeader(data: AppState): void {
   const gameEl = document.getElementById("game-name")!;
   gameEl.textContent =
-    data.tcp_connected && data.game_name ? data.game_name : "No game";
+    data.emu_connected && data.game_name ? data.game_name : "No game";
 
   if (data.game_name) localStorage.setItem("spinlab_game_name", data.game_name);
 
@@ -24,7 +24,7 @@ export function updateHeader(data: AppState): void {
   chip.className = "mode-chip";
   stopBtn.style.display = "none";
 
-  if (!data.tcp_connected) {
+  if (!data.emu_connected) {
     chip.classList.add("disconnected");
     label.textContent = "Disconnected";
   } else if (data.paused_run) {
@@ -48,7 +48,7 @@ export function updateHeader(data: AppState): void {
     chip.classList.add("replaying");
     const r = data.replay;
     if (r && r.total > 0) {
-      label.textContent = "Replaying " + r.frame + "/" + r.total;
+      label.textContent = "Replaying " + r.total + " frames…";
     } else {
       label.textContent = "Replaying…";
     }

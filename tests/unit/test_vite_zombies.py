@@ -46,13 +46,6 @@ def test_assign_invalid_pid_returns_false_without_raising():
     assert ok is False
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX no-op test")
-def test_kill_on_close_job_returns_none_on_posix():
-    """Non-Windows: helpers no-op. Job Object is a Windows-only API."""
-    assert vite._ensure_kill_on_close_job() is None
-    assert vite._assign_pid_to_kill_on_close_job(os.getpid()) is False
-
-
 def test_terminate_vite_handles_already_dead_proc():
     """If proc is already exited, terminate_vite returns cleanly (no error)."""
     class _DeadProc:

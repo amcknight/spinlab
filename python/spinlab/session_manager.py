@@ -60,14 +60,14 @@ class SessionManager:
     def __init__(
         self,
         db: "Database",
-        tcp: "EmuBackend",
+        emu: "EmuBackend",
         rom_dir: Path | None,
         default_category: str = "any%",
         data_dir: Path | None = None,
         invalidate_combo: list[str] | None = None,
     ) -> None:
         self.db = db
-        self.tcp = tcp
+        self.emu = emu
         self.rom_dir = rom_dir
         self.default_category = default_category
         self.data_dir = data_dir or Path("data")
@@ -88,8 +88,15 @@ class SessionManager:
         self.speed_run_session = None  # SpeedRunSession | None
         self.speed_run_task: asyncio.Task | None = None
 
-        self.capture = ReferenceController(db, tcp)
-        self.cold_fill = ColdFillController(db, tcp)
+        # Total frame count of the currently-playing replay, sourced from
+        # ReplayStartedEvent.frame_count. Surfaces to the dashboard as
+        # state["replay"]["total"]. Per-frame progress isn't observable
+        # under the RA backend (no orchestrator hook for frame ticks), so
+        # this is the only replay-progress signal we expose today.
+        self.replay_total: int = 0
+
+        self.capture = ReferenceController(db, emu)
+        self.cold_fill = ColdFillController(db, emu)
         self.sse = SSEBroadcaster()
         self._state_builder = StateBuilder(db)
 
@@ -241,12 +248,12 @@ class SessionManager:
         from .condition_registry import load_registry_for_game
         registry = load_registry_for_game(game_id)
         self.capture.set_condition_registry(registry)
-        if self.tcp.is_connected and registry.definitions:
+        if self.emu.is_connected and registry.definitions:
             defs_payload = [
                 {"name": d.name, "address": d.address, "size": d.size}
                 for d in registry.definitions
             ]
-            await self.tcp.send_command(SetConditionsCmd(definitions=defs_payload))
+            await self.emu.send_command(SetConditionsCmd(definitions=defs_payload))
 
     async def _handle_game_context(self, event: GameContextEvent) -> None:
         gid = event.game_id
@@ -285,9 +292,9 @@ class SessionManager:
                 # screen instead of mid-respawn in whatever level the last
                 # capture happened in.
                 try:
-                    await self.tcp.send_command(ResetCmd())
+                    await self.emu.send_command(ResetCmd())
                 except (ConnectionError, OSError):
-                    logger.warning("cold_fill: reset command failed (TCP gone)")
+                    logger.warning("cold_fill: reset command failed (backend gone)")
             await self._notify_sse()
             return
         if self.mode == Mode.FILL_GAP:
@@ -316,12 +323,14 @@ class SessionManager:
         await self._notify_sse()
 
     async def _handle_replay_started(self, event: ReplayStartedEvent) -> None:
+        self.replay_total = event.frame_count
         await self._notify_sse()
 
     async def _handle_replay_finished(self, event: ReplayFinishedEvent) -> None:
         # handle_replay_finished ends the session and leaves the run paused if
         # segments were captured.  We must NOT call _clear_ref_and_idle here —
         # that would wipe paused_run_id and prevent the user from finalizing.
+        self.replay_total = 0
         self.capture.handle_replay_finished()
         self.mode = Mode.IDLE
         await self._notify_sse()
@@ -330,6 +339,7 @@ class SessionManager:
         logger.warning("replay_error: %s", event.message)
         # Same as _handle_replay_finished: preserve paused_run_id set by
         # handle_replay_error when segments were captured before the error.
+        self.replay_total = 0
         self.capture.handle_replay_error()
         self.mode = Mode.IDLE
         await self._notify_sse()
@@ -413,7 +423,7 @@ class SessionManager:
     async def finalize_run(self, name: str) -> ActionResult:
         scheduler = self.get_scheduler() if self.game_id else None
         result = await self.capture.finalize_run(name, scheduler=scheduler)
-        if result.status == Status.OK and self.game_id and self.tcp.is_connected:
+        if result.status == Status.OK and self.game_id and self.emu.is_connected:
             cf_result = await self.cold_fill.start(self.game_id)
             if cf_result.new_mode == Mode.COLD_FILL:
                 self.mode = Mode.COLD_FILL
@@ -425,7 +435,7 @@ class SessionManager:
         result = await self.capture.save_and_finish_run(self.mode, name, scheduler=scheduler)
         if result.new_mode is not None:
             self.mode = result.new_mode
-        if result.status == Status.OK and self.game_id and self.tcp.is_connected:
+        if result.status == Status.OK and self.game_id and self.emu.is_connected:
             cf_result = await self.cold_fill.start(self.game_id)
             if cf_result.new_mode == Mode.COLD_FILL:
                 self.mode = Mode.COLD_FILL
@@ -455,14 +465,14 @@ class SessionManager:
             raise DraftPendingError()
         if self.practice_session and self.practice_session.is_running:
             raise AlreadyRunningError()
-        if not self.tcp.is_connected:
+        if not self.emu.is_connected:
             raise NotConnectedError()
         if self.mode == Mode.REFERENCE:
             self._clear_ref_and_idle()
 
         from .practice import PracticeSession
         ps = PracticeSession(
-            tcp=self.tcp, db=self.db, game_id=self.require_game(),
+            emu=self.emu, db=self.db, game_id=self.require_game(),
             death_penalty_ms=self.capture.condition_registry.death_penalty_ms,
             on_attempt=lambda _: asyncio.ensure_future(self._notify_sse()),
         )
@@ -500,7 +510,7 @@ class SessionManager:
             raise DraftPendingError()
         if self.speed_run_session and self.speed_run_session.is_running:
             raise AlreadyRunningError()
-        if not self.tcp.is_connected:
+        if not self.emu.is_connected:
             raise NotConnectedError()
         if self.mode == Mode.REFERENCE:
             self._clear_ref_and_idle()
@@ -508,7 +518,7 @@ class SessionManager:
         from .speed_run import SpeedRunSession
         try:
             sr = SpeedRunSession(
-                tcp=self.tcp, db=self.db, game_id=self.require_game(),
+                emu=self.emu, db=self.db, game_id=self.require_game(),
                 on_event=lambda _: asyncio.ensure_future(self._notify_sse()),
             )
         except ValueError:
@@ -581,4 +591,4 @@ class SessionManager:
             pass
         if self.mode == Mode.REFERENCE:
             self._clear_ref_and_idle()
-        await self.tcp.disconnect()
+        await self.emu.disconnect()

@@ -46,7 +46,7 @@ class SpeedRunSession:
 
     def __init__(
         self,
-        tcp: "EmuBackend",
+        emu: "EmuBackend",
         db: "Database",
         game_id: str,
         auto_advance_delay_ms: int = 1000,
@@ -58,7 +58,7 @@ class SpeedRunSession:
         # captured at the start of SMW's post-respawn fade-in, so reloading it
         # instantly looks like a glitchy replay of the death sequence.  A short
         # blackout gives the death weight without making practice feel sluggish.
-        self.tcp = tcp
+        self.emu = emu
         self.db = db
         self.game_id = game_id
         self.auto_advance_delay_ms = auto_advance_delay_ms
@@ -192,7 +192,7 @@ class SpeedRunSession:
             "speed_run: loading level %d/%d — %s",
             self.current_level_index + 1, len(self.levels), level.description,
         )
-        await self.tcp.send_command(cmd)
+        await self.emu.send_command(cmd)
 
         # cold_since tracks whether we are at the start of a segment cold
         # (never seen a warm-up attempt for it this run).  True at level start
@@ -200,7 +200,7 @@ class SpeedRunSession:
         cold_since = True
         current_sub_index = 0
 
-        while self.is_running and self.tcp.is_connected:
+        while self.is_running and self.emu.is_connected:
             try:
                 event = await asyncio.wait_for(
                     self._event_queue.get(), timeout=EVENT_WAIT_TIMEOUT_S
@@ -259,12 +259,12 @@ class SpeedRunSession:
         """Run the full speed run until stopped or all levels done."""
         self.start()
         try:
-            while self.is_running and self.tcp.is_connected:
+            while self.is_running and self.emu.is_connected:
                 if not await self.run_one():
                     break
         finally:
             try:
-                await self.tcp.send_command(SpeedRunStopCmd())
+                await self.emu.send_command(SpeedRunStopCmd())
             except (ConnectionError, OSError):
                 pass
             self.stop()

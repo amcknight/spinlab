@@ -17,19 +17,19 @@ def db(tmp_path):
 
 
 @pytest.fixture
-def tcp():
-    tcp = MagicMock()
-    tcp.is_connected = True
-    tcp.send = AsyncMock()
-    tcp.send_command = AsyncMock()
-    tcp.save_state = AsyncMock()
-    tcp.load_state = AsyncMock()
-    return tcp
+def emu():
+    emu = MagicMock()
+    emu.is_connected = True
+    emu.send = AsyncMock()
+    emu.send_command = AsyncMock()
+    emu.save_state = AsyncMock()
+    emu.load_state = AsyncMock()
+    return emu
 
 
 @pytest.fixture
-def sm(db, tcp):
-    return SessionManager(db=db, tcp=tcp, rom_dir=None)
+def sm(db, emu):
+    return SessionManager(db=db, emu=emu, rom_dir=None)
 
 
 def _create_segments_with_hot_only(db, tmp_path=None):
@@ -101,7 +101,7 @@ def _create_segments_with_hot_only(db, tmp_path=None):
 
 
 class TestColdFillIntegration:
-    async def test_full_cycle(self, sm, db, tcp, tmp_path):
+    async def test_full_cycle(self, sm, db, emu, tmp_path):
         sm.game_id = "g1"
 
         # Set up and save draft — capture run must exist before segments (FK)
@@ -114,7 +114,7 @@ class TestColdFillIntegration:
         assert sm.mode == Mode.COLD_FILL
 
         # Verify first cold-gap segment loaded (cp1 has hot but not cold)
-        cmd = tcp.send_command.call_args[0][0]
+        cmd = emu.send_command.call_args[0][0]
         assert isinstance(cmd, ColdFillLoadCmd)
         assert cmd.state_path == str(tmp_path / "hot1.mss")
         assert cmd.segment_id == segs[1].id

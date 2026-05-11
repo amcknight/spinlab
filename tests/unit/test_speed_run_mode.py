@@ -112,10 +112,10 @@ def sr_db(tmp_path):
 
 def test_speed_run_builds_level_sequence(sr_db):
     """SpeedRunSession should group segments into levels ordered by ordinal."""
-    tcp = AsyncMock()
-    tcp.is_connected = True
+    emu = AsyncMock()
+    emu.is_connected = True
     from spinlab.speed_run import SpeedRunSession
-    sr = SpeedRunSession(tcp=tcp, db=sr_db, game_id="g")
+    sr = SpeedRunSession(emu=emu, db=sr_db, game_id="g")
     levels = sr.levels
 
     assert len(levels) == 2
@@ -143,22 +143,19 @@ def test_speed_run_refuses_missing_state(tmp_path):
     )
     db.upsert_segment(seg)
 
-    tcp = AsyncMock()
-    tcp.is_connected = True
+    emu = AsyncMock()
+    emu.is_connected = True
     from spinlab.speed_run import SpeedRunSession
     with pytest.raises(ValueError, match="Missing save state"):
-        SpeedRunSession(tcp=tcp, db=db, game_id="g")
-
-
-@pytest.mark.slow
+        SpeedRunSession(emu=emu, db=db, game_id="g")
 @pytest.mark.asyncio
 async def test_speed_run_sends_level_load(sr_db):
     """First run_one should send speed_run_load for level 1."""
-    tcp = AsyncMock()
-    tcp.is_connected = True
+    emu = AsyncMock()
+    emu.is_connected = True
 
     from spinlab.speed_run import SpeedRunSession
-    sr = SpeedRunSession(tcp=tcp, db=sr_db, game_id="g")
+    sr = SpeedRunSession(emu=emu, db=sr_db, game_id="g")
     sr.is_running = True
 
     async def deliver():
@@ -172,22 +169,19 @@ async def test_speed_run_sends_level_load(sr_db):
     result = await sr.run_one()
 
     assert result is True
-    tcp.send_command.assert_called_once()
-    cmd = tcp.send_command.call_args[0][0]
+    emu.send_command.assert_called_once()
+    cmd = emu.send_command.call_args[0][0]
     assert isinstance(cmd, SpeedRunLoadCmd)
     assert len(cmd.checkpoints) == 1
     assert cmd.checkpoints[0]["ordinal"] == 1
-
-
-@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_speed_run_cold_recording_on_checkpoint(sr_db):
     """Checkpoint hit after cold start should record an attempt."""
-    tcp = AsyncMock()
-    tcp.is_connected = True
+    emu = AsyncMock()
+    emu.is_connected = True
 
     from spinlab.speed_run import SpeedRunSession
-    sr = SpeedRunSession(tcp=tcp, db=sr_db, game_id="g")
+    sr = SpeedRunSession(emu=emu, db=sr_db, game_id="g")
     sr.is_running = True
 
     async def deliver():
@@ -214,17 +208,14 @@ async def test_speed_run_cold_recording_on_checkpoint(sr_db):
 
     attempts2 = sr_db.get_segment_attempts(seg_ids[1])
     assert len(attempts2) == 0
-
-
-@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_speed_run_death_makes_next_segment_cold(sr_db):
     """Death should mark next sub-segment as cold for recording."""
-    tcp = AsyncMock()
-    tcp.is_connected = True
+    emu = AsyncMock()
+    emu.is_connected = True
 
     from spinlab.speed_run import SpeedRunSession
-    sr = SpeedRunSession(tcp=tcp, db=sr_db, game_id="g")
+    sr = SpeedRunSession(emu=emu, db=sr_db, game_id="g")
     sr.is_running = True
 
     async def deliver():
@@ -253,17 +244,14 @@ async def test_speed_run_death_makes_next_segment_cold(sr_db):
     attempts = sr_db.get_segment_attempts(seg_ids[1])
     assert len(attempts) == 1
     assert attempts[0]["time_ms"] == 15000
-
-
-@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_speed_run_stops_after_last_level(sr_db):
     """Session should return False after last level completes."""
-    tcp = AsyncMock()
-    tcp.is_connected = True
+    emu = AsyncMock()
+    emu.is_connected = True
 
     from spinlab.speed_run import SpeedRunSession
-    sr = SpeedRunSession(tcp=tcp, db=sr_db, game_id="g")
+    sr = SpeedRunSession(emu=emu, db=sr_db, game_id="g")
     sr.is_running = True
 
     async def deliver_l1():
@@ -290,11 +278,11 @@ from spinlab.session_manager import SessionManager
 
 @pytest.fixture
 def session_mgr(sr_db, tmp_path):
-    tcp = AsyncMock()
-    tcp.is_connected = True
-    tcp.send_command = AsyncMock()
+    emu = AsyncMock()
+    emu.is_connected = True
+    emu.send_command = AsyncMock()
     mgr = SessionManager(
-        db=sr_db, tcp=tcp, rom_dir=tmp_path, data_dir=tmp_path,
+        db=sr_db, emu=emu, rom_dir=tmp_path, data_dir=tmp_path,
     )
     mgr.game_id = "g"
     mgr.game_name = "Game"

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from spinlab.retroarch.exceptions import NCITimeout
-from spinlab.retroarch.nci import NCIClient
+from spinlab.retroarch.nci import DEFAULT_PORT, NCIClient
 from tests.integration.ra_poke_engine import RAPokeEngine
 
 logger = logging.getLogger(__name__)
@@ -75,6 +75,7 @@ class RAHarness:
         core_path: Path,
         retroarch_exe: Path,
         extra_cfg: str = "",
+        nci_port: int | None = None,
     ) -> "RAHarness":
         """Launch RetroArch headless with the given ROM and core.
 
@@ -85,20 +86,30 @@ class RAHarness:
             extra_cfg: Additional retroarch.cfg key=value pairs to append to the
                 null-driver appendconfig. Used to override settings like
                 savestate_directory for tests that need an isolated save dir.
+            nci_port: UDP port for the launched RA's Network Command Interface.
+                ``None`` uses ``DEFAULT_PORT`` (55355). The chosen port is written
+                into the appendconfig as ``network_cmd_port`` and is also the
+                port the returned ``NCIClient`` talks to — letting two harnesses
+                run in the same pytest session by using distinct ports.
         """
         for p, label in [(retroarch_exe, "retroarch_exe"), (core_path, "core_path"), (rom_path, "rom_path")]:
             if not p.exists():
                 raise RAHarnessLaunchError(f"{label} does not exist: {p}")
 
-        # Write a temporary appendconfig to enable null drivers.
-        # --appendconfig keys override the user's retroarch.cfg, so the main
-        # config's NCI settings (network_cmd_enable, network_cmd_port) are
-        # preserved while video/audio are suppressed.
+        port = nci_port if nci_port is not None else DEFAULT_PORT
+
+        # Write a temporary appendconfig to enable null drivers + pin the NCI
+        # port. ``--appendconfig`` keys override the user's retroarch.cfg, so
+        # specifying ``network_cmd_port`` here lets multiple harnesses run
+        # concurrently on distinct ports regardless of what the user's cfg has.
+        # ``network_cmd_enable`` is intentionally NOT set here — the user's
+        # cfg must already enable NCI, or no harness ever works.
         tmp_cfg_fd, tmp_cfg_path_str = tempfile.mkstemp(suffix=".cfg", prefix="spinlab_ra_null_")
         tmp_cfg_path = Path(tmp_cfg_path_str)
         try:
             with open(tmp_cfg_fd, "w") as f:
                 f.write(_NULL_DRIVER_CFG)
+                f.write(f'network_cmd_port = "{port}"\n')
                 if extra_cfg:
                     f.write(extra_cfg)
         except Exception:
@@ -111,14 +122,14 @@ class RAHarness:
             "-L", str(core_path),
             str(rom_path),
         ]
-        logger.info("ra_harness: launching %s", cmd)
+        logger.info("ra_harness: launching %s on NCI port %d", cmd, port)
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
 
-        client = NCIClient()
+        client = NCIClient(port=port)
         # Ping until NCI replies or we exhaust retries.
         for attempt in range(NCI_PING_RETRIES):
             try:

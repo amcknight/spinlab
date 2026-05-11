@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
-from tests.conftest import FakeTcpManager
+from tests.conftest import FakeEmuBackend
 
 from spinlab.capture import ReferenceController
 from spinlab.db import Database
@@ -22,13 +22,13 @@ def db(tmp_path):
 
 
 @pytest.fixture
-def tcp():
-    return FakeTcpManager(connected=True)
+def emu():
+    return FakeEmuBackend(connected=True)
 
 
 @pytest.fixture
-def controller(db, tcp):
-    return ReferenceController(db, tcp)
+def controller(db, emu):
+    return ReferenceController(db, emu)
 
 
 @pytest_asyncio.fixture
@@ -277,7 +277,7 @@ def test_session_end_log_includes_ordinal_duration_segments(db, caplog):
     )
     db.conn.commit()
 
-    ctl = ReferenceController(db, FakeTcpManager(connected=False))
+    ctl = ReferenceController(db, FakeEmuBackend(connected=False))
     ctl.recorder.capture_run_id = "run_x"
     ctl.recorder.current_capture_session_id = "sess_x"
 
@@ -346,7 +346,7 @@ def test_finalize_rebuilds_scheduler_even_when_zero_segments(db):
     new attempts were seeded. Rebuild must fire."""
     import asyncio
 
-    from tests.conftest import FakeTcpManager
+    from tests.conftest import FakeEmuBackend
 
     from spinlab.capture.reference import ReferenceController
 
@@ -359,7 +359,7 @@ def test_finalize_rebuilds_scheduler_even_when_zero_segments(db):
         def rebuild_all_states(self): self.rebuild_calls += 1
     sched = RecordingScheduler()
 
-    ctl = ReferenceController(db, FakeTcpManager(connected=False))
+    ctl = ReferenceController(db, FakeEmuBackend(connected=False))
     ctl.paused_run_id = "run_e"
 
     asyncio.run(ctl.finalize_run(name="Empty Run", scheduler=sched))
@@ -372,11 +372,11 @@ def test_finalize_rebuilds_scheduler_even_when_zero_segments(db):
 def test_finalize_raises_no_paused_run_error_when_no_run(db):
     import asyncio
 
-    from tests.conftest import FakeTcpManager
+    from tests.conftest import FakeEmuBackend
 
     from spinlab.capture.reference import ReferenceController
     from spinlab.errors import NoPausedRunError
-    ctl = ReferenceController(db, FakeTcpManager(connected=False))
+    ctl = ReferenceController(db, FakeEmuBackend(connected=False))
     ctl.paused_run_id = None
     with pytest.raises(NoPausedRunError):
         asyncio.run(ctl.finalize_run(name="x", scheduler=None))
@@ -405,7 +405,7 @@ def test_delete_active_capture_session_raises_session_in_use(db):
     raise SessionInUseError instead of leaving a dangling FK."""
     import asyncio
 
-    from tests.conftest import FakeTcpManager
+    from tests.conftest import FakeEmuBackend
 
     from spinlab.capture.reference import ReferenceController
     from spinlab.errors import SessionInUseError
@@ -413,7 +413,7 @@ def test_delete_active_capture_session_raises_session_in_use(db):
     db.create_capture_run("run_d", "smw", "D", draft=True)
     db.create_capture_session("active_sess", "run_d", 1)
 
-    ctl = ReferenceController(db, FakeTcpManager(connected=False))
+    ctl = ReferenceController(db, FakeEmuBackend(connected=False))
     ctl.recorder.capture_run_id = "run_d"
     ctl.recorder.current_capture_session_id = "active_sess"
 

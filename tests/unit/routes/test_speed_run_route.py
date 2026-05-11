@@ -30,7 +30,7 @@ def client(db):
 
 class TestSpeedRunStart:
     def test_start_not_connected_returns_503(self, client):
-        """POST /api/speedrun/start requires TCP connection."""
+        """POST /api/speedrun/start requires backend connection."""
         resp = client.post("/api/speedrun/start")
         assert resp.status_code == 503
         assert resp.json()["detail"] == "not_connected"

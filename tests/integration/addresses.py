@@ -1,13 +1,14 @@
-"""SMW WRAM address constants — re-export from spinlab.retroarch.addresses.
+"""ADDR_MAP — string-keyed view of the production WRAM address constants.
 
-The Python source of truth for memory addresses lives at
-spinlab.retroarch.addresses. This file exists as a Mesen-era compatibility
-shim; under the RA harness it just re-exports the canonical values so that
-poke_parser.py (and any other consumer of ADDR_MAP) reads them from one place.
+The Python source of truth lives at ``spinlab.retroarch.addresses``. This
+file exists because the ``.poke`` scenario format names addresses by
+string (e.g. ``game_mode``, ``level_num``) — and those names are stable
+user input that we don't want to inline as ASCII identifiers in
+production code. We map names → integer addresses once, here, and the
+poke parser + RA poke engine both consume this map.
 
-Note: the keys here MUST match the names used in tests/integration/scenarios/
-.poke files (e.g., 'game_mode', 'level_num') — those names are stable user
-input, not implementation detail.
+Adding a new SMW address: add the constant to
+``python/spinlab/retroarch/addresses.py`` and a string entry here.
 """
 from spinlab.retroarch import addresses as _a
 

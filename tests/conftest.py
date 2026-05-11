@@ -28,17 +28,17 @@ def make_test_config(**overrides) -> AppConfig:
 
 
 @pytest.fixture
-def mock_tcp():
-    """Mock TcpManager with connected state."""
-    tcp = MagicMock()
-    tcp.is_connected = True
-    tcp.send = AsyncMock()
-    tcp.send_command = AsyncMock()
-    tcp.recv_event = AsyncMock(return_value=None)
-    tcp.disconnect = AsyncMock()
-    tcp.save_state = AsyncMock()
-    tcp.load_state = AsyncMock()
-    return tcp
+def mock_emu():
+    """Mock EmuBackend with connected state."""
+    emu = MagicMock()
+    emu.is_connected = True
+    emu.send = AsyncMock()
+    emu.send_command = AsyncMock()
+    emu.recv_event = AsyncMock(return_value=None)
+    emu.disconnect = AsyncMock()
+    emu.save_state = AsyncMock()
+    emu.load_state = AsyncMock()
+    return emu
 
 
 @pytest.fixture
@@ -85,12 +85,15 @@ def estimator(estimator_name):
     return get_estimator(estimator_name)
 
 
-class FakeTcpManager:
-    """Fake TcpManager that records commands and lets tests control state.
+class FakeEmuBackend:
+    """In-process EmuBackend stand-in that records commands and exposes state.
 
     Use in place of a mock when you want to verify *what* was sent without
     tying tests to mock call syntax. Tests can read `sent_commands` to see
     every command that was sent, in order.
+
+    Implements the full ``EmuBackend`` Protocol — see
+    ``tests/unit/test_emu_backend_protocol.py`` for the conformance check.
     """
     def __init__(self, connected: bool = True) -> None:
         self.is_connected: bool = connected
@@ -98,6 +101,13 @@ class FakeTcpManager:
         self.save_state_calls: list[str] = []
         self.load_state_calls: list[str] = []
         self.on_disconnect = None
+
+    async def connect(self, timeout: float = 0) -> bool:
+        # No-op for tests; consumer code reads `is_connected` directly.
+        return self.is_connected
+
+    async def disconnect(self) -> None:
+        self.is_connected = False
 
     async def send_command(self, cmd) -> None:
         if not self.is_connected:
@@ -107,8 +117,9 @@ class FakeTcpManager:
     async def send(self, msg: str) -> None:
         pass
 
-    async def disconnect(self) -> None:
-        self.is_connected = False
+    async def recv_event(self, timeout: float | None = None) -> object | None:
+        # Tests that need event delivery drive SessionManager.route_event directly.
+        return None
 
     async def save_state(self, segment_id: str) -> None:
         self.save_state_calls.append(segment_id)
@@ -118,9 +129,9 @@ class FakeTcpManager:
 
 
 @pytest.fixture
-def fake_tcp():
-    """Fresh FakeTcpManager per test, starts connected."""
-    return FakeTcpManager(connected=True)
+def fake_emu():
+    """Fresh FakeEmuBackend per test, starts connected."""
+    return FakeEmuBackend(connected=True)
 
 
 def make_seg_with_state(db, game_id, level, start_type, end_type,

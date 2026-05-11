@@ -1,12 +1,12 @@
 """Frontend contract smoke: real FE bytes + real backend + fake-loaded game.
 
 Catches FE/BE contract drift (renders reading a dropped field, restructured
-shape). No emulator: the TCP/Lua boundary is faked via the
-``fake_game_loaded`` fixture (FakeTcpManager with ``connected=True``).
+shape). The emulator boundary is faked via the ``fake_game_loaded`` fixture
+(FakeEmuBackend with ``connected=True``); no live RetroArch is launched.
 
-This module overrides the module-scoped ``pytest.mark.emulator`` applied in
-``tests/integration/conftest.py`` with ``pytest.mark.frontend`` — these tests
-need the built static assets under ``python/spinlab/static/`` but not Mesen.
+Requires the built frontend bundle (``cd frontend && npm run build``) and
+Playwright Chromium (``playwright install chromium``). Runs as part of the
+default suite — no marker needed.
 """
 from __future__ import annotations
 
@@ -16,8 +16,7 @@ import pytest
 import pytest_asyncio
 from playwright.async_api import async_playwright
 
-pytestmark = pytest.mark.frontend
-
+pytestmark = []  # not RA-backed; clear emulator marker inherited from integration/conftest.py
 # The FastAPI app mounts only /api routes — in production the built bundle is
 # served by Vite on :5173 which proxies /api to FastAPI. For this smoke we
 # intercept page requests and serve the built assets directly from

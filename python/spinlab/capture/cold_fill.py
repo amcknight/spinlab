@@ -20,9 +20,9 @@ class ColdFillController:
     """Manages the cold-fill queue: loads hot states, waits for death+respawn,
     captures the resulting cold save state."""
 
-    def __init__(self, db: "Database", tcp: "EmuBackend") -> None:
+    def __init__(self, db: "Database", emu: "EmuBackend") -> None:
         self.db = db
-        self.tcp = tcp
+        self.emu = emu
         self.queue: list[MissingColdRow] = []
         self.current: str | None = None
         self.cold_waypoint_id: str | None = None
@@ -30,8 +30,8 @@ class ColdFillController:
 
     async def start(self, game_id: str) -> ActionResult:
         """Begin cold-fill for all segments missing cold save states."""
-        if not self.tcp.is_connected:
-            logger.info("cold_fill: skipped — TCP not connected")
+        if not self.emu.is_connected:
+            logger.info("cold_fill: skipped — backend not connected")
             raise NotConnectedError()
         gaps = self.db.segments_missing_cold(game_id)
         if not gaps:
@@ -69,7 +69,7 @@ class ColdFillController:
             self.cold_waypoint_id = segment_row.start_waypoint_id if segment_row else None
             logger.info("cold_fill: loading %d/%d — segment=%s state=%s",
                          current_num, self.total, seg["segment_id"], hot_path)
-            await self.tcp.send_command(ColdFillLoadCmd(
+            await self.emu.send_command(ColdFillLoadCmd(
                 state_path=hot_path,
                 segment_id=seg["segment_id"],
             ))
@@ -95,7 +95,7 @@ class ColdFillController:
             return False
         seg_id = event.segment_id or self.current
         try:
-            await self.tcp.save_state(seg_id)
+            await self.emu.save_state(seg_id)
         except Exception:
             logger.exception("cold_fill: save_state failed for seg_id=%r — "
                              "continuing without storing this cold state", seg_id)

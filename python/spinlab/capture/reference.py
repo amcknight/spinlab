@@ -95,9 +95,9 @@ def _seed_reference_attempts(
 class ReferenceController:
     """Manages reference/replay capture, sessions, and finalize/discard."""
 
-    def __init__(self, db: "Database", tcp: "EmuBackend") -> None:
+    def __init__(self, db: "Database", emu: "EmuBackend") -> None:
         self.db = db
-        self.tcp = tcp
+        self.emu = emu
         self.recorder = SegmentRecorder()
         self.fill_gap_segment_id: str | None = None
         self._fill_gap_waypoint_id: str | None = None
@@ -259,7 +259,7 @@ class ReferenceController:
             raise PracticeActiveError()
         if mode == Mode.REPLAY:
             raise AlreadyReplayingError()
-        if not self.tcp.is_connected:
+        if not self.emu.is_connected:
             raise NotConnectedError()
 
         self._enter_idle()
@@ -272,7 +272,7 @@ class ReferenceController:
         self._enter_recording(run_id, sess_id)
 
         logger.info("reference: started run=%s name=%r", run_id, run_name)
-        await self.tcp.send_command(ReferenceStartCmd(path=str(replay_path)))
+        await self.emu.send_command(ReferenceStartCmd(path=str(replay_path)))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REFERENCE)
 
     async def resume_reference(
@@ -284,7 +284,7 @@ class ReferenceController:
             raise PracticeActiveError()
         if mode == Mode.REPLAY:
             raise AlreadyReplayingError()
-        if not self.tcp.is_connected:
+        if not self.emu.is_connected:
             raise NotConnectedError()
 
         run_id = self.paused_run_id
@@ -293,14 +293,14 @@ class ReferenceController:
         self._enter_recording(run_id, sess_id)
 
         logger.info("reference: resumed run=%s sess=%s", run_id, sess_id)
-        await self.tcp.send_command(ReferenceStartCmd(path=str(replay_path)))
+        await self.emu.send_command(ReferenceStartCmd(path=str(replay_path)))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REFERENCE)
 
     async def stop_reference(self, mode: Mode) -> ActionResult:
         if mode != Mode.REFERENCE:
             raise NotInReferenceError()
-        if self.tcp.is_connected:
-            await self.tcp.send_command(ReferenceStopCmd())
+        if self.emu.is_connected:
+            await self.emu.send_command(ReferenceStopCmd())
         seg_count_in_run = self.db.conn.execute(
             "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
             (self.recorder.capture_run_id,),
@@ -344,7 +344,7 @@ class ReferenceController:
         calling them inside an outer transaction would commit partial work and
         break atomicity. Either every step (end session → drain timing rows →
         promote draft → set active → seed attempts) succeeds, or rollback
-        leaves every row exactly as it was. TCP stop is sent before the
+        leaves every row exactly as it was. The stop command is sent before the
         transaction since it is non-transactional; recorder state is cleared
         only on successful commit via ``_enter_idle``.
         """
@@ -354,8 +354,8 @@ class ReferenceController:
             return await self.finalize_run(name, scheduler=scheduler)
         if mode != Mode.REFERENCE:
             raise NotInReferenceError()
-        if self.tcp.is_connected:
-            await self.tcp.send_command(ReferenceStopCmd())
+        if self.emu.is_connected:
+            await self.emu.send_command(ReferenceStopCmd())
 
         # Snapshot recorder state for the atomic block; do NOT clear it yet —
         # if the transaction rolls back we want the recorder still pointing at
@@ -496,7 +496,7 @@ class ReferenceController:
             raise ReferenceActiveError()
         if mode == Mode.REPLAY:
             raise AlreadyReplayingError()
-        if not self.tcp.is_connected:
+        if not self.emu.is_connected:
             raise NotConnectedError()
 
         # Replay creates its own ephemeral capture_run + session for capture machinery
@@ -511,7 +511,7 @@ class ReferenceController:
         )
         self._enter_recording(run_id, sess_id)
 
-        await self.tcp.send_command(ReplayCmd(path=replay_path, speed=speed))
+        await self.emu.send_command(ReplayCmd(path=replay_path, speed=speed))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REPLAY)
 
     async def stop_replay(self, mode: Mode) -> ActionResult:
@@ -525,8 +525,8 @@ class ReferenceController:
         # capturing it here is the only reliable way to know what run we
         # just ended.
         run_id = self.recorder.capture_run_id
-        if self.tcp.is_connected:
-            await self.tcp.send_command(ReplayStopCmd())
+        if self.emu.is_connected:
+            await self.emu.send_command(ReplayStopCmd())
         # Do NOT call _end_current_session here: handle_replay_finished
         # already ran from the event flow and drove the paused/idle
         # transition. A second call would see an empty recorder and run
@@ -549,7 +549,7 @@ class ReferenceController:
 
 
     async def start_fill_gap(self, segment_id: str) -> ActionResult:
-        if not self.tcp.is_connected:
+        if not self.emu.is_connected:
             raise NotConnectedError()
         row = self.db.conn.execute(
             "SELECT start_waypoint_id FROM segments WHERE id = ?", (segment_id,)
@@ -561,7 +561,7 @@ class ReferenceController:
             raise NoHotVariantError()
         self.fill_gap_segment_id = segment_id
         self._fill_gap_waypoint_id = start_waypoint_id
-        await self.tcp.send_command(FillGapLoadCmd(state_path=hot.state_path, message="Die to capture cold start"))
+        await self.emu.send_command(FillGapLoadCmd(state_path=hot.state_path, message="Die to capture cold start"))
         return ActionResult(status=Status.STARTED, new_mode=Mode.FILL_GAP)
 
     def handle_fill_gap_spawn(self, event: SpawnEvent) -> bool:
@@ -588,7 +588,7 @@ class ReferenceController:
             seg_id = segment_id_for_event(event)
             if seg_id:
                 try:
-                    await self.tcp.save_state(seg_id)
+                    await self.emu.save_state(seg_id)
                 except Exception:
                     logger.exception(
                         "save_state failed for entrance event seg_id=%r", seg_id,
@@ -603,7 +603,7 @@ class ReferenceController:
             seg_id = segment_id_for_event(event)
             if seg_id:
                 try:
-                    await self.tcp.save_state(seg_id)
+                    await self.emu.save_state(seg_id)
                 except Exception:
                     logger.exception(
                         "save_state failed for checkpoint event seg_id=%r", seg_id,

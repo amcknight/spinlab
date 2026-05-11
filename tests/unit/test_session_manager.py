@@ -30,15 +30,15 @@ from spinlab.protocol import (
 from spinlab.session_manager import SessionManager
 
 
-def make_sm(mock_db, mock_tcp, **kwargs):
-    defaults = dict(db=mock_db, tcp=mock_tcp, rom_dir=None, default_category="any%")
+def make_sm(mock_db, mock_emu, **kwargs):
+    defaults = dict(db=mock_db, emu=mock_emu, rom_dir=None, default_category="any%")
     defaults.update(kwargs)
     return SessionManager(**defaults)
 
 
 class TestInit:
-    def test_initial_state(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    def test_initial_state(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         assert sm.mode == Mode.IDLE
         assert sm.game_id is None
         assert sm.scheduler is None
@@ -46,28 +46,28 @@ class TestInit:
 
 
 class TestEventRouting:
-    async def test_rom_info_discovers_game(self, mock_db, mock_tcp, tmp_path):
+    async def test_rom_info_discovers_game(self, mock_db, mock_emu, tmp_path):
         rom_file = tmp_path / "test_hack.sfc"
         rom_file.write_bytes(b"\x00" * 1024)
 
-        sm = make_sm(mock_db, mock_tcp, rom_dir=tmp_path)
+        sm = make_sm(mock_db, mock_emu, rom_dir=tmp_path)
         await sm.route_event(RomInfoEvent(filename="test_hack.sfc"))
         assert sm.game_id is not None
         assert sm.game_name is not None
 
-    async def test_rom_info_no_rom_dir(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_rom_info_no_rom_dir(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         await sm.route_event(RomInfoEvent(filename="test.sfc"))
         assert sm.game_id is None
 
-    async def test_game_context_switches_game(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_game_context_switches_game(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         await sm.route_event(GameContextEvent(game_id="abc123", game_name="Test Game"))
         assert sm.game_id == "abc123"
         assert sm.game_name == "Test Game"
 
-    async def test_events_ignored_outside_reference(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_events_ignored_outside_reference(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.mode = Mode.IDLE
 
@@ -78,24 +78,24 @@ class TestEventRouting:
 
 
 class TestModeGuards:
-    async def test_start_reference_during_practice(self, mock_db, mock_tcp):
+    async def test_start_reference_during_practice(self, mock_db, mock_emu):
         from spinlab.errors import PracticeActiveError
-        sm = make_sm(mock_db, mock_tcp)
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.mode = Mode.PRACTICE
         with pytest.raises(PracticeActiveError):
             await sm.start_reference()
 
-    async def test_on_practice_done_sets_idle(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_on_practice_done_sets_idle(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.mode = Mode.PRACTICE
         sm._on_practice_done(MagicMock())
         assert sm.mode == Mode.IDLE
 
 
 class TestReferenceCapture:
-    async def test_entrance_buffered(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_entrance_buffered(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
         sm.capture.recorder.capture_run_id = "run1"
@@ -106,8 +106,8 @@ class TestReferenceCapture:
         assert sm.capture.recorder.pending_start is not None
         assert sm.capture.recorder.pending_start.level_num == 105
 
-    async def test_exit_pairs_with_entrance(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_exit_pairs_with_entrance(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
         sm.capture.recorder.capture_run_id = "run1"
@@ -120,8 +120,8 @@ class TestReferenceCapture:
         ))
         assert mock_db.upsert_segment.call_count == 1
 
-    async def test_exit_pairs_across_rooms(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_exit_pairs_across_rooms(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
         sm.capture.recorder.capture_run_id = "run1"
@@ -136,8 +136,8 @@ class TestReferenceCapture:
         seg = mock_db.upsert_segment.call_args[0][0]
         assert seg.level_number == 105
 
-    async def test_abort_discards_entrance(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_abort_discards_entrance(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
 
@@ -145,8 +145,8 @@ class TestReferenceCapture:
         await sm.route_event(LevelExitEvent(level=105, room=0, goal="abort"))
         assert mock_db.upsert_segment.call_count == 0
 
-    async def test_checkpoint_creates_segment(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_checkpoint_creates_segment(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         await sm.start_reference()
 
@@ -165,8 +165,8 @@ class TestReferenceCapture:
         assert seg.end_ordinal == 1
         assert sm.capture.recorder.pending_start.type == "checkpoint"
 
-    async def test_checkpoint_then_exit_creates_two_segments(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_checkpoint_then_exit_creates_two_segments(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         await sm.start_reference()
 
@@ -186,15 +186,15 @@ class TestReferenceCapture:
         assert seg2.start_type == "checkpoint"
         assert seg2.end_type == "goal"
 
-    async def test_death_sets_ref_died(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_death_sets_ref_died(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
         await sm.route_event(DeathEvent())
         assert sm.capture.recorder.died is True
 
-    async def test_entrance_clears_ref_died(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_entrance_clears_ref_died(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
         sm.capture.recorder.capture_run_id = "run1"
@@ -207,8 +207,8 @@ class TestReferenceCapture:
 
 
 class TestFillGap:
-    async def test_fill_gap_loads_hot_and_captures_cold(self, practice_db, mock_tcp):
-        sm = make_sm(practice_db, mock_tcp)
+    async def test_fill_gap_loads_hot_and_captures_cold(self, practice_db, mock_emu):
+        sm = make_sm(practice_db, mock_emu)
         sm.game_id = "g"
         sm.capture.recorder.capture_run_id = "run1"
 
@@ -218,8 +218,8 @@ class TestFillGap:
         assert result.status == Status.STARTED
 
         # Verify hot state was sent to emulator
-        mock_tcp.send_command.assert_called_once()
-        cmd = mock_tcp.send_command.call_args[0][0]
+        mock_emu.send_command.assert_called_once()
+        cmd = mock_emu.send_command.call_args[0][0]
         assert str(practice_db._test_state_file) in cmd.state_path
 
         await sm.route_event(SpawnEvent(
@@ -240,8 +240,8 @@ class TestFillGap:
 
 
 class TestColdFill:
-    async def test_save_draft_triggers_cold_fill(self, mock_db, mock_tcp, tmp_path):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_save_draft_triggers_cold_fill(self, mock_db, mock_emu, tmp_path):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
 
         # Set up paused run
@@ -266,8 +266,8 @@ class TestColdFill:
         assert result.status == Status.OK
         assert sm.mode == Mode.COLD_FILL
 
-    async def test_save_draft_no_gaps_stays_idle(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_save_draft_no_gaps_stays_idle(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.capture.paused_run_id = "run1"
         mock_db.segments_missing_cold = MagicMock(return_value=[])
@@ -276,8 +276,8 @@ class TestColdFill:
         assert result.status == Status.OK
         assert sm.mode == Mode.IDLE
 
-    async def test_cold_fill_spawn_routes_correctly(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_cold_fill_spawn_routes_correctly(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.mode = Mode.COLD_FILL
         sm.cold_fill.current = "seg1"
@@ -294,13 +294,13 @@ class TestColdFill:
         ))
         assert sm.mode == Mode.IDLE
 
-    async def test_cold_fill_completion_sends_reset_command(self, mock_db, mock_tcp):
+    async def test_cold_fill_completion_sends_reset_command(self, mock_db, mock_emu):
         # When the last cold state is captured we want the emulator power-
         # cycled back to the title screen, not left mid-respawn in whatever
         # level the final capture happened in.
         from spinlab.protocol import ResetCmd
 
-        sm = make_sm(mock_db, mock_tcp)
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.mode = Mode.COLD_FILL
         sm.cold_fill.current = "seg1"
@@ -316,12 +316,12 @@ class TestColdFill:
             state_path="/cold1.mss",
         ))
         assert sm.mode == Mode.IDLE
-        sent_cmds = [call.args[0] for call in mock_tcp.send_command.call_args_list]
+        sent_cmds = [call.args[0] for call in mock_emu.send_command.call_args_list]
         sent_resets = [c for c in sent_cmds if isinstance(c, ResetCmd)]
         assert len(sent_resets) == 1, f"expected one ResetCmd, got: {sent_cmds}"
 
-    async def test_disconnect_during_cold_fill_returns_idle(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_disconnect_during_cold_fill_returns_idle(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.mode = Mode.COLD_FILL
         sm.cold_fill.current = "seg1"
@@ -333,8 +333,8 @@ class TestColdFill:
         assert sm.cold_fill.current is None
         assert sm.cold_fill.queue == []
 
-    async def test_cold_fill_state_in_get_state(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_cold_fill_state_in_get_state(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.mode = Mode.COLD_FILL
         sm.cold_fill.current = "seg1"
@@ -352,9 +352,9 @@ class TestColdFill:
 
 
 @pytest.fixture
-def session_manager_with_practice(mock_db, mock_tcp):
+def session_manager_with_practice(mock_db, mock_emu):
     """A SessionManager in PRACTICE mode with a stubbed PracticeSession."""
-    sm = make_sm(mock_db, mock_tcp)
+    sm = make_sm(mock_db, mock_emu)
     sm.game_id = "g"
     sm.game_name = "Game"
     sm.mode = Mode.PRACTICE
@@ -418,22 +418,22 @@ class TestColdFillMode:
 class TestPracticeLifecycle:
     """Tests for start_practice, stop_practice, and _on_practice_done."""
 
-    async def test_start_practice_blocked_by_draft(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_start_practice_blocked_by_draft(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.capture.paused_run_id = "fake_paused_run"
         with pytest.raises(DraftPendingError):
             await sm.start_practice()
 
-    async def test_start_practice_blocked_by_not_connected(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_start_practice_blocked_by_not_connected(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
-        mock_tcp.is_connected = False
+        mock_emu.is_connected = False
         with pytest.raises(NotConnectedError):
             await sm.start_practice()
 
-    async def test_start_practice_blocked_when_already_running(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_start_practice_blocked_when_already_running(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         fake_ps = MagicMock()
         fake_ps.is_running = True
@@ -441,26 +441,24 @@ class TestPracticeLifecycle:
         with pytest.raises(AlreadyRunningError):
             await sm.start_practice()
 
-    async def test_stop_practice_when_not_running(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_stop_practice_when_not_running(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         with pytest.raises(NotRunningError):
             await sm.stop_practice()
 
-    async def test_stop_practice_clears_stale_mode(self, mock_db, mock_tcp):
+    async def test_stop_practice_clears_stale_mode(self, mock_db, mock_emu):
         """If mode=PRACTICE but no session, stop_practice should still reset."""
-        sm = make_sm(mock_db, mock_tcp)
+        sm = make_sm(mock_db, mock_emu)
         sm.mode = Mode.PRACTICE
         result = await sm.stop_practice()
         assert result.status == Status.STOPPED
         assert sm.mode == Mode.IDLE
-
-    @pytest.mark.slow
-    async def test_stop_practice_cancels_hung_task(self, mock_db, mock_tcp, monkeypatch):
+    async def test_stop_practice_cancels_hung_task(self, mock_db, mock_emu, monkeypatch):
         """When practice task doesn't exit on is_running=False, stop should cancel
         after the timeout elapses."""
         monkeypatch.setattr(session_manager_module, "PRACTICE_STOP_TIMEOUT_S", 0.1)
 
-        sm = make_sm(mock_db, mock_tcp)
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.mode = Mode.PRACTICE
 
@@ -483,25 +481,25 @@ class TestPracticeLifecycle:
 class TestSpeedRunLifecycle:
     """Tests for start_speed_run, stop_speed_run, and _on_speed_run_done."""
 
-    async def test_start_blocked_by_draft(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_start_blocked_by_draft(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         sm.capture.paused_run_id = "fake_paused_run"
         with pytest.raises(DraftPendingError):
             await sm.start_speed_run()
 
-    async def test_start_blocked_by_not_connected(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_start_blocked_by_not_connected(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
-        mock_tcp.is_connected = False
+        mock_emu.is_connected = False
         with pytest.raises(NotConnectedError):
             await sm.start_speed_run()
 
-    async def test_start_missing_save_states(self, mock_db, mock_tcp):
+    async def test_start_missing_save_states(self, mock_db, mock_emu):
         """SpeedRunSession.__init__ raises ValueError when a segment
         has no save_state path on disk; start_speed_run translates that to
         MissingSaveStatesError."""
-        sm = make_sm(mock_db, mock_tcp)
+        sm = make_sm(mock_db, mock_emu)
         sm.game_id = "game1"
         mock_db.get_all_segments_with_model.return_value = [{
             "id": "seg1",
@@ -517,13 +515,13 @@ class TestSpeedRunLifecycle:
         with pytest.raises(MissingSaveStatesError):
             await sm.start_speed_run()
 
-    async def test_stop_when_not_running(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_stop_when_not_running(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         with pytest.raises(NotRunningError):
             await sm.stop_speed_run()
 
-    async def test_stop_clears_stale_mode(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_stop_clears_stale_mode(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.mode = Mode.SPEED_RUN
         result = await sm.stop_speed_run()
         assert result.status == Status.STOPPED
@@ -531,37 +529,37 @@ class TestSpeedRunLifecycle:
 
 
 class TestDisconnectAndShutdown:
-    def test_on_disconnect_stops_practice(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    def test_on_disconnect_stops_practice(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         fake_ps = MagicMock()
         fake_ps.is_running = True
         sm.practice_session = fake_ps
         sm.on_disconnect()
         assert fake_ps.is_running is False
 
-    def test_on_disconnect_stops_speed_run(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    def test_on_disconnect_stops_speed_run(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         fake_sr = MagicMock()
         fake_sr.is_running = True
         sm.speed_run_session = fake_sr
         sm.on_disconnect()
         assert fake_sr.is_running is False
 
-    def test_on_disconnect_clears_ref_and_idles(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    def test_on_disconnect_clears_ref_and_idles(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.mode = Mode.REFERENCE
         sm.on_disconnect()
         assert sm.mode == Mode.IDLE
 
-    async def test_shutdown_stops_practice_and_tcp(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_shutdown_stops_practice_and_tcp(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.mode = Mode.PRACTICE  # stale — no real session
         await sm.shutdown()
-        mock_tcp.disconnect.assert_called_once()
+        mock_emu.disconnect.assert_called_once()
 
-    async def test_shutdown_clears_reference(self, mock_db, mock_tcp):
-        sm = make_sm(mock_db, mock_tcp)
+    async def test_shutdown_clears_reference(self, mock_db, mock_emu):
+        sm = make_sm(mock_db, mock_emu)
         sm.mode = Mode.REFERENCE
         await sm.shutdown()
         assert sm.mode == Mode.IDLE
-        mock_tcp.disconnect.assert_called_once()
+        mock_emu.disconnect.assert_called_once()

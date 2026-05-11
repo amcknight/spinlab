@@ -49,7 +49,7 @@ class StateBuilder:
 
         base = {
             "mode": mode.value,
-            "tcp_connected": session.tcp.is_connected,
+            "emu_connected": session.emu.is_connected,
             "game_id": game_id,
             "game_name": session.game_name,
             "current_segment": None,
@@ -78,6 +78,7 @@ class StateBuilder:
         if mode == Mode.REPLAY:
             base["replay"] = {
                 "rec_path": session.capture.rec_path,
+                "total": session.replay_total,
             }
 
         paused_run = session.capture.get_paused_state()

@@ -2,7 +2,7 @@
 
 Fixtures:
     run_scenario       — function-scoped: sends poke scenario via RA harness (RA path)
-    fake_dashboard_server — session-scoped: FastAPI dashboard with FakeTcpManager, no emulator
+    fake_dashboard_server — session-scoped: FastAPI dashboard with FakeEmuBackend, no emulator
     fake_game_loaded   — session-scoped: seeds a game into fake_dashboard_server
     replay_ra_dashboard — session-scoped: dashboard wired to a Love Yourself RA session
 
@@ -95,6 +95,19 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _free_udp_port() -> int:
+    """Find a free UDP port.
+
+    Small TOCTOU window between the bind here releasing and RetroArch binding
+    to the same port — acceptable because the harness's NCI ping retries cover
+    transient failures, and the loopback UDP port space is otherwise quiet on
+    a test host.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 def _hard_kill(proc: subprocess.Popen) -> None:
     """Best-effort kill for subprocess processes.
 
@@ -130,20 +143,20 @@ FAKE_GAME_NAME = "FakeGame"
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def fake_dashboard_server():
-    """Start a FastAPI dashboard with a FakeTcpManager — no Mesen required.
+    """Start a FastAPI dashboard with a FakeEmuBackend — no live emulator required.
 
-    Mirrors the real ``dashboard_server`` fixture but swaps ``session.tcp`` for
-    the in-process FakeTcpManager (see tests/conftest.py) so tests can exercise
+    Mirrors the real ``dashboard_server`` fixture but swaps ``session.emu`` for
+    the in-process FakeEmuBackend (see tests/conftest.py) so tests can exercise
     the dashboard's HTTP API and SessionManager without booting an emulator.
 
     The dashboard's background event_loop still runs and keeps trying to open
-    a TCP connection on the configured port — nothing listens there, so each
-    attempt fails fast and the loop sleeps. The session's ``tcp`` reference is
-    the fake, which ``SystemState`` reads for ``tcp_connected``.
+    a backend connection on the configured port — nothing listens there, so each
+    attempt fails fast and the loop sleeps. The session's ``emu`` reference is
+    the fake, which ``SystemState`` reads for ``emu_connected``.
 
     Yields (base_url, db, session).
     """
-    from tests.conftest import FakeTcpManager
+    from tests.conftest import FakeEmuBackend
 
     from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeConfig
     from spinlab.dashboard import create_app
@@ -171,12 +184,12 @@ async def fake_dashboard_server():
     )
 
     app = create_app(db=db, config=config)
-    # Swap TCP for the fake *before* starting uvicorn so the lifespan-started
-    # event_loop's real-TCP retries don't matter: state reads session.tcp.
-    fake_tcp = FakeTcpManager(connected=True)
-    app.state.session.tcp = fake_tcp
-    app.state.session.capture.tcp = fake_tcp
-    app.state.session.cold_fill.tcp = fake_tcp
+    # Swap the backend for the fake *before* starting uvicorn so the lifespan-started
+    # event_loop's real-backend retries don't matter: state reads session.emu.
+    fake_emu = FakeEmuBackend(connected=True)
+    app.state.session.emu = fake_emu
+    app.state.session.capture.emu = fake_emu
+    app.state.session.cold_fill.emu = fake_emu
 
     uvi_config = uvicorn.Config(app, host="127.0.0.1", port=dashboard_port, log_level="warning")
     server = uvicorn.Server(uvi_config)
@@ -210,7 +223,7 @@ async def fake_game_loaded(fake_dashboard_server):
     """Seed a minimal game + segments + reference + attempts + session, then
     drive the real ``switch_game`` path so SystemState reports a loaded game.
 
-    Uses ``fake_dashboard_server`` (no Mesen) so frontend contract tests have
+    Uses ``fake_dashboard_server`` (no live emulator) so frontend contract tests have
     stable data on every tab without the emulator marker.
 
     Session-scoped to match ``fake_dashboard_server``'s session loop — seeding
@@ -223,7 +236,7 @@ async def fake_game_loaded(fake_dashboard_server):
     _base_url, db, session = fake_dashboard_server
     game_id = seed_basic_game(db)
     # switch_game is the real code path used by _handle_rom_info /
-    # _handle_game_context; tcp_connected is already True via FakeTcpManager.
+    # _handle_game_context; emu_connected is already True via FakeEmuBackend.
     await session.switch_game(game_id, FAKE_GAME_NAME)
     yield game_id
 
@@ -280,7 +293,12 @@ def ra_harness():
         )
 
     try:
-        harness = RAHarness.launch(rom_path=rom_path, core_path=ra_core_path, retroarch_exe=retroarch_exe)
+        harness = RAHarness.launch(
+            rom_path=rom_path,
+            core_path=ra_core_path,
+            retroarch_exe=retroarch_exe,
+            nci_port=_free_udp_port(),
+        )
     except RAHarnessLaunchError as exc:
         pytest.skip(f"ra_harness launch failed: {exc}")
 
@@ -315,7 +333,12 @@ def ra_harness_love_yourself():
         )
 
     try:
-        harness = RAHarness.launch(rom_path=rom_path, core_path=ra_core_path, retroarch_exe=retroarch_exe)
+        harness = RAHarness.launch(
+            rom_path=rom_path,
+            core_path=ra_core_path,
+            retroarch_exe=retroarch_exe,
+            nci_port=_free_udp_port(),
+        )
     except RAHarnessLaunchError as exc:
         pytest.skip(f"ra_harness_love_yourself launch failed: {exc}")
 
@@ -347,7 +370,7 @@ def replay_ra_dashboard(ra_harness_love_yourself):
     """Start a dashboard pointed at the Love Yourself RA session for replay tests.
 
     Mirrors ``replay_dashboard`` but uses the RA backend (build_orchestrator)
-    instead of Mesen+TCP.  The RA process is already up (ra_harness_love_yourself);
+    instead of the legacy Mesen+TCP backend.  The RA process is already up (ra_harness_love_yourself);
     this fixture wires the dashboard to it via NCI at the configured port.
 
     Phase E PLAY_REPLAY requires RA to be in PLAYING (not PAUSED) state.
@@ -388,7 +411,9 @@ def replay_ra_dashboard(ra_harness_love_yourself):
             host="127.0.0.1",
             port=15482,  # unused — RA backend uses NCI, not TCP
             dashboard_port=dashboard_port,
-            nci_port=config_raw.get("network", {}).get("nci_port", 55355),
+            # Talk to the harness's RA, not whatever the user's config.yaml
+            # advertises. The harness picks a free port per session.
+            nci_port=ra_harness_love_yourself.client.port,
         ),
         emulator=EmulatorConfig(
             savestate_dir=savestate_dir,
@@ -434,7 +459,7 @@ def replay_ra_dashboard(ra_harness_love_yourself):
     for _ in range(40):
         resp = http_requests.get(f"{base_url}/api/state", timeout=2)
         state = resp.json()
-        if state.get("tcp_connected") and state.get("game_id"):
+        if state.get("emu_connected") and state.get("game_id"):
             break
         _time.sleep(0.25)
     else:

@@ -14,8 +14,8 @@ from spinlab.session_manager import SessionManager
 
 
 class TestStartReplay:
-    async def test_sends_replay_command(self, mock_db, mock_tcp, tmp_path):
-        sm = SessionManager(db=mock_db, tcp=mock_tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
+    async def test_sends_replay_command(self, mock_db, mock_emu, tmp_path):
+        sm = SessionManager(db=mock_db, emu=mock_emu, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
         sm.game_id = "abcdef0123456789"
         sm.game_name = "Test Game"
 
@@ -23,21 +23,21 @@ class TestStartReplay:
         assert result.status == Status.STARTED
         assert sm.mode == Mode.REPLAY
 
-        cmd = mock_tcp.send_command.call_args[0][0]
+        cmd = mock_emu.send_command.call_args[0][0]
         assert isinstance(cmd, ReplayCmd)
         assert cmd.path == "/data/test.spinrec"
         assert cmd.speed == 0
 
-    async def test_rejects_during_practice(self, mock_db, mock_tcp, tmp_path):
-        sm = SessionManager(db=mock_db, tcp=mock_tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
+    async def test_rejects_during_practice(self, mock_db, mock_emu, tmp_path):
+        sm = SessionManager(db=mock_db, emu=mock_emu, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
         sm.game_id = "abcdef0123456789"
         sm.mode = Mode.PRACTICE
 
         with pytest.raises(PracticeActiveError):
             await sm.start_replay("/data/test.spinrec")
 
-    async def test_rejects_during_reference(self, mock_db, mock_tcp, tmp_path):
-        sm = SessionManager(db=mock_db, tcp=mock_tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
+    async def test_rejects_during_reference(self, mock_db, mock_emu, tmp_path):
+        sm = SessionManager(db=mock_db, emu=mock_emu, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
         sm.game_id = "abcdef0123456789"
         sm.mode = Mode.REFERENCE
 
@@ -46,8 +46,8 @@ class TestStartReplay:
 
 
 class TestReplayEvents:
-    async def test_replay_finished_returns_to_idle(self, mock_db, mock_tcp, tmp_path):
-        sm = SessionManager(db=mock_db, tcp=mock_tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
+    async def test_replay_finished_returns_to_idle(self, mock_db, mock_emu, tmp_path):
+        sm = SessionManager(db=mock_db, emu=mock_emu, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
         sm.game_id = "abcdef0123456789"
         sm.game_name = "Test Game"
         sm.mode = Mode.REPLAY
@@ -55,17 +55,17 @@ class TestReplayEvents:
         await sm.route_event(ReplayFinishedEvent())
         assert sm.mode == Mode.IDLE
 
-    async def test_replay_error_returns_to_idle(self, mock_db, mock_tcp, tmp_path):
-        sm = SessionManager(db=mock_db, tcp=mock_tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
+    async def test_replay_error_returns_to_idle(self, mock_db, mock_emu, tmp_path):
+        sm = SessionManager(db=mock_db, emu=mock_emu, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
         sm.game_id = "abcdef0123456789"
         sm.mode = Mode.REPLAY
 
         await sm.route_event(ReplayErrorEvent(message="game_id mismatch"))
         assert sm.mode == Mode.IDLE
 
-    async def test_replay_events_still_capture_segments(self, mock_db, mock_tcp, tmp_path):
+    async def test_replay_events_still_capture_segments(self, mock_db, mock_emu, tmp_path):
         """Events with source=replay still flow through reference capture pipeline."""
-        sm = SessionManager(db=mock_db, tcp=mock_tcp, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
+        sm = SessionManager(db=mock_db, emu=mock_emu, rom_dir=tmp_path, default_category="any%", data_dir=tmp_path)
         sm.game_id = "abcdef0123456789"
         sm.game_name = "Test Game"
         sm.mode = Mode.REPLAY
