@@ -64,7 +64,11 @@ This is hacky in roughly six ways. They compound. The state side is explored and
 - **In-place rewrites.** RA sometimes overwrites the same `.replay<N>` filename across recordings rather than incrementing. Our baseline tracks mtimes, not just names, so we catch this. (See `94801f5` for the bug + fix.)
 - **`movie_dir` derivation.** Movie files land in `<savestate_directory>/<core_name>/`, NOT in `<savestate_directory>` directly like state files. `EmulatorConfig.ra_movie_dir` is an explicit override; otherwise we derive `<emu.savestate_dir>/<emu.ra_core_subdir>`. We detect when `savestate_dir` already ends with `ra_core_subdir` and skip the second append, because some users (e.g. Andrew) point `savestate_dir` at the per-core path directly. **This is two configs whose interaction must be reasoned about, with a defensive `name == subdir` check making the wrong combination silently DTRT.** A clean redesign would have `EmulatorConfig` expose `movie_dir` directly and stop deriving.
 
-### Playback (broken: RA refuses our staged file)
+### Playback (now working, 2026-05-10 — but slot resolution is still log-parsed)
+
+> **2026-05-10 update:** end-to-end replay → segment capture is now passing (`test_replay_fixture::test_replay_produces_segments`, 8/8 across consecutive runs). The "broken" framing below is largely historical now — RA does load our staged file, playback runs through, and the poller's transitions land. What's preserved below: the slot-resolution mechanism is still fragile log-parsing. The "verification heuristic" subsection further down is also still relevant (the 16-byte WRAM advance check after PLAY_REPLAY only catches gross failures, not subtle mis-loads). The "first version that mysteriously worked" subsection is also still worth reading as a "things to verify if the determinism test ever passes for the wrong reason" cautionary tale.
+
+
 
 - We have a SpinLab-keyed `.replay` file at `<data_dir>/<game_id>/rec/<ref_id>.replay`.
 - Stage: copy that file to `<movie_dir>/<game_basename>.replay0` (slot 0, hardcoded — see below).

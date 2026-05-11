@@ -23,6 +23,7 @@ class FakeNCI:
         # False (simulates a stalled core, e.g. failed PLAY_REPLAY).
         self._advancing = advancing
         self._read_count = 0
+        self.reset_calls = 0
 
     def get_status(self):
         return type("S", (), {"state": "PLAYING", "system": None, "game": None, "crc32": None})()
@@ -32,6 +33,9 @@ class FakeNCI:
         if self._advancing:
             return bytes([self._read_count]) * length
         return b"\x00" * length
+
+    def reset(self) -> None:
+        self.reset_calls += 1
 
     def replay_slot_minus(self) -> None:
         # No-op for tests — the orchestrator fires this many times before
@@ -364,3 +368,23 @@ async def test_on_replay_without_player_raises_backend_not_implemented(
     orch = orchestrator_without_player
     with pytest.raises(BackendNotImplementedError):
         await orch._on_replay(ReplayCmd(path="/x.replay", speed=0))
+
+
+@pytest.mark.asyncio
+async def test_on_reset_fires_nci_reset_twice(monkeypatch):
+    """RA's RESET hotkey needs two presses (intentional anti-accident gate);
+    a single NCI RESET registers as press one and the console stays running.
+    Orchestrator must fire RESET twice with a delay so the second press lands
+    inside RA's confirmation window."""
+    from spinlab.protocol import ResetCmd
+    fake_nci = FakeNCI()
+    orch = _build_orch_with_nci(nci=fake_nci)
+    # Avoid sleeping the real 300ms in unit tests.
+    import spinlab.retroarch.orchestrator as orch_mod
+    monkeypatch.setattr(orch_mod.asyncio, "sleep", _async_noop_sleep)
+    await orch._on_reset(ResetCmd())
+    assert fake_nci.reset_calls == 2
+
+
+async def _async_noop_sleep(_):
+    return None

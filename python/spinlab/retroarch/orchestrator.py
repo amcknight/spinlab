@@ -77,6 +77,12 @@ _REPLAY_SLOT_LOG_PATTERN = re.compile(
 # drives timing deadlines, not frame-by-frame detection.
 TICK_INTERVAL_SEC = 0.05
 
+# Spacing between the two NCI RESET fires that satisfy RA's two-press
+# anti-accident confirmation. RA's input layer debounces hotkeys at ~6Hz
+# (one tap per ~167ms) but also requires the second press to fall inside
+# its confirmation window; 300ms is comfortably inside both bounds.
+_RESET_DOUBLE_TAP_GAP_SEC = 0.3
+
 
 class RetroArchOrchestrator:
     """TcpManager-shaped façade over NCI + state_io + poller + timing modules.
@@ -321,6 +327,15 @@ class RetroArchOrchestrator:
         self._poller.mark_state_loaded()
 
     async def _on_reset(self, cmd: ResetCmd) -> None:
+        # RA's RESET hotkey requires two presses in a row before the console
+        # actually resets — intentional anti-accident gate so people chatting
+        # with their controller in hand don't reset their own runs. A single
+        # NCI RESET counts as the first press; the second press has to come
+        # within RA's confirmation window. Without firing twice, callers
+        # (notably cold-fill completion) saw "tried to reset but stayed in
+        # the level" symptoms and had to finish the reset manually.
+        self._client.reset()
+        await asyncio.sleep(_RESET_DOUBLE_TAP_GAP_SEC)
         self._client.reset()
 
     async def _on_set_conditions(self, cmd: SetConditionsCmd) -> None:
