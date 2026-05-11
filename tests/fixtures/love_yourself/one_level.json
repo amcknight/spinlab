@@ -9,7 +9,7 @@
   "determinism_probe": {
     "frame": 1000,
     "addr": 148,
-    "expected_byte": 0,
-    "_comment": "addr 0x94 is Mario X-low. expected_byte will be refreshed by the determinism test on first run against this fixture; 0 is a placeholder."
+    "expected_byte": 8,
+    "_comment": "addr 0x94 is Mario X-low. expected_byte=8 measured by test_movie_playback_deterministic on the 2026-05-10 fixture re-record. Both playback runs returned identical value, confirming determinism."
   }
 }
