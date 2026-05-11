@@ -101,8 +101,8 @@ class NoHotVariantError(ActionError):
 class BackendNotImplementedError(ActionError):
     """A command isn't implemented on the active emulator backend.
 
-    Used by RetroArchOrchestrator for record/replay (BSV — Phase E). Surfaces
-    cleanly as an HTTP 501 with a clear detail string instead of a generic 500.
+    Surfaces cleanly as an HTTP 501 with a clear detail string instead of a
+    generic 500.
     """
     http_code = 501
     detail = "backend_not_implemented"

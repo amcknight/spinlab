@@ -1,11 +1,9 @@
-"""Vite dev server subprocess management.
+"""Vite dev server subprocess management with Windows zombie-process prevention.
 
-Windows zombie-prevention: every Vite child is assigned to a Windows Job Object
-with KILL_ON_JOB_CLOSE. When the dashboard process exits for any reason (clean
-shutdown, taskkill /F, crash, BSOD), the OS closes the job handle and every
-descendant — `npm.cmd`, `node.exe`, anything either of them spawned — is
-terminated automatically. This is what `proc.terminate()` alone cannot do, and
-what was leaving 10+ orphan node.exe processes per restart.
+Vite children run inside a Windows Job Object with KILL_ON_JOB_CLOSE so the
+OS terminates every descendant (npm.cmd, node.exe, …) when the dashboard
+process exits, regardless of how — clean shutdown, taskkill /F, or crash.
+``proc.terminate()`` alone can't do this on Windows.
 """
 from __future__ import annotations
 

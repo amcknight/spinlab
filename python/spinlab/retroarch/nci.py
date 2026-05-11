@@ -7,7 +7,6 @@ calls in `asyncio.to_thread` if they need to.
 from __future__ import annotations
 
 import socket
-import time
 from types import TracebackType
 from typing import Self
 
@@ -159,21 +158,18 @@ class NCIClient:
             raise NCIProtocolError(f"unparseable reply: {reply!r}") from exc
 
     def write_ram(self, addr: int, data: bytes) -> None:
-        """Write `data` to WRAM-flat offset `addr`. Returns nothing on success.
+        """Write `data` to WRAM-flat offset `addr`. Fire-and-forget.
 
-        Fire-and-forget: live-RA testing showed RetroArch parses WRITE_CORE_RAM
-        and applies the write but does not emit a reply over the network port.
-        Use is_core_running() or a follow-up read_ram() if you need confirmation
-        the write actually landed.
+        RetroArch parses WRITE_CORE_RAM and applies the write but does not
+        emit a reply. Follow up with read_ram() if confirmation is needed.
         """
         hex_bytes = " ".join(f"{b:02x}" for b in data)
         self._send_no_reply(f"WRITE_CORE_RAM {addr:x} {hex_bytes}")
 
     def save_state(self) -> None:
-        """Save state to RA's current slot. Increments state_slot if savestate_auto_index is on.
+        """Save state to RA's current slot. Fire-and-forget.
 
-        SpinLab's slot strategy lives in Phase D's state_io module; this method
-        is the raw command and does no slot management.
+        Slot management is RAClient's concern; this method is the raw command.
         """
         self._send_no_reply("SAVE_STATE")
 
@@ -186,12 +182,7 @@ class NCIClient:
         self._send_no_reply("RESET")
 
     def pause_toggle(self) -> None:
-        """Toggle paused state. WARNING: don't call blindly — see is_core_running.
-
-        Phase 2 spike found a 'deep pause' state where PAUSE_TOGGLE could not
-        recover the emulator core. Use is_core_running() to confirm state before
-        toggling.
-        """
+        """Toggle paused state."""
         self._send_no_reply("PAUSE_TOGGLE")
 
     def frame_advance(self) -> None:
@@ -248,27 +239,6 @@ class NCIClient:
     def quit(self) -> None:
         """Tell RetroArch to shut down."""
         self._send_no_reply("QUIT")
-
-    def is_core_running(self, tick_addr: int, sample_delay: float = 0.05) -> bool:
-        """Return True if the emulator core is advancing frames.
-
-        Detects the spike-discovered deep-pause state where NCI stays responsive
-        but the core thread is frozen — see docs/retroarch-migration/spike-log.md.
-
-        Strategy: read a single byte at `tick_addr` twice with `sample_delay`
-        between samples. If the bytes are identical, the core is not advancing.
-        Caller picks `tick_addr` (typically a frame counter or fast-changing
-        animation register).
-
-        Note: a False result can occur transiently if `tick_addr` happens to
-        wrap back to its previous value within `sample_delay`. For deep-pause
-        detection, sample_delay should be significantly larger than one frame
-        period (16.67ms) — default 0.05s ≈ 3 frames is comfortable.
-        """
-        a = self.read_ram(tick_addr, 1)
-        time.sleep(sample_delay)
-        b = self.read_ram(tick_addr, 1)
-        return a != b
 
     def close(self) -> None:
         """Close the persistent socket, if it exists. Idempotent.

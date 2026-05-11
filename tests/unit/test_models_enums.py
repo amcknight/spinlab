@@ -40,7 +40,6 @@ class TestEventType:
             "attempt_result",
             "rec_saved",
             "replay_started",
-            "replay_progress",
             "replay_finished",
             "replay_error",
             "attempt_invalidated",

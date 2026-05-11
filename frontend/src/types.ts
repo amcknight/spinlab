@@ -86,8 +86,6 @@ export interface PausedRunState {
 
 export interface ReplayState {
   rec_path: string | null;
-  frame: number;
-  total: number;
 }
 
 export interface ColdFillState {

@@ -54,7 +54,6 @@ class EventType(StrEnum):
     ATTEMPT_RESULT = "attempt_result"
     REC_SAVED = "rec_saved"
     REPLAY_STARTED = "replay_started"
-    REPLAY_PROGRESS = "replay_progress"
     REPLAY_FINISHED = "replay_finished"
     REPLAY_ERROR = "replay_error"
     ATTEMPT_INVALIDATED = "attempt_invalidated"

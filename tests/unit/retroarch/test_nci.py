@@ -1,11 +1,9 @@
 """Unit tests for spinlab.retroarch — NCI client and helpers."""
-import itertools
 import socket
 
 import pytest
 
 from spinlab.retroarch import (
-    NCICoreFrozen,
     NCIError,
     NCIProtocolError,
     NCITimeout,
@@ -17,7 +15,6 @@ from spinlab.retroarch.nci import NCIClient
 def test_exception_hierarchy():
     assert issubclass(NCITimeout, NCIError)
     assert issubclass(NCIProtocolError, NCIError)
-    assert issubclass(NCICoreFrozen, NCIError)
 
 
 def test_fake_nci_server_responds(fake_nci_server):
@@ -223,36 +220,6 @@ def test_fire_and_forget_commands(fake_nci_server, method, args, expected_comman
     assert received == [expected_command]
 
 
-def test_is_core_running_true_when_memory_changes(fake_nci_server):
-    """Two reads of the same address return different values -> core is advancing."""
-    counter = itertools.count(start=0)
-
-    def respond(cmd):
-        n = next(counter)
-        return f"READ_CORE_RAM 13 {n & 0xFF:02x}\n"
-
-    fake_nci_server.handle("READ_CORE_RAM 13 1", respond)
-    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
-
-    assert client.is_core_running(tick_addr=0x13, sample_delay=0.01) is True
-
-
-def test_is_core_running_false_when_memory_static(fake_nci_server):
-    """Identical reads -> core frozen (deep-pause state)."""
-    fake_nci_server.handle("READ_CORE_RAM 13 1", "READ_CORE_RAM 13 6d\n")
-    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
-
-    assert client.is_core_running(tick_addr=0x13, sample_delay=0.01) is False
-
-
-def test_is_core_running_raises_on_read_error(fake_nci_server):
-    fake_nci_server.handle("READ_CORE_RAM ffff 1", "READ_CORE_RAM ffff -1\n")
-    client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
-
-    with pytest.raises(NCIProtocolError):
-        client.is_core_running(tick_addr=0xFFFF, sample_delay=0.01)
-
-
 def test_client_close_is_idempotent(fake_nci_server):
     fake_nci_server.handle("VERSION", "1.22.2\n")
     client = NCIClient(host=fake_nci_server.address[0], port=fake_nci_server.address[1])
@@ -313,7 +280,6 @@ def test_late_reply_does_not_contaminate_next_call(fake_nci_server):
     isn't contaminated. The drain doesn't help with replies that arrive AFTER
     the timeout but before the next call (those require socket close).
     """
-    import time as _time
 
     # Use a handler that replies quickly (before the client's timeout),
     # so the reply arrives and sits in the buffer during timeout processing.

@@ -1,7 +1,6 @@
-"""RetroArch integration: NCI client, polling, savestate I/O, BSV adapter."""
+"""RetroArch integration: RAClient (NCI + state + movie + hotkey) + Poller."""
 
 from spinlab.retroarch.exceptions import (
-    NCICoreFrozen,
     NCIError,
     NCIProtocolError,
     NCITimeout,
@@ -9,7 +8,6 @@ from spinlab.retroarch.exceptions import (
 from spinlab.retroarch.responses import StatusInfo
 
 __all__ = [
-    "NCICoreFrozen",
     "NCIError",
     "NCIProtocolError",
     "NCITimeout",

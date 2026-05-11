@@ -28,7 +28,6 @@ from .protocol import (
     LevelExitEvent,
     ReplayErrorEvent,
     ReplayFinishedEvent,
-    ReplayProgressEvent,
     ReplayStartedEvent,
     ResetCmd,
     RomInfoEvent,
@@ -89,13 +88,6 @@ class SessionManager:
         self.speed_run_session = None  # SpeedRunSession | None
         self.speed_run_task: asyncio.Task | None = None
 
-        # Last-seen replay progress (frame/total from ReplayProgressEvent).
-        # Currently nothing emits these under RA — fields kept against the
-        # day the orchestrator (or a poller hook) reports replay frame
-        # progress; the dashboard already wires through them.
-        self.replay_frame: int = 0
-        self.replay_total: int = 0
-
         self.capture = ReferenceController(db, tcp)
         self.cold_fill = ColdFillController(db, tcp)
         self.sse = SSEBroadcaster()
@@ -112,7 +104,6 @@ class SessionManager:
             LevelExitEvent: self._handle_level_exit,
             AttemptResultEvent: self._handle_attempt_result,
             ReplayStartedEvent: self._handle_replay_started,
-            ReplayProgressEvent: self._handle_replay_progress,
             ReplayFinishedEvent: self._handle_replay_finished,
             ReplayErrorEvent: self._handle_replay_error,
             AttemptInvalidatedEvent: self._handle_attempt_invalidated,
@@ -325,18 +316,9 @@ class SessionManager:
         await self._notify_sse()
 
     async def _handle_replay_started(self, event: ReplayStartedEvent) -> None:
-        self.replay_frame = 0
-        self.replay_total = event.frame_count
-        await self._notify_sse()
-
-    async def _handle_replay_progress(self, event: ReplayProgressEvent) -> None:
-        self.replay_frame = event.frame
-        self.replay_total = event.total
         await self._notify_sse()
 
     async def _handle_replay_finished(self, event: ReplayFinishedEvent) -> None:
-        self.replay_frame = 0
-        self.replay_total = 0
         # handle_replay_finished ends the session and leaves the run paused if
         # segments were captured.  We must NOT call _clear_ref_and_idle here —
         # that would wipe paused_run_id and prevent the user from finalizing.
@@ -346,8 +328,6 @@ class SessionManager:
 
     async def _handle_replay_error(self, event: ReplayErrorEvent) -> None:
         logger.warning("replay_error: %s", event.message)
-        self.replay_frame = 0
-        self.replay_total = 0
         # Same as _handle_replay_finished: preserve paused_run_id set by
         # handle_replay_error when segments were captured before the error.
         self.capture.handle_replay_error()

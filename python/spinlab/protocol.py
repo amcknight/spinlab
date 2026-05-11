@@ -83,11 +83,6 @@ class ReplayStartedEvent:
     frame_count: int = 0
 
 @dataclass
-class ReplayProgressEvent:
-    frame: int = 0
-    total: int = 0
-
-@dataclass
 class ReplayFinishedEvent:
     pass
 
