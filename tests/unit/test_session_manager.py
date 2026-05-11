@@ -224,7 +224,7 @@ class TestFillGap:
 
         await sm.route_event(SpawnEvent(
             level_num=1, is_cold_cp=True, cp_ordinal=0,
-            timestamp_ms=1000, state_captured=True,
+            timestamp_ms=1000,
             state_path="/cold.mss",
         ))
 
@@ -289,7 +289,6 @@ class TestColdFill:
         sm.cold_fill.total = 1
 
         await sm.route_event(SpawnEvent(
-            state_captured=True,
             state_path="/cold1.mss",
         ))
         assert sm.mode == Mode.IDLE
@@ -312,7 +311,6 @@ class TestColdFill:
         sm.cold_fill.total = 1
 
         await sm.route_event(SpawnEvent(
-            state_captured=True,
             state_path="/cold1.mss",
         ))
         assert sm.mode == Mode.IDLE

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from spinlab.condition_registry import ConditionRegistry
-from spinlab.retroarch.cold_fill import ColdFillSpawnDetector
+from spinlab.retroarch.cold_fill_detector import ColdFillSpawnDetector
 from spinlab.retroarch.detector import TransitionDetector
 from spinlab.retroarch.nci import NCIClient
 from spinlab.retroarch.snapshot import MemorySnapshot

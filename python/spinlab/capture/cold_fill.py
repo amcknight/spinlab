@@ -89,9 +89,8 @@ class ColdFillController:
         if not self.current:
             logger.warning("cold_fill: spawn received but no current segment")
             return False
-        if not event.state_captured or not event.state_path:
-            logger.info("cold_fill: spawn without state_captured — ignoring (state_path=%s)",
-                        event.state_path)
+        if not event.state_path:
+            logger.info("cold_fill: spawn without state_path — ignoring")
             return False
         seg_id = event.segment_id or self.current
         try:

@@ -120,7 +120,7 @@ class TestColdFillIntegration:
         assert cmd.segment_id == segs[1].id
 
         # Simulate spawn for first segment
-        await sm.route_event(SpawnEvent(state_captured=True, state_path="/cold1.mss"))
+        await sm.route_event(SpawnEvent(state_path="/cold1.mss"))
         assert sm.mode == Mode.COLD_FILL  # still filling
 
         # Verify cold save state stored on cp1 waypoint
@@ -130,7 +130,7 @@ class TestColdFillIntegration:
         assert ss.is_default is True
 
         # Simulate spawn for second segment
-        await sm.route_event(SpawnEvent(state_captured=True, state_path="/cold2.mss"))
+        await sm.route_event(SpawnEvent(state_path="/cold2.mss"))
         assert sm.mode == Mode.IDLE  # done
 
         # Verify cold save state stored on cp2 waypoint

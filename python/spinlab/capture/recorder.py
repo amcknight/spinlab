@@ -203,7 +203,7 @@ class SegmentRecorder:
     def handle_spawn(self, event: SpawnEvent, game_id: str,
                      db: "Database",
                      registry: "ConditionRegistry") -> None:
-        if not event.is_cold_cp or not event.state_captured:
+        if not event.is_cold_cp:
             return
         cold_path = event.state_path
         level = event.level_num

@@ -141,7 +141,6 @@ class TransitionDetector:
                         level_num=curr.level_num,
                         is_cold_cp=was_cp,
                         cp_ordinal=self._state.cp_ordinal,
-                        state_captured=was_cp,
                     )
                 )
                 self._state.died_flag = False

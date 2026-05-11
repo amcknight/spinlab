@@ -43,7 +43,7 @@ from spinlab.retroarch.raclient import (
     RAClient,
     RAClientError,
 )
-from spinlab.retroarch.timing import PracticeTiming, SpeedRunTiming
+from spinlab.timing import PracticeTiming, SpeedRunTiming
 from spinlab.state_paths import StatePathResolver
 
 logger = logging.getLogger(__name__)
@@ -224,7 +224,7 @@ class RetroArchOrchestrator:
     # ------------------------------------------------------------------
 
     async def _on_practice_load(self, cmd: PracticeLoadCmd) -> None:
-        await self._raclient.load_state(Path(cmd.state_path))
+        await self.load_state(cmd.state_path)
         self._practice_timing.arm(
             segment_id=cmd.id,
             end_type=cmd.end_type,
@@ -237,7 +237,7 @@ class RetroArchOrchestrator:
         self._practice_timing.disarm()
 
     async def _on_speed_run_load(self, cmd: SpeedRunLoadCmd) -> None:
-        await self._raclient.load_state(Path(cmd.state_path))
+        await self.load_state(cmd.state_path)
         self._speed_run_timing.arm(
             segment_id=cmd.id,
             checkpoints=list(cmd.checkpoints),
@@ -250,7 +250,7 @@ class RetroArchOrchestrator:
         self._speed_run_timing.disarm()
 
     async def _on_cold_fill_load(self, cmd: ColdFillLoadCmd) -> None:
-        await self._raclient.load_state(Path(cmd.state_path))
+        await self.load_state(cmd.state_path)
         self._poller.activate_cold_fill(cmd.segment_id)
         logger.info(
             "cold_fill_load: state loaded and detector activated for segment=%s",
@@ -258,7 +258,7 @@ class RetroArchOrchestrator:
         )
 
     async def _on_fill_gap_load(self, cmd: FillGapLoadCmd) -> None:
-        await self._raclient.load_state(Path(cmd.state_path))
+        await self.load_state(cmd.state_path)
 
     async def _on_reset(self, cmd: ResetCmd) -> None:
         await self._raclient.reset()

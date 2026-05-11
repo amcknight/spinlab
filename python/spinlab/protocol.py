@@ -51,7 +51,6 @@ class DeathEvent:
 @dataclass
 class SpawnEvent:
     level_num: int = 0
-    state_captured: bool = False
     state_path: str | None = None
     conditions: dict = field(default_factory=dict)
     is_cold_cp: bool = False

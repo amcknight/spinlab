@@ -183,7 +183,7 @@ async def test_handle_spawn_event_propagates_timestamp_ms(db, registry):
     ))
     ctl.handle_death(DeathEvent())
     ctl.handle_spawn(SpawnEvent(
-        level_num=1, state_captured=False, state_path=None,
+        level_num=1, state_path=None,
         is_cold_cp=False, cp_ordinal=None,
         timestamp_ms=3000, conditions={},
     ), game_id="g1")

@@ -1,10 +1,11 @@
 """Practice and speed-run attempt-timing state machines.
 
-The poller emits typed protocol events (Death / LevelExit / Checkpoint /
-Spawn). The orchestrator forwards each to ``observe_event()`` here to drive
-the state machine forward. When an attempt completes (or the auto-advance
-delay elapses), the configured callback receives a typed
-``AttemptResultEvent`` (practice) or a ``SpeedRun*Event`` (speed run).
+Emulator-agnostic: consumes typed protocol events (Death / LevelExit /
+Checkpoint / Spawn) and produces typed result events. The RA backend
+forwards each event to ``observe_event()`` to drive the state machine
+forward. When an attempt completes (or the auto-advance delay elapses),
+the configured callback receives a typed ``AttemptResultEvent``
+(practice) or a ``SpeedRun*Event`` (speed run).
 
 State summary (PracticeTiming):
   IDLE    — not armed; observe_event/tick are no-ops.

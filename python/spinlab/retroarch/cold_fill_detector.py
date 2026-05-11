@@ -124,7 +124,6 @@ class ColdFillSpawnDetector:
                     level_num=curr.level_num,
                     is_cold_cp=True,
                     cp_ordinal=0,
-                    state_captured=True,
                     segment_id=self._segment_id or "",
                 )
                 logger.info(

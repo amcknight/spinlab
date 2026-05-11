@@ -565,7 +565,7 @@ class ReferenceController:
         return ActionResult(status=Status.STARTED, new_mode=Mode.FILL_GAP)
 
     def handle_fill_gap_spawn(self, event: SpawnEvent) -> bool:
-        if not event.state_captured or not event.state_path or not self.fill_gap_segment_id:
+        if not event.state_path or not self.fill_gap_segment_id:
             return False
         waypoint_id = self._fill_gap_waypoint_id
         if waypoint_id:
@@ -616,8 +616,8 @@ class ReferenceController:
         self.recorder.handle_death(timestamp_ms=None)
 
     def handle_spawn(self, event: SpawnEvent, game_id: str) -> None:
-        logger.info("capture: spawn level=%s state_captured=%s",
-                     event.level_num, event.state_captured)
+        logger.info("capture: spawn level=%s state_path=%s",
+                     event.level_num, event.state_path)
         self.recorder.handle_spawn_timing(timestamp_ms=event.timestamp_ms)
         self.recorder.handle_spawn(event, game_id, self.db,
                                       self.condition_registry)

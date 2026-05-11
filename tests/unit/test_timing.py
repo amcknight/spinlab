@@ -5,7 +5,7 @@ from spinlab.protocol import (
     DeathEvent,
     LevelExitEvent,
 )
-from spinlab.retroarch.timing import PracticeTiming, SpeedRunTiming
+from spinlab.timing import PracticeTiming, SpeedRunTiming
 
 
 class _Clock:

@@ -131,7 +131,7 @@ class TestHandleColdFillSpawn:
 
         # Simulate spawn event for first segment
         done = await cc.handle_spawn(
-            SpawnEvent(state_captured=True, state_path="/cold1.mss"),
+            SpawnEvent(state_path="/cold1.mss"),
         )
         assert done is False  # still have one more
 
@@ -157,10 +157,10 @@ class TestHandleColdFillSpawn:
 
         # Process both segments
         await cc.handle_spawn(
-            SpawnEvent(state_captured=True, state_path="/cold1.mss"),
+            SpawnEvent(state_path="/cold1.mss"),
         )
         done = await cc.handle_spawn(
-            SpawnEvent(state_captured=True, state_path="/cold2.mss"),
+            SpawnEvent(state_path="/cold2.mss"),
         )
         assert done is True
 
@@ -169,7 +169,7 @@ class TestHandleColdFillSpawn:
         await cc.start("g")
 
         done = await cc.handle_spawn(
-            SpawnEvent(state_captured=False),
+            SpawnEvent(state_path=None),
         )
         assert done is False
         # Queue unchanged — still on first segment
@@ -195,7 +195,7 @@ class TestGetColdFillState:
         await cc.start("g")
 
         await cc.handle_spawn(
-            SpawnEvent(state_captured=True, state_path="/cold1.mss"),
+            SpawnEvent(state_path="/cold1.mss"),
         )
         state = cc.get_state()
         assert state["current"] == 2
@@ -206,10 +206,10 @@ class TestGetColdFillState:
         cc = ColdFillController(cold_fill_db, emu)
         await cc.start("g")
         await cc.handle_spawn(
-            SpawnEvent(state_captured=True, state_path="/cold1.mss"),
+            SpawnEvent(state_path="/cold1.mss"),
         )
         await cc.handle_spawn(
-            SpawnEvent(state_captured=True, state_path="/cold2.mss"),
+            SpawnEvent(state_path="/cold2.mss"),
         )
         assert cc.get_state() is None
 

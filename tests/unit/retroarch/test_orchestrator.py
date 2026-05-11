@@ -36,7 +36,7 @@ from spinlab.protocol import (
 )
 from spinlab.retroarch.orchestrator import RetroArchOrchestrator
 from spinlab.retroarch.raclient import NotReachableError
-from spinlab.retroarch.timing import PracticeTiming, SpeedRunTiming
+from spinlab.timing import PracticeTiming, SpeedRunTiming
 from spinlab.state_paths import StatePathResolver
 
 

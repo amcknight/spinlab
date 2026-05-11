@@ -1,5 +1,5 @@
 from spinlab.protocol import SpawnEvent
-from spinlab.retroarch.cold_fill import ColdFillSpawnDetector
+from spinlab.retroarch.cold_fill_detector import ColdFillSpawnDetector
 from spinlab.retroarch.snapshot import MemorySnapshot
 
 
@@ -31,7 +31,6 @@ def test_active_waits_for_death_then_spawn():
     e = cf.step(_snap(player_anim=0, level_start=1), timestamp_ms=48)
     assert isinstance(e, SpawnEvent)
     assert e.is_cold_cp is True
-    assert e.state_captured is True
     assert cf.is_active() is False
 
 
