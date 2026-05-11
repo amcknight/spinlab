@@ -11,8 +11,8 @@ from spinlab.retroarch.nci import NCIClient
 class MemorySnapshot:
     """Frozen snapshot of every SMW byte that transition detection consults.
 
-    All fields are single bytes; the names match `lua/spinlab.lua`'s `read_mem`
-    keys verbatim so the port is one-to-one.
+    All fields are single bytes — the address each one reads is fixed in
+    ``addresses.py``.
     """
 
     game_mode: int

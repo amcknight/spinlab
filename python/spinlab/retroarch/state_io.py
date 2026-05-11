@@ -1,16 +1,9 @@
 """StateIO — sync save/load + path resolution against RA + SpinLab filesystem.
 
-Replaces lua/spinlab.lua's save_state_to_file/load_state_from_file plus the
-pending_saves/pending_loads/cpuExec-deferred drain pattern. The cpuExec
-deferral was a Mesen-specific requirement; NCI has no such constraint.
-
-Filesystem-shuffle strategy (Decision 1): uses a reserved slot (9999 by
-default) to capture SAVE_STATE commands atomically, then verifies capture via
-mtime polling (Decision 5) before moving to the segment-named destination.
-
-Phase D scope: this module owns the SAVE_STATE -> mtime-poll -> move flow,
-and the reverse for load. Wiring into session_manager / practice.py / the
-capture pipeline is Phase F-live.
+Owns the SAVE_STATE → mtime-poll → move flow, and the reverse for load.
+Uses a reserved slot (9999 by default) so SAVE_STATE commands write a known
+filename atomically; the file is then moved to its segment-named destination
+once mtime polling confirms RA finished writing it.
 """
 from __future__ import annotations
 
@@ -18,7 +11,6 @@ import logging
 import shutil
 import time
 from pathlib import Path
-
 from typing import Any
 
 from spinlab.capture.segment_naming import segment_id_for_event as _segment_id_for_event
@@ -28,7 +20,7 @@ from spinlab.retroarch.state_paths import (
     segment_state_filename,
 )
 
-DEFAULT_RESERVED_SLOT = 9999  # see Decision 6 in Phase D plan
+DEFAULT_RESERVED_SLOT = 9999  # well outside the typical user slot range
 DEFAULT_SAVE_TIMEOUT_SEC = 1.0  # mtime-advance wait; healthy RA writes in <100ms
 DEFAULT_LOAD_SETTLE_SEC = 0.1   # wait after LOAD_STATE_SLOT before deleting the slot
                                  # file; RA processes the command on its next frame
@@ -225,8 +217,8 @@ class StateIO:
         ms after writing it; ``shutil.move`` raises PermissionError on Windows
         when the source is locked. We retry the move briefly.
 
-        The user's auto-index counter advances by one per capture — the
-        documented tradeoff in Phase D Decision 1 (Option C). Returns the
+        The user's auto-index counter advances by one per capture — a
+        tradeoff of using a real RA slot for the staged write. Returns the
         SpinLab path. Raises StateSaveTimeout if no file changed across all
         attempts.
         """

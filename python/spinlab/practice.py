@@ -23,7 +23,7 @@ SEGMENT_LOAD_TIMEOUT_S = 1.0
 
 
 class PracticeSession:
-    """Manages a practice session: picks segments, sends to Lua, processes results."""
+    """Manages a practice session: picks segments, loads them, processes results."""
 
     def __init__(
         self,
@@ -129,12 +129,8 @@ class PracticeSession:
         self._result_event.set()
 
     async def handle_death(self) -> None:
-        """SessionManager calls this when a Death event arrives during PRACTICE.
-
-        Reloads the segment's start state via the backend so the player
-        retries from the segment boundary, not from wherever they respawned.
-        Lua's practice loop did this via ``pending_loads``; under RA the
-        orchestrator used to do it. Now we own it.
+        """Reload the segment's start state so the player retries from the
+        segment boundary, not from wherever they respawned.
 
         No-op when not currently armed (between attempts).
         """

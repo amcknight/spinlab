@@ -2,7 +2,7 @@
 """Tests for condition registry loading and TCP push wired into SessionManager."""
 
 
-from spinlab.protocol import SetConditionsCmd, SetInvalidateComboCmd
+from spinlab.protocol import RomInfoEvent, SetConditionsCmd
 from spinlab.session_manager import SessionManager
 
 
@@ -98,7 +98,7 @@ class TestInstallConditionRegistry:
     async def testinstall_condition_registry_no_send_when_empty(
         self, mock_db, mock_tcp, tmp_path, monkeypatch
     ):
-        """install_condition_registry skips set_conditions (but still sends combo) when no definitions."""
+        """install_condition_registry sends nothing when the registry is empty."""
         sm = make_sm(mock_db, mock_tcp)
         mock_tcp.is_connected = True
 
@@ -111,10 +111,7 @@ class TestInstallConditionRegistry:
 
         await sm.install_condition_registry("unknown_game")
 
-        # Empty registry — set_conditions is NOT sent, but set_invalidate_combo IS sent.
-        sent_cmds = [c[0][0] for c in mock_tcp.send_command.call_args_list]
-        assert not any(isinstance(c, SetConditionsCmd) for c in sent_cmds)
-        assert any(isinstance(c, SetInvalidateComboCmd) for c in sent_cmds)
+        mock_tcp.send_command.assert_not_called()
 
     async def testinstall_condition_registry_no_send_when_disconnected(
         self, mock_db, mock_tcp, tmp_path, monkeypatch
@@ -166,7 +163,7 @@ class TestInstallConditionRegistry:
 
         monkeypatch.setattr(sm, "install_condition_registry", fake_install)
 
-        await sm.route_event({"event": "rom_info", "filename": "test.sfc"})
+        await sm.route_event(RomInfoEvent(filename="test.sfc"))
 
         assert len(installed) == 1
         # game_id derived from rom_info should match what SessionManager resolved.

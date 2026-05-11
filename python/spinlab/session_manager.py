@@ -23,7 +23,6 @@ from .protocol import (
     AttemptResultEvent,
     CheckpointEvent,
     DeathEvent,
-    GameContextCmd,
     GameContextEvent,
     LevelEntranceEvent,
     LevelExitEvent,
@@ -34,12 +33,10 @@ from .protocol import (
     ResetCmd,
     RomInfoEvent,
     SetConditionsCmd,
-    SetInvalidateComboCmd,
     SpawnEvent,
     SpeedRunCheckpointEvent,
     SpeedRunCompleteEvent,
     SpeedRunDeathEvent,
-    parse_event,
 )
 from .sse import SSEBroadcaster
 from .state_builder import StateBuilder
@@ -92,7 +89,10 @@ class SessionManager:
         self.speed_run_session = None  # SpeedRunSession | None
         self.speed_run_task: asyncio.Task | None = None
 
-        # Last-seen replay progress (frame/total from Lua replay_progress events)
+        # Last-seen replay progress (frame/total from ReplayProgressEvent).
+        # Currently nothing emits these under RA — fields kept against the
+        # day the orchestrator (or a poller hook) reports replay frame
+        # progress; the dashboard already wires through them.
         self.replay_frame: int = 0
         self.replay_total: int = 0
 
@@ -220,16 +220,13 @@ class SessionManager:
             logger.exception("SSE broadcast failed; subscribers will sync on next event")
 
 
-    async def route_event(self, event: dict) -> None:
-        try:
-            typed_event = parse_event(event)
-        except ValueError:
-            logger.warning("Unknown/malformed event from Lua: %r", event)
+    async def route_event(self, event: object) -> None:
+        handler = self._event_handlers.get(type(event))
+        if handler is None:
+            logger.warning("No handler for event type %r: %r", type(event).__name__, event)
             return
-        handler = self._event_handlers.get(type(typed_event))
-        if handler:
-            logger.info("event: %s (mode=%s)", type(typed_event).__name__, self.mode.value)
-            await handler(typed_event)
+        logger.info("event: %s (mode=%s)", type(event).__name__, self.mode.value)
+        await handler(event)
 
     async def _handle_rom_info(self, event: RomInfoEvent) -> None:
         filename = event.filename
@@ -247,21 +244,18 @@ class SessionManager:
             logger.warning("ROM not found in rom_dir: %s — using filename as ID", filename)
         await self.switch_game(checksum, name)
         await self.install_condition_registry(checksum)
-        await self.tcp.send_command(GameContextCmd(game_id=checksum, game_name=name))
 
     async def install_condition_registry(self, game_id: str) -> None:
-        """Load per-game condition definitions and push them to Lua over TCP."""
+        """Load per-game condition definitions and push them to the backend."""
         from .condition_registry import load_registry_for_game
         registry = load_registry_for_game(game_id)
         self.capture.set_condition_registry(registry)
-        if self.tcp.is_connected:
-            if registry.definitions:
-                defs_payload = [
-                    {"name": d.name, "address": d.address, "size": d.size}
-                    for d in registry.definitions
-                ]
-                await self.tcp.send_command(SetConditionsCmd(definitions=defs_payload))
-            await self.tcp.send_command(SetInvalidateComboCmd(combo=self.invalidate_combo))
+        if self.tcp.is_connected and registry.definitions:
+            defs_payload = [
+                {"name": d.name, "address": d.address, "size": d.size}
+                for d in registry.definitions
+            ]
+            await self.tcp.send_command(SetConditionsCmd(definitions=defs_payload))
 
     async def _handle_game_context(self, event: GameContextEvent) -> None:
         gid = event.game_id

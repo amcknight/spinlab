@@ -5,7 +5,7 @@ import pytest
 
 from spinlab.db import Database
 from spinlab.models import Mode, Segment, Status, Waypoint, WaypointSaveState
-from spinlab.protocol import ColdFillLoadCmd
+from spinlab.protocol import ColdFillLoadCmd, SpawnEvent
 from spinlab.session_manager import SessionManager
 
 
@@ -116,16 +116,11 @@ class TestColdFillIntegration:
         # Verify first cold-gap segment loaded (cp1 has hot but not cold)
         cmd = tcp.send_command.call_args[0][0]
         assert isinstance(cmd, ColdFillLoadCmd)
-        assert cmd.event == "cold_fill_load"
         assert cmd.state_path == str(tmp_path / "hot1.mss")
         assert cmd.segment_id == segs[1].id
 
         # Simulate spawn for first segment
-        await sm.route_event({
-            "event": "spawn",
-            "state_captured": True,
-            "state_path": "/cold1.mss",
-        })
+        await sm.route_event(SpawnEvent(state_captured=True, state_path="/cold1.mss"))
         assert sm.mode == Mode.COLD_FILL  # still filling
 
         # Verify cold save state stored on cp1 waypoint
@@ -135,11 +130,7 @@ class TestColdFillIntegration:
         assert ss.is_default is True
 
         # Simulate spawn for second segment
-        await sm.route_event({
-            "event": "spawn",
-            "state_captured": True,
-            "state_path": "/cold2.mss",
-        })
+        await sm.route_event(SpawnEvent(state_captured=True, state_path="/cold2.mss"))
         assert sm.mode == Mode.IDLE  # done
 
         # Verify cold save state stored on cp2 waypoint

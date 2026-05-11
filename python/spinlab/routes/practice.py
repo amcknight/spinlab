@@ -23,12 +23,6 @@ async def practice_stop(session: SessionManager = Depends(get_session)):
 
 @router.post("/practice/invalidate")
 async def practice_invalidate(session: SessionManager = Depends(get_session)):
-    """Mark the current practice attempt as invalidated. Backend-agnostic.
-
-    Delegates to session_manager._handle_attempt_invalidated, which is the
-    same handler used for the Mesen-Lua invalidate combo hotkey event. The
-    leading underscore reflects internal use; calling it here is intentional
-    (the route is a thin shim over a known-shape handler).
-    """
+    """Mark the current practice attempt as invalidated."""
     await session._handle_attempt_invalidated(AttemptInvalidatedEvent())
     return {"status": "ok"}

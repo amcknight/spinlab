@@ -4,7 +4,12 @@ import pytest
 
 from spinlab.errors import PracticeActiveError, ReferenceActiveError
 from spinlab.models import Mode, Status
-from spinlab.protocol import ReplayCmd
+from spinlab.protocol import (
+    LevelEntranceEvent,
+    ReplayCmd,
+    ReplayErrorEvent,
+    ReplayFinishedEvent,
+)
 from spinlab.session_manager import SessionManager
 
 
@@ -20,7 +25,6 @@ class TestStartReplay:
 
         cmd = mock_tcp.send_command.call_args[0][0]
         assert isinstance(cmd, ReplayCmd)
-        assert cmd.event == "replay"
         assert cmd.path == "/data/test.spinrec"
         assert cmd.speed == 0
 
@@ -48,7 +52,7 @@ class TestReplayEvents:
         sm.game_name = "Test Game"
         sm.mode = Mode.REPLAY
 
-        await sm.route_event({"event": "replay_finished", "path": "/data/test.spinrec", "frames_played": 5000})
+        await sm.route_event(ReplayFinishedEvent())
         assert sm.mode == Mode.IDLE
 
     async def test_replay_error_returns_to_idle(self, mock_db, mock_tcp, tmp_path):
@@ -56,7 +60,7 @@ class TestReplayEvents:
         sm.game_id = "abcdef0123456789"
         sm.mode = Mode.REPLAY
 
-        await sm.route_event({"event": "replay_error", "message": "game_id mismatch"})
+        await sm.route_event(ReplayErrorEvent(message="game_id mismatch"))
         assert sm.mode == Mode.IDLE
 
     async def test_replay_events_still_capture_segments(self, mock_db, mock_tcp, tmp_path):
@@ -67,11 +71,7 @@ class TestReplayEvents:
         sm.mode = Mode.REPLAY
         sm.capture.recorder.capture_run_id = "replay_test123"
 
-        await sm.route_event({
-            "event": "level_entrance",
-            "level_num": 0x105, "level": 0x105, "room": 0,
-            "frame": 100, "ts_ms": 1000,
-            "session": "passive", "state_path": "/data/test.mss",
-            "source": "replay",
-        })
+        await sm.route_event(LevelEntranceEvent(
+            level=0x105, room=0, frame=100, state_path="/data/test.mss",
+        ))
         assert sm.capture.recorder.pending_start is not None

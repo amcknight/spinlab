@@ -1,12 +1,10 @@
 """SMW WRAM address constants — single source of truth.
 
-Ported from `lua/addresses.lua`, which was ported from kaizosplits/Memory.cs.
-Addresses are WRAM-flat offsets (suitable for NCI's `READ_CORE_RAM <addr>`).
-For SMW these are equivalent to SNES bus addresses minus 0x7E0000 for the
-$7E:0000-$7E:1FFF range; the one exception is ADDR_CP_ENTRANCE which is at
-0x1B403 (within the $7F bank in WRAM-flat). Verify against live game during
-poller integration; if Mesen's snesMemory mode reads this differently, we
-may need a different read mechanism for that one address.
+Originally derived from kaizosplits/Memory.cs. Addresses are WRAM-flat
+offsets (suitable for NCI's `READ_CORE_RAM <addr>`). For SMW these are
+equivalent to SNES bus addresses minus 0x7E0000 for the $7E:0000-$7E:1FFF
+range; the one exception is ADDR_CP_ENTRANCE which is at 0x1B403 (within
+the $7F bank in WRAM-flat).
 """
 
 # Game state.

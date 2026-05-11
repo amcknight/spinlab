@@ -93,11 +93,6 @@ class ColdFillController:
             logger.info("cold_fill: spawn without state_captured — ignoring (state_path=%s)",
                         event.state_path)
             return False
-        # Trigger the actual save through the backend. Under RA this writes
-        # the segment file via NCI + filesystem shuffle; under Mesen it's a
-        # no-op because Lua already wrote the file when it observed the
-        # spawn event. Either way, the path stamped on the event resolves
-        # to a real file by the time we record it below.
         seg_id = event.segment_id or self.current
         try:
             await self.tcp.save_state(seg_id)

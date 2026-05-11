@@ -108,5 +108,6 @@ def test_run_scenario_emits_level_entrance_event():
     )
     events = engine.run_scenario(scenario)
 
-    entrance_events = [e for e in events if e.get("event") == "level_entrance"]
+    from spinlab.protocol import LevelEntranceEvent
+    entrance_events = [e for e in events if isinstance(e, LevelEntranceEvent)]
     assert len(entrance_events) == 1

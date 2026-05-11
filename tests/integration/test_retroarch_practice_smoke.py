@@ -52,7 +52,7 @@ def test_orchestrator_connects_to_live_retroarch(tmp_path):
 
     import asyncio
 
-    async def _run() -> tuple[bool, dict | None]:
+    async def _run() -> tuple[bool, object | None]:
         ok = await orch.connect()
         ev = None
         if ok:
@@ -62,9 +62,10 @@ def test_orchestrator_connects_to_live_retroarch(tmp_path):
 
     ok, first_event = asyncio.run(_run())
 
+    from spinlab.protocol import RomInfoEvent
     assert ok is True, "orchestrator could not connect to live RetroArch"
     assert first_event is not None, "no rom_info event from connect()"
-    assert first_event.get("event") == "rom_info"
+    assert isinstance(first_event, RomInfoEvent)
     # Filename comes from RA's GET_STATUS — non-empty if RA has a ROM loaded.
     # If filename is empty it just means no ROM is loaded; not a smoke fail.
-    assert "filename" in first_event
+    assert hasattr(first_event, "filename")

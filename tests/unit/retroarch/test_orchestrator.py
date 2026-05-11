@@ -8,7 +8,6 @@ import pytest
 from spinlab.protocol import (
     ColdFillLoadCmd,
     FillGapLoadCmd,
-    GameContextCmd,
     PracticeLoadCmd,
     PracticeStopCmd,
     ReferenceStartCmd,
@@ -17,7 +16,6 @@ from spinlab.protocol import (
     ReplayStopCmd,
     ResetCmd,
     SetConditionsCmd,
-    SetInvalidateComboCmd,
     SpeedRunLoadCmd,
     SpeedRunStopCmd,
 )
@@ -126,14 +124,15 @@ def _build_orchestrator():
 
 @pytest.mark.asyncio
 async def test_connect_emits_rom_info_event():
-    """connect() should put a rom_info dict on events."""
+    """connect() should put a RomInfoEvent on the events queue."""
+    from spinlab.protocol import RomInfoEvent
     orch, client, state_io, poller, conditions = _build_orchestrator()
     ok = await orch.connect()
     assert ok is True
     assert orch.is_connected is True
     ev = await asyncio.wait_for(orch.events.get(), timeout=0.1)
-    assert ev["event"] == "rom_info"
-    assert ev["filename"] == "Test Game"
+    assert isinstance(ev, RomInfoEvent)
+    assert ev.filename == "Test Game"
     await orch.disconnect()
 
 
@@ -294,26 +293,6 @@ async def test_set_conditions_cmd_updates_registry():
 
 
 @pytest.mark.asyncio
-async def test_set_invalidate_combo_is_noop():
-    """Under RA backend the combo is dashboard-button only."""
-    orch, _, _, _, _ = _build_orchestrator()
-    await orch.connect()
-    await orch.events.get()
-    # Should not raise.
-    await orch.send_command(SetInvalidateComboCmd(combo=["L", "Select"]))
-    await orch.disconnect()
-
-
-@pytest.mark.asyncio
-async def test_game_context_is_noop():
-    orch, _, _, _, _ = _build_orchestrator()
-    await orch.connect()
-    await orch.events.get()
-    await orch.send_command(GameContextCmd(game_id="gid", game_name="Game Name"))
-    await orch.disconnect()
-
-
-@pytest.mark.asyncio
 async def test_replay_cmd_raises_backend_not_implemented_when_no_player():
     """ReplayCmd raises BackendNotImplementedError (HTTP 501) when no MoviePlayer
     is configured — matches the route layer's ActionError → 501 mapping."""
@@ -403,13 +382,13 @@ async def test_unknown_command_logged_no_raise():
 
 
 @pytest.mark.asyncio
-async def test_recv_event_returns_dict():
-    """recv_event matches TcpManager's API."""
+async def test_recv_event_returns_typed_event():
+    """recv_event yields typed protocol events from the queue."""
+    from spinlab.protocol import RomInfoEvent
     orch, _, _, _, _ = _build_orchestrator()
     await orch.connect()
     ev = await orch.recv_event(timeout=0.1)
-    assert ev is not None
-    assert ev["event"] == "rom_info"
+    assert isinstance(ev, RomInfoEvent)
     await orch.disconnect()
 
 

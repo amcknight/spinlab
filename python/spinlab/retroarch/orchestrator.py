@@ -1,27 +1,22 @@
-"""RetroArchOrchestrator — duck-typed TcpManager replacement.
+"""RetroArchOrchestrator — implements the EmuBackend protocol.
 
-Owns NCIClient + Poller + StateIO + timing modules + ConditionRegistry. Translates
-typed protocol commands into NCI calls + state_io operations. Publishes events
-into an asyncio.Queue shaped for session_manager.route_event.
-
-Implements TcpManager's public surface (is_connected, events, on_disconnect,
-connect, disconnect, send_command, recv_event) so existing callers (dashboard,
-session_manager, capture controllers) work unchanged.
+Owns NCIClient + Poller + StateIO + timing modules + ConditionRegistry.
+Translates typed protocol commands into NCI calls + state_io operations.
+Publishes typed protocol events into an asyncio.Queue consumed by
+session_manager.route_event.
 """
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import logging
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
+from spinlab.condition_registry import ConditionRegistry
 from spinlab.protocol import (
     ColdFillLoadCmd,
     FillGapLoadCmd,
-    GameContextCmd,
     PracticeLoadCmd,
     PracticeStopCmd,
     ReferenceStartCmd,
@@ -32,25 +27,13 @@ from spinlab.protocol import (
     ReplayStartedEvent,
     ReplayStopCmd,
     ResetCmd,
+    RomInfoEvent,
     SetConditionsCmd,
-    SetInvalidateComboCmd,
     SpeedRunLoadCmd,
     SpeedRunStopCmd,
 )
-from spinlab.condition_registry import ConditionRegistry
 from spinlab.retroarch.exceptions import NCIError
-from spinlab.retroarch.responses import StatusInfo
 from spinlab.retroarch.timing import PracticeTiming, SpeedRunTiming
-
-
-def _rom_info_dict(status: StatusInfo) -> dict:
-    """Build a `rom_info` JSON dict from NCI's GET_STATUS reply.
-
-    Used at orchestrator startup to mimic the Lua-emitted RomInfoEvent
-    so the dashboard sees the game name immediately. Inlined here from the
-    deleted event_adapter module — only one caller.
-    """
-    return {"event": "rom_info", "filename": status.game or ""}
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +68,7 @@ _RESET_DOUBLE_TAP_GAP_SEC = 0.3
 
 
 class RetroArchOrchestrator:
-    """TcpManager-shaped façade over NCI + state_io + poller + timing modules.
+    """EmuBackend implementation over NCI + state_io + poller + timing modules.
 
     Constructor accepts pre-built component instances so callers (and tests)
     can substitute fakes. All components are duck-typed; no ABC is enforced.
@@ -114,8 +97,8 @@ class RetroArchOrchestrator:
         self._movie_player = movie_player
         self._ra_log_dir = ra_log_dir
 
-        # TcpManager public surface
-        self.events: asyncio.Queue[dict] = asyncio.Queue()
+        # EmuBackend public surface
+        self.events: asyncio.Queue[object] = asyncio.Queue()
         self.on_disconnect: Callable | None = None
 
         self._connected = False
@@ -129,9 +112,6 @@ class RetroArchOrchestrator:
         # spams the log. Reset on successful connect.
         self._not_reachable_warning_logged = False
 
-        # Build dispatch table once; handlers are bound methods.
-        # ReferenceStart/Stop now succeed (state captures only — no BSV).
-        # Replay/ReplayStop still raise: those genuinely require BSV (Phase E).
         self._dispatch: dict[type, Callable] = {
             PracticeLoadCmd: self._on_practice_load,
             PracticeStopCmd: self._on_practice_stop,
@@ -141,8 +121,6 @@ class RetroArchOrchestrator:
             FillGapLoadCmd: self._on_fill_gap_load,
             ResetCmd: self._on_reset,
             SetConditionsCmd: self._on_set_conditions,
-            SetInvalidateComboCmd: self._on_set_invalidate_combo,
-            GameContextCmd: self._on_game_context,
             ReferenceStartCmd: self._on_reference_start,
             ReferenceStopCmd: self._on_reference_stop,
             ReplayCmd: self._on_replay,
@@ -150,7 +128,7 @@ class RetroArchOrchestrator:
         }
 
     # ------------------------------------------------------------------
-    # TcpManager public surface
+    # EmuBackend public surface
     # ------------------------------------------------------------------
 
     @property
@@ -178,15 +156,15 @@ class RetroArchOrchestrator:
         # Connected — clear the suppression so the next disconnect streak logs.
         self._not_reachable_warning_logged = False
 
-        # Emit rom_info to mimic Lua's startup behaviour so the dashboard
-        # session sees the game name immediately. Also update StateIO's slot
-        # basename to whatever RA reports — this fixes the silent save
-        # failure that bites users whose config.ra_game_basename doesn't
-        # exactly match the loaded ROM filename (e.g. config says
-        # "Toothpaste World" but ROM is "Toothpaste.smc").
+        # Emit rom_info at startup so the dashboard sees the game name
+        # immediately. Also update StateIO's slot basename to whatever RA
+        # reports — this fixes the silent save failure that bites users
+        # whose config.ra_game_basename doesn't exactly match the loaded
+        # ROM filename (e.g. config says "Toothpaste World" but ROM is
+        # "Toothpaste.smc").
         try:
             status = self._client.get_status()
-            self.events.put_nowait(_rom_info_dict(status))
+            self.events.put_nowait(RomInfoEvent(filename=status.game or ""))
             if status.game and hasattr(self._state_io, "update_game_basename"):
                 self._state_io.update_game_basename(status.game)
         except NCIError:
@@ -253,8 +231,8 @@ class RetroArchOrchestrator:
         await asyncio.to_thread(self._state_io.load_state_from_path, state_path)
         self._poller.mark_state_loaded()
 
-    async def recv_event(self, timeout: float | None = None) -> dict | None:
-        """Pull one event dict off the queue. Returns None on timeout."""
+    async def recv_event(self, timeout: float | None = None) -> object | None:
+        """Pull one typed event off the queue. Returns None on timeout."""
         try:
             if timeout is not None:
                 return await asyncio.wait_for(self.events.get(), timeout=timeout)
@@ -291,7 +269,7 @@ class RetroArchOrchestrator:
             end_type=cmd.end_type,
             death_penalty_ms=cmd.death_penalty_ms,
             auto_advance_delay_ms=cmd.auto_advance_delay_ms,
-            on_attempt_result=self._enqueue_dict,
+            on_attempt_result=self._enqueue,
         )
 
     async def _on_practice_stop(self, cmd: PracticeStopCmd) -> None:
@@ -305,7 +283,7 @@ class RetroArchOrchestrator:
             checkpoints=list(cmd.checkpoints),
             auto_advance_delay_ms=cmd.auto_advance_delay_ms,
             death_delay_ms=cmd.death_delay_ms,
-            on_event=self._enqueue_dict,
+            on_event=self._enqueue,
         )
 
     async def _on_speed_run_stop(self, cmd: SpeedRunStopCmd) -> None:
@@ -340,23 +318,6 @@ class RetroArchOrchestrator:
 
     async def _on_set_conditions(self, cmd: SetConditionsCmd) -> None:
         self._conditions.replace_with_read_specs(cmd.definitions)
-
-    async def _on_set_invalidate_combo(self, cmd: SetInvalidateComboCmd) -> None:
-        # Under the RetroArch backend the invalidate combo is handled via a
-        # dashboard button; there is no emulator-side hotkey to wire up.
-        # Debug-only because SessionManager sends this on every game switch
-        # and the message is unactionable.
-        logger.debug(
-            "RetroArchOrchestrator: invalidate combo is dashboard-button only under RA backend; ignoring %r",
-            cmd.combo,
-        )
-
-    async def _on_game_context(self, cmd: GameContextCmd) -> None:
-        # RA doesn't need an outbound game-context message — the ROM is already
-        # loaded in RetroArch before the dashboard starts.
-        logger.info(
-            "RetroArchOrchestrator: GameContext is informational only; game already loaded in RA",
-        )
 
     async def _on_reference_start(self, cmd: ReferenceStartCmd) -> None:
         """Trigger movie recording if a recorder is configured. Failures are
@@ -511,39 +472,24 @@ class RetroArchOrchestrator:
     # Event plumbing
     # ------------------------------------------------------------------
 
-    def on_poller_event(self, ev: Any) -> None:
-        """Sync callback for the poller's on_event. Convert to dict + enqueue.
+    def on_poller_event(self, ev: object) -> None:
+        """Sync callback for the poller's on_event. Feed timing + enqueue.
 
         Public so the factory/builder that wires the poller (e.g. in
         ``build_orchestrator``) can attach this as ``poller.deps.on_event``.
 
-        Save-on-event and practice reload-on-death used to live here; they
-        moved out in the 2026-05-07 backend-layering refactor. Capture
-        controllers and PracticeSession now own those concerns by calling
-        ``EmuBackend.save_state`` / ``EmuBackend.load_state`` directly.
+        The poller emits typed protocol events (LevelEntranceEvent etc.).
         """
-        # The detector emits protocol dataclasses (LevelEntranceEvent etc.).
-        # asdict already populates the discriminator `event` field from the
-        # dataclass default — no manual translation needed.
-        try:
-            d = dataclasses.asdict(ev)
-        except TypeError:
-            logger.warning(
-                "RetroArchOrchestrator: dropping unknown event type %r",
-                type(ev).__name__,
-            )
-            return
-        # Feed timing state machines so attempt_result / speed_run_* events fire.
         # Guard against None for tests that construct with timing=None.
         if self._practice_timing is not None:
-            self._practice_timing.observe_event(d)
+            self._practice_timing.observe_event(ev)
         if self._speed_run_timing is not None:
-            self._speed_run_timing.observe_event(d)
-        self.events.put_nowait(d)
+            self._speed_run_timing.observe_event(ev)
+        self.events.put_nowait(ev)
 
-    def _enqueue_dict(self, d: dict) -> None:
+    def _enqueue(self, ev: object) -> None:
         """Direct enqueue helper used as callback by PracticeTiming / SpeedRunTiming."""
-        self.events.put_nowait(d)
+        self.events.put_nowait(ev)
 
     # ------------------------------------------------------------------
     # Background tasks

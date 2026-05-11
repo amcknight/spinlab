@@ -22,7 +22,6 @@ intermittently seeing io_port=0 instead of the poked io_port=3.
 """
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import Protocol
 
 from spinlab.retroarch.detector import TransitionDetector
@@ -42,7 +41,7 @@ class RAPokeEngine:
     def __init__(self, client: _NCISurface) -> None:
         self._client = client
 
-    def run_scenario(self, scenario: dict) -> list[dict]:
+    def run_scenario(self, scenario: dict) -> list:
         # 1. Zero ADDR_MAP for per-scenario isolation
         for addr in ADDR_MAP.values():
             self._client.write_ram(addr, b"\x00")
@@ -56,20 +55,20 @@ class RAPokeEngine:
 
         held: dict[int, int] = {}
         detector = TransitionDetector()
-        events: list[dict] = []
+        events: list = []
 
         for frame in range(1, end_frame + 1):
             for poke in schedule.get(frame, []):
                 held[poke["addr"]] = poke["value"]
             self._client.frame_advance()
             # Re-assert held values AFTER the ROM frame ran. Mask to low byte:
-            # matches Lua's emu.write semantics, which writes one byte and
-            # silently truncates wider values. .poke files use values like
-            # 0x105 (e.g., level_num) — Lua writes 0x05 to $13BF.
+            # .poke files use values like 0x105 (e.g., level_num) — only the
+            # low byte lands at $13BF; the high byte is held separately on
+            # $13BE in the actual ROM.
             for addr, value in held.items():
                 self._client.write_ram(addr, bytes([value & 0xFF]))
             snap = read_snapshot(self._client)  # type: ignore[arg-type]
             for ev in detector.step(snap, frame * FRAME_PERIOD_MS):
-                events.append(asdict(ev))
+                events.append(ev)
 
         return events

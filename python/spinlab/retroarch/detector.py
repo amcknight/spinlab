@@ -59,9 +59,8 @@ class TransitionDetector:
     def resync_after_state_load(self, snapshot: MemorySnapshot) -> None:
         """Replace prev wholesale after a save state load and clear flags.
 
-        Mirrors lua/spinlab.lua's `state_just_loaded` re-sync: avoid phantom
-        edge transitions on the first frame after load by treating the loaded
-        state as if it were the previous frame's reading too.
+        Treats the loaded snapshot as the previous frame so the first frame
+        after load doesn't fire phantom edge transitions.
 
         ALSO clears died_flag / cp_acquired / exit_this_frame: a state load
         is semantically a fresh start, and stale flags from before the load
@@ -105,7 +104,9 @@ class TransitionDetector:
                 )
             )
 
-        # 3. Exit (must come before entrance — see lua/spinlab.lua comment).
+        # 3. Exit must come before entrance: on a same-frame exit→entrance,
+        #    the entrance check below would otherwise consume the level_start
+        #    edge and we'd miss the exit event.
         self._exit_this_frame = is_exit_frame(prev, curr)
         if self._exit_this_frame:
             elapsed = int((self._frame_counter - self._level_start_frame) / FPS * 1000)

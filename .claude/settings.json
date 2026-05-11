@@ -98,7 +98,14 @@
       "Bash(git restore *)",
       "Bash(git reset *)",
       "Bash(timeout 600 sh -c 'while ! grep -q \"passed\" \"C:\\\\Users\\\\thedo\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-thedo-git-spinlab\\\\c87a2c3b-5e36-4859-afbf-a29e756bad3b\\\\tasks\\\\b430wanrg.output\" 2>/dev/null; do sleep 5; done; cat \"C:\\\\Users\\\\thedo\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-thedo-git-spinlab\\\\c87a2c3b-5e36-4859-afbf-a29e756bad3b\\\\tasks\\\\b430wanrg.output\" | tail -5')",
-      "Bash(tee /tmp/pytest_output.txt)"
+      "Bash(tee /tmp/pytest_output.txt)",
+      "Bash(curl -sL https://raw.githubusercontent.com/libretro/RetroArch/v1.22.2/input/bsv/bsvmovie.h -o c:/tmp/ra-source/bsvmovie.h)",
+      "Bash(curl -sL https://raw.githubusercontent.com/libretro/RetroArch/v1.22.2/configuration.c)",
+      "Bash(curl -sL https://raw.githubusercontent.com/libretro/RetroArch/v1.22.2/command.c -o c:/tmp/ra-source/command.c)",
+      "Bash(curl -sL \"https://github.com/libretro/RetroArch/search?q=checkpoint_compression+%3D&type=code\")",
+      "Bash(spinlab db *)",
+      "PowerShell(Get-Process retroarch -ErrorAction SilentlyContinue)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\thedo\\\\git\\\\spinlab\\\\python\\\\spinlab\\\\\" -Recurse -Filter \"*.py\" | Select-Object -ExpandProperty FullName | Measure-Object | Select-Object -ExpandProperty Count)"
     ],
     "additionalDirectories": [
       "C:\\RetroArch-Win64"

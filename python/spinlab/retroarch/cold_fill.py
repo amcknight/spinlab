@@ -5,11 +5,9 @@ across the whole session). Activated externally with a segment id, watches
 the death-then-spawn sequence, emits a single Spawn event with
 is_cold_cp=True, deactivates.
 
-Mirrors lua/spinlab.lua's handle_cold_fill — but extends it to also detect
-death-falls (exit_mode going non-zero without a goal). Lua's narrow
-`anim == 9` check missed pit-falls; in practice, many SMW deaths skip the
-sprite-hit animation entirely and go straight from playing to falling
-off-screen, which only shows up as an exit_mode change.
+Death detection covers both the sprite-hit animation (player_anim == 9)
+AND exit_mode going non-zero without a goal — many SMW deaths skip the
+sprite-hit entirely and go straight from playing to falling off-screen.
 """
 from __future__ import annotations
 

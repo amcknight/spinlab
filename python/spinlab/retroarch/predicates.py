@@ -1,4 +1,4 @@
-"""Pure detection predicates — port of lua/spinlab.lua transition functions.
+"""Pure detection predicates for SMW transitions.
 
 Every function here takes a previous snapshot, a current snapshot, and
 optionally a TransitionState. None mutate any state. Their return values are
@@ -30,8 +30,8 @@ def is_exit_frame(prev: MemorySnapshot, curr: MemorySnapshot) -> bool:
 def goal_type(curr: MemorySnapshot) -> str:
     """Classify the current goal state of a level exit.
 
-    Mirrors lua/spinlab.lua `goal_type`: precedence is key > orb > boss > normal,
-    with anything else treated as 'abort' (e.g. start+select reset, death exit).
+    Precedence is key > orb > boss > normal; anything else is 'abort'
+    (e.g. start+select reset, death exit).
     """
     if curr.io_port == a.IO_KEY:
         return "key"

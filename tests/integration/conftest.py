@@ -329,7 +329,7 @@ def ra_harness_love_yourself():
 def run_scenario(ra_harness):
     """Send a poke scenario through the RA harness and collect events."""
 
-    async def _run(scenario_name: str, timeout: float = 30.0) -> list[dict]:
+    async def _run(scenario_name: str, timeout: float = 30.0) -> list:
         scenario_path = SCENARIO_DIR / scenario_name
         if not scenario_path.exists():
             pytest.fail(f"Scenario file not found: {scenario_path}")

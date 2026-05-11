@@ -18,6 +18,15 @@ from spinlab.errors import (
     NotRunningError,
 )
 from spinlab.models import Mode, Status
+from spinlab.protocol import (
+    CheckpointEvent,
+    DeathEvent,
+    GameContextEvent,
+    LevelEntranceEvent,
+    LevelExitEvent,
+    RomInfoEvent,
+    SpawnEvent,
+)
 from spinlab.session_manager import SessionManager
 
 
@@ -42,22 +51,18 @@ class TestEventRouting:
         rom_file.write_bytes(b"\x00" * 1024)
 
         sm = make_sm(mock_db, mock_tcp, rom_dir=tmp_path)
-        await sm.route_event({"event": "rom_info", "filename": "test_hack.sfc"})
+        await sm.route_event(RomInfoEvent(filename="test_hack.sfc"))
         assert sm.game_id is not None
         assert sm.game_name is not None
 
     async def test_rom_info_no_rom_dir(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
-        await sm.route_event({"event": "rom_info", "filename": "test.sfc"})
+        await sm.route_event(RomInfoEvent(filename="test.sfc"))
         assert sm.game_id is None
 
     async def test_game_context_switches_game(self, mock_db, mock_tcp):
         sm = make_sm(mock_db, mock_tcp)
-        await sm.route_event({
-            "event": "game_context",
-            "game_id": "abc123",
-            "game_name": "Test Game",
-        })
+        await sm.route_event(GameContextEvent(game_id="abc123", game_name="Test Game"))
         assert sm.game_id == "abc123"
         assert sm.game_name == "Test Game"
 
@@ -66,8 +71,8 @@ class TestEventRouting:
         sm.game_id = "game1"
         sm.mode = Mode.IDLE
 
-        await sm.route_event({"event": "level_entrance", "level": 1, "room": 0})
-        await sm.route_event({"event": "level_exit", "level": 1, "room": 0, "goal": "normal"})
+        await sm.route_event(LevelEntranceEvent(level=1, room=0))
+        await sm.route_event(LevelExitEvent(level=1, room=0, goal="normal"))
         assert sm.capture.recorder.pending_start is None
         assert mock_db.upsert_segment.call_count == 0
 
@@ -95,10 +100,9 @@ class TestReferenceCapture:
         sm.mode = Mode.REFERENCE
         sm.capture.recorder.capture_run_id = "run1"
 
-        await sm.route_event({
-            "event": "level_entrance", "level": 105, "room": 0,
-            "state_path": "/path/to/state.mss",
-        })
+        await sm.route_event(LevelEntranceEvent(
+            level=105, room=0, state_path="/path/to/state.mss",
+        ))
         assert sm.capture.recorder.pending_start is not None
         assert sm.capture.recorder.pending_start.level_num == 105
 
@@ -108,14 +112,12 @@ class TestReferenceCapture:
         sm.mode = Mode.REFERENCE
         sm.capture.recorder.capture_run_id = "run1"
 
-        await sm.route_event({
-            "event": "level_entrance", "level": 105, "room": 0,
-            "state_path": "/path/to/state.mss",
-        })
-        await sm.route_event({
-            "event": "level_exit", "level": 105, "room": 0,
-            "goal": "normal", "elapsed_ms": 5000,
-        })
+        await sm.route_event(LevelEntranceEvent(
+            level=105, room=0, state_path="/path/to/state.mss",
+        ))
+        await sm.route_event(LevelExitEvent(
+            level=105, room=0, goal="normal", elapsed_ms=5000,
+        ))
         assert mock_db.upsert_segment.call_count == 1
 
     async def test_exit_pairs_across_rooms(self, mock_db, mock_tcp):
@@ -124,14 +126,12 @@ class TestReferenceCapture:
         sm.mode = Mode.REFERENCE
         sm.capture.recorder.capture_run_id = "run1"
 
-        await sm.route_event({
-            "event": "level_entrance", "level": 105, "room": 0,
-            "state_path": "/path/to/state.mss",
-        })
-        await sm.route_event({
-            "event": "level_exit", "level": 105, "room": 5,
-            "goal": "normal", "elapsed_ms": 8000,
-        })
+        await sm.route_event(LevelEntranceEvent(
+            level=105, room=0, state_path="/path/to/state.mss",
+        ))
+        await sm.route_event(LevelExitEvent(
+            level=105, room=5, goal="normal", elapsed_ms=8000,
+        ))
         assert mock_db.upsert_segment.call_count == 1
         seg = mock_db.upsert_segment.call_args[0][0]
         assert seg.level_number == 105
@@ -141,8 +141,8 @@ class TestReferenceCapture:
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
 
-        await sm.route_event({"event": "level_entrance", "level": 105, "room": 0})
-        await sm.route_event({"event": "level_exit", "level": 105, "room": 0, "goal": "abort"})
+        await sm.route_event(LevelEntranceEvent(level=105, room=0))
+        await sm.route_event(LevelExitEvent(level=105, room=0, goal="abort"))
         assert mock_db.upsert_segment.call_count == 0
 
     async def test_checkpoint_creates_segment(self, mock_db, mock_tcp):
@@ -150,15 +150,13 @@ class TestReferenceCapture:
         sm.game_id = "game1"
         await sm.start_reference()
 
-        await sm.route_event({
-            "event": "level_entrance", "level": 105, "room": 0,
-            "state_path": "/states/105_entrance.mss",
-        })
-        await sm.route_event({
-            "event": "checkpoint", "level_num": 105,
-            "cp_type": "midway", "cp_ordinal": 1,
-            "timestamp_ms": 5000, "state_path": "/states/105_cp1_hot.mss",
-        })
+        await sm.route_event(LevelEntranceEvent(
+            level=105, room=0, state_path="/states/105_entrance.mss",
+        ))
+        await sm.route_event(CheckpointEvent(
+            level_num=105, cp_type="midway", cp_ordinal=1,
+            timestamp_ms=5000, state_path="/states/105_cp1_hot.mss",
+        ))
 
         assert mock_db.upsert_segment.call_count == 1
         seg = mock_db.upsert_segment.call_args[0][0]
@@ -172,19 +170,16 @@ class TestReferenceCapture:
         sm.game_id = "game1"
         await sm.start_reference()
 
-        await sm.route_event({
-            "event": "level_entrance", "level": 105, "room": 0,
-            "state_path": "/states/105_entrance.mss",
-        })
-        await sm.route_event({
-            "event": "checkpoint", "level_num": 105,
-            "cp_type": "midway", "cp_ordinal": 1,
-            "timestamp_ms": 5000, "state_path": "/states/105_cp1_hot.mss",
-        })
-        await sm.route_event({
-            "event": "level_exit", "level": 105, "room": 0,
-            "goal": "normal", "elapsed_ms": 10000,
-        })
+        await sm.route_event(LevelEntranceEvent(
+            level=105, room=0, state_path="/states/105_entrance.mss",
+        ))
+        await sm.route_event(CheckpointEvent(
+            level_num=105, cp_type="midway", cp_ordinal=1,
+            timestamp_ms=5000, state_path="/states/105_cp1_hot.mss",
+        ))
+        await sm.route_event(LevelExitEvent(
+            level=105, room=0, goal="normal", elapsed_ms=10000,
+        ))
 
         assert mock_db.upsert_segment.call_count == 2
         seg2 = mock_db.upsert_segment.call_args_list[1][0][0]
@@ -195,7 +190,7 @@ class TestReferenceCapture:
         sm = make_sm(mock_db, mock_tcp)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
-        await sm.route_event({"event": "death"})
+        await sm.route_event(DeathEvent())
         assert sm.capture.recorder.died is True
 
     async def test_entrance_clears_ref_died(self, mock_db, mock_tcp):
@@ -205,10 +200,9 @@ class TestReferenceCapture:
         sm.capture.recorder.capture_run_id = "run1"
         sm.capture.recorder.died = True
 
-        await sm.route_event({
-            "event": "level_entrance", "level": 105, "room": 0,
-            "state_path": "/states/105.mss",
-        })
+        await sm.route_event(LevelEntranceEvent(
+            level=105, room=0, state_path="/states/105.mss",
+        ))
         assert sm.capture.recorder.died is False
 
 
@@ -228,12 +222,11 @@ class TestFillGap:
         cmd = mock_tcp.send_command.call_args[0][0]
         assert str(practice_db._test_state_file) in cmd.state_path
 
-        await sm.route_event({
-            "event": "spawn", "level_num": 1,
-            "is_cold_cp": True, "cp_ordinal": 0,
-            "timestamp_ms": 1000, "state_captured": True,
-            "state_path": "/cold.mss",
-        })
+        await sm.route_event(SpawnEvent(
+            level_num=1, is_cold_cp=True, cp_ordinal=0,
+            timestamp_ms=1000, state_captured=True,
+            state_path="/cold.mss",
+        ))
 
         # Verify cold save state was persisted in DB
         seg_row = practice_db.conn.execute(
@@ -295,11 +288,10 @@ class TestColdFill:
         ]
         sm.cold_fill.total = 1
 
-        await sm.route_event({
-            "event": "spawn",
-            "state_captured": True,
-            "state_path": "/cold1.mss",
-        })
+        await sm.route_event(SpawnEvent(
+            state_captured=True,
+            state_path="/cold1.mss",
+        ))
         assert sm.mode == Mode.IDLE
 
     async def test_cold_fill_completion_sends_reset_command(self, mock_db, mock_tcp):
@@ -319,11 +311,10 @@ class TestColdFill:
         ]
         sm.cold_fill.total = 1
 
-        await sm.route_event({
-            "event": "spawn",
-            "state_captured": True,
-            "state_path": "/cold1.mss",
-        })
+        await sm.route_event(SpawnEvent(
+            state_captured=True,
+            state_path="/cold1.mss",
+        ))
         assert sm.mode == Mode.IDLE
         sent_cmds = [call.args[0] for call in mock_tcp.send_command.call_args_list]
         sent_resets = [c for c in sent_cmds if isinstance(c, ResetCmd)]

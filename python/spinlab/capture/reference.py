@@ -587,11 +587,6 @@ class ReferenceController:
             from .segment_naming import segment_id_for_event
             seg_id = segment_id_for_event(event)
             if seg_id:
-                # Backend-agnostic: under RA this writes the segment file via
-                # NCI + filesystem shuffle (in a worker thread); under Mesen
-                # it's a no-op because Lua already wrote the file when it
-                # observed the same event. Either way the recorder's stamped
-                # state_path resolves to a real file.
                 try:
                     await self.tcp.save_state(seg_id)
                 except Exception:

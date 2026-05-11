@@ -1,7 +1,6 @@
 """TransitionState — per-segment mutable state for detection.
 
-Cleared at the start of a new segment / mode change. Mirrors the
-`transition_state` table in lua/spinlab.lua.
+Cleared at the start of a new segment / mode change.
 """
 from __future__ import annotations
 

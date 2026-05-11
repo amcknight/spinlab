@@ -304,12 +304,12 @@ async def test_on_replay_emits_error_event_when_playback_does_not_advance(
     """When PLAY_REPLAY silently fails (e.g. ROM-checksum mismatch), memory
     doesn't advance. Orchestrator must surface this as ReplayErrorEvent
     instead of leaving the dashboard stuck in 'replaying'."""
-    from spinlab.protocol import ReplayCmd
+    from spinlab.protocol import ReplayCmd, ReplayErrorEvent
     orch, fake_player = orchestrator_with_stalled_nci
     await orch._on_replay(ReplayCmd(path="/x.replay", speed=0))
     ev = await asyncio.wait_for(orch.events.get(), timeout=1.0)
-    assert ev["event"] == "replay_error"
-    assert "RA refused to load" in ev["message"]
+    assert isinstance(ev, ReplayErrorEvent)
+    assert "RA refused to load" in ev.message
     # Player.stop must have been called to clean up the staged file.
     assert fake_player.stopped
 
@@ -317,12 +317,12 @@ async def test_on_replay_emits_error_event_when_playback_does_not_advance(
 @pytest.mark.asyncio
 async def test_on_replay_emits_replay_started_event(orchestrator_with_fake_player):
     """Orchestrator must emit ReplayStartedEvent for the session manager to enter replay mode."""
-    from spinlab.protocol import ReplayCmd
+    from spinlab.protocol import ReplayCmd, ReplayStartedEvent
     orch, _ = orchestrator_with_fake_player
     await orch._on_replay(ReplayCmd(path="/x.replay", speed=0))
     # Pull the emitted event off the orchestrator's event queue
     ev = await asyncio.wait_for(orch.events.get(), timeout=1.0)
-    assert ev["event"] == "replay_started"
+    assert isinstance(ev, ReplayStartedEvent)
 
 
 @pytest.mark.asyncio
@@ -340,7 +340,7 @@ async def test_on_replay_reads_frame_count_from_sibling_json(
     orch, _ = orchestrator_with_fake_player
     await orch._on_replay(ReplayCmd(path=str(replay_path), speed=0))
     ev = await asyncio.wait_for(orch.events.get(), timeout=1.0)
-    assert ev["frame_count"] == 1234
+    assert ev.frame_count == 1234
 
 
 @pytest.mark.asyncio
@@ -348,14 +348,14 @@ async def test_on_replay_stop_calls_player_stop_and_emits_finished(
     orchestrator_with_fake_player,
 ):
     """Stop calls MoviePlayer.stop() and emits ReplayFinishedEvent."""
-    from spinlab.protocol import ReplayCmd, ReplayStopCmd
+    from spinlab.protocol import ReplayCmd, ReplayFinishedEvent, ReplayStopCmd
     orch, fake_player = orchestrator_with_fake_player
     await orch._on_replay(ReplayCmd(path="/x.replay", speed=0))
     await orch.events.get()  # consume the started event
     await orch._on_replay_stop(ReplayStopCmd())
     assert fake_player.stopped
     ev = await asyncio.wait_for(orch.events.get(), timeout=1.0)
-    assert ev["event"] == "replay_finished"
+    assert isinstance(ev, ReplayFinishedEvent)
 
 
 @pytest.mark.asyncio

@@ -9,9 +9,8 @@ from __future__ import annotations
 # but that we cannot put in a file name. Replaced with underscores.
 _PATH_SEPARATOR_CHARS = (":", "/", "\\")
 
-# Lua used .mss; we use .state to match the file extension RA already uses
-# for slot files (RA: <game>.state<N>; SpinLab: <segment>.state). One byte
-# per file, single-extension naming, easier to grep for.
+# Matches the file extension RA already uses for slot files
+# (RA: <game>.state<N>; SpinLab: <segment>.state).
 _SPINLAB_STATE_EXT = ".state"
 
 

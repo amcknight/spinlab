@@ -119,22 +119,23 @@ async def test_end_to_end_death_flows_through_pipeline(tmp_path):
     ok = await orch.connect()
     assert ok is True
 
+    from spinlab.protocol import RomInfoEvent
+
     # First event is rom_info from connect().
     rom = await orch.recv_event(timeout=0.5)
-    assert rom is not None
-    assert rom["event"] == "rom_info"
+    assert isinstance(rom, RomInfoEvent)
 
     # Then a death event from the poller (after the 0->9 transition).
-    received: list[dict] = []
+    received: list = []
     deadline = asyncio.get_event_loop().time() + 1.0
     while asyncio.get_event_loop().time() < deadline:
         ev = await orch.recv_event(timeout=0.1)
         if ev is not None:
             received.append(ev)
-            if ev["event"] == "death":
+            if isinstance(ev, DeathEvent):
                 break
 
-    assert any(ev["event"] == "death" for ev in received), f"got: {received}"
+    assert any(isinstance(ev, DeathEvent) for ev in received), f"got: {received}"
 
     await orch.disconnect()
     assert nci.close_calls == 1
@@ -173,21 +174,23 @@ async def test_end_to_end_practice_attempt_result_emitted(tmp_path):
         LevelExitEvent(timestamp_ms=200, level=5, room=0, goal="normal", elapsed_ms=2000, frame=120)
     )
 
+    from spinlab.protocol import AttemptResultEvent
+
     # The tick loop is running; attempt_result should fire after auto_advance_delay_ms.
-    received: list[dict] = []
+    received: list = []
     deadline = asyncio.get_event_loop().time() + 1.0
     while asyncio.get_event_loop().time() < deadline:
         ev = await orch.recv_event(timeout=0.1)
         if ev is not None:
             received.append(ev)
-            if ev.get("event") == "attempt_result":
+            if isinstance(ev, AttemptResultEvent):
                 break
 
-    attempt_results = [r for r in received if r.get("event") == "attempt_result"]
+    attempt_results = [r for r in received if isinstance(r, AttemptResultEvent)]
     assert len(attempt_results) == 1, f"got events: {received}"
     r = attempt_results[0]
-    assert r["segment_id"] == "seg-test"
-    assert r["completed"] is True
-    assert r["deaths"] == 1
+    assert r.segment_id == "seg-test"
+    assert r.completed is True
+    assert r.deaths == 1
 
     await orch.disconnect()

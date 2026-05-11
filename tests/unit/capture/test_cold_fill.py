@@ -100,7 +100,6 @@ class TestStartColdFill:
         # Verify Lua command sent for first segment
         cmd = tcp.send_command.call_args[0][0]
         assert isinstance(cmd, ColdFillLoadCmd)
-        assert cmd.event == "cold_fill_load"
         assert cmd.state_path == cold_fill_db._hot1_path
         assert cmd.segment_id == cold_fill_db._seg1_id
 
@@ -150,7 +149,6 @@ class TestHandleColdFillSpawn:
         # Verify second segment loaded
         cmd = tcp.send_command.call_args[0][0]
         assert isinstance(cmd, ColdFillLoadCmd)
-        assert cmd.event == "cold_fill_load"
         assert cmd.segment_id == cold_fill_db._seg2_id
 
     async def test_returns_true_when_queue_empty(self, tcp, cold_fill_db):
