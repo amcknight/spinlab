@@ -269,11 +269,14 @@ async def test_load_state_runs_state_io_and_marks_loaded():
 
 @pytest.mark.asyncio
 async def test_reset_cmd_calls_client_reset():
+    """ResetCmd fires NCI RESET twice (RA's anti-accident two-press gate);
+    a single press counts as press one but doesn't actually reset the
+    console. The orchestrator's handler is the double-tap shim."""
     orch, client, state_io, poller, conditions = _build_orchestrator()
     await orch.connect()
     await orch.events.get()
     await orch.send_command(ResetCmd())
-    assert client.reset_calls == 1
+    assert client.reset_calls == 2
     await orch.disconnect()
 
 
