@@ -1,10 +1,21 @@
-"""RetroArchOrchestrator unit tests with fake NCIClient/StateIO/Poller."""
+"""RetroArchOrchestrator tests using FakeRAClient.
+
+Consolidates what was previously split across two files (test_orchestrator.py
+and test_retroarch_orchestrator.py, with three parallel _FakeNCI hierarchies).
+Tests drive the orchestrator through its public command/event surface; RAClient-
+internal mechanics (slot resolution, WRAM verify, mtime polling) are tested
+separately at the RAClient level.
+"""
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
+from tests.fakes.raclient import FakePoller, FakeRAClient
 
+from spinlab.condition_registry import ConditionRegistry
+from spinlab.errors import BackendNotImplementedError
 from spinlab.protocol import (
     ColdFillLoadCmd,
     FillGapLoadCmd,
@@ -13,120 +24,50 @@ from spinlab.protocol import (
     ReferenceStartCmd,
     ReferenceStopCmd,
     ReplayCmd,
+    ReplayErrorEvent,
+    ReplayFinishedEvent,
+    ReplayStartedEvent,
     ReplayStopCmd,
     ResetCmd,
+    RomInfoEvent,
     SetConditionsCmd,
     SpeedRunLoadCmd,
     SpeedRunStopCmd,
 )
-from spinlab.condition_registry import ConditionRegistry
 from spinlab.retroarch.orchestrator import RetroArchOrchestrator
+from spinlab.retroarch.raclient import NotReachableError
 from spinlab.retroarch.timing import PracticeTiming, SpeedRunTiming
+from spinlab.state_paths import StatePathResolver
 
 
-class _FakeClient:
-    """Stub NCIClient. Records calls; does not hit the wire."""
-
-    def __init__(self) -> None:
-        self.reset_calls = 0
-        self.version_response = "1.22.2"
-        self.close_calls = 0
-
-    def version(self) -> str:
-        return self.version_response
-
-    def get_status(self):
-        from spinlab.retroarch.responses import StatusInfo
-        return StatusInfo(state="PAUSED", system="SNES", game="Test Game", crc32="ff")
-
-    def reset(self) -> None:
-        self.reset_calls += 1
-
-    def close(self) -> None:
-        self.close_calls += 1
-
-
-class _FakeStateIO:
-    def __init__(self) -> None:
-        self.load_segment_calls: list[str] = []
-        self.load_path_calls: list = []
-        self.saved_segments: list[str] = []
-        self.set_basename_calls: list[str] = []
-
-    def load_segment_state(self, segment_id: str) -> None:
-        self.load_segment_calls.append(segment_id)
-
-    def load_state_from_path(self, path) -> None:
-        self.load_path_calls.append(path)
-
-    def save_segment_state(self, segment_id: str) -> None:
-        self.saved_segments.append(segment_id)
-
-    def update_game_basename(self, name: str) -> None:
-        self.set_basename_calls.append(name)
-
-    def resolve_event_path(self, ev) -> str:
-        return ""
-
-    def segment_id_for_event(self, ev) -> str | None:
-        # Mirror StateIO.segment_id_for_event so the orchestrator's save-on-event
-        # path resolves a key when it should. The real method is also pure.
-        from spinlab.protocol import CheckpointEvent, LevelEntranceEvent, SpawnEvent
-        if isinstance(ev, LevelEntranceEvent):
-            return f"entrance_{ev.level}_{ev.room}"
-        if isinstance(ev, CheckpointEvent):
-            return f"cp_{ev.level_num}_{ev.cp_ordinal}_hot"
-        if isinstance(ev, SpawnEvent) and ev.segment_id:
-            return ev.segment_id
-        return None
-
-
-class _FakePoller:
-    """Implements the subset of Poller surface the orchestrator uses."""
-
-    def __init__(self) -> None:
-        self.mark_state_loaded_calls = 0
-        self.cold_fill_activations: list[str] = []
-        self._stopped = False
-
-    async def run(self) -> None:
-        # Loop forever until stopped, sleeping each tick.
-        while not self._stopped:
-            await asyncio.sleep(0.001)
-
-    def mark_state_loaded(self) -> None:
-        self.mark_state_loaded_calls += 1
-
-    def activate_cold_fill(self, segment_id: str) -> None:
-        self.cold_fill_activations.append(segment_id)
-
-    def stop(self) -> None:
-        self._stopped = True
-
-
-def _build_orchestrator():
-    client = _FakeClient()
-    state_io = _FakeStateIO()
-    poller = _FakePoller()
+def _build_orchestrator(
+    tmp_path: Path,
+    *,
+    enable_movies: bool = True,
+    raclient: FakeRAClient | None = None,
+) -> tuple[RetroArchOrchestrator, FakeRAClient, FakePoller, ConditionRegistry]:
+    raclient = raclient or FakeRAClient()
+    poller = FakePoller()
     conditions = ConditionRegistry()
-    practice = PracticeTiming()
-    speed_run = SpeedRunTiming()
     orch = RetroArchOrchestrator(
-        client=client,
-        state_io=state_io,
+        raclient=raclient,
         poller=poller,
         conditions=conditions,
-        practice_timing=practice,
-        speed_run_timing=speed_run,
+        practice_timing=PracticeTiming(),
+        speed_run_timing=SpeedRunTiming(),
+        state_paths=StatePathResolver(tmp_path / "states"),
+        enable_movies=enable_movies,
     )
-    return orch, client, state_io, poller, conditions
+    return orch, raclient, poller, conditions
 
+
+# ------------------------------------------------------------------
+# Lifecycle
+# ------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_connect_emits_rom_info_event():
-    """connect() should put a RomInfoEvent on the events queue."""
-    from spinlab.protocol import RomInfoEvent
-    orch, client, state_io, poller, conditions = _build_orchestrator()
+async def test_connect_emits_rom_info_event(tmp_path):
+    orch, raclient, _, _ = _build_orchestrator(tmp_path)
     ok = await orch.connect()
     assert ok is True
     assert orch.is_connected is True
@@ -137,168 +78,219 @@ async def test_connect_emits_rom_info_event():
 
 
 @pytest.mark.asyncio
-async def test_connect_propagates_game_basename_to_state_io():
-    """connect() should update state_io's game basename from RA's GET_STATUS.
-
-    This is the fix for the silent save failure bug: previously a stale
-    `ra_game_basename` in config caused mtime polling to time out forever
-    because it watched the wrong filename. Now RA's report is authoritative.
-    """
-    orch, client, state_io, poller, conditions = _build_orchestrator()
-    # State_io starts with whatever the fake builds it with (or empty).
-    await orch.connect()
-    # The fake client.get_status() returns game="Test Game", so basename
-    # should now be "Test Game".
-    assert state_io.set_basename_calls == ["Test Game"]
-    await orch.disconnect()
-
-
-@pytest.mark.asyncio
-async def test_connect_returns_false_when_nci_fails():
-    """If client.version() raises NCIError, connect returns False."""
-    from spinlab.retroarch.exceptions import NCITimeout
-    client = _FakeClient()
-
-    def fail() -> str:
-        raise NCITimeout("simulated")
-
-    client.version = fail  # type: ignore
-    state_io = _FakeStateIO()
-    poller = _FakePoller()
-    orch = RetroArchOrchestrator(
-        client=client, state_io=state_io, poller=poller,
-        conditions=ConditionRegistry(),
-        practice_timing=PracticeTiming(),
-        speed_run_timing=SpeedRunTiming(),
-    )
+async def test_connect_returns_false_when_nci_fails(tmp_path):
+    raclient = FakeRAClient(raise_on_connect=NotReachableError("simulated"))
+    orch, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
     ok = await orch.connect()
     assert ok is False
     assert orch.is_connected is False
 
 
 @pytest.mark.asyncio
-async def test_disconnect_stops_poller_and_closes_client():
-    orch, client, state_io, poller, conditions = _build_orchestrator()
+async def test_disconnect_stops_poller_and_closes_raclient(tmp_path):
+    orch, raclient, poller, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.disconnect()
     assert orch.is_connected is False
-    assert poller._stopped is True
-    assert client.close_calls == 1
+    assert poller.is_stopped is True
+    assert raclient.disconnect_calls == 1
 
+
+# ------------------------------------------------------------------
+# Practice
+# ------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_practice_load_cmd_loads_state_and_arms_timing():
-    orch, client, state_io, poller, conditions = _build_orchestrator()
+async def test_practice_load_cmd_loads_state_and_arms_timing(tmp_path):
+    orch, raclient, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
-    # Drain rom_info
     await orch.events.get()
-    cmd = PracticeLoadCmd(id="seg-x", state_path="/p/seg.state", end_type="goal",
-                          expected_time_ms=5000, auto_advance_delay_ms=200,
-                          death_penalty_ms=3200)
+    cmd = PracticeLoadCmd(
+        id="seg-x", state_path="/p/seg.state", end_type="goal",
+        expected_time_ms=5000, auto_advance_delay_ms=200, death_penalty_ms=3200,
+    )
     await orch.send_command(cmd)
-    assert state_io.load_path_calls == ["/p/seg.state"]
-    assert poller.mark_state_loaded_calls == 1
-    # Practice timing should be armed
+    assert raclient.load_state_calls == [Path("/p/seg.state")]
     assert orch._practice_timing.is_armed is True
     await orch.disconnect()
 
 
 @pytest.mark.asyncio
-async def test_practice_stop_cmd_disarms():
-    orch, client, state_io, poller, conditions = _build_orchestrator()
+async def test_practice_stop_cmd_disarms(tmp_path):
+    orch, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
-    await orch.send_command(PracticeLoadCmd(id="seg-x", state_path="/p", end_type="goal",
-                                            auto_advance_delay_ms=200, death_penalty_ms=3200))
+    await orch.send_command(PracticeLoadCmd(
+        id="seg-x", state_path="/p", end_type="goal",
+        auto_advance_delay_ms=200, death_penalty_ms=3200,
+    ))
     await orch.send_command(PracticeStopCmd())
     assert orch._practice_timing.is_armed is False
     await orch.disconnect()
 
 
+# ------------------------------------------------------------------
+# Cold-fill / fill-gap
+# ------------------------------------------------------------------
+
 @pytest.mark.asyncio
-async def test_cold_fill_load_activates_poller():
-    orch, client, state_io, poller, conditions = _build_orchestrator()
+async def test_cold_fill_load_activates_poller(tmp_path):
+    orch, raclient, poller, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(ColdFillLoadCmd(state_path="/p/cold.state", segment_id="seg-cold"))
-    assert state_io.load_path_calls == ["/p/cold.state"]
+    assert raclient.load_state_calls == [Path("/p/cold.state")]
     assert poller.cold_fill_activations == ["seg-cold"]
-    assert poller.mark_state_loaded_calls == 1
     await orch.disconnect()
 
 
 @pytest.mark.asyncio
-async def test_fill_gap_load_loads_state_no_cold_fill():
-    orch, client, state_io, poller, conditions = _build_orchestrator()
+async def test_fill_gap_load_loads_state_no_cold_fill(tmp_path):
+    orch, raclient, poller, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(FillGapLoadCmd(state_path="/p/gap.state"))
-    assert state_io.load_path_calls == ["/p/gap.state"]
-    assert poller.cold_fill_activations == []  # NOT activated
-    assert poller.mark_state_loaded_calls == 1
+    assert raclient.load_state_calls == [Path("/p/gap.state")]
+    assert poller.cold_fill_activations == []
     await orch.disconnect()
 
 
+# ------------------------------------------------------------------
+# EmuBackend save/load
+# ------------------------------------------------------------------
+
 @pytest.mark.asyncio
-async def test_save_state_runs_state_io_in_thread():
-    """EmuBackend.save_state hands off to StateIO.save_segment_state on a
-    worker thread. The orchestrator no longer drives saves from event
-    callbacks — capture controllers will call this method directly."""
-    orch, _, state_io, _, _ = _build_orchestrator()
+async def test_save_state_resolves_segment_id_and_delegates(tmp_path):
+    orch, raclient, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.save_state("seg_123")
-    assert state_io.saved_segments == ["seg_123"]
+    assert raclient.save_state_calls == [tmp_path / "states" / "seg_123.state"]
     await orch.disconnect()
 
 
 @pytest.mark.asyncio
-async def test_load_state_runs_state_io_and_marks_loaded():
-    """EmuBackend.load_state copies the file into RA's reserved slot and
-    marks the poller so it skips phantom edges on the next snapshot."""
-    orch, _, state_io, poller, _ = _build_orchestrator()
+async def test_load_state_delegates_to_raclient(tmp_path):
+    orch, raclient, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
-    initial_marks = poller.mark_state_loaded_calls
     await orch.load_state("/some/path/file.state")
-    assert state_io.load_path_calls == ["/some/path/file.state"]
-    assert poller.mark_state_loaded_calls == initial_marks + 1
+    assert raclient.load_state_calls == [Path("/some/path/file.state")]
+    # state_version bumps automatically inside RAClient (FakeRAClient mirrors).
+    assert raclient.state_version == 1
     await orch.disconnect()
 
 
+# ------------------------------------------------------------------
+# Reset / set_conditions
+# ------------------------------------------------------------------
+
 @pytest.mark.asyncio
-async def test_reset_cmd_calls_client_reset():
-    """ResetCmd fires NCI RESET twice (RA's anti-accident two-press gate);
-    a single press counts as press one but doesn't actually reset the
-    console. The orchestrator's handler is the double-tap shim."""
-    orch, client, state_io, poller, conditions = _build_orchestrator()
+async def test_reset_cmd_calls_raclient_reset(tmp_path):
+    orch, raclient, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(ResetCmd())
-    assert client.reset_calls == 2
+    assert raclient.reset_calls == 1  # RAClient.reset() handles the double-tap internally
     await orch.disconnect()
 
 
 @pytest.mark.asyncio
-async def test_set_conditions_cmd_updates_registry():
-    orch, client, state_io, poller, conditions = _build_orchestrator()
+async def test_set_conditions_cmd_updates_registry(tmp_path):
+    orch, _, _, conditions = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     defs = [{"name": "x", "address": 0x100, "size": 1}]
     await orch.send_command(SetConditionsCmd(definitions=defs))
-    # Registry should now have one spec.
     assert len(conditions.definitions) == 1
     assert conditions.definitions[0].name == "x"
     await orch.disconnect()
 
 
-@pytest.mark.asyncio
-async def test_replay_cmd_raises_backend_not_implemented_when_no_player():
-    """ReplayCmd raises BackendNotImplementedError (HTTP 501) when no MoviePlayer
-    is configured — matches the route layer's ActionError → 501 mapping."""
-    from spinlab.errors import BackendNotImplementedError
+# ------------------------------------------------------------------
+# Reference (movie recording)
+# ------------------------------------------------------------------
 
-    orch, _, _, _, _ = _build_orchestrator()
+@pytest.mark.asyncio
+async def test_reference_start_invokes_record_movie(tmp_path):
+    orch, raclient, _, _ = _build_orchestrator(tmp_path)
+    await orch.connect()
+    await orch.events.get()
+    await orch.send_command(ReferenceStartCmd(path="/tmp/seg.replay"))
+    assert raclient.record_movie_calls == [Path("/tmp/seg.replay")]
+    assert orch._active_recording is not None
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_reference_stop_stops_active_recording(tmp_path):
+    orch, raclient, _, _ = _build_orchestrator(tmp_path)
+    await orch.connect()
+    await orch.events.get()
+    await orch.send_command(ReferenceStartCmd(path="/tmp/seg.replay"))
+    await orch.send_command(ReferenceStopCmd())
+    assert orch._active_recording is None
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_reference_start_no_movies_is_noop(tmp_path):
+    orch, raclient, _, _ = _build_orchestrator(tmp_path, enable_movies=False)
+    await orch.connect()
+    await orch.events.get()
+    await orch.send_command(ReferenceStartCmd(path="/tmp/seg.replay"))
+    assert raclient.record_movie_calls == []
+    await orch.disconnect()
+
+
+# ------------------------------------------------------------------
+# Replay (movie playback)
+# ------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_replay_cmd_emits_replay_started(tmp_path):
+    raclient = FakeRAClient(frame_count=900)
+    orch, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
+    await orch.connect()
+    await orch.events.get()  # rom_info
+    await orch.send_command(ReplayCmd(path="/tmp/run.replay"))
+    ev = await asyncio.wait_for(orch.events.get(), timeout=0.1)
+    assert isinstance(ev, ReplayStartedEvent)
+    assert Path(ev.path) == Path("/tmp/run.replay")
+    assert ev.frame_count == 900
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_replay_cmd_emits_error_when_playback_refused(tmp_path):
+    raclient = FakeRAClient(fail_play_movie=True)
+    orch, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
+    await orch.connect()
+    await orch.events.get()  # rom_info
+    await orch.send_command(ReplayCmd(path="/tmp/run.replay"))
+    ev = await asyncio.wait_for(orch.events.get(), timeout=0.1)
+    assert isinstance(ev, ReplayErrorEvent)
+    assert "fake refusal" in ev.message
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_replay_stop_emits_finished_and_clears_handle(tmp_path):
+    orch, raclient, _, _ = _build_orchestrator(tmp_path)
+    await orch.connect()
+    await orch.events.get()  # rom_info
+    await orch.send_command(ReplayCmd(path="/tmp/run.replay"))
+    await orch.events.get()  # ReplayStartedEvent
+    await orch.send_command(ReplayStopCmd())
+    ev = await asyncio.wait_for(orch.events.get(), timeout=0.1)
+    assert isinstance(ev, ReplayFinishedEvent)
+    assert orch._active_playback is None
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_replay_cmd_rejected_when_movies_disabled(tmp_path):
+    orch, _, _, _ = _build_orchestrator(tmp_path, enable_movies=False)
     await orch.connect()
     await orch.events.get()
     with pytest.raises(BackendNotImplementedError) as exc_info:
@@ -308,84 +300,65 @@ async def test_replay_cmd_raises_backend_not_implemented_when_no_player():
 
 
 @pytest.mark.asyncio
-async def test_replay_stop_cmd_is_noop_when_no_player():
-    """ReplayStopCmd is idempotent — no player configured means no-op, no raise."""
-    orch, _, _, _, _ = _build_orchestrator()
+async def test_replay_stop_is_noop_when_no_active_playback(tmp_path):
+    orch, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
-    # Should not raise.
-    await orch.send_command(ReplayStopCmd())
+    await orch.send_command(ReplayStopCmd())  # should not raise
     await orch.disconnect()
 
 
-@pytest.mark.asyncio
-async def test_reference_start_and_stop_are_noops_under_ra():
-    """ReferenceController owns recording lifecycle now. The orchestrator's
-    cmd handlers just log and return — no _recording flag, no synthetic
-    rec_saved emit. Save-on-event behavior is covered by
-    tests/unit/capture/test_reference.py::TestSaveOnEvent and
-    tests/unit/capture/test_cold_fill.py."""
-    orch, _, _, _, _ = _build_orchestrator()
-    await orch.connect()
-    await orch.events.get()  # drain rom_info
-    # Both cmds resolve cleanly — the test is that nothing raises and no
-    # extra events get queued (queue should remain empty after these).
-    await orch.send_command(ReferenceStartCmd(path="/tmp/seg.spinrec"))
-    await orch.send_command(ReferenceStopCmd())
-    assert orch.events.empty()
-    await orch.disconnect()
-
+# ------------------------------------------------------------------
+# Speed run
+# ------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_speed_run_load_arms_and_stop_disarms():
-    orch, _, state_io, poller, _ = _build_orchestrator()
+async def test_speed_run_load_arms_and_stop_disarms(tmp_path):
+    orch, raclient, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(SpeedRunLoadCmd(id="run-1", state_path="/p/sr.state"))
     assert orch._speed_run_timing.is_armed is True
-    assert state_io.load_path_calls == ["/p/sr.state"]
+    assert raclient.load_state_calls == [Path("/p/sr.state")]
     await orch.send_command(SpeedRunStopCmd())
     assert orch._speed_run_timing.is_armed is False
     await orch.disconnect()
 
 
 @pytest.mark.asyncio
-async def test_speed_run_load_forwards_delay_kwargs():
-    """SpeedRunLoadCmd.death_delay_ms and auto_advance_delay_ms reach the timing object."""
-    orch, _, state_io, poller, _ = _build_orchestrator()
+async def test_speed_run_load_forwards_delay_kwargs(tmp_path):
+    orch, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
-    cmd = SpeedRunLoadCmd(
-        id="run-1",
-        state_path="/p/sr.state",
-        death_delay_ms=2000,
-        auto_advance_delay_ms=2500,
-    )
-    await orch.send_command(cmd)
+    await orch.send_command(SpeedRunLoadCmd(
+        id="run-1", state_path="/p/sr.state",
+        death_delay_ms=2000, auto_advance_delay_ms=2500,
+    ))
     assert orch._speed_run_timing._death_delay_ms == 2000
     assert orch._speed_run_timing._auto_advance_delay_ms == 2500
     await orch.disconnect()
 
 
+# ------------------------------------------------------------------
+# Misc
+# ------------------------------------------------------------------
+
 @pytest.mark.asyncio
-async def test_unknown_command_logged_no_raise():
-    orch, _, _, _, _ = _build_orchestrator()
+async def test_unknown_command_logged_no_raise(tmp_path):
+    orch, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
 
     class WeirdCmd:
         pass
 
-    # Should not raise.
-    await orch.send_command(WeirdCmd())
+    await orch.send_command(WeirdCmd())  # should not raise
     await orch.disconnect()
 
 
 @pytest.mark.asyncio
-async def test_recv_event_returns_typed_event():
-    """recv_event yields typed protocol events from the queue."""
-    from spinlab.protocol import RomInfoEvent
-    orch, _, _, _, _ = _build_orchestrator()
+async def test_recv_event_returns_typed_event(tmp_path):
+    orch, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     ev = await orch.recv_event(timeout=0.1)
     assert isinstance(ev, RomInfoEvent)
@@ -393,8 +366,8 @@ async def test_recv_event_returns_typed_event():
 
 
 @pytest.mark.asyncio
-async def test_recv_event_timeout_returns_none():
-    orch, _, _, _, _ = _build_orchestrator()
+async def test_recv_event_timeout_returns_none(tmp_path):
+    orch, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.recv_event(timeout=0.1)  # drain rom_info
     ev = await orch.recv_event(timeout=0.05)

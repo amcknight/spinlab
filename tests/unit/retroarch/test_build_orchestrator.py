@@ -1,5 +1,4 @@
 """Tests for build_orchestrator factory."""
-from pathlib import Path
 
 import pytest
 
@@ -41,59 +40,57 @@ def test_build_orchestrator_rejects_missing_spinlab_state_dir(tmp_path):
 
 
 def test_build_orchestrator_accepts_missing_ra_game_basename(tmp_path):
-    """ra_game_basename is intentionally optional — the orchestrator overrides
-    it from RA's GET_STATUS at connect() time, so the config value (if any) is
-    just a stale-or-fallback hint."""
+    """ra_game_basename is optional — RAClient overrides it from RA's
+    GET_STATUS at connect() time.
+    """
     cfg = _config(tmp_path, ra_game_basename=None)
     orch = build_orchestrator(cfg)
-    assert orch is not None  # no ValueError raised
+    assert orch is not None
 
 
 # ---------------------------------------------------------------------------
-# movie_dir resolution: three branches, no NCI required
+# movie_dir resolution — three branches, no NCI required
 # ---------------------------------------------------------------------------
 
 def test_movie_dir_explicit_ra_movie_dir(tmp_path):
-    """Branch 1: emu.ra_movie_dir set → recorder/player use that dir."""
+    """Branch 1: emu.ra_movie_dir set → RAClient gets that dir, movies enabled."""
     explicit = tmp_path / "custom_movies"
     cfg = _config(tmp_path, ra_movie_dir=explicit, ra_core_subdir="Snes9x")
     orch = build_orchestrator(cfg)
-    assert orch._movie_recorder is not None
-    assert orch._movie_player is not None
-    assert orch._movie_recorder.movie_dir == explicit
-    assert orch._movie_player.movie_dir == explicit
+    assert orch._enable_movies is True
+    assert orch._raclient._ra_movie_dir == explicit
 
 
 def test_movie_dir_derived_from_savestate_and_core_subdir(tmp_path):
-    """Branch 2: ra_movie_dir=None, savestate_dir + ra_core_subdir → derive dir."""
-    savestate = tmp_path / "ra"
+    """Branch 2: ra_movie_dir=None, savestate_dir + ra_core_subdir → derive."""
     cfg = _config(tmp_path, ra_movie_dir=None, ra_core_subdir="Snes9x")
     orch = build_orchestrator(cfg)
-    expected = savestate / "Snes9x"
-    assert orch._movie_recorder is not None
-    assert orch._movie_player is not None
-    assert orch._movie_recorder.movie_dir == expected
-    assert orch._movie_player.movie_dir == expected
+    expected = tmp_path / "ra" / "Snes9x"
+    assert orch._enable_movies is True
+    assert orch._raclient._ra_movie_dir == expected
 
 
-def test_movie_dir_none_disables_recorder_and_player(tmp_path):
-    """Branch 3: neither ra_movie_dir nor ra_core_subdir → recorder/player are None."""
+def test_movie_dir_none_disables_movies(tmp_path):
+    """Branch 3: neither ra_movie_dir nor ra_core_subdir → movies disabled."""
     cfg = _config(tmp_path, ra_movie_dir=None, ra_core_subdir=None)
     orch = build_orchestrator(cfg)
-    assert orch._movie_recorder is None
-    assert orch._movie_player is None
+    assert orch._enable_movies is False
+    assert orch._raclient._ra_movie_dir is None
 
 
 def test_movie_dir_no_double_append_when_savestate_dir_already_includes_subdir(tmp_path):
-    """Branch 2 corner: if savestate_dir already ends with ra_core_subdir, don't
-    double-append. RA users sometimes set savestate_dir to the per-core dir
-    directly (e.g. C:\\RetroArch-Win64\\states\\Snes9x) since that's where their
-    .state files actually live for snes9x."""
+    """Branch 2 corner: savestate_dir already ends with ra_core_subdir → don't double-append.
+
+    RA users sometimes set savestate_dir to the per-core dir directly
+    (e.g. C:\\RetroArch-Win64\\states\\Snes9x).
+    """
     savestate_per_core = tmp_path / "ra" / "Snes9x"
-    cfg = _config(tmp_path, savestate_dir=savestate_per_core,
-                  ra_movie_dir=None, ra_core_subdir="Snes9x")
+    cfg = _config(
+        tmp_path,
+        savestate_dir=savestate_per_core,
+        ra_movie_dir=None,
+        ra_core_subdir="Snes9x",
+    )
     orch = build_orchestrator(cfg)
-    assert orch._movie_recorder is not None
-    assert orch._movie_recorder.movie_dir == savestate_per_core  # NOT savestate_per_core / "Snes9x"
-    assert orch._movie_player is not None
-    assert orch._movie_player.movie_dir == savestate_per_core
+    assert orch._enable_movies is True
+    assert orch._raclient._ra_movie_dir == savestate_per_core

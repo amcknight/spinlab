@@ -1,19 +1,13 @@
 """Poller — async loop that drives transition detection at ~60Hz.
 
-Architecture:
-  - NCIClient (Phase B) — owns the UDP socket.
-  - read_snapshot (Phase C task 2) — builds a MemorySnapshot.
-  - TransitionDetector (task 7) — converts (prev, curr) -> events.
-  - ColdFillSpawnDetector — separate mode, optional.
-  - on_event callback — receives every emitted TransitionEvent.
+Reads MemorySnapshots via the NCI transport, runs them through the
+TransitionDetector + ColdFillSpawnDetector, and emits typed protocol events
+through a caller-supplied callback.
 
-Caller responsibilities:
-  - Build PollerDeps with the right client/snapshot fn/event callback.
-  - await poller.run() in an asyncio task.
-  - poller.stop() to clean shutdown.
-  - poller.mark_state_loaded() before the next poll if a save state was just
-    loaded — replaces prev with the post-load snapshot to suppress phantom
-    edge events.
+State-load handling: the Poller checks ``state_version()`` once per tick.
+When the version increments (RAClient.load_state was called since the last
+tick), it treats the current snapshot as a fresh prev and skips detection
+for that tick — replaces the old ``mark_state_loaded`` side-band call.
 """
 from __future__ import annotations
 
@@ -37,12 +31,13 @@ DEFAULT_PERIOD_SEC = 1.0 / 60.0  # one frame at 60 Hz
 class PollerDeps:
     client: NCIClient
     read_snapshot: Callable[[NCIClient], MemorySnapshot]
-    # Event payload is a protocol dataclass instance (LevelEntranceEvent /
-    # DeathEvent / etc.). Typed Any here because the Union of every emitted
-    # type is verbose and the consumer pattern is isinstance-dispatch.
     on_event: Callable[[Any], None]
     state_path_for: Callable[[Any], str | None] | None = None
     conditions_registry: ConditionRegistry | None = None
+    # Returns RAClient's monotonic state_version. The Poller compares against
+    # the last seen value each tick; an increment means "RA just reloaded, the
+    # next snapshot is the new prev" — replaces the old mark_state_loaded flag.
+    state_version: Callable[[], int] = lambda: 0
 
 
 class Poller:
@@ -50,16 +45,15 @@ class Poller:
         self._deps = deps
         self._period = period_sec
         self._stopped = False
-        self._state_just_loaded = False
         self._detector = TransitionDetector()
         self._cold_fill = ColdFillSpawnDetector()
         self._start_ms = time.perf_counter() * 1000
+        self._last_seen_state_version = deps.state_version()
         # Number of successful RAM reads completed (excludes polls that raised
         # an exception). Used by tests to verify throughput during playback.
         self.poll_count: int = 0
 
     def _stamp_state_path(self, ev: Any) -> Any:
-        """Apply state_path_for resolver if configured. Returns event with stamped path."""
         if self._deps.state_path_for is None:
             return ev
         path = self._deps.state_path_for(ev)
@@ -70,26 +64,28 @@ class Poller:
         return dataclasses.replace(ev, state_path=path)
 
     def _stamp_conditions(self, ev: Any) -> Any:
-        """Apply conditions_registry if configured. Returns event with populated conditions."""
         reg = self._deps.conditions_registry
         if reg is None:
             return ev
         try:
             values = reg.read_all(self._deps.client)
         except Exception:
-            return ev  # don't kill the loop on transient NCI errors
+            return ev
         if not values:
             return ev
         return dataclasses.replace(ev, conditions=values)
-
-    def mark_state_loaded(self) -> None:
-        """Tell the poller the next snapshot replaces prev (suppress phantom edges)."""
-        self._state_just_loaded = True
 
     def stop(self) -> None:
         self._stopped = True
 
     def activate_cold_fill(self, segment_id: str) -> None:
+        """Put the cold-fill detector into active mode for ``segment_id``.
+
+        Separate from state-version handling: state_version says "RA just
+        reloaded; resync prev". Cold-fill activation says "we're now in
+        cold-fill detection mode for this specific segment" — independent
+        signals that often happen together but mean different things.
+        """
         self._cold_fill.activate(segment_id)
 
     async def run(self) -> None:
@@ -97,24 +93,20 @@ class Poller:
             try:
                 snap = self._deps.read_snapshot(self._deps.client)
             except Exception:
-                # Don't kill the loop on transient NCI errors. Caller wires up
-                # a logger via the on_event callback path or a separate hook
-                # if visibility is needed; bare bones for Phase C.
                 await asyncio.sleep(self._period)
                 continue
 
             self.poll_count += 1
             ts = int(time.perf_counter() * 1000 - self._start_ms)
 
-            if self._state_just_loaded:
+            cur_ver = self._deps.state_version()
+            if cur_ver != self._last_seen_state_version:
+                # RA reloaded since last tick; treat this snapshot as the new
+                # prev and skip detection for this tick — otherwise the diff
+                # against the pre-load prev would emit phantom edges.
                 self._detector.resync_after_state_load(snap)
-                # ColdFillSpawnDetector also needs prev_* synced to the just-
-                # loaded snapshot — otherwise its activate() leaves prev=0 and
-                # the first post-load poll sees a phantom 0->non-zero edge on
-                # exit_mode (or anim) that fires died_via_exit / died_sprite
-                # before the player has touched anything.
                 self._cold_fill.resync_after_state_load(snap)
-                self._state_just_loaded = False
+                self._last_seen_state_version = cur_ver
                 await asyncio.sleep(self._period)
                 continue
 

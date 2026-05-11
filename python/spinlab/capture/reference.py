@@ -584,7 +584,7 @@ class ReferenceController:
     async def handle_entrance(self, event: LevelEntranceEvent) -> None:
         logger.info("capture: entrance level=%s", event.level)
         if self.is_recording:
-            from .segment_naming import segment_id_for_event
+            from spinlab.state_paths import segment_id_for_event
             seg_id = segment_id_for_event(event)
             if seg_id:
                 try:
@@ -599,7 +599,7 @@ class ReferenceController:
         logger.info("capture: checkpoint level=%s cp=%s",
                      event.level_num, event.cp_ordinal)
         if self.is_recording:
-            from .segment_naming import segment_id_for_event
+            from spinlab.state_paths import segment_id_for_event
             seg_id = segment_id_for_event(event)
             if seg_id:
                 try:

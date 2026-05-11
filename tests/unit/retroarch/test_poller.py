@@ -59,7 +59,7 @@ async def test_poller_emits_death_event():
 
 @pytest.mark.asyncio
 async def test_poller_resync_clears_phantom_edges():
-    """After mark_state_loaded(), the loaded-state snapshot becomes prev — no phantom Death.
+    """When state_version increments, the next snapshot becomes prev — no phantom Death.
 
     Real-world scenario: user loads a state where Mario is already dead. Without
     the resync hook, prev (pre-load, alive) → curr (post-load, dead) would fire
@@ -70,15 +70,17 @@ async def test_poller_resync_clears_phantom_edges():
         _snap(player_anim=9),  # next frame: still dead, no edge
     ])
     received: list = []
+    version = [0]
 
     deps = PollerDeps(
         client=_FakeClient(),
         read_snapshot=_make_snapshots(snapshots),
         on_event=received.append,
+        state_version=lambda: version[0],
     )
-    poller = Poller(deps, period_sec=0.001)
+    poller = Poller(deps, period_sec=0.001)  # captures _last_seen_state_version=0
+    version[0] = 1  # simulate a state load — poller's next tick sees the bump
     task = asyncio.create_task(poller.run())
-    poller.mark_state_loaded()
     await asyncio.sleep(0.05)
     poller.stop()
     await task

@@ -105,7 +105,8 @@
       "Bash(curl -sL \"https://github.com/libretro/RetroArch/search?q=checkpoint_compression+%3D&type=code\")",
       "Bash(spinlab db *)",
       "PowerShell(Get-Process retroarch -ErrorAction SilentlyContinue)",
-      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\thedo\\\\git\\\\spinlab\\\\python\\\\spinlab\\\\\" -Recurse -Filter \"*.py\" | Select-Object -ExpandProperty FullName | Measure-Object | Select-Object -ExpandProperty Count)"
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\thedo\\\\git\\\\spinlab\\\\python\\\\spinlab\\\\\" -Recurse -Filter \"*.py\" | Select-Object -ExpandProperty FullName | Measure-Object | Select-Object -ExpandProperty Count)",
+      "Bash(npx ruff *)"
     ],
     "additionalDirectories": [
       "C:\\RetroArch-Win64"
