@@ -153,19 +153,107 @@ still read whatever the ROM has put there).
 | **Emulator suite** | **171s** | **70s** (-59%) |
 | **Full suite** | **190s** | **86s** (-55%) |
 
-**Not done (deferred):**
+## Pass 4 — Quiescence-based scenario termination (2026-05-11 evening)
 
-- C. Per-scenario `settle_frames` tuning (each transition scenario
-  currently waits 60 frames after the last poke; many transitions
-  complete in <20). Estimated additional ~5-10s. Skipped: the
-  suite is already fast enough that this isn't load-bearing.
+Replaced fixed `settle: 60` with detector-quiescence early exit in
+`RAPokeEngine.run_scenario`. Tracks `frame_of_last_event` and terminates
+when the detector has been silent for `QUIESCENCE_FRAMES` (12, ~200ms at
+60Hz) past the last poke. The `.poke` file's `settle:` value remains
+parsed but acts only as an upper-bound safety cap.
+
+Simple scenarios (entrance_goal, key_exit, orb_exit, boss_defeat) ran
+~80 frames blindly; now run ~30. ~5.8s/test → ~2.1s/test. Complex
+scenarios saved fewer frames but still meaningful.
+
+Emulator suite 70s → 36s. Full suite 86s → 52s.
+
+## Known gap — cross-test isolation under shared RA
+
+Attempted to merge `ra_harness` and `ra_harness_love_yourself` into one
+session-scoped harness (saves ~3s of duplicate RA launch). Reverted —
+the merge surfaced a real cross-test state leak that isn't trivial to
+fix:
+
+- The replay-fixture test plays Love Yourself to its level 44 goal,
+  leaving ~8KB of dirty WRAM (player position, sprite state, etc.).
+- Transition tests that run after it inherit that WRAM. Each scenario
+  zeroes the 11 `ADDR_MAP` bytes it explicitly drives, but the ROM's
+  game-side logic during `FRAMEADVANCE` reads bytes outside `ADDR_MAP`
+  and writes back into addresses we care about (most notably
+  `cp_entrance` at $1B403).
+- Result: 3 of 9 transition tests started producing wrong event
+  ordinals or missing entrance events post-replay, while passing
+  cleanly in isolation.
+
+The two-harness design pre-merge provided isolation by-accident-of-
+architecture: separate RA processes meant no WRAM crosstalk. Today's
+guarantees, ranked:
+
+1. Process-level (was strongest — two separate RA processes)
+2. Per-scenario `ADDR_MAP` zeroing in `RAPokeEngine`
+3. Held-value re-assertion after each `FRAMEADVANCE` (only for
+   addresses the scenario explicitly pokes — gaps for untracked bytes)
+4. Fresh `TransitionDetector` per scenario
+
+What's missing: a way to bring RA back to a known-clean state between
+tests that share a harness. Options for a future pass:
+
+- **Save-state-load isolation.** Capture a "clean boot, paused on
+  title" state once at `RAHarness.launch`. Each scenario starts by
+  loading it. ~50-150ms per scenario; bullet-proof byte-identical
+  reset. Opens the door to a single shared harness AND eventually
+  xdist parallelism.
+- **Hard RESET between scenarios.** Two NCI RESETs with 300ms gap,
+  re-pause, let title screen settle. ~800ms per scenario. Simpler
+  than save-state but slower.
+- **Held-default-zero for all `ADDR_MAP` bytes.** Attempted in this
+  pass; broke `test_orb_exit` (the held-zero overwrote the io poke
+  intermittently — likely a write-ordering interaction at the NCI
+  layer when sending 11 writes per frame instead of the scenario's
+  ~5). Would need investigation.
+
+For now: kept the two-harness design. The 3s saving from collapsing
+them isn't worth chasing without proper save-state isolation.
+
+**ROM-specific feature coverage is a real concern, not just a nuisance.**
+`cp_entrance` ($1B403) is a custom-ASM-style checkpoint that only patched
+hacks (e.g. Toothpaste) populate — Love Yourself uses only the
+standard `midway` tape. So testing exclusively on Love Yourself means
+the `cp_entrance` detector branch in `predicates.check_checkpoint_hit`
+gets exercised only by synthetic poke values, never by real ROM
+behavior. The two-harness design (one ROM per harness) is actually
+the right pattern long-term: different harnesses cover different
+detector branches against the ROMs that exercise them. A future pass
+should formalize this — declare which detector features each
+harness's ROM exercises, and route tests accordingly.
+
+**Suggested next-session shape:**
+
+1. **Clean-boot save-state isolation** as a harness primitive.
+   `RAHarness.launch` captures a "paused on title, byte-identical"
+   state once; `run_scenario` loads it before each scenario.
+   Bullet-proof cross-test isolation within a harness.
+2. **Multi-ROM coverage matrix.** Pick a ROM per detector branch
+   (Toothpaste for `cp_entrance`, Love Yourself for `midway`-only
+   exits + replay fixture, maybe one more). Each harness pins its
+   ROM and the tests that target its properties.
+3. **Optional xdist** once (1) lands — true isolation makes parallel
+   workers safe.
+
+**Not done in this session:**
+
 - D. `pytest-xdist` parallelism. The transition tests are isolated
   (each `run_scenario` re-zeroes `ADDR_MAP` and uses its own
   `TransitionDetector`); two harnesses coexist (see
   `test_harness_isolation.py`). Dynamic UDP port allocation per
   harness means k workers ≡ k RA processes on distinct ports.
-  Ceiling: ~70s → ~30s with 4 workers. Skipped: the 86s full
-  suite is comfortably under the "run every commit" threshold.
+  Ceiling: ~36s → ~15s with 4 workers. Skipped: the 52s full
+  suite is comfortable, and clean-boot save-state isolation should
+  precede xdist work (otherwise per-worker WRAM leaks would still
+  bite us, just in parallel).
+- Cross-test isolation hardening (see "Known gap" above).
+- Redundant-scenario audit + new-scenario backfill. Not surveyed
+  yet; expected to add/remove a handful of `.poke` files.
 
 ---
 

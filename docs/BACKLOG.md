@@ -21,17 +21,21 @@ When an item ships, delete it from this file rather than checking it off — the
 ## Efficiency
 
 - **[M] `recorder._close_segment` ordinal is O(n).** Each close runs `SELECT COUNT(*) FROM segments WHERE reference_id = ?`. With many segments this is O(n²) over a full run. Track in-memory per session — ordinal isn't load-bearing for correctness, only display ordering, so a slight desync after crash is acceptable.
-- **[S] `get_paused_state` runs 2 DB queries per SSE event.** Called from `state_builder` on every TCP event. For high-event-rate flows (rapid segment closes, deaths), this is real overhead. Cache and invalidate only on lifecycle transitions, or fold into one query.
+- **[S] `get_paused_state` runs 2 DB queries per SSE event.** Called from `state_builder` on every backend event. For high-event-rate flows (rapid segment closes, deaths), this is real overhead. Cache and invalidate only on lifecycle transitions, or fold into one query.
 - **[S] `_compute_is_primary` runs a query per segment close.** N segments per session = N queries. Could batch at session-end with one query that updates all segments captured in the session. Or precompute primary-by-geography at start of session.
 - **[M] Spinrec file accumulation.** Discarded runs clean up; finalized runs do not. Spinrecs accumulate forever in `data/<game>/rec/`. Add a per-reference "delete spinrec" action, or an automatic sweep ("references older than N months without practice activity"). Probably matters at the 1+ year mark.
 - **[S] `recover_paused_capture_run` N+1 on draft cleanup.** When multiple stranded drafts exist, `hard_delete_capture_run` is called per row. Bulk delete possible but rarely matters (multiple drafts is the failure case, not the norm).
 
 ## RetroArch backend tech debt
 
-- **[M] Mesen-only integration tests fail under RA backend.** `tests/integration/test_transitions.py` and `tests/integration/test_replay_fixture.py` connect via `TcpManager`; under `backend == "retroarch"` they all fail with `ConnectionError: Not connected`. Either add backend-aware skips or port them to drive `RetroArchOrchestrator` directly. Until then, "full pytest is green" gate is not achievable on RA.
 - **[M] No live test for SpeedRunTiming under RA.** Unit tests pass; never exercised in a real session. Speed-run mode is the riskiest untested code path in the new backend.
-- **[S] Anonymous state-key resolver leaks abstraction.** `StateIO.resolve_event_path` returns paths keyed by `entrance_<level>_<room>` and `cp_<level>_<ord>_hot` for events whose true `segment_id` isn't known yet; F-live does the bridging downstream. Cleaner: orchestrator looks up segment_id before calling resolve. Defer until Phase E touches this surface area.
+- **[S] Anonymous state-key resolver leaks abstraction.** `StateIO.resolve_event_path` returns paths keyed by `entrance_<level>_<room>` and `cp_<level>_<ord>_hot` for events whose true `segment_id` isn't known yet; F-live does the bridging downstream. Cleaner: orchestrator looks up segment_id before calling resolve.
 - **[S] `config.ra_game_basename` is now informational only.** Orchestrator overrides it from `GET_STATUS` at connect; keeping the field invites confusion. Either remove it or document it as "ignored — auto-detected at connect."
+
+## Emulator-test isolation (from 2026-05-11 test audit)
+
+- **[M] Cross-test WRAM state leaks between scenarios under a shared harness.** Today's two-harness design (`ra_harness` + `ra_harness_love_yourself`) provides isolation by-architecture (separate RA processes). Merging them surfaces a real leak: scenarios zero only the 11 `ADDR_MAP` bytes, but the ROM writes to other WRAM during `FRAMEADVANCE`. Fix: clean-boot save-state primitive — `RAHarness.launch` captures a "paused on title" state once; `run_scenario` loads it before each scenario. Bullet-proof byte-identical reset. Opens the door to xdist parallelism (a true isolation primitive makes per-worker harnesses safe).
+- **[M] Multi-ROM detector coverage.** `cp_entrance` ($1B403) is a custom-ASM-style checkpoint that only patched hacks (Toothpaste-style) populate; midway-tape checkpoints work everywhere. Testing exclusively on Love Yourself means the `cp_entrance` branch in `predicates.check_checkpoint_hit` only sees synthetic poke values, never real ROM behavior. A future pass should declare which detector features each harness's ROM exercises and route tests accordingly.
 - **[S] `routes/system._launch_retroarch` hardcodes core path.** `C:\RetroArch-Win64\cores\snes9x_libretro.dll` is in the source. Surface as config so non-Windows / non-snes9x users can run.
 
 ## Test gaps

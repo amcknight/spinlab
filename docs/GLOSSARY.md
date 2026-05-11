@@ -47,10 +47,10 @@ Quick reference for domain terms used across specs, architecture docs, and code.
 ## AHK Shortcuts (see `scripts/spinlab.ahk`)
 
 - **CAW** (Ctrl+Alt+W) — Start the dashboard (`spinlab dashboard`). If already running, re-uses existing process.
-- **CAX** (Ctrl+Alt+X) — Stop the dashboard (graceful HTTP shutdown, kill Mesen, fallback taskkill).
+- **CAX** (Ctrl+Alt+X) — Stop the dashboard (graceful HTTP shutdown, kill RetroArch, fallback taskkill).
 
 ## Modes (see `docs/ARCHITECTURE.md`)
 
-- **Passive / Reference / Replay / Practice** — Lua script modes.
+- **Idle / Reference / Replay / Practice / Cold-fill / Speed-run / Fill-gap** — dashboard mode-machine states (see `spinlab.models.Mode`).
 - **Reference run** — a recorded run that captures waypoints, save states, and attempts as transitions fire.
 - **Practice loop** — the serve-save-state, collect-rating, update-estimator cycle.
