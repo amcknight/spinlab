@@ -49,6 +49,12 @@ def _build_orchestrator(
     raclient = raclient or FakeRAClient()
     poller = FakePoller()
     conditions = ConditionRegistry()
+    from spinlab.retroarch.movies import MovieController
+    movies = MovieController(
+        raclient=raclient,
+        enable=enable_movies,
+        on_event=lambda ev: None,  # rebound by orch.__init__
+    )
     orch = RetroArchOrchestrator(
         raclient=raclient,
         poller=poller,
@@ -56,7 +62,7 @@ def _build_orchestrator(
         practice_timing=PracticeTiming(),
         speed_run_timing=SpeedRunTiming(),
         state_paths=StatePathResolver(tmp_path / "states"),
-        enable_movies=enable_movies,
+        movies=movies,
     )
     return orch, raclient, poller, conditions
 
@@ -218,7 +224,7 @@ async def test_reference_start_invokes_record_movie(tmp_path):
     await orch.events.get()
     await orch.send_command(ReferenceStartCmd(path="/tmp/seg.replay"))
     assert raclient.record_movie_calls == [Path("/tmp/seg.replay")]
-    assert orch._active_recording is not None
+    assert orch._movies.is_recording is True
     await orch.disconnect()
 
 
@@ -229,7 +235,7 @@ async def test_reference_stop_stops_active_recording(tmp_path):
     await orch.events.get()
     await orch.send_command(ReferenceStartCmd(path="/tmp/seg.replay"))
     await orch.send_command(ReferenceStopCmd())
-    assert orch._active_recording is None
+    assert orch._movies.is_recording is False
     await orch.disconnect()
 
 
@@ -284,7 +290,7 @@ async def test_replay_stop_emits_finished_and_clears_handle(tmp_path):
     await orch.send_command(ReplayStopCmd())
     ev = await asyncio.wait_for(orch.events.get(), timeout=0.1)
     assert isinstance(ev, ReplayFinishedEvent)
-    assert orch._active_playback is None
+    assert orch._movies.is_playing is False
     await orch.disconnect()
 
 

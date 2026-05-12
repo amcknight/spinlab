@@ -57,7 +57,7 @@ def test_movie_dir_explicit_ra_movie_dir(tmp_path):
     explicit = tmp_path / "custom_movies"
     cfg = _config(tmp_path, ra_movie_dir=explicit, ra_core_subdir="Snes9x")
     orch = build_orchestrator(cfg)
-    assert orch._enable_movies is True
+    assert orch._movies.enabled is True
     assert orch._raclient._ra_movie_dir == explicit
 
 
@@ -66,7 +66,7 @@ def test_movie_dir_derived_from_savestate_and_core_subdir(tmp_path):
     cfg = _config(tmp_path, ra_movie_dir=None, ra_core_subdir="Snes9x")
     orch = build_orchestrator(cfg)
     expected = tmp_path / "ra" / "Snes9x"
-    assert orch._enable_movies is True
+    assert orch._movies.enabled is True
     assert orch._raclient._ra_movie_dir == expected
 
 
@@ -74,7 +74,7 @@ def test_movie_dir_none_disables_movies(tmp_path):
     """Branch 3: neither ra_movie_dir nor ra_core_subdir → movies disabled."""
     cfg = _config(tmp_path, ra_movie_dir=None, ra_core_subdir=None)
     orch = build_orchestrator(cfg)
-    assert orch._enable_movies is False
+    assert orch._movies.enabled is False
     assert orch._raclient._ra_movie_dir is None
 
 
@@ -92,5 +92,5 @@ def test_movie_dir_no_double_append_when_savestate_dir_already_includes_subdir(t
         ra_core_subdir="Snes9x",
     )
     orch = build_orchestrator(cfg)
-    assert orch._enable_movies is True
+    assert orch._movies.enabled is True
     assert orch._raclient._ra_movie_dir == savestate_per_core
