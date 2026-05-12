@@ -40,12 +40,10 @@ class StateBuilder:
         game_id = session.game_id
 
         sections_captured: int | None = None
-        if is_recording:
-            row = self.db.conn.execute(
-                "SELECT COUNT(*) FROM segments WHERE reference_id = ? AND active = 1",
-                (active_run_id,),
-            ).fetchone()
-            sections_captured = row[0]
+        if is_recording and active_run_id is not None:
+            sections_captured = self.db.count_segments_for_run(
+                active_run_id, active_only=True,
+            )
 
         base = {
             "mode": mode.value,
