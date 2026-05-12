@@ -240,3 +240,33 @@ class SegmentsMixin:
             (session_id,),
         ).fetchone()
         return int(row[0])
+
+    def has_competing_active_segment(
+        self,
+        *,
+        game_id: str,
+        level: int,
+        start_type: str,
+        start_ordinal: int,
+        end_type: str,
+        end_ordinal: int,
+        exclude_segment_id: str,
+    ) -> bool:
+        """True if another *active* segment shares these endpoints.
+
+        Used by capture to compute ``is_primary``: a segment is primary iff
+        no other active segment occupies the same (game, level, endpoints)
+        slot. ``exclude_segment_id`` is the id of the segment being evaluated;
+        excluding it lets the caller pass either a hypothetical-new id or an
+        existing id and get a meaningful answer.
+        """
+        row = self.conn.execute(
+            """SELECT id FROM segments
+               WHERE game_id = ? AND level_number = ?
+                 AND start_type = ? AND start_ordinal = ?
+                 AND end_type = ? AND end_ordinal = ?
+                 AND active = 1 AND id != ?""",
+            (game_id, level, start_type, start_ordinal,
+             end_type, end_ordinal, exclude_segment_id),
+        ).fetchone()
+        return row is not None

@@ -76,3 +76,55 @@ def test_count_segments_for_capture_session(tmp_path):
     assert db.count_segments_for_capture_session("sess1") == 2
     assert db.count_segments_for_capture_session("sess2") == 1
     assert db.count_segments_for_capture_session("missing") == 0
+
+
+def test_has_competing_active_segment(tmp_path):
+    from spinlab.db import Database
+    from spinlab.models import Segment
+
+    db = Database(tmp_path / "t.db")
+    db.upsert_game("g", "G", "any%")
+
+    def _seg(seg_id: str, active: bool = True):
+        db.upsert_segment(Segment(
+            id=seg_id, game_id="g", level_number=1,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0,
+            active=active,
+        ))
+
+    _seg("existing", active=True)
+
+    # Same endpoints, different id, existing is active → competing
+    assert db.has_competing_active_segment(
+        game_id="g", level=1,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
+        exclude_segment_id="new_seg",
+    ) is True
+
+    # Different endpoints → no competition
+    assert db.has_competing_active_segment(
+        game_id="g", level=2,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
+        exclude_segment_id="new_seg",
+    ) is False
+
+    # Excluding the only matching segment → no competition
+    assert db.has_competing_active_segment(
+        game_id="g", level=1,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
+        exclude_segment_id="existing",
+    ) is False
+
+    # Existing is inactive → no competition
+    _seg("inactive", active=False)
+    db.deactivate_segment("existing")
+    assert db.has_competing_active_segment(
+        game_id="g", level=1,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
+        exclude_segment_id="new_seg",
+    ) is False
