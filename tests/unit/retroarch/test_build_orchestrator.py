@@ -3,7 +3,8 @@
 import pytest
 
 from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
-from spinlab.retroarch.orchestrator import RetroArchOrchestrator, build_orchestrator
+from spinlab.retroarch.orchestrator import RetroArchOrchestrator
+from spinlab.retroarch.wiring import build_orchestrator
 
 
 def _config(tmp_path, **emu_overrides) -> AppConfig:

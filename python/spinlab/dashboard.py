@@ -55,7 +55,7 @@ def create_app(
             rom_dir=None,
         )
 
-    from spinlab.retroarch.orchestrator import build_orchestrator
+    from spinlab.retroarch.wiring import build_orchestrator
     emu: EmuBackend = build_orchestrator(config)
     session = SessionManager(
         db, emu, config.rom_dir, config.category,

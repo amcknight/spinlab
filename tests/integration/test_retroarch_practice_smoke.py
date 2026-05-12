@@ -28,7 +28,7 @@ def test_orchestrator_connects_to_live_retroarch(ra_harness, tmp_path):
     (tmp_path / "ra").mkdir()
     (tmp_path / "sl").mkdir()
 
-    from spinlab.retroarch.orchestrator import build_orchestrator
+    from spinlab.retroarch.wiring import build_orchestrator
     orch = build_orchestrator(cfg)
 
     import asyncio
