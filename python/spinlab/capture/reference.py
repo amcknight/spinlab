@@ -174,10 +174,9 @@ class ReferenceController:
         """Snapshot of the paused run for state_builder. None if no paused run."""
         if not self.paused_run_id:
             return None
-        seg_count = self.db.conn.execute(
-            "SELECT COUNT(*) FROM segments WHERE reference_id = ? AND active = 1",
-            (self.paused_run_id,),
-        ).fetchone()[0]
+        seg_count = self.db.count_segments_for_run(
+            self.paused_run_id, active_only=True,
+        )
         sessions = self.db.list_capture_sessions_for_run(self.paused_run_id)
         return {
             "run_id": self.paused_run_id,
@@ -204,10 +203,7 @@ class ReferenceController:
         run_id = self.recorder.capture_run_id
         if sess_id:
             sess_row = self.db.get_capture_session(sess_id)
-            seg_count = self.db.conn.execute(
-                "SELECT COUNT(*) FROM segments WHERE capture_session_id = ?",
-                (sess_id,),
-            ).fetchone()[0]
+            seg_count = self.db.count_segments_for_capture_session(sess_id)
             self.db.end_capture_session(sess_id, end_reason=end_reason)
             # Compute duration from started_at→now using the row we just fetched.
             duration_s: float | None = None
@@ -223,12 +219,7 @@ class ReferenceController:
         # If we had a run and it's still draft=1, surface it as paused;
         # otherwise drop to idle. _enter_paused / _enter_idle clear the
         # recorder atomically.
-        should_pause = False
-        if run_id:
-            row = self.db.conn.execute(
-                "SELECT draft FROM capture_runs WHERE id = ?", (run_id,)
-            ).fetchone()
-            should_pause = bool(row and row[0] == 1)
+        should_pause = bool(run_id and self.db.is_run_draft(run_id))
         if should_pause and run_id:
             self._enter_paused(run_id)
         else:
@@ -297,10 +288,10 @@ class ReferenceController:
             raise NotInReferenceError()
         if self.emu.is_connected:
             await self.emu.send_command(ReferenceStopCmd())
-        seg_count_in_run = self.db.conn.execute(
-            "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
-            (self.recorder.capture_run_id,),
-        ).fetchone()[0] if self.recorder.capture_run_id else 0
+        seg_count_in_run = (
+            self.db.count_segments_for_run(self.recorder.capture_run_id)
+            if self.recorder.capture_run_id else 0
+        )
         logger.info("reference: stopped — %d total segments in run", seg_count_in_run)
         self._end_current_session(end_reason="stopped")
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
@@ -393,10 +384,7 @@ class ReferenceController:
         if not sess:
             raise NotInReferenceError()
         run_id = sess["capture_run_id"]
-        row = self.db.conn.execute(
-            "SELECT draft FROM capture_runs WHERE id = ?", (run_id,)
-        ).fetchone()
-        if not row or row[0] != 1:
+        if not self.db.is_run_draft(run_id):
             raise SessionDeleteAfterFinalizeError()
         self.db.delete_capture_session(session_id)
         logger.info("session: deleted sess=%s from run=%s", session_id, run_id)
@@ -451,10 +439,7 @@ class ReferenceController:
         # transition. A second call would see an empty recorder and run
         # _enter_idle, wiping the paused_run_id the event handler just set.
         if run_id:
-            seg_count = self.db.conn.execute(
-                "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
-                (run_id,),
-            ).fetchone()[0]
+            seg_count = self.db.count_segments_for_run(run_id)
             if seg_count == 0:
                 # Nothing captured — no value in keeping the run; delete it.
                 # The event handler also drops to idle on no-segments via the
@@ -521,10 +506,7 @@ class ReferenceController:
 
     def handle_replay_error(self) -> None:
         run_id = self.recorder.capture_run_id
-        seg_count = self.db.conn.execute(
-            "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
-            (run_id,),
-        ).fetchone()[0] if run_id else 0
+        seg_count = self.db.count_segments_for_run(run_id) if run_id else 0
         self._end_current_session(end_reason="replay_error")
         if run_id and seg_count == 0:
             # Errored with nothing captured — discard the empty run.
