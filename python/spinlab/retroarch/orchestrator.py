@@ -132,6 +132,17 @@ class RetroArchOrchestrator:
                 logger.debug("RetroArch NCI still not reachable: %s", exc)
             return False
 
+        # Race: NCI port opens before the core finishes loading the ROM.
+        # GET_STATUS returns an empty `game` field in that window. Don't flip
+        # to connected — the dashboard's 2s reconnect tick will retry once
+        # the ROM is actually loaded, at which point `rom_filename` is set.
+        if not info.rom_filename:
+            logger.debug(
+                "RetroArchOrchestrator: NCI reachable but no ROM loaded yet "
+                "— will retry on next reconnect tick",
+            )
+            return False
+
         self._not_reachable_warning_logged = False
         self.events.put_nowait(RomInfoEvent(filename=info.rom_filename))
 

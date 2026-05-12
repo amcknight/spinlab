@@ -93,6 +93,41 @@ async def test_connect_returns_false_when_nci_fails(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_connect_returns_false_when_rom_not_yet_loaded(tmp_path):
+    """GET_STATUS returns empty rom_filename when RA is reachable but the
+    game isn't loaded yet (race: dashboard launches RA, NCI port opens
+    before the core finishes loading the ROM). Orchestrator must not flip
+    to connected — the dashboard's reconnect tick will retry."""
+    raclient = FakeRAClient(rom_filename="")
+    orch, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
+    ok = await orch.connect()
+    assert ok is False
+    assert orch.is_connected is False
+    assert orch.events.empty(), "no RomInfoEvent emitted on empty rom_filename"
+
+
+@pytest.mark.asyncio
+async def test_connect_succeeds_on_retry_after_rom_loads(tmp_path):
+    """Simulates the race: first connect() sees empty rom_filename and
+    returns False; subsequent connect() once the ROM finishes loading
+    succeeds normally."""
+    raclient = FakeRAClient(rom_filename="")
+    orch, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
+
+    assert await orch.connect() is False
+    assert orch.is_connected is False
+
+    # ROM finishes loading; retry succeeds.
+    raclient.rom_filename = "Love Yourself"
+    assert await orch.connect() is True
+    assert orch.is_connected is True
+    ev = await asyncio.wait_for(orch.events.get(), timeout=0.1)
+    assert isinstance(ev, RomInfoEvent)
+    assert ev.filename == "Love Yourself"
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_disconnect_stops_poller_and_closes_raclient(tmp_path):
     orch, raclient, poller, _ = _build_orchestrator(tmp_path)
     await orch.connect()
