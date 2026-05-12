@@ -88,13 +88,6 @@ class SessionManager:
         self.speed_run_session = None  # SpeedRunSession | None
         self.speed_run_task: asyncio.Task | None = None
 
-        # Total frame count of the currently-playing replay, sourced from
-        # ReplayStartedEvent.frame_count. Surfaces to the dashboard as
-        # state["replay"]["total"]. Per-frame progress isn't observable
-        # under the RA backend (no orchestrator hook for frame ticks), so
-        # this is the only replay-progress signal we expose today.
-        self.replay_total: int = 0
-
         self.capture = ReferenceController(db, emu)
         self.cold_fill = ColdFillController(db, emu)
         self.fill_gap = FillGapController(db, emu)
@@ -324,14 +317,13 @@ class SessionManager:
         await self._notify_sse()
 
     async def _handle_replay_started(self, event: ReplayStartedEvent) -> None:
-        self.replay_total = event.frame_count
+        self.capture.handle_replay_started(event)
         await self._notify_sse()
 
     async def _handle_replay_finished(self, event: ReplayFinishedEvent) -> None:
         # handle_replay_finished ends the session and leaves the run paused if
         # segments were captured.  We must NOT call _clear_ref_and_idle here —
         # that would wipe paused_run_id and prevent the user from finalizing.
-        self.replay_total = 0
         self.capture.handle_replay_finished()
         self.mode = Mode.IDLE
         await self._notify_sse()
@@ -340,7 +332,6 @@ class SessionManager:
         logger.warning("replay_error: %s", event.message)
         # Same as _handle_replay_finished: preserve paused_run_id set by
         # handle_replay_error when segments were captured before the error.
-        self.replay_total = 0
         self.capture.handle_replay_error()
         self.mode = Mode.IDLE
         await self._notify_sse()

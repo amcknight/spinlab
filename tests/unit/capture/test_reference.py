@@ -220,6 +220,33 @@ class TestHandleReplayError:
         assert controller.paused_run_id == run_id
 
 
+class TestHandleReplayStarted:
+    def test_handle_replay_started_sets_replay_total(self, controller):
+        """ReferenceController.handle_replay_started records the frame count
+        from the event onto replay_total. handle_replay_finished and
+        handle_replay_error reset it back to 0."""
+        from spinlab.protocol import ReplayStartedEvent
+
+        assert controller.replay_total == 0
+
+        controller.handle_replay_started(ReplayStartedEvent(path="x.replay", frame_count=2273))
+        assert controller.replay_total == 2273
+
+        controller.handle_replay_finished()
+        assert controller.replay_total == 0
+
+    async def test_handle_replay_error_resets_replay_total(self, controller):
+        """handle_replay_error resets replay_total back to 0."""
+        from spinlab.protocol import ReplayStartedEvent
+
+        controller.handle_replay_started(ReplayStartedEvent(path="x.replay", frame_count=500))
+        assert controller.replay_total == 500
+
+        await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
+        controller.handle_replay_error()
+        assert controller.replay_total == 0
+
+
 class TestHandleDisconnect:
     async def test_no_segments_pauses_run(self, controller, db, tmp_path):
         await controller.start_reference(Mode.IDLE, "g1", tmp_path)

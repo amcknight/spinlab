@@ -76,7 +76,7 @@ class StateBuilder:
         if mode == Mode.REPLAY:
             base["replay"] = {
                 "rec_path": session.capture.rec_path,
-                "total": session.replay_total,
+                "total": session.capture.replay_total,
             }
 
         paused_run = session.capture.get_paused_state()

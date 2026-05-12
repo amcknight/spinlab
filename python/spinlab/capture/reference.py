@@ -47,6 +47,7 @@ from ..protocol import (
     ReferenceStartCmd,
     ReferenceStopCmd,
     ReplayCmd,
+    ReplayStartedEvent,
     ReplayStopCmd,
     SpawnEvent,
 )
@@ -105,6 +106,14 @@ class ReferenceController:
         # `_enter_recording` / `_enter_paused` / `_enter_idle`, which assert
         # the invariant after each transition.
         self.paused_run_id: str | None = None
+
+        # Total frame count of the currently-playing replay (set by
+        # handle_replay_started from ReplayStartedEvent.frame_count, cleared
+        # by handle_replay_finished / handle_replay_error). Surfaces to the
+        # dashboard via StateBuilder as state["replay"]["total"]. Per-frame
+        # progress is not observable under the RA backend — this total is
+        # the only replay-progress signal we expose.
+        self.replay_total: int = 0
 
     def set_condition_registry(self, registry: ConditionRegistry) -> None:
         self.condition_registry = registry
@@ -496,13 +505,19 @@ class ReferenceController:
         logger.info("capture: exit level=%s", event.level)
         self.recorder.handle_exit(event, game_id)
 
+    def handle_replay_started(self, event: ReplayStartedEvent) -> None:
+        """Record the replay frame count from the started event."""
+        self.replay_total = event.frame_count
+
     def handle_replay_finished(self) -> None:
         # End the session and leave the run paused — the user can finalize or discard.
         # recover_paused_capture_run excludes replay_ IDs, so this draft won't clobber
         # a real paused reference run on the next dashboard restart.
+        self.replay_total = 0
         self._end_current_session(end_reason="stopped")
 
     def handle_replay_error(self) -> None:
+        self.replay_total = 0
         run_id = self.recorder.capture_run_id
         seg_count = self.db.count_segments_for_run(run_id) if run_id else 0
         self._end_current_session(end_reason="replay_error")
