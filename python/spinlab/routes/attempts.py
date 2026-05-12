@@ -22,10 +22,7 @@ def patch_attempt(
     db: Database = Depends(get_db),
 ) -> dict:
     """Toggle the invalidation flag on a single attempt."""
-    row = db.conn.execute(
-        "SELECT id FROM attempts WHERE id = ?", (attempt_id,)
-    ).fetchone()
-    if row is None:
+    if not db.attempt_exists(attempt_id):
         raise HTTPException(status_code=404, detail="attempt not found")
     db.set_attempt_invalidated(attempt_id, body.invalidated)
     return {"ok": True, "id": attempt_id, "invalidated": body.invalidated}
