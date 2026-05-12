@@ -24,3 +24,28 @@ def test_segment_persists_capture_session_id():
     assert fetched is not None
     assert fetched.capture_session_id == "sess_1"
     d.close()
+
+
+def test_count_segments_for_run(tmp_path):
+    from spinlab.db import Database
+    from spinlab.models import Segment
+
+    db = Database(tmp_path / "t.db")
+    db.upsert_game("g", "G", "any%")
+    db.create_capture_run("ref1", "g", "Run 1")
+
+    def _seg(seg_id: str, active: bool = True):
+        db.upsert_segment(Segment(
+            id=seg_id, game_id="g", level_number=1,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0,
+            reference_id="ref1", active=active,
+        ))
+
+    _seg("s1", active=True)
+    _seg("s2", active=True)
+    _seg("s3", active=False)
+
+    assert db.count_segments_for_run("ref1") == 3
+    assert db.count_segments_for_run("ref1", active_only=True) == 2
+    assert db.count_segments_for_run("missing") == 0

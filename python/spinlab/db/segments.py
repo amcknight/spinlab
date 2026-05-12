@@ -215,3 +215,20 @@ class SegmentsMixin:
             waypoint_id=row[0], variant_type=row[1],
             state_path=row[2], is_default=bool(row[3]),
         )
+
+    def count_segments_for_run(self, run_id: str, *, active_only: bool = False) -> int:
+        """Count segments whose ``reference_id`` matches ``run_id``.
+
+        ``active_only=True`` filters to ``active = 1`` (excludes soft-deleted).
+        """
+        if active_only:
+            row = self.conn.execute(
+                "SELECT COUNT(*) FROM segments WHERE reference_id = ? AND active = 1",
+                (run_id,),
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
+                (run_id,),
+            ).fetchone()
+        return int(row[0])
