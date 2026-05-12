@@ -368,39 +368,15 @@ class SessionManager:
         )
 
     async def start_replay(self, spinrec_path: str, speed: int = SPEED_UNCAPPED) -> ActionResult:
-        # Flip mode to REPLAY eagerly, BEFORE capture.start_replay sends
-        # ReplayCmd through the orchestrator. capture.start_replay's
-        # pre-flight checks still see the prior mode (passed as the first
-        # argument), so AlreadyReplayingError / etc. logic is unaffected.
-        #
-        # Why: once ReplayCmd is sent, the orchestrator's _on_replay fires
-        # PLAY_REPLAY and the poller may observe the level-entrance edge
-        # (level_start 0→1) within a few frames — well before
-        # ReplayStartedEvent has propagated back through the event queue
-        # to flip mode here. If mode is still IDLE at that point, the
-        # level-entrance event is dropped by _handle_level_entrance's
-        # "if self.mode not in (REFERENCE, REPLAY): return" gate, and
-        # no segments form. Setting mode eagerly closes the race.
-        #
-        # On preflight failure (DraftPendingError, AlreadyReplayingError,
-        # NotConnectedError, etc.) the exception propagates and the mode
-        # rollback in the except branch restores the prior state.
-        prev_mode = self.mode
-        self.mode = Mode.REPLAY
-        try:
-            result = await self.capture.start_replay(
-                prev_mode, self.require_game(), spinrec_path, speed,
+        # capture.start_replay arms the recorder (is_recording=True) BEFORE
+        # sending ReplayCmd, so any LevelEntrance the poller observes during
+        # the send_command await reaches capture via the is_recording gate
+        # in _handle_level_entrance — no eager mode flip needed.
+        return await self._apply_result(
+            await self.capture.start_replay(
+                self.mode, self.require_game(), spinrec_path, speed,
             )
-        except Exception:
-            self.mode = prev_mode
-            raise
-        if result.new_mode is not None and result.new_mode != Mode.REPLAY:
-            # Defensive: if capture decides this isn't actually a replay
-            # transition (shouldn't happen in current flow), honor the
-            # returned mode rather than leaving the eager flip in place.
-            self.mode = result.new_mode
-        await self._notify_sse()
-        return result
+        )
 
     async def stop_replay(self) -> ActionResult:
         return await self._apply_result(
