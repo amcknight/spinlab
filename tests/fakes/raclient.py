@@ -2,7 +2,9 @@
 
 Records every call. Exposes the same public surface so callers (production
 code and tests) interact identically. Configurable per-test via mutable
-attributes (``raise_on_connect``, ``fail_play_movie``, ``frame_count``, …).
+attributes (``raise_on_connect``, …).
+
+Movie record/play behavior lives in FakeMovieIO, not here.
 """
 from __future__ import annotations
 
@@ -39,16 +41,11 @@ class FakeRAClient:
 
     # Failure injection.
     raise_on_connect: Exception | None = None
-    fail_play_movie: bool = False
-    play_movie_error_message: str = "fake refusal"
-    frame_count: int = 0
 
     # Call recording.
     def __post_init__(self) -> None:
         self.save_state_calls: list[Path] = []
         self.load_state_calls: list[Path] = []
-        self.record_movie_calls: list[Path] = []
-        self.play_movie_calls: list[Path] = []
         self.press_calls: list[tuple[RAHotkey, int]] = []
         self.reset_calls = 0
         self.fast_forward_toggles = 0
@@ -58,9 +55,6 @@ class FakeRAClient:
         self.write_ram_calls: list[tuple[int, bytes]] = []
         self._state_version = 0
         self._connected = False
-        # Hook for tests that want to inspect handles or override stop behavior.
-        self.last_recording: MovieRecording | None = None
-        self.last_playback: MoviePlayback | None = None
 
     # --- Properties matching RAClient ---
 
@@ -126,34 +120,6 @@ class FakeRAClient:
     async def load_state(self, src_path: Path) -> None:
         self.load_state_calls.append(Path(src_path))
         self._state_version += 1
-
-    # --- Movies ---
-
-    async def record_movie(self, dest_path: Path) -> MovieRecording:
-        path = Path(dest_path)
-        self.record_movie_calls.append(path)
-        stopped = {"flag": False}
-
-        async def _stop() -> Path:
-            stopped["flag"] = True
-            return path
-
-        rec = MovieRecording(path=path, _stop=_stop)
-        self.last_recording = rec
-        return rec
-
-    async def play_movie(self, src_path: Path) -> MoviePlayback:
-        path = Path(src_path)
-        self.play_movie_calls.append(path)
-        if self.fail_play_movie:
-            raise MoviePlaybackError(self.play_movie_error_message)
-
-        async def _stop() -> None:
-            pass
-
-        pb = MoviePlayback(path=path, frame_count=self.frame_count, _stop=_stop)
-        self.last_playback = pb
-        return pb
 
     # --- Hotkeys ---
 

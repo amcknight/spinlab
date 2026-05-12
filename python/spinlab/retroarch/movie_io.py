@@ -119,36 +119,19 @@ class RAMovieIO:
     Construct with a configured NCI client, the movie dir RA writes to, an
     optional log dir for replay-slot resolution, and a callable returning
     the current ROM basename (which changes after RAClient.connect).
-
-    ``movie_dir`` and ``log_dir`` are accepted both as plain ``Path | None``
-    values AND as zero-argument callables returning ``Path | None``. Using a
-    callable allows the owner (e.g. RAClient) to update the effective dir
-    after construction without rebuilding the object.
     """
 
     def __init__(
         self,
         nci: NCIClient,
-        movie_dir: Path | None | Callable[[], Path | None],
-        log_dir: Path | None | Callable[[], Path | None],
+        movie_dir: Path | None,
+        log_dir: Path | None,
         game_basename: Callable[[], str | None],
     ) -> None:
         self._nci = nci
-        self._movie_dir_getter: Callable[[], Path | None] = (
-            movie_dir if callable(movie_dir) else (lambda: movie_dir)  # type: ignore[return-value]
-        )
-        self._log_dir_getter: Callable[[], Path | None] = (
-            log_dir if callable(log_dir) else (lambda: log_dir)  # type: ignore[return-value]
-        )
+        self._movie_dir = movie_dir
+        self._log_dir = log_dir
         self._game_basename = game_basename
-
-    @property
-    def _movie_dir(self) -> Path | None:
-        return self._movie_dir_getter()
-
-    @property
-    def _log_dir(self) -> Path | None:
-        return self._log_dir_getter()
 
     async def record_movie(self, dest_path: Path) -> MovieRecording:
         """Fire RECORD_REPLAY and return a handle whose ``.stop()`` halts RA

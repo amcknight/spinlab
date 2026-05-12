@@ -19,19 +19,12 @@ import asyncio
 import logging
 import shutil
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
 from spinlab.retroarch.exceptions import NCIError
-from spinlab.retroarch.movie_io import (
-    MoviePlayback,
-    MoviePlaybackError,
-    MovieRecordError,
-    MovieRecording,
-    RAMovieIO,
-)
+from spinlab.retroarch.movie_io import RAMovieIO
 from spinlab.retroarch.nci import NCIClient
 from spinlab.retroarch.responses import StatusInfo
 
@@ -177,8 +170,8 @@ class RAClient:
 
         self._movie_io = RAMovieIO(
             nci=self._nci,
-            movie_dir=lambda: self._ra_movie_dir,
-            log_dir=lambda: self._ra_log_dir,
+            movie_dir=self._ra_movie_dir,
+            log_dir=self._ra_log_dir,
             game_basename=lambda: self._game_basename,
         )
 
@@ -445,30 +438,12 @@ class RAClient:
             )
 
     # ------------------------------------------------------------------
-    # Movie record / play
+    # Movie IO
     # ------------------------------------------------------------------
-
-    async def record_movie(self, dest_path: Path) -> MovieRecording:
-        """Fire RECORD_REPLAY and return a handle whose ``.stop()`` halts RA
-        and copies the resulting .replay file to ``dest_path``.
-        """
-        return await self._movie_io.record_movie(dest_path)
-
-    async def play_movie(self, src_path: Path) -> MoviePlayback:
-        """Stage ``src_path`` at RA's current runtime slot, fire PLAY_REPLAY,
-        verify by sampling WRAM advances.
-        """
-        return await self._movie_io.play_movie(src_path)
 
     @property
     def movie_io(self) -> RAMovieIO:
         return self._movie_io
-
-    # Delegation shim for backward-compat with tests that reach into the
-    # private implementation. RAMovieIO owns the real logic; this forwards
-    # to it so external tests don't need updating.
-    def _find_current_replay_slot(self) -> int | None:
-        return self._movie_io._find_current_replay_slot()
 
     # ------------------------------------------------------------------
     # Hotkeys

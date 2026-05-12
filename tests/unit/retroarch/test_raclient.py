@@ -2,8 +2,10 @@
 
 Covers the seams that production-only tests can't reach: save-state mtime
 polling, load-state state_version contract, filesystem failure paths,
-replay-slot resolution from RA's log, hotkey debounce timing, reset()'s
-two-press requirement.
+hotkey debounce timing, reset()'s two-press requirement.
+
+Movie-related tests (replay-slot resolution, movie_dir guards) live in
+test_movie_io.py — they exercise RAMovieIO directly.
 
 The NCI transport is mocked (MagicMock standing in for NCIClient); the
 filesystem is real (tmp_path) because the mtime/copy/unlink behavior IS
@@ -12,7 +14,6 @@ what we're testing in several places.
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -34,24 +35,21 @@ from spinlab.retroarch.responses import StatusInfo
 
 @pytest.fixture
 def ra_dirs(tmp_path):
-    """A trio of (savestate_dir, log_dir, movie_dir) under tmp_path."""
+    """A pair of (savestate_dir, log_dir) under tmp_path."""
     states = tmp_path / "ra-states"
     states.mkdir()
     logs = tmp_path / "ra-logs"
     logs.mkdir()
-    movies = tmp_path / "ra-movies"
-    movies.mkdir()
-    return states, logs, movies
+    return states, logs
 
 
 @pytest.fixture
 def client(ra_dirs):
     """RAClient with mocked NCI and a fast save timeout for tests."""
-    savestate_dir, log_dir, movie_dir = ra_dirs
+    savestate_dir, log_dir = ra_dirs
     c = RAClient(
         ra_savestate_dir=savestate_dir,
         ra_log_dir=log_dir,
-        ra_movie_dir=movie_dir,
         save_timeout_sec=0.1,
         load_settle_sec=0,  # don't actually sleep in tests
     )
@@ -110,7 +108,7 @@ async def test_connect_empty_game_field_returns_empty_filename(client):
 @pytest.mark.asyncio
 async def test_save_state_happy_path(client, ra_dirs, tmp_path):
     """SAVE_STATE → new slot file appears → moved to dest_path."""
-    savestate_dir, _, _ = ra_dirs
+    savestate_dir, _ = ra_dirs
 
     def fake_save():
         # Simulate RA writing a slot file when SAVE_STATE arrives.
@@ -129,7 +127,7 @@ async def test_save_state_happy_path(client, ra_dirs, tmp_path):
 @pytest.mark.asyncio
 async def test_save_state_detects_mtime_advance_on_existing_slot(client, ra_dirs, tmp_path):
     """Existing slot file with bumped mtime is treated as a fresh save."""
-    savestate_dir, _, _ = ra_dirs
+    savestate_dir, _ = ra_dirs
     slot = savestate_dir / "Test.state"
     slot.write_bytes(b"old")
     old_mtime = slot.stat().st_mtime
@@ -181,7 +179,7 @@ async def test_save_state_without_basename_raises(client, tmp_path):
 @pytest.mark.asyncio
 async def test_load_state_increments_state_version_exactly_once(client, ra_dirs, tmp_path):
     """The poller depends on state_version incrementing exactly once per load."""
-    savestate_dir, _, _ = ra_dirs
+    savestate_dir, _ = ra_dirs
     src = tmp_path / "saved.state"
     src.write_bytes(b"data")
 
@@ -223,82 +221,6 @@ async def test_load_state_without_basename_raises(client, tmp_path):
     src.write_bytes(b"data")
     with pytest.raises(RAClientError, match="game basename not set"):
         await client.load_state(src)
-
-
-# ---------------------------------------------------------------------------
-# Replay slot resolution from RA logs
-# ---------------------------------------------------------------------------
-
-def test_find_replay_slot_from_replay_slot_line(client, ra_dirs):
-    _, log_dir, _ = ra_dirs
-    (log_dir / "retroarch__1.log").write_text(
-        "Some other line\n"
-        "[Replay] Replay slot: 7\n"
-        "More noise\n"
-    )
-    assert client._find_current_replay_slot() == 7
-
-
-def test_find_replay_slot_from_found_last_line(client, ra_dirs):
-    _, log_dir, _ = ra_dirs
-    (log_dir / "retroarch__1.log").write_text(
-        "[Replay] Found last replay slot: #3\n"
-    )
-    assert client._find_current_replay_slot() == 3
-
-
-def test_find_replay_slot_from_starting_record_line(client, ra_dirs):
-    """replay_auto_index bumps the slot at record-start with no 'Replay slot:'
-    line — RAClient parses the record-start path for the slot number."""
-    _, log_dir, _ = ra_dirs
-    (log_dir / "retroarch__1.log").write_text(
-        '[Replay] Starting movie record to "/movies/Test.replay5"\n'
-    )
-    assert client._find_current_replay_slot() == 5
-
-
-def test_find_replay_slot_picks_most_recent_match(client, ra_dirs):
-    """Multiple lines: last match wins (chronological order in the log)."""
-    _, log_dir, _ = ra_dirs
-    (log_dir / "retroarch__1.log").write_text(
-        "[Replay] Found last replay slot: #2\n"
-        "[Replay] Replay slot: 4\n"
-        "[Replay] Replay slot: 6\n"
-    )
-    assert client._find_current_replay_slot() == 6
-
-
-def test_find_replay_slot_returns_none_when_no_logs(client, tmp_path):
-    """Empty log dir → None (falls back to slot 0 in caller)."""
-    empty_log_dir = tmp_path / "empty-logs"
-    empty_log_dir.mkdir()
-    client._ra_log_dir = empty_log_dir
-    assert client._find_current_replay_slot() is None
-
-
-def test_find_replay_slot_returns_none_when_no_log_dir(client):
-    client._ra_log_dir = None
-    assert client._find_current_replay_slot() is None
-
-
-def test_find_replay_slot_returns_none_when_no_match(client, ra_dirs):
-    _, log_dir, _ = ra_dirs
-    (log_dir / "retroarch__1.log").write_text("unrelated noise only\n")
-    assert client._find_current_replay_slot() is None
-
-
-def test_find_replay_slot_uses_most_recent_log_file(client, ra_dirs):
-    """Multiple log files — picks the one with the newest mtime."""
-    _, log_dir, _ = ra_dirs
-    old = log_dir / "retroarch__1.log"
-    new = log_dir / "retroarch__2.log"
-    old.write_text("[Replay] Replay slot: 1\n")
-    new.write_text("[Replay] Replay slot: 9\n")
-    import os
-    # Ensure 'new' has a strictly newer mtime.
-    os.utime(old, (1000, 1000))
-    os.utime(new, (2000, 2000))
-    assert client._find_current_replay_slot() == 9
 
 
 # ---------------------------------------------------------------------------
@@ -348,28 +270,3 @@ def test_fast_forward_toggle_delegates_to_nci(client):
     client.fast_forward_toggle()
     client._nci.fast_forward_toggle.assert_called_once()
 
-
-# ---------------------------------------------------------------------------
-# Movie record / play — guards
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_record_movie_without_movie_dir_raises(client):
-    client._ra_movie_dir = None
-    with pytest.raises(RAClientError, match="ra_movie_dir is not configured"):
-        await client.record_movie(Path("/tmp/x.replay"))
-
-
-@pytest.mark.asyncio
-async def test_play_movie_without_movie_dir_raises(client, tmp_path):
-    client._ra_movie_dir = None
-    src = tmp_path / "x.replay"
-    src.write_bytes(b"x")
-    with pytest.raises(RAClientError, match="ra_movie_dir is not configured"):
-        await client.play_movie(src)
-
-
-@pytest.mark.asyncio
-async def test_play_movie_missing_source_raises(client, tmp_path):
-    with pytest.raises(StateLoadError, match="Movie source not found"):
-        await client.play_movie(tmp_path / "nonexistent.replay")
