@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from tests.fakes.raclient import FakeRAClient
+from tests.fakes.raclient import FakeMovieIO, FakeRAClient
 
 from spinlab.errors import BackendNotImplementedError
 from spinlab.protocol import (
@@ -22,35 +22,40 @@ def raclient():
 
 
 @pytest.fixture
+def movie_io():
+    return FakeMovieIO()
+
+
+@pytest.fixture
 def events():
     return []
 
 
 @pytest.fixture
-def mc(raclient, events):
-    return MovieController(raclient=raclient, enable=True, on_event=events.append)
+def mc(movie_io, raclient, events):
+    return MovieController(
+        movie_io=movie_io, raclient=raclient,
+        enable=True, on_event=events.append,
+    )
 
 
 @pytest.mark.asyncio
-async def test_start_recording_noop_when_disabled(raclient, events):
-    mc = MovieController(raclient=raclient, enable=False, on_event=events.append)
+async def test_start_recording_noop_when_disabled(movie_io, raclient, events):
+    mc = MovieController(movie_io=movie_io, raclient=raclient, enable=False, on_event=events.append)
     await mc.start_recording(Path("/tmp/x.replay"))
-    assert raclient.record_movie_calls == []
+    assert movie_io.record_movie_calls == []
     assert mc.is_recording is False
 
 
 @pytest.mark.asyncio
-async def test_start_recording_nonfatal_on_raclient_error(raclient, events):
+async def test_start_recording_nonfatal_on_raclient_error(movie_io, raclient, events):
     from spinlab.retroarch.raclient import RAClientError
-    raclient.fail_record_movie = True
-    raclient.record_movie_error_message = "boom"
 
-    mc = MovieController(raclient=raclient, enable=True, on_event=events.append)
-    # Patch record_movie to raise — FakeRAClient doesn't support this flag
-    # natively, so monkey it.
+    mc = MovieController(movie_io=movie_io, raclient=raclient, enable=True, on_event=events.append)
+    # Patch record_movie to raise — override on FakeMovieIO directly.
     async def _raises(_path):
         raise RAClientError("boom")
-    raclient.record_movie = _raises
+    movie_io.record_movie = _raises
 
     await mc.start_recording(Path("/tmp/x.replay"))
     assert mc.is_recording is False
@@ -63,15 +68,15 @@ async def test_stop_recording_noop_when_nothing_active(mc):
 
 
 @pytest.mark.asyncio
-async def test_start_playback_raises_when_disabled(raclient, events):
-    mc = MovieController(raclient=raclient, enable=False, on_event=events.append)
+async def test_start_playback_raises_when_disabled(movie_io, raclient, events):
+    mc = MovieController(movie_io=movie_io, raclient=raclient, enable=False, on_event=events.append)
     with pytest.raises(BackendNotImplementedError):
         await mc.start_playback(Path("/tmp/x.replay"), speed=0)
 
 
 @pytest.mark.asyncio
-async def test_start_playback_emits_started(mc, events, raclient):
-    raclient.frame_count = 1234
+async def test_start_playback_emits_started(mc, movie_io, events):
+    movie_io.frame_count = 1234
     await mc.start_playback(Path("/x.replay"), speed=1)
     assert len(events) == 1
     ev = events[0]
@@ -92,9 +97,9 @@ async def test_start_playback_capped_does_not_toggle(mc, raclient):
 
 
 @pytest.mark.asyncio
-async def test_start_playback_movie_error_emits_replay_error(mc, raclient, events):
-    raclient.fail_play_movie = True
-    raclient.play_movie_error_message = "verify failed"
+async def test_start_playback_movie_error_emits_replay_error(mc, movie_io, events):
+    movie_io.fail_play_movie = True
+    movie_io.play_movie_error_message = "verify failed"
     await mc.start_playback(Path("/x.replay"), speed=1)
     assert len(events) == 1
     assert isinstance(events[0], ReplayErrorEvent)
@@ -127,7 +132,7 @@ async def test_stop_playback_idempotent(mc, events):
 
 
 @pytest.mark.asyncio
-async def test_stop_recording_nonfatal_on_movie_record_error(raclient, events):
+async def test_stop_recording_nonfatal_on_movie_record_error(movie_io, raclient, events):
     """stop_recording must swallow MovieRecordError (which extends MovieIOError,
     not RAClientError after the Task 1 refactor)."""
     from spinlab.retroarch.movie_io import MovieRecordError, MovieRecording
@@ -135,7 +140,7 @@ async def test_stop_recording_nonfatal_on_movie_record_error(raclient, events):
     async def _failing_stop() -> Path:
         raise MovieRecordError("RA produced no file")
 
-    mc = MovieController(raclient=raclient, enable=True, on_event=events.append)
+    mc = MovieController(movie_io=movie_io, raclient=raclient, enable=True, on_event=events.append)
     # Inject a recording handle whose stop() raises.
     mc._active_recording = MovieRecording(path=Path("/tmp/x.replay"), _stop=_failing_stop)
     await mc.stop_recording()

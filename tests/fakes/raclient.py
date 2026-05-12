@@ -11,11 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from spinlab.retroarch.raclient import (
-    ConnectInfo,
+from spinlab.retroarch.movie_io import (
     MoviePlayback,
     MoviePlaybackError,
     MovieRecording,
+)
+from spinlab.retroarch.raclient import (
+    ConnectInfo,
     RAHotkey,
 )
 from spinlab.retroarch.responses import StatusInfo
@@ -166,6 +168,50 @@ class FakeRAClient:
 
     def fast_forward_toggle(self) -> None:
         self.fast_forward_toggles += 1
+
+
+@dataclass
+class FakeMovieIO:
+    """In-process replacement for RAMovieIO. Async surface matches.
+
+    Default behavior is happy-path: record/play return live handles whose
+    ``.stop()`` is a no-op. Override per-test by setting fields after
+    construction.
+    """
+
+    fail_play_movie: bool = False
+    play_movie_error_message: str = "fake refusal"
+    frame_count: int = 0
+
+    def __post_init__(self) -> None:
+        self.record_movie_calls: list[Path] = []
+        self.play_movie_calls: list[Path] = []
+        self.last_recording: MovieRecording | None = None
+        self.last_playback: MoviePlayback | None = None
+
+    async def record_movie(self, dest_path: Path) -> MovieRecording:
+        path = Path(dest_path)
+        self.record_movie_calls.append(path)
+
+        async def _stop() -> Path:
+            return path
+
+        rec = MovieRecording(path=path, _stop=_stop)
+        self.last_recording = rec
+        return rec
+
+    async def play_movie(self, src_path: Path) -> MoviePlayback:
+        path = Path(src_path)
+        self.play_movie_calls.append(path)
+        if self.fail_play_movie:
+            raise MoviePlaybackError(self.play_movie_error_message)
+
+        async def _stop() -> None:
+            pass
+
+        pb = MoviePlayback(path=path, frame_count=self.frame_count, _stop=_stop)
+        self.last_playback = pb
+        return pb
 
 
 class FakePoller:

@@ -104,6 +104,7 @@ def build_orchestrator(config) -> RetroArchOrchestrator:
     poller = Poller(deps, period_sec=DEFAULT_PERIOD_SEC)
 
     movies = MovieController(
+        movie_io=raclient.movie_io,
         raclient=raclient,
         enable=movie_dir is not None,
         on_event=lambda ev: None,  # rebound by orch.__init__

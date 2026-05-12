@@ -12,7 +12,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from tests.fakes.raclient import FakePoller, FakeRAClient
+from tests.fakes.raclient import FakeMovieIO, FakePoller, FakeRAClient
 
 from spinlab.condition_registry import ConditionRegistry
 from spinlab.errors import BackendNotImplementedError
@@ -45,12 +45,15 @@ def _build_orchestrator(
     *,
     enable_movies: bool = True,
     raclient: FakeRAClient | None = None,
-) -> tuple[RetroArchOrchestrator, FakeRAClient, FakePoller, ConditionRegistry]:
+    movie_io: FakeMovieIO | None = None,
+) -> tuple[RetroArchOrchestrator, FakeRAClient, FakePoller, ConditionRegistry, FakeMovieIO]:
     raclient = raclient or FakeRAClient()
+    movie_io = movie_io or FakeMovieIO()
     poller = FakePoller()
     conditions = ConditionRegistry()
     from spinlab.retroarch.movies import MovieController
     movies = MovieController(
+        movie_io=movie_io,
         raclient=raclient,
         enable=enable_movies,
         on_event=lambda ev: None,  # rebound by orch.__init__
@@ -64,7 +67,7 @@ def _build_orchestrator(
         state_paths=StatePathResolver(tmp_path / "states"),
         movies=movies,
     )
-    return orch, raclient, poller, conditions
+    return orch, raclient, poller, conditions, movie_io
 
 
 # ------------------------------------------------------------------
@@ -73,7 +76,7 @@ def _build_orchestrator(
 
 @pytest.mark.asyncio
 async def test_connect_emits_rom_info_event(tmp_path):
-    orch, raclient, _, _ = _build_orchestrator(tmp_path)
+    orch, raclient, _, _, _ = _build_orchestrator(tmp_path)
     ok = await orch.connect()
     assert ok is True
     assert orch.is_connected is True
@@ -86,7 +89,7 @@ async def test_connect_emits_rom_info_event(tmp_path):
 @pytest.mark.asyncio
 async def test_connect_returns_false_when_nci_fails(tmp_path):
     raclient = FakeRAClient(raise_on_connect=NotReachableError("simulated"))
-    orch, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
+    orch, _, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
     ok = await orch.connect()
     assert ok is False
     assert orch.is_connected is False
@@ -99,7 +102,7 @@ async def test_connect_returns_false_when_rom_not_yet_loaded(tmp_path):
     before the core finishes loading the ROM). Orchestrator must not flip
     to connected — the dashboard's reconnect tick will retry."""
     raclient = FakeRAClient(rom_filename="")
-    orch, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
+    orch, _, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
     ok = await orch.connect()
     assert ok is False
     assert orch.is_connected is False
@@ -112,7 +115,7 @@ async def test_connect_succeeds_on_retry_after_rom_loads(tmp_path):
     returns False; subsequent connect() once the ROM finishes loading
     succeeds normally."""
     raclient = FakeRAClient(rom_filename="")
-    orch, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
+    orch, _, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
 
     assert await orch.connect() is False
     assert orch.is_connected is False
@@ -129,7 +132,7 @@ async def test_connect_succeeds_on_retry_after_rom_loads(tmp_path):
 
 @pytest.mark.asyncio
 async def test_disconnect_stops_poller_and_closes_raclient(tmp_path):
-    orch, raclient, poller, _ = _build_orchestrator(tmp_path)
+    orch, raclient, poller, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.disconnect()
     assert orch.is_connected is False
@@ -143,7 +146,7 @@ async def test_disconnect_stops_poller_and_closes_raclient(tmp_path):
 
 @pytest.mark.asyncio
 async def test_practice_load_cmd_loads_state_and_arms_timing(tmp_path):
-    orch, raclient, _, _ = _build_orchestrator(tmp_path)
+    orch, raclient, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     cmd = PracticeLoadCmd(
@@ -158,7 +161,7 @@ async def test_practice_load_cmd_loads_state_and_arms_timing(tmp_path):
 
 @pytest.mark.asyncio
 async def test_practice_stop_cmd_disarms(tmp_path):
-    orch, _, _, _ = _build_orchestrator(tmp_path)
+    orch, _, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(PracticeLoadCmd(
@@ -176,7 +179,7 @@ async def test_practice_stop_cmd_disarms(tmp_path):
 
 @pytest.mark.asyncio
 async def test_cold_fill_load_activates_poller(tmp_path):
-    orch, raclient, poller, _ = _build_orchestrator(tmp_path)
+    orch, raclient, poller, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(ColdFillLoadCmd(state_path="/p/cold.state", segment_id="seg-cold"))
@@ -187,7 +190,7 @@ async def test_cold_fill_load_activates_poller(tmp_path):
 
 @pytest.mark.asyncio
 async def test_fill_gap_load_loads_state_no_cold_fill(tmp_path):
-    orch, raclient, poller, _ = _build_orchestrator(tmp_path)
+    orch, raclient, poller, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(FillGapLoadCmd(state_path="/p/gap.state"))
@@ -202,7 +205,7 @@ async def test_fill_gap_load_loads_state_no_cold_fill(tmp_path):
 
 @pytest.mark.asyncio
 async def test_save_state_resolves_segment_id_and_delegates(tmp_path):
-    orch, raclient, _, _ = _build_orchestrator(tmp_path)
+    orch, raclient, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.save_state("seg_123")
@@ -212,7 +215,7 @@ async def test_save_state_resolves_segment_id_and_delegates(tmp_path):
 
 @pytest.mark.asyncio
 async def test_load_state_delegates_to_raclient(tmp_path):
-    orch, raclient, _, _ = _build_orchestrator(tmp_path)
+    orch, raclient, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.load_state("/some/path/file.state")
@@ -228,7 +231,7 @@ async def test_load_state_delegates_to_raclient(tmp_path):
 
 @pytest.mark.asyncio
 async def test_reset_cmd_calls_raclient_reset(tmp_path):
-    orch, raclient, _, _ = _build_orchestrator(tmp_path)
+    orch, raclient, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(ResetCmd())
@@ -238,7 +241,7 @@ async def test_reset_cmd_calls_raclient_reset(tmp_path):
 
 @pytest.mark.asyncio
 async def test_set_conditions_cmd_updates_registry(tmp_path):
-    orch, _, _, conditions = _build_orchestrator(tmp_path)
+    orch, _, _, conditions, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     defs = [{"name": "x", "address": 0x100, "size": 1}]
@@ -254,18 +257,18 @@ async def test_set_conditions_cmd_updates_registry(tmp_path):
 
 @pytest.mark.asyncio
 async def test_reference_start_invokes_record_movie(tmp_path):
-    orch, raclient, _, _ = _build_orchestrator(tmp_path)
+    orch, _, _, _, movie_io = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(ReferenceStartCmd(path="/tmp/seg.replay"))
-    assert raclient.record_movie_calls == [Path("/tmp/seg.replay")]
+    assert movie_io.record_movie_calls == [Path("/tmp/seg.replay")]
     assert orch._movies.is_recording is True
     await orch.disconnect()
 
 
 @pytest.mark.asyncio
 async def test_reference_stop_stops_active_recording(tmp_path):
-    orch, raclient, _, _ = _build_orchestrator(tmp_path)
+    orch, raclient, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(ReferenceStartCmd(path="/tmp/seg.replay"))
@@ -276,11 +279,11 @@ async def test_reference_stop_stops_active_recording(tmp_path):
 
 @pytest.mark.asyncio
 async def test_reference_start_no_movies_is_noop(tmp_path):
-    orch, raclient, _, _ = _build_orchestrator(tmp_path, enable_movies=False)
+    orch, _, _, _, movie_io = _build_orchestrator(tmp_path, enable_movies=False)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(ReferenceStartCmd(path="/tmp/seg.replay"))
-    assert raclient.record_movie_calls == []
+    assert movie_io.record_movie_calls == []
     await orch.disconnect()
 
 
@@ -290,8 +293,8 @@ async def test_reference_start_no_movies_is_noop(tmp_path):
 
 @pytest.mark.asyncio
 async def test_replay_cmd_emits_replay_started(tmp_path):
-    raclient = FakeRAClient(frame_count=900)
-    orch, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
+    movie_io = FakeMovieIO(frame_count=900)
+    orch, _, _, _, _ = _build_orchestrator(tmp_path, movie_io=movie_io)
     await orch.connect()
     await orch.events.get()  # rom_info
     await orch.send_command(ReplayCmd(path="/tmp/run.replay"))
@@ -304,8 +307,8 @@ async def test_replay_cmd_emits_replay_started(tmp_path):
 
 @pytest.mark.asyncio
 async def test_replay_cmd_emits_error_when_playback_refused(tmp_path):
-    raclient = FakeRAClient(fail_play_movie=True)
-    orch, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
+    movie_io = FakeMovieIO(fail_play_movie=True)
+    orch, _, _, _, _ = _build_orchestrator(tmp_path, movie_io=movie_io)
     await orch.connect()
     await orch.events.get()  # rom_info
     await orch.send_command(ReplayCmd(path="/tmp/run.replay"))
@@ -317,7 +320,7 @@ async def test_replay_cmd_emits_error_when_playback_refused(tmp_path):
 
 @pytest.mark.asyncio
 async def test_replay_stop_emits_finished_and_clears_handle(tmp_path):
-    orch, raclient, _, _ = _build_orchestrator(tmp_path)
+    orch, raclient, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()  # rom_info
     await orch.send_command(ReplayCmd(path="/tmp/run.replay"))
@@ -331,7 +334,7 @@ async def test_replay_stop_emits_finished_and_clears_handle(tmp_path):
 
 @pytest.mark.asyncio
 async def test_replay_cmd_rejected_when_movies_disabled(tmp_path):
-    orch, _, _, _ = _build_orchestrator(tmp_path, enable_movies=False)
+    orch, _, _, _, _ = _build_orchestrator(tmp_path, enable_movies=False)
     await orch.connect()
     await orch.events.get()
     with pytest.raises(BackendNotImplementedError) as exc_info:
@@ -342,7 +345,7 @@ async def test_replay_cmd_rejected_when_movies_disabled(tmp_path):
 
 @pytest.mark.asyncio
 async def test_replay_stop_is_noop_when_no_active_playback(tmp_path):
-    orch, _, _, _ = _build_orchestrator(tmp_path)
+    orch, _, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(ReplayStopCmd())  # should not raise
@@ -355,7 +358,7 @@ async def test_replay_stop_is_noop_when_no_active_playback(tmp_path):
 
 @pytest.mark.asyncio
 async def test_speed_run_load_arms_and_stop_disarms(tmp_path):
-    orch, raclient, _, _ = _build_orchestrator(tmp_path)
+    orch, raclient, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(SpeedRunLoadCmd(id="run-1", state_path="/p/sr.state"))
@@ -368,7 +371,7 @@ async def test_speed_run_load_arms_and_stop_disarms(tmp_path):
 
 @pytest.mark.asyncio
 async def test_speed_run_load_forwards_delay_kwargs(tmp_path):
-    orch, _, _, _ = _build_orchestrator(tmp_path)
+    orch, _, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
     await orch.send_command(SpeedRunLoadCmd(
@@ -386,7 +389,7 @@ async def test_speed_run_load_forwards_delay_kwargs(tmp_path):
 
 @pytest.mark.asyncio
 async def test_unknown_command_logged_no_raise(tmp_path):
-    orch, _, _, _ = _build_orchestrator(tmp_path)
+    orch, _, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
 
@@ -399,7 +402,7 @@ async def test_unknown_command_logged_no_raise(tmp_path):
 
 @pytest.mark.asyncio
 async def test_recv_event_returns_typed_event(tmp_path):
-    orch, _, _, _ = _build_orchestrator(tmp_path)
+    orch, _, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     ev = await orch.recv_event(timeout=0.1)
     assert isinstance(ev, RomInfoEvent)
@@ -408,7 +411,7 @@ async def test_recv_event_returns_typed_event(tmp_path):
 
 @pytest.mark.asyncio
 async def test_recv_event_timeout_returns_none(tmp_path):
-    orch, _, _, _ = _build_orchestrator(tmp_path)
+    orch, _, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.recv_event(timeout=0.1)  # drain rom_info
     ev = await orch.recv_event(timeout=0.05)

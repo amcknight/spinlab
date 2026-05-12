@@ -34,6 +34,7 @@ from spinlab.retroarch.movie_io import (
     MoviePlayback,
     MoviePlaybackError,
     MovieRecording,
+    RAMovieIO,
 )
 from spinlab.retroarch.raclient import RAClient, RAClientError
 
@@ -43,10 +44,12 @@ logger = logging.getLogger(__name__)
 class MovieController:
     def __init__(
         self,
+        movie_io: RAMovieIO,
         raclient: RAClient,
         enable: bool,
         on_event: Callable[[object], None],
     ) -> None:
+        self._movie_io = movie_io
         self._raclient = raclient
         self._enable = enable
         self._on_event = on_event
@@ -78,7 +81,7 @@ class MovieController:
             logger.info("Reference recording started (movies disabled)")
             return
         try:
-            self._active_recording = await self._raclient.record_movie(path)
+            self._active_recording = await self._movie_io.record_movie(path)
             logger.info("Movie recording started: %s", path)
         except RAClientError as exc:
             logger.warning("Movie recording failed to start: %s", exc)
@@ -109,7 +112,7 @@ class MovieController:
             raise BackendNotImplementedError()
 
         try:
-            self._active_playback = await self._raclient.play_movie(path)
+            self._active_playback = await self._movie_io.play_movie(path)
         except MoviePlaybackError as exc:
             logger.error("Movie replay verification failed: %s", exc)
             self._on_event(ReplayErrorEvent(message=str(exc)))
