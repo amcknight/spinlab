@@ -1,20 +1,19 @@
 """RAMovieIO — RA movie record/playback over NCI.
 
-Extracted from RAClient. The orchestrator's MovieController composes this
-object directly; RAClient holds an internal instance and delegates its
-public record_movie / play_movie to it for the transition window before
-those wrappers go away.
+Owns the file-staging and log-scraping mechanics for RA's movie commands.
+MovieController composes this directly; RAClient holds an instance and
+exposes it via the `movie_io` property purely as a wiring convenience.
 
-The class wraps NCI directly. Construction needs:
-  - the NCI client (for record/halt/play_replay + read_ram during verify)
+Construction:
+  - nci: NCI client (for record/halt/play_replay + read_ram during verify)
   - movie_dir: where RA writes .replay files (None disables this object)
-  - log_dir: RA's logs dir, for replay-slot resolution (None means slot 0)
-  - game_basename: callable that returns the current ROM basename (changes
-    after RAClient.connect, so it's a getter rather than a captured string)
+  - log_dir: RA's logs dir, for replay-slot resolution (None falls back to
+    slot 0)
+  - game_basename: callable returning the current ROM basename. A callable
+    because the basename only becomes known after RAClient.connect().
 
-Errors raised here are MovieRecordError / MoviePlaybackError. StateLoadError
-is imported from raclient and reused for "source file missing" — semantically
-a load-side error, kept for test backward compat.
+Errors raised: MovieRecordError / MoviePlaybackError (record/playback) and
+StateLoadError (imported from raclient, raised for "source file missing").
 """
 from __future__ import annotations
 
