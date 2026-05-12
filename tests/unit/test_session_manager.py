@@ -1,14 +1,11 @@
-# tests/test_session_manager.py
 """Tests for SessionManager state machine logic.
 
 Keeps: mode transition guards, event routing, reference capture state machine.
 Removed: mock-wiring-only tests covered by dashboard integration tests.
 
-Uses real Database + FakeEmuBackend for most tests so the schema and
-EmuBackend Protocol are actually exercised. A few TestColdFill /
-TestReferenceCapture tests still inject mock_db return values where the
-specific scenarios are easier to express that way — those keep the
-shared mock_db fixture from conftest.
+Uses real Database + FakeEmuBackend throughout so the schema and
+EmuBackend Protocol are actually exercised — `mock_db` and `mock_emu`
+fixtures from conftest are no longer used here.
 """
 import asyncio
 from unittest.mock import MagicMock
@@ -238,8 +235,8 @@ class TestReferenceCapture:
 
 
 class TestFillGap:
-    async def test_fill_gap_loads_hot_and_captures_cold(self, practice_db, mock_emu):
-        sm = make_sm(practice_db, mock_emu)
+    async def test_fill_gap_loads_hot_and_captures_cold(self, practice_db, emu):
+        sm = make_sm(practice_db, emu)
         sm.game_id = "g"
         sm.capture.recorder.capture_run_id = "run1"
 
@@ -249,9 +246,9 @@ class TestFillGap:
         assert result.status == Status.STARTED
 
         # Verify hot state was sent to emulator
-        mock_emu.send_command.assert_called_once()
-        cmd = mock_emu.send_command.call_args[0][0]
-        assert str(practice_db._test_state_file) in cmd.state_path
+        fill_cmds = [c for c in emu.sent_commands if hasattr(c, "state_path")]
+        assert len(fill_cmds) == 1
+        assert str(practice_db._test_state_file) in fill_cmds[0].state_path
 
         await sm.route_event(SpawnEvent(
             level_num=1, is_cold_cp=True, cp_ordinal=0,
@@ -270,40 +267,47 @@ class TestFillGap:
         assert sm.mode == Mode.IDLE
 
 
+def _seed_paused_run_with_hot_segments(
+    db, tmp_path, game_id, run_id, n_segments,
+):
+    """Insert a paused capture_run + n segments with hot save states (no cold).
+
+    Matches the "segments_missing_cold" SQL query: a segment is "missing cold"
+    when it has a hot variant on its start waypoint but no cold variant.
+    """
+    from tests.conftest import make_seg_with_state
+    db.create_capture_run(run_id, game_id, "Paused", draft=True)
+    for i in range(n_segments):
+        hot_file = tmp_path / f"hot{i}.mss"
+        hot_file.write_bytes(b"")
+        make_seg_with_state(
+            db, game_id, level=105 + i,
+            start_type="checkpoint", end_type="checkpoint",
+            state_path=hot_file, ordinal=i + 1,
+        )
+
+
 class TestColdFill:
-    async def test_save_draft_triggers_cold_fill(self, mock_db, mock_emu, tmp_path):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_save_draft_triggers_cold_fill(self, db, emu, tmp_path):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
 
-        # Set up paused run
+        # Real paused run + 2 real segments with hot state but no cold —
+        # the actual "segments missing cold" scenario the cold-fill flow detects.
+        _seed_paused_run_with_hot_segments(db, tmp_path, "game1", "run1", n_segments=2)
         sm.capture.paused_run_id = "run1"
-
-        # Write real (empty) hot-state files — cold_fill defensively skips
-        # segments whose hot_state_path doesn't exist on disk.
-        hot1 = tmp_path / "hot1.mss"
-        hot1.write_bytes(b"")
-        hot2 = tmp_path / "hot2.mss"
-        hot2.write_bytes(b"")
-
-        # Mock: 2 segments missing cold
-        mock_db.segments_missing_cold = MagicMock(return_value=[
-            {"segment_id": "seg1", "hot_state_path": str(hot1),
-             "level_number": 105, "start_type": "checkpoint", "start_ordinal": 1,
-             "end_type": "checkpoint", "end_ordinal": 2, "description": ""},
-            {"segment_id": "seg2", "hot_state_path": str(hot2),
-             "level_number": 105, "start_type": "checkpoint", "start_ordinal": 2,
-             "end_type": "goal", "end_ordinal": 0, "description": ""},
-        ])
 
         result = await sm.finalize_run("Test")
         assert result.status == Status.OK
         assert sm.mode == Mode.COLD_FILL
 
-    async def test_save_draft_no_gaps_stays_idle(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_save_draft_no_gaps_stays_idle(self, db, emu, tmp_path):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
+
+        # Paused run with zero segments missing cold → finalize stays IDLE.
+        db.create_capture_run("run1", "game1", "Paused", draft=True)
         sm.capture.paused_run_id = "run1"
-        mock_db.segments_missing_cold = MagicMock(return_value=[])
 
         result = await sm.finalize_run("Test")
         assert result.status == Status.OK
@@ -382,9 +386,10 @@ class TestColdFill:
 
 
 @pytest.fixture
-def session_manager_with_practice(mock_db, mock_emu):
+def session_manager_with_practice(db, emu):
     """A SessionManager in PRACTICE mode with a stubbed PracticeSession."""
-    sm = make_sm(mock_db, mock_emu)
+    db.upsert_game("g", "Game", "any%")
+    sm = make_sm(db, emu)
     sm.game_id = "g"
     sm.game_name = "Game"
     sm.mode = Mode.PRACTICE

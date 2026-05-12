@@ -1,4 +1,3 @@
-# tests/test_estimator_params.py
 """Tests for estimator tunable params system."""
 from tests.factories import make_attempt_record
 

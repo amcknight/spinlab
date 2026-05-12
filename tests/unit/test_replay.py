@@ -88,7 +88,12 @@ class TestReplayEvents:
         """Events with source=replay still flow through reference capture pipeline."""
         sm = _make_sm(db, emu, tmp_path)
         sm.mode = Mode.REPLAY
-        sm.capture.recorder.capture_run_id = "replay_test123"
+        # Insert a real capture_run so the recorder's downstream segment-
+        # insert FK on capture_runs(id) is satisfied if this test ever
+        # extends past the pending_start check.
+        run_id = "replay_test123"
+        db.create_capture_run(run_id, "abcdef0123456789", "Test Replay", draft=True)
+        sm.capture.recorder.capture_run_id = run_id
 
         await sm.route_event(LevelEntranceEvent(
             level=0x105, room=0, frame=100, state_path="/data/test.mss",

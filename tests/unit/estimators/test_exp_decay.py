@@ -1,4 +1,3 @@
-# tests/test_exp_decay.py
 """Tests for Exp Decay estimator."""
 import math
 

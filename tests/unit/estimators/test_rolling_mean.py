@@ -1,4 +1,3 @@
-# tests/test_rolling_mean.py
 """Tests for Rolling Mean estimator."""
 import pytest
 from tests.factories import make_attempt_record, make_incomplete

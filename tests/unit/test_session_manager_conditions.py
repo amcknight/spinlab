@@ -50,7 +50,7 @@ class TestInstallConditionRegistry:
         assert len(sm.capture.condition_registry.definitions) == 1
         assert sm.capture.condition_registry.definitions[0].name == "powerup"
 
-    async def testinstall_condition_registry_sends_set_conditions_when_connected(
+    async def test_install_condition_registry_sends_set_conditions_when_connected(
         self, db, emu, tmp_path, monkeypatch,
     ):
         """install_condition_registry sends SetConditionsCmd when emu is connected."""
@@ -89,7 +89,7 @@ class TestInstallConditionRegistry:
         assert payload[0]["address"] == 0x19
         assert payload[0]["size"] == 1
 
-    async def testinstall_condition_registry_no_send_when_empty(
+    async def test_install_condition_registry_no_send_when_empty(
         self, db, emu, tmp_path, monkeypatch,
     ):
         """No backend send when the registry is empty (even if connected)."""
@@ -106,7 +106,7 @@ class TestInstallConditionRegistry:
 
         assert not any(isinstance(c, SetConditionsCmd) for c in emu.sent_commands)
 
-    async def testinstall_condition_registry_no_send_when_disconnected(
+    async def test_install_condition_registry_no_send_when_disconnected(
         self, db, emu, tmp_path, monkeypatch,
     ):
         """Backend send is skipped when emu is disconnected; registry still installed."""
