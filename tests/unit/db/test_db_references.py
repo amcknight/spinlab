@@ -167,6 +167,19 @@ class TestDraftColumn:
         assert refs[0]["draft"] == 0
 
 
+class TestIsRunDraft:
+    def test_draft_returns_true(self, db):
+        db.create_capture_run("r1", "g", "Run 1", draft=True)
+        assert db.is_run_draft("r1") is True
+
+    def test_non_draft_returns_false(self, db):
+        db.create_capture_run("r1", "g", "Run 1", draft=False)
+        assert db.is_run_draft("r1") is False
+
+    def test_missing_returns_false(self, db):
+        assert db.is_run_draft("does_not_exist") is False
+
+
 class TestHardDelete:
     def test_hard_delete_removes_everything(self, tmp_db):
         """Hard delete cascades: model_state, attempts, segments, run."""

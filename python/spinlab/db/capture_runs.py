@@ -110,6 +110,13 @@ class CaptureRunsMixin:
         )
         self.conn.commit()
 
+    def is_run_draft(self, run_id: str) -> bool:
+        """True if ``run_id`` exists and is in draft state. Missing runs return False."""
+        row = self.conn.execute(
+            "SELECT draft FROM capture_runs WHERE id = ?", (run_id,),
+        ).fetchone()
+        return bool(row and row[0] == 1)
+
     def hard_delete_capture_run(self, run_id: str) -> None:
         """Hard delete: remove run, segments, model_state, attempts, sessions, and recorded times."""
         seg_ids = [
