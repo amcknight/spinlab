@@ -111,6 +111,7 @@ class TestGetSegmentAttempts:
 
 def test_attempt_exists(tmp_path):
     from datetime import UTC, datetime
+
     from spinlab.db import Database
     from spinlab.models import Attempt, AttemptSource, Segment
 
