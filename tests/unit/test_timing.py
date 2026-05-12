@@ -4,8 +4,11 @@ from spinlab.protocol import (
     CheckpointEvent,
     DeathEvent,
     LevelExitEvent,
+    SpeedRunCheckpointEvent,
+    SpeedRunCompleteEvent,
+    SpeedRunDeathEvent,
 )
-from spinlab.timing import PracticeTiming, SpeedRunTiming
+from spinlab.timing import SpeedRunEmittedEvent, PracticeTiming, SpeedRunTiming
 
 
 class _Clock:
@@ -229,3 +232,190 @@ def test_speed_run_arm_stores_delay_kwargs():
     # Smoke check: kwargs accepted; instance has the values.
     assert sr._auto_advance_delay_ms == 2500
     assert sr._death_delay_ms == 2000
+
+
+def _make_speed_run(clock: _Clock, received: list, **kwargs) -> SpeedRunTiming:
+    sr = SpeedRunTiming(now_ms=clock)
+    sr.arm(
+        segment_id="run-1",
+        checkpoints=kwargs.pop("checkpoints", [{"ordinal": 1}, {"ordinal": 2}]),
+        on_event=received.append,
+        death_delay_ms=kwargs.pop("death_delay_ms", 1500),
+        auto_advance_delay_ms=kwargs.pop("auto_advance_delay_ms", 1000),
+    )
+    return sr
+
+
+def test_speed_run_death_emits_event_and_enters_dying():
+    clock = _Clock()
+    received: list[SpeedRunEmittedEvent] = []
+    sr = _make_speed_run(clock, received)
+
+    clock.now = 2500
+    sr.observe_event(DeathEvent())
+
+    assert len(received) == 1
+    ev = received[0]
+    assert isinstance(ev, SpeedRunDeathEvent)
+    assert ev.elapsed_ms == 2500
+    assert ev.split_ms == 2500
+    # State is DYING — observe_event no-ops for further events while in DYING.
+    sr.observe_event(DeathEvent())
+    assert len(received) == 1
+
+
+def test_speed_run_checkpoint_emits_event_and_advances_index():
+    clock = _Clock()
+    received: list[SpeedRunEmittedEvent] = []
+    sr = _make_speed_run(clock, received)
+
+    clock.now = 1500
+    sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
+
+    # Note: ordinal comes from the checkpoints list arm() was given, not the event.
+    assert len(received) == 1
+    ev = received[0]
+    assert isinstance(ev, SpeedRunCheckpointEvent)
+    assert ev.ordinal == 1  # first checkpoint in the list
+    assert ev.elapsed_ms == 1500
+    assert ev.split_ms == 1500
+
+    # Second checkpoint advances the index.
+    clock.now = 3000
+    sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
+    assert len(received) == 2
+    assert received[1].ordinal == 2
+
+
+def test_speed_run_checkpoint_past_end_of_list_no_emit():
+    """checkpoints exhausted — extra checkpoint events are silently dropped."""
+    clock = _Clock()
+    received: list[SpeedRunEmittedEvent] = []
+    sr = _make_speed_run(clock, received, checkpoints=[{"ordinal": 1}])
+
+    sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
+    sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
+
+    assert len(received) == 1, "second checkpoint should not emit"
+
+
+def test_speed_run_checkpoint_non_dict_uses_positional_ordinal():
+    """checkpoints can be opaque objects; if not a dict with 'ordinal',
+    SpeedRunTiming falls back to the 1-based index."""
+    clock = _Clock()
+    received: list[SpeedRunEmittedEvent] = []
+    sr = _make_speed_run(clock, received, checkpoints=["unused-string", "another"])
+
+    sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
+    sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
+
+    assert received[0].ordinal == 1
+    assert received[1].ordinal == 2
+
+
+def test_speed_run_level_exit_enters_result_state():
+    """A non-abort LevelExit transitions to RESULT; no event emitted yet."""
+    clock = _Clock()
+    received: list[SpeedRunEmittedEvent] = []
+    sr = _make_speed_run(clock, received)
+
+    clock.now = 4000
+    sr.observe_event(LevelExitEvent(level=5, goal="normal"))
+
+    # No event emitted at the moment of exit; complete event waits for the
+    # auto_advance window to elapse via tick().
+    assert received == []
+    assert sr.is_armed is True  # still in RESULT, not idle yet
+
+
+def test_speed_run_level_exit_abort_no_transition():
+    """abort exit while PLAYING is ignored — the run continues."""
+    clock = _Clock()
+    received: list[SpeedRunEmittedEvent] = []
+    sr = _make_speed_run(clock, received)
+
+    sr.observe_event(LevelExitEvent(level=5, goal="abort"))
+
+    # Still in PLAYING; future checkpoint events still fire.
+    clock.now = 2000
+    sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
+    assert len(received) == 1
+    assert isinstance(received[0], SpeedRunCheckpointEvent)
+
+
+def test_speed_run_tick_in_dying_resumes_playing_after_delay():
+    clock = _Clock()
+    received: list[SpeedRunEmittedEvent] = []
+    sr = _make_speed_run(clock, received, death_delay_ms=1500)
+
+    clock.now = 2000
+    sr.observe_event(DeathEvent())  # enters DYING
+    # Tick before delay elapses — stays in DYING.
+    clock.now = 2500
+    assert sr.tick() is False
+    # State is still DYING; observing a checkpoint would no-op.
+    sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
+    assert len(received) == 1  # only the DeathEvent
+    # Tick after the delay — transitions back to PLAYING.
+    clock.now = 3500  # 1500ms after death
+    assert sr.tick() is False  # no result event from DYING → PLAYING transition
+    # Now in PLAYING — a checkpoint event emits.
+    sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
+    assert len(received) == 2
+
+
+def test_speed_run_dying_blackout_excludes_dead_time_from_elapsed():
+    """The DYING blackout duration is bumped into start_ms so it doesn't
+    count toward elapsed time after the player respawns."""
+    clock = _Clock()
+    received: list[SpeedRunEmittedEvent] = []
+    sr = _make_speed_run(clock, received, death_delay_ms=1500)
+
+    clock.now = 1000
+    sr.observe_event(DeathEvent())  # elapsed at this point = 1000ms
+
+    # Tick past blackout.
+    clock.now = 2600  # 1600ms after death — past 1500 threshold
+    sr.tick()
+
+    # Now in PLAYING. Observe a checkpoint — split_ms should be 0 since
+    # split_ms was reset at end of blackout (i.e. clock.now=2600).
+    clock.now = 3100
+    sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
+    cp_ev = received[-1]
+    assert isinstance(cp_ev, SpeedRunCheckpointEvent)
+    # Elapsed accounts for the bumped start_ms (start_ms += blackout_duration).
+    # elapsed = now - start_ms = 3100 - (0 + 1600) = 1500
+    assert cp_ev.elapsed_ms == 1500
+
+
+def test_speed_run_tick_in_result_emits_complete_event_after_delay():
+    clock = _Clock()
+    received: list[SpeedRunEmittedEvent] = []
+    sr = _make_speed_run(clock, received, auto_advance_delay_ms=1000)
+
+    clock.now = 4000
+    sr.observe_event(LevelExitEvent(level=5, goal="normal"))  # enters RESULT
+    # Tick before auto_advance — no emit.
+    clock.now = 4500
+    assert sr.tick() is False
+    assert received == []
+    # Tick after auto_advance — emit + return to IDLE.
+    clock.now = 5100
+    assert sr.tick() is True
+    assert len(received) == 1
+    ev = received[0]
+    assert isinstance(ev, SpeedRunCompleteEvent)
+    assert ev.elapsed_ms == 4000
+    assert ev.split_ms == 4000
+    assert sr.is_armed is False
+
+
+def test_speed_run_unarmed_observes_do_nothing():
+    """observe_event before arm() is a no-op."""
+    received: list[SpeedRunEmittedEvent] = []
+    sr = SpeedRunTiming()
+    sr.observe_event(DeathEvent())
+    sr.tick(now_ms=1000)
+    assert received == []
+    assert sr.is_armed is False
