@@ -41,10 +41,8 @@ class FillGapController:
     async def start(self, segment_id: str) -> ActionResult:
         if not self._emu.is_connected:
             raise NotConnectedError()
-        row = self._db.conn.execute(
-            "SELECT start_waypoint_id FROM segments WHERE id = ?", (segment_id,),
-        ).fetchone()
-        start_waypoint_id = row[0] if row else None
+        seg = self._db.get_segment_by_id(segment_id)
+        start_waypoint_id = seg.start_waypoint_id if seg else None
         hot = (self._db.get_save_state(start_waypoint_id, "hot")
                if start_waypoint_id else None)
         if not hot:
