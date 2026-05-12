@@ -124,3 +124,20 @@ async def test_stop_playback_idempotent(mc, events):
     await mc.stop_playback()
     # No ReplayFinishedEvent emitted from a stop with no active playback
     assert not any(isinstance(e, ReplayFinishedEvent) for e in events)
+
+
+@pytest.mark.asyncio
+async def test_stop_recording_nonfatal_on_movie_record_error(raclient, events):
+    """stop_recording must swallow MovieRecordError (which extends MovieIOError,
+    not RAClientError after the Task 1 refactor)."""
+    from spinlab.retroarch.movie_io import MovieRecordError, MovieRecording
+
+    async def _failing_stop() -> Path:
+        raise MovieRecordError("RA produced no file")
+
+    mc = MovieController(raclient=raclient, enable=True, on_event=events.append)
+    # Inject a recording handle whose stop() raises.
+    mc._active_recording = MovieRecording(path=Path("/tmp/x.replay"), _stop=_failing_stop)
+    await mc.stop_recording()
+    # Did NOT propagate. Recording cleared.
+    assert mc.is_recording is False

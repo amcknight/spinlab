@@ -29,13 +29,13 @@ from spinlab.protocol import (
     ReplayFinishedEvent,
     ReplayStartedEvent,
 )
-from spinlab.retroarch.raclient import (
+from spinlab.retroarch.movie_io import (
+    MovieIOError,
     MoviePlayback,
     MoviePlaybackError,
     MovieRecording,
-    RAClient,
-    RAClientError,
 )
+from spinlab.retroarch.raclient import RAClient, RAClientError
 
 logger = logging.getLogger(__name__)
 
@@ -84,14 +84,14 @@ class MovieController:
             logger.warning("Movie recording failed to start: %s", exc)
 
     async def stop_recording(self) -> None:
-        """Stop movie recording. No-op if nothing active. Non-fatal on RAClientError."""
+        """Stop movie recording. No-op if nothing active. Non-fatal on RAClientError / MovieIOError."""
         if self._active_recording is None:
             logger.info("Reference recording stopped (no movie recorder active)")
             return
         try:
             stopped_path = await self._active_recording.stop()
             logger.info("Movie recording stopped: %s", stopped_path)
-        except RAClientError as exc:
+        except (RAClientError, MovieIOError) as exc:
             logger.warning("Movie recording failed to stop: %s", exc)
         finally:
             self._active_recording = None
