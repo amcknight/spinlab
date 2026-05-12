@@ -3,6 +3,12 @@
 
 Keeps: mode transition guards, event routing, reference capture state machine.
 Removed: mock-wiring-only tests covered by dashboard integration tests.
+
+Uses real Database + FakeEmuBackend for most tests so the schema and
+EmuBackend Protocol are actually exercised. A few TestColdFill /
+TestReferenceCapture tests still inject mock_db return values where the
+specific scenarios are easier to express that way — those keep the
+shared mock_db fixture from conftest.
 """
 import asyncio
 from unittest.mock import MagicMock
@@ -10,6 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from spinlab import session_manager as session_manager_module
+from spinlab.db import Database
 from spinlab.errors import (
     AlreadyRunningError,
     DraftPendingError,
@@ -29,16 +36,32 @@ from spinlab.protocol import (
 )
 from spinlab.session_manager import SessionManager
 
+from tests.conftest import FakeEmuBackend
 
-def make_sm(mock_db, mock_emu, **kwargs):
-    defaults = dict(db=mock_db, emu=mock_emu, rom_dir=None, default_category="any%")
+
+@pytest.fixture
+def db(tmp_path):
+    """Real SQLite Database — game pre-inserted for test_session_manager tests."""
+    d = Database(tmp_path / "sm.db")
+    d.upsert_game("game1", "Test Game", "any%")
+    return d
+
+
+@pytest.fixture
+def emu():
+    """FakeEmuBackend (real Protocol shape, records sent commands)."""
+    return FakeEmuBackend(connected=True)
+
+
+def make_sm(db, emu, **kwargs):
+    defaults = dict(db=db, emu=emu, rom_dir=None, default_category="any%")
     defaults.update(kwargs)
     return SessionManager(**defaults)
 
 
 class TestInit:
-    def test_initial_state(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    def test_initial_state(self, db, emu):
+        sm = make_sm(db, emu)
         assert sm.mode == Mode.IDLE
         assert sm.game_id is None
         assert sm.scheduler is None
@@ -46,48 +69,50 @@ class TestInit:
 
 
 class TestEventRouting:
-    async def test_rom_info_discovers_game(self, mock_db, mock_emu, tmp_path):
+    async def test_rom_info_discovers_game(self, db, emu, tmp_path):
         rom_file = tmp_path / "test_hack.sfc"
         rom_file.write_bytes(b"\x00" * 1024)
 
-        sm = make_sm(mock_db, mock_emu, rom_dir=tmp_path)
+        sm = make_sm(db, emu, rom_dir=tmp_path)
         await sm.route_event(RomInfoEvent(filename="test_hack.sfc"))
         assert sm.game_id is not None
         assert sm.game_name is not None
 
-    async def test_rom_info_no_rom_dir(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_rom_info_no_rom_dir(self, db, emu):
+        sm = make_sm(db, emu)
         await sm.route_event(RomInfoEvent(filename="test.sfc"))
         assert sm.game_id is None
 
-    async def test_game_context_switches_game(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_game_context_switches_game(self, db, emu):
+        sm = make_sm(db, emu)
         await sm.route_event(GameContextEvent(game_id="abc123", game_name="Test Game"))
         assert sm.game_id == "abc123"
         assert sm.game_name == "Test Game"
 
-    async def test_events_ignored_outside_reference(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_events_ignored_outside_reference(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.mode = Mode.IDLE
 
         await sm.route_event(LevelEntranceEvent(level=1, room=0))
         await sm.route_event(LevelExitEvent(level=1, room=0, goal="normal"))
         assert sm.capture.recorder.pending_start is None
-        assert mock_db.upsert_segment.call_count == 0
+        # No segments inserted while outside REFERENCE mode.
+        count = db.conn.execute("SELECT COUNT(*) FROM segments").fetchone()[0]
+        assert count == 0
 
 
 class TestModeGuards:
-    async def test_start_reference_during_practice(self, mock_db, mock_emu):
+    async def test_start_reference_during_practice(self, db, emu):
         from spinlab.errors import PracticeActiveError
-        sm = make_sm(mock_db, mock_emu)
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.mode = Mode.PRACTICE
         with pytest.raises(PracticeActiveError):
             await sm.start_reference()
 
-    async def test_on_practice_done_sets_idle(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_on_practice_done_sets_idle(self, db, emu):
+        sm = make_sm(db, emu)
         sm.mode = Mode.PRACTICE
         sm._on_practice_done(MagicMock())
         assert sm.mode == Mode.IDLE
@@ -418,22 +443,22 @@ class TestColdFillMode:
 class TestPracticeLifecycle:
     """Tests for start_practice, stop_practice, and _on_practice_done."""
 
-    async def test_start_practice_blocked_by_draft(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_start_practice_blocked_by_draft(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.capture.paused_run_id = "fake_paused_run"
         with pytest.raises(DraftPendingError):
             await sm.start_practice()
 
-    async def test_start_practice_blocked_by_not_connected(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_start_practice_blocked_by_not_connected(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
-        mock_emu.is_connected = False
+        emu.is_connected = False
         with pytest.raises(NotConnectedError):
             await sm.start_practice()
 
-    async def test_start_practice_blocked_when_already_running(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_start_practice_blocked_when_already_running(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         fake_ps = MagicMock()
         fake_ps.is_running = True
@@ -441,24 +466,25 @@ class TestPracticeLifecycle:
         with pytest.raises(AlreadyRunningError):
             await sm.start_practice()
 
-    async def test_stop_practice_when_not_running(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_stop_practice_when_not_running(self, db, emu):
+        sm = make_sm(db, emu)
         with pytest.raises(NotRunningError):
             await sm.stop_practice()
 
-    async def test_stop_practice_clears_stale_mode(self, mock_db, mock_emu):
+    async def test_stop_practice_clears_stale_mode(self, db, emu):
         """If mode=PRACTICE but no session, stop_practice should still reset."""
-        sm = make_sm(mock_db, mock_emu)
+        sm = make_sm(db, emu)
         sm.mode = Mode.PRACTICE
         result = await sm.stop_practice()
         assert result.status == Status.STOPPED
         assert sm.mode == Mode.IDLE
-    async def test_stop_practice_cancels_hung_task(self, mock_db, mock_emu, monkeypatch):
+
+    async def test_stop_practice_cancels_hung_task(self, db, emu, monkeypatch):
         """When practice task doesn't exit on is_running=False, stop should cancel
         after the timeout elapses."""
         monkeypatch.setattr(session_manager_module, "PRACTICE_STOP_TIMEOUT_S", 0.1)
 
-        sm = make_sm(mock_db, mock_emu)
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.mode = Mode.PRACTICE
 
@@ -481,47 +507,43 @@ class TestPracticeLifecycle:
 class TestSpeedRunLifecycle:
     """Tests for start_speed_run, stop_speed_run, and _on_speed_run_done."""
 
-    async def test_start_blocked_by_draft(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_start_blocked_by_draft(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.capture.paused_run_id = "fake_paused_run"
         with pytest.raises(DraftPendingError):
             await sm.start_speed_run()
 
-    async def test_start_blocked_by_not_connected(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_start_blocked_by_not_connected(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
-        mock_emu.is_connected = False
+        emu.is_connected = False
         with pytest.raises(NotConnectedError):
             await sm.start_speed_run()
 
-    async def test_start_missing_save_states(self, mock_db, mock_emu):
+    async def test_start_missing_save_states(self, db, emu, tmp_path):
         """SpeedRunSession.__init__ raises ValueError when a segment
         has no save_state path on disk; start_speed_run translates that to
         MissingSaveStatesError."""
-        sm = make_sm(mock_db, mock_emu)
+        from tests.conftest import make_seg_with_state
+        # Real segment + waypoint, but the hot save state path points at a
+        # file that doesn't exist on disk — exactly the missing-state scenario.
+        fake_state = tmp_path / "definitely-not-a-real-path.mss"
+        # NOTE: do NOT create the file — the test wants it to be missing.
+        make_seg_with_state(db, "game1", 1, "entrance", "goal", fake_state)
+
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
-        mock_db.get_all_segments_with_model.return_value = [{
-            "id": "seg1",
-            "game_id": "game1",
-            "level_number": 1,
-            "start_type": "entrance",
-            "start_ordinal": 0,
-            "end_type": "goal",
-            "end_ordinal": 0,
-            "description": "L1",
-            "state_path": "/definitely/not/a/real/path.mss",
-        }]
         with pytest.raises(MissingSaveStatesError):
             await sm.start_speed_run()
 
-    async def test_stop_when_not_running(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_stop_when_not_running(self, db, emu):
+        sm = make_sm(db, emu)
         with pytest.raises(NotRunningError):
             await sm.stop_speed_run()
 
-    async def test_stop_clears_stale_mode(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_stop_clears_stale_mode(self, db, emu):
+        sm = make_sm(db, emu)
         sm.mode = Mode.SPEED_RUN
         result = await sm.stop_speed_run()
         assert result.status == Status.STOPPED
@@ -529,37 +551,38 @@ class TestSpeedRunLifecycle:
 
 
 class TestDisconnectAndShutdown:
-    def test_on_disconnect_stops_practice(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    def test_on_disconnect_stops_practice(self, db, emu):
+        sm = make_sm(db, emu)
         fake_ps = MagicMock()
         fake_ps.is_running = True
         sm.practice_session = fake_ps
         sm.on_disconnect()
         assert fake_ps.is_running is False
 
-    def test_on_disconnect_stops_speed_run(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    def test_on_disconnect_stops_speed_run(self, db, emu):
+        sm = make_sm(db, emu)
         fake_sr = MagicMock()
         fake_sr.is_running = True
         sm.speed_run_session = fake_sr
         sm.on_disconnect()
         assert fake_sr.is_running is False
 
-    def test_on_disconnect_clears_ref_and_idles(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    def test_on_disconnect_clears_ref_and_idles(self, db, emu):
+        sm = make_sm(db, emu)
         sm.mode = Mode.REFERENCE
         sm.on_disconnect()
         assert sm.mode == Mode.IDLE
 
-    async def test_shutdown_stops_practice_and_tcp(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_shutdown_stops_practice_and_emu(self, db, emu):
+        sm = make_sm(db, emu)
         sm.mode = Mode.PRACTICE  # stale — no real session
         await sm.shutdown()
-        mock_emu.disconnect.assert_called_once()
+        # FakeEmuBackend.disconnect flips is_connected to False.
+        assert emu.is_connected is False
 
-    async def test_shutdown_clears_reference(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_shutdown_clears_reference(self, db, emu):
+        sm = make_sm(db, emu)
         sm.mode = Mode.REFERENCE
         await sm.shutdown()
         assert sm.mode == Mode.IDLE
-        mock_emu.disconnect.assert_called_once()
+        assert emu.is_connected is False
