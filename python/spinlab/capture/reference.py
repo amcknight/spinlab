@@ -96,8 +96,8 @@ class ReferenceController:
     def __init__(self, db: "Database", emu: "EmuBackend") -> None:
         self.db = db
         self.emu = emu
-        self.recorder = SegmentRecorder()
         self.condition_registry: ConditionRegistry = ConditionRegistry()
+        self.recorder = SegmentRecorder(db, self.condition_registry)
 
         # `paused_run_id` and `recorder.capture_run_id` form a mutually
         # exclusive pair: at most one is set at any time, encoding the run
@@ -108,6 +108,7 @@ class ReferenceController:
 
     def set_condition_registry(self, registry: ConditionRegistry) -> None:
         self.condition_registry = registry
+        self.recorder.set_condition_registry(registry)
 
     @property
     def has_paused_run(self) -> bool:
@@ -479,8 +480,7 @@ class ReferenceController:
                     logger.exception(
                         "save_state failed for checkpoint event seg_id=%r", seg_id,
                     )
-        self.recorder.handle_checkpoint(event, game_id, self.db,
-                                           self.condition_registry)
+        self.recorder.handle_checkpoint(event, game_id)
 
     def handle_death(self, event: DeathEvent) -> None:
         self.recorder.died = True
@@ -490,13 +490,11 @@ class ReferenceController:
         logger.info("capture: spawn level=%s state_path=%s",
                      event.level_num, event.state_path)
         self.recorder.handle_spawn_timing(timestamp_ms=event.timestamp_ms)
-        self.recorder.handle_spawn(event, game_id, self.db,
-                                      self.condition_registry)
+        self.recorder.handle_spawn(event, game_id)
 
     def handle_exit(self, event: LevelExitEvent, game_id: str) -> None:
         logger.info("capture: exit level=%s", event.level)
-        self.recorder.handle_exit(event, game_id, self.db,
-                                     self.condition_registry)
+        self.recorder.handle_exit(event, game_id)
 
     def handle_replay_finished(self) -> None:
         # End the session and leave the run paused — the user can finalize or discard.

@@ -21,8 +21,9 @@ def registry():
     return ConditionRegistry()
 
 
-def _make_cap(run_id: str = "run1", sess_id: str = "sess1") -> SegmentRecorder:
-    cap = SegmentRecorder()
+def _make_cap(db: Database, registry: ConditionRegistry,
+              run_id: str = "run1", sess_id: str = "sess1") -> SegmentRecorder:
+    cap = SegmentRecorder(db, registry)
     cap.capture_run_id = run_id
     cap.current_capture_session_id = sess_id
     return cap
@@ -30,9 +31,9 @@ def _make_cap(run_id: str = "run1", sess_id: str = "sess1") -> SegmentRecorder:
 
 def test_clean_segment_timing(db, registry):
     """Entrance at t=1000, exit at t=6000, no deaths → time_ms=5000, deaths=0, clean_tail_ms=5000."""
-    cap = _make_cap()
+    cap = _make_cap(db, registry)
     cap.handle_entrance(LevelEntranceEvent(level=1, timestamp_ms=1000, state_path="/s.mss"))
-    cap.handle_exit(LevelExitEvent(level=1, goal="goal", timestamp_ms=6000), "g1", db, registry)
+    cap.handle_exit(LevelExitEvent(level=1, goal="goal", timestamp_ms=6000), "g1")
 
     times = db.conn.execute(
         "SELECT time_ms, deaths, clean_tail_ms FROM recorded_segment_times "
@@ -48,11 +49,11 @@ def test_clean_segment_timing(db, registry):
 def test_segment_with_deaths_timing(db, registry):
     """Entrance at t=1000, death at t=3000, spawn at t=6000, exit at t=9000
     → time_ms=8000, deaths=1, clean_tail_ms=3000."""
-    cap = _make_cap()
+    cap = _make_cap(db, registry)
     cap.handle_entrance(LevelEntranceEvent(level=1, timestamp_ms=1000, state_path="/s.mss"))
     cap.handle_death(timestamp_ms=3000)
     cap.handle_spawn_timing(timestamp_ms=6000)
-    cap.handle_exit(LevelExitEvent(level=1, goal="goal", timestamp_ms=9000), "g1", db, registry)
+    cap.handle_exit(LevelExitEvent(level=1, goal="goal", timestamp_ms=9000), "g1")
 
     times = db.conn.execute(
         "SELECT time_ms, deaths, clean_tail_ms FROM recorded_segment_times "
@@ -67,13 +68,13 @@ def test_segment_with_deaths_timing(db, registry):
 
 def test_checkpoint_splits_timing(db, registry):
     """Entrance at t=1000, checkpoint at t=4000, exit at t=7000 → two segments, each 3000ms."""
-    cap = _make_cap()
+    cap = _make_cap(db, registry)
     cap.handle_entrance(LevelEntranceEvent(level=1, timestamp_ms=1000, state_path="/s.mss"))
     cap.handle_checkpoint(
         CheckpointEvent(level_num=1, cp_ordinal=1, timestamp_ms=4000),
-        "g1", db, registry,
+        "g1",
     )
-    cap.handle_exit(LevelExitEvent(level=1, goal="goal", timestamp_ms=7000), "g1", db, registry)
+    cap.handle_exit(LevelExitEvent(level=1, goal="goal", timestamp_ms=7000), "g1")
 
     times = db.conn.execute(
         "SELECT time_ms FROM recorded_segment_times "
@@ -88,9 +89,9 @@ def test_checkpoint_splits_timing(db, registry):
 def test_clear_resets_per_session_state(db, registry):
     """After clear(), a new segment starts fresh with zero deaths and correct clean_tail.
     Rows from before clear() still exist in the DB — clear is per-session in-memory only."""
-    cap = _make_cap()
+    cap = _make_cap(db, registry)
     cap.handle_entrance(LevelEntranceEvent(level=1, timestamp_ms=0, state_path="/s.mss"))
-    cap.handle_exit(LevelExitEvent(level=1, goal="goal", timestamp_ms=5000), "g1", db, registry)
+    cap.handle_exit(LevelExitEvent(level=1, goal="goal", timestamp_ms=5000), "g1")
 
     # Confirm one row exists before clear
     count_before = db.conn.execute(
@@ -112,7 +113,7 @@ def test_clear_resets_per_session_state(db, registry):
     cap.capture_run_id = "run1"
     cap.current_capture_session_id = "sess1"
     cap.handle_entrance(LevelEntranceEvent(level=2, timestamp_ms=10000, state_path="/s2.mss"))
-    cap.handle_exit(LevelExitEvent(level=2, goal="goal", timestamp_ms=15000), "g1", db, registry)
+    cap.handle_exit(LevelExitEvent(level=2, goal="goal", timestamp_ms=15000), "g1")
 
     new_times = db.conn.execute(
         "SELECT time_ms, deaths, clean_tail_ms FROM recorded_segment_times "
@@ -126,9 +127,9 @@ def test_clear_resets_per_session_state(db, registry):
 
 def test_abort_exit_no_timing(db, registry):
     """Abort goal → no timing rows inserted."""
-    cap = _make_cap()
+    cap = _make_cap(db, registry)
     cap.handle_entrance(LevelEntranceEvent(level=1, timestamp_ms=1000, state_path="/s.mss"))
-    cap.handle_exit(LevelExitEvent(level=1, goal="abort", timestamp_ms=5000), "g1", db, registry)
+    cap.handle_exit(LevelExitEvent(level=1, goal="abort", timestamp_ms=5000), "g1")
 
     count = db.conn.execute(
         "SELECT COUNT(*) FROM recorded_segment_times WHERE capture_session_id = ?",
@@ -139,7 +140,7 @@ def test_abort_exit_no_timing(db, registry):
 
 def test_death_via_handle_death_increments_counter(db, registry):
     """Two deaths during a segment are reflected in the recorded segment time."""
-    cap = _make_cap()
+    cap = _make_cap(db, registry)
     cap.handle_entrance(LevelEntranceEvent(
         level=1, state_path="/s.mss",
         conditions={}, timestamp_ms=1000,
@@ -147,7 +148,7 @@ def test_death_via_handle_death_increments_counter(db, registry):
     cap.handle_death(timestamp_ms=2000)
     cap.handle_death(timestamp_ms=3000)
     cap.handle_spawn_timing(timestamp_ms=4000)
-    cap.handle_exit(LevelExitEvent(level=1, goal="goal", timestamp_ms=6000), "g1", db, registry)
+    cap.handle_exit(LevelExitEvent(level=1, goal="goal", timestamp_ms=6000), "g1")
 
     times = db.conn.execute(
         "SELECT deaths FROM recorded_segment_times WHERE capture_session_id = ?",

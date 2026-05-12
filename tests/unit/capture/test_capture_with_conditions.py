@@ -20,16 +20,16 @@ def _bootstrap_db():
 
 def test_entrance_then_goal_creates_segment_with_waypoints():
     db = _bootstrap_db()
-    cap = SegmentRecorder()
-    cap.capture_run_id = "run1"
     reg = _registry()
+    cap = SegmentRecorder(db, reg)
+    cap.capture_run_id = "run1"
     cap.handle_entrance(LevelEntranceEvent(
         level=5, state_path="/tmp/start.mss",
         conditions={"powerup": 0},  # raw: small
     ))
     cap.handle_exit(
         LevelExitEvent(level=5, goal="goal", conditions={"powerup": 0}),
-        "g1", db, reg)
+        "g1")
     segs = db.get_active_segments("g1")
     assert len(segs) == 1
     assert segs[0].start_waypoint_id is not None
@@ -42,20 +42,20 @@ def test_entrance_then_goal_creates_segment_with_waypoints():
 
 def test_same_geography_different_powerup_creates_two_segments():
     db = _bootstrap_db()
-    cap = SegmentRecorder()
-    cap.capture_run_id = "run1"
     reg = _registry()
+    cap = SegmentRecorder(db, reg)
+    cap.capture_run_id = "run1"
     # Run 1: entered small, exited
     cap.handle_entrance(LevelEntranceEvent(level=5, state_path="/tmp/s1.mss",
                                            conditions={"powerup": 0}))
     cap.handle_exit(LevelExitEvent(level=5, goal="goal", conditions={"powerup": 0}),
-                    "g1", db, reg)
+                    "g1")
     # Run 2: entered big, exited
     cap.pending_start = None  # reset
     cap.handle_entrance(LevelEntranceEvent(level=5, state_path="/tmp/s2.mss",
                                            conditions={"powerup": 1}))
     cap.handle_exit(LevelExitEvent(level=5, goal="goal", conditions={"powerup": 1}),
-                    "g1", db, reg)
+                    "g1")
     segs = db.get_active_segments("g1")
     assert len(segs) == 2
     primary_count = sum(1 for s in segs if s.is_primary)
@@ -64,13 +64,13 @@ def test_same_geography_different_powerup_creates_two_segments():
 
 def test_save_state_attaches_to_start_waypoint():
     db = _bootstrap_db()
-    cap = SegmentRecorder()
-    cap.capture_run_id = "run1"
     reg = _registry()
+    cap = SegmentRecorder(db, reg)
+    cap.capture_run_id = "run1"
     cap.handle_entrance(LevelEntranceEvent(level=5, state_path="/tmp/start.mss",
                                            conditions={"powerup": 0}))
     cap.handle_exit(LevelExitEvent(level=5, goal="goal", conditions={"powerup": 0}),
-                    "g1", db, reg)
+                    "g1")
     segs = db.get_active_segments("g1")
     ss = db.get_default_save_state(segs[0].start_waypoint_id)
     assert ss is not None

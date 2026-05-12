@@ -44,7 +44,13 @@ class SegmentRecorder:
     boundaries (death counts, spawn timestamps) reset on `clear()`.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        db: "Database",
+        condition_registry: "ConditionRegistry",
+    ) -> None:
+        self._db = db
+        self._condition_registry = condition_registry
         self.capture_run_id: str | None = None
         self.current_capture_session_id: str | None = None
         self.pending_start: PendingStart | None = None
@@ -52,6 +58,10 @@ class SegmentRecorder:
         self.rec_path: str | None = None
         self._deaths_in_segment: int = 0
         self._last_spawn_ms: int | None = None
+
+    def set_condition_registry(self, registry: "ConditionRegistry") -> None:
+        """Swap the active condition registry (called on game-switch)."""
+        self._condition_registry = registry
 
     def clear(self) -> None:
         """Reset per-session state. Does NOT clear DB rows."""
@@ -78,30 +88,30 @@ class SegmentRecorder:
         self._deaths_in_segment = 0
         self._last_spawn_ms = None
 
-    def _close_segment(self, db, game_id, start: PendingStart, end_type, end_ordinal,
-                       level, end_raw_conditions, registry,
+    def _close_segment(self, game_id, start: PendingStart, end_type, end_ordinal,
+                       level, end_raw_conditions,
                        end_timestamp_ms: int | None = None) -> None:
         """Create waypoints + segment for the segment ending here, persist timing."""
         from ..models import Segment, Waypoint, WaypointSaveState
 
-        start_conds = registry.decode(start.raw_conditions, level=level)
-        end_conds = registry.decode(end_raw_conditions, level=level)
+        start_conds = self._condition_registry.decode(start.raw_conditions, level=level)
+        end_conds = self._condition_registry.decode(end_raw_conditions, level=level)
 
         wp_start = Waypoint.make(game_id, level, start.type,
                                  start.ordinal, start_conds)
         wp_end = Waypoint.make(game_id, level, end_type, end_ordinal, end_conds)
-        db.upsert_waypoint(wp_start)
-        db.upsert_waypoint(wp_end)
+        self._db.upsert_waypoint(wp_start)
+        self._db.upsert_waypoint(wp_end)
 
         seg_id = Segment.make_id(
             game_id, level, start.type, start.ordinal,
             end_type, end_ordinal, wp_start.id, wp_end.id,
         )
         is_primary = self._compute_is_primary(
-            db, game_id, level, start.type, start.ordinal,
+            self._db, game_id, level, start.type, start.ordinal,
             end_type, end_ordinal, seg_id)
         existing_count = (
-            db.count_segments_for_run(self.capture_run_id)
+            self._db.count_segments_for_run(self.capture_run_id)
             if self.capture_run_id else 0
         )
         seg = Segment(
@@ -114,12 +124,12 @@ class SegmentRecorder:
             reference_id=self.capture_run_id,
             capture_session_id=self.current_capture_session_id,
         )
-        db.upsert_segment(seg)
+        self._db.upsert_segment(seg)
 
         state_path = start.state_path
         if state_path:
             variant = "cold" if start.type == "entrance" else "hot"
-            db.add_save_state(WaypointSaveState(
+            self._db.add_save_state(WaypointSaveState(
                 waypoint_id=wp_start.id,
                 variant_type=variant,
                 state_path=state_path,
@@ -138,7 +148,7 @@ class SegmentRecorder:
                 clean_tail_ms = end_timestamp_ms - self._last_spawn_ms
             else:
                 clean_tail_ms = time_ms
-            db.add_recorded_segment_time(
+            self._db.add_recorded_segment_time(
                 self.current_capture_session_id, seg_id,
                 time_ms=time_ms, deaths=deaths, clean_tail_ms=clean_tail_ms,
             )
@@ -156,16 +166,14 @@ class SegmentRecorder:
             exclude_segment_id=new_seg_id,
         )
 
-    def handle_checkpoint(self, event: CheckpointEvent, game_id: str,
-                          db: "Database",
-                          registry: "ConditionRegistry") -> None:
+    def handle_checkpoint(self, event: CheckpointEvent, game_id: str) -> None:
         if not self.pending_start:
             return
         cp_ordinal = event.cp_ordinal
         level = event.level_num if event.level_num else self.pending_start.level_num
         self._close_segment(
-            db, game_id, self.pending_start, "checkpoint", cp_ordinal,
-            level, event.conditions, registry,
+            game_id, self.pending_start, "checkpoint", cp_ordinal,
+            level, event.conditions,
             end_timestamp_ms=event.timestamp_ms)
         self.pending_start = PendingStart(
             type=EndpointType.CHECKPOINT, ordinal=cp_ordinal,
@@ -173,9 +181,7 @@ class SegmentRecorder:
             level_num=level, raw_conditions=event.conditions,
         )
 
-    def handle_exit(self, event: LevelExitEvent, game_id: str,
-                    db: "Database",
-                    registry: "ConditionRegistry") -> None:
+    def handle_exit(self, event: LevelExitEvent, game_id: str) -> None:
         if event.goal == "abort":
             self.pending_start = None
             return
@@ -183,8 +189,8 @@ class SegmentRecorder:
             return
         level = event.level
         self._close_segment(
-            db, game_id, self.pending_start, "goal", 0,
-            level, event.conditions, registry,
+            game_id, self.pending_start, "goal", 0,
+            level, event.conditions,
             end_timestamp_ms=event.timestamp_ms)
         self.pending_start = None
 
@@ -196,9 +202,7 @@ class SegmentRecorder:
         if timestamp_ms is not None:
             self._last_spawn_ms = timestamp_ms
 
-    def handle_spawn(self, event: SpawnEvent, game_id: str,
-                     db: "Database",
-                     registry: "ConditionRegistry") -> None:
+    def handle_spawn(self, event: SpawnEvent, game_id: str) -> None:
         if not event.is_cold_cp:
             return
         cold_path = event.state_path
@@ -207,10 +211,10 @@ class SegmentRecorder:
         if cold_path is None or cp_ord is None:
             return
         from ..models import EndpointType, Waypoint, WaypointSaveState
-        conds = registry.decode(event.conditions, level=level)
+        conds = self._condition_registry.decode(event.conditions, level=level)
         wp = Waypoint.make(game_id, level, EndpointType.CHECKPOINT, cp_ord, conds)
-        db.upsert_waypoint(wp)
-        db.add_save_state(WaypointSaveState(
+        self._db.upsert_waypoint(wp)
+        self._db.add_save_state(WaypointSaveState(
             waypoint_id=wp.id, variant_type="cold",
             state_path=cold_path, is_default=True))
         logger.debug("Stored cold save state for waypoint %s: %s", wp.id, cold_path)
