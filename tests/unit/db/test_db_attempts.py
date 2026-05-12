@@ -107,3 +107,27 @@ class TestGetSegmentAttempts:
         assert len(rows) == 2
         assert rows[0]["deaths"] == 2
         assert rows[0]["clean_tail_ms"] == 8000
+
+
+def test_attempt_exists(tmp_path):
+    from datetime import UTC, datetime
+    from spinlab.db import Database
+    from spinlab.models import Attempt, AttemptSource, Segment
+
+    db = Database(str(tmp_path / "t.db"))
+    db.upsert_game("g", "G", "any%")
+    db.upsert_segment(Segment(
+        id="s1", game_id="g", level_number=1,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
+    ))
+    db.log_attempt(Attempt(
+        segment_id="s1", parent_id="sess1", completed=True,
+        time_ms=1000, source=AttemptSource.PRACTICE,
+        created_at=datetime.now(UTC),
+    ))
+    aid_row = db.conn.execute("SELECT id FROM attempts ORDER BY id DESC LIMIT 1").fetchone()
+    aid = aid_row[0]
+
+    assert db.attempt_exists(aid) is True
+    assert db.attempt_exists(999999) is False

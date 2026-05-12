@@ -169,3 +169,10 @@ class AttemptsMixin:
             (session_id,),
         ).fetchone()
         return row[0] if row else None
+
+    def attempt_exists(self, attempt_id: int) -> bool:
+        """True if an attempt with this id exists."""
+        row = self.conn.execute(
+            "SELECT 1 FROM attempts WHERE id = ?", (attempt_id,),
+        ).fetchone()
+        return row is not None
