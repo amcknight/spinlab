@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .capture import ColdFillController, ReferenceController
+from .capture import ColdFillController, FillGapController, ReferenceController
 from .errors import (
     AlreadyRunningError,
     DraftPendingError,
@@ -97,6 +97,7 @@ class SessionManager:
 
         self.capture = ReferenceController(db, emu)
         self.cold_fill = ColdFillController(db, emu)
+        self.fill_gap = FillGapController(db, emu)
         self.sse = SSEBroadcaster()
         self._state_builder = StateBuilder(db)
 
@@ -298,7 +299,7 @@ class SessionManager:
             await self._notify_sse()
             return
         if self.mode == Mode.FILL_GAP:
-            if self.capture.handle_fill_gap_spawn(event):
+            if self.fill_gap.handle_spawn(event):
                 self.mode = Mode.IDLE
                 await self._notify_sse()
             return
@@ -417,7 +418,7 @@ class SessionManager:
 
     async def start_fill_gap(self, segment_id: str) -> ActionResult:
         return await self._apply_result(
-            await self.capture.start_fill_gap(segment_id)
+            await self.fill_gap.start(segment_id)
         )
 
     async def finalize_run(self, name: str) -> ActionResult:

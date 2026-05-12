@@ -11,16 +11,14 @@ from spinlab.db import Database
 from spinlab.errors import (
     AlreadyReplayingError,
     DraftPendingError,
-    NoHotVariantError,
     NotConnectedError,
     NotInReferenceError,
     NotReplayingError,
     PracticeActiveError,
     ReferenceActiveError,
 )
-from spinlab.models import EndpointType, Mode, Segment, Status, Waypoint, WaypointSaveState
+from spinlab.models import EndpointType, Mode, Segment, Status
 from spinlab.protocol import (
-    FillGapLoadCmd,
     ReferenceStartCmd,
     ReferenceStopCmd,
     ReplayCmd,
@@ -238,55 +236,6 @@ class TestHandleDisconnect:
 
     def test_idempotent_when_nothing_active(self, controller):
         controller.handle_disconnect()
-
-
-class TestStartFillGap:
-    async def test_not_connected(self, controller, fake_emu):
-        fake_emu.is_connected = False
-        with pytest.raises(NotConnectedError):
-            await controller.start_fill_gap("seg1")
-
-    async def test_no_hot_variant(self, controller, db):
-        wp_start = Waypoint.make("g1", 1, "entrance", 0, {})
-        wp_end = Waypoint.make("g1", 1, "goal", 0, {})
-        db.upsert_waypoint(wp_start)
-        db.upsert_waypoint(wp_end)
-        seg = Segment(
-            id="seg1", game_id="g1", level_number=1,
-            start_type=EndpointType.ENTRANCE, start_ordinal=0,
-            end_type=EndpointType.GOAL, end_ordinal=0,
-            start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
-        )
-        db.upsert_segment(seg)
-
-        with pytest.raises(NoHotVariantError):
-            await controller.start_fill_gap("seg1")
-
-    async def test_happy_path(self, controller, db, tmp_path, fake_emu):
-        wp_start = Waypoint.make("g1", 1, "entrance", 0, {})
-        wp_end = Waypoint.make("g1", 1, "goal", 0, {})
-        db.upsert_waypoint(wp_start)
-        db.upsert_waypoint(wp_end)
-        seg = Segment(
-            id="seg1", game_id="g1", level_number=1,
-            start_type=EndpointType.ENTRANCE, start_ordinal=0,
-            end_type=EndpointType.GOAL, end_ordinal=0,
-            start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
-        )
-        db.upsert_segment(seg)
-        state_file = tmp_path / "hot.mss"
-        state_file.write_bytes(b"fake")
-        db.add_save_state(WaypointSaveState(
-            waypoint_id=wp_start.id, variant_type="hot",
-            state_path=str(state_file), is_default=True,
-        ))
-
-        result = await controller.start_fill_gap("seg1")
-        assert result.status == Status.STARTED
-        assert result.new_mode == Mode.FILL_GAP
-        fill_cmds = [c for c in fake_emu.sent_commands if isinstance(c, FillGapLoadCmd)]
-        assert len(fill_cmds) == 1
-        assert fill_cmds[0].state_path == str(state_file)
 
 
 class TestRunStateInvariant:

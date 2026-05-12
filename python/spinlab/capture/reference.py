@@ -22,7 +22,6 @@ from ..condition_registry import ConditionRegistry
 from ..errors import (
     AlreadyReplayingError,
     DraftPendingError,
-    NoHotVariantError,
     NoPausedRunError,
     NotConnectedError,
     NotInReferenceError,
@@ -43,7 +42,6 @@ from ..protocol import (
     SPEED_UNCAPPED,
     CheckpointEvent,
     DeathEvent,
-    FillGapLoadCmd,
     LevelEntranceEvent,
     LevelExitEvent,
     ReferenceStartCmd,
@@ -99,8 +97,6 @@ class ReferenceController:
         self.db = db
         self.emu = emu
         self.recorder = SegmentRecorder()
-        self.fill_gap_segment_id: str | None = None
-        self._fill_gap_waypoint_id: str | None = None
         self.condition_registry: ConditionRegistry = ConditionRegistry()
 
         # `paused_run_id` and `recorder.capture_run_id` form a mutually
@@ -469,39 +465,6 @@ class ReferenceController:
         # recover_paused_capture_run excludes replay_ IDs, so this won't clobber
         # real paused reference runs on the next dashboard restart.
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
-
-
-    async def start_fill_gap(self, segment_id: str) -> ActionResult:
-        if not self.emu.is_connected:
-            raise NotConnectedError()
-        row = self.db.conn.execute(
-            "SELECT start_waypoint_id FROM segments WHERE id = ?", (segment_id,)
-        ).fetchone()
-        start_waypoint_id = row[0] if row else None
-        hot = (self.db.get_save_state(start_waypoint_id, "hot")
-               if start_waypoint_id else None)
-        if not hot:
-            raise NoHotVariantError()
-        self.fill_gap_segment_id = segment_id
-        self._fill_gap_waypoint_id = start_waypoint_id
-        await self.emu.send_command(FillGapLoadCmd(state_path=hot.state_path, message="Die to capture cold start"))
-        return ActionResult(status=Status.STARTED, new_mode=Mode.FILL_GAP)
-
-    def handle_fill_gap_spawn(self, event: SpawnEvent) -> bool:
-        if not event.state_path or not self.fill_gap_segment_id:
-            return False
-        waypoint_id = self._fill_gap_waypoint_id
-        if waypoint_id:
-            from ..models import WaypointSaveState
-            self.db.add_save_state(WaypointSaveState(
-                waypoint_id=waypoint_id,
-                variant_type="cold",
-                state_path=event.state_path,
-                is_default=True,
-            ))
-        self.fill_gap_segment_id = None
-        self._fill_gap_waypoint_id = None
-        return True
 
 
     async def handle_entrance(self, event: LevelEntranceEvent) -> None:

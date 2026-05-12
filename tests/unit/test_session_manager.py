@@ -235,7 +235,7 @@ class TestFillGap:
         cold = practice_db.get_save_state(seg_row[0], "cold")
         assert cold is not None
         assert cold.state_path == "/cold.mss"
-        assert sm.capture.fill_gap_segment_id is None
+        assert sm.fill_gap.is_active is False
         assert sm.mode == Mode.IDLE
 
 
