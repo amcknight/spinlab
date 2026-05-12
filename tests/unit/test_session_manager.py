@@ -14,6 +14,7 @@ import asyncio
 from unittest.mock import MagicMock
 
 import pytest
+from tests.conftest import FakeEmuBackend
 
 from spinlab import session_manager as session_manager_module
 from spinlab.db import Database
@@ -35,8 +36,6 @@ from spinlab.protocol import (
     SpawnEvent,
 )
 from spinlab.session_manager import SessionManager
-
-from tests.conftest import FakeEmuBackend
 
 
 @pytest.fixture

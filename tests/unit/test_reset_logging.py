@@ -7,13 +7,12 @@ without breaking the test silently.
 import logging
 
 import pytest
+from tests.conftest import FakeEmuBackend
 
 from spinlab.db import Database
 from spinlab.models import Mode
 from spinlab.routes.system import reset_data
 from spinlab.session_manager import SessionManager
-
-from tests.conftest import FakeEmuBackend
 
 
 @pytest.fixture
