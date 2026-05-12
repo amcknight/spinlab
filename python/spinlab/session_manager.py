@@ -256,13 +256,13 @@ class SessionManager:
             await self.switch_game(gid, gname)
 
     async def _handle_level_entrance(self, event: LevelEntranceEvent) -> None:
-        if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
+        if not self.capture.is_recording:
             return
         await self.capture.handle_entrance(event)
         await self._notify_sse()
 
     async def _handle_checkpoint(self, event: CheckpointEvent) -> None:
-        if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
+        if not self.capture.is_recording:
             return
         await self.capture.handle_checkpoint(event, self.require_game())
         await self._notify_sse()
@@ -271,7 +271,7 @@ class SessionManager:
         if self.mode == Mode.COLD_FILL:
             logger.info("death during cold_fill — waiting for respawn")
             return
-        if self.mode in (Mode.REFERENCE, Mode.REPLAY):
+        if self.capture.is_recording:
             self.capture.handle_death(event)
             return
         if self.mode == Mode.PRACTICE and self.practice_session:
@@ -296,7 +296,7 @@ class SessionManager:
                 self.mode = Mode.IDLE
                 await self._notify_sse()
             return
-        if self.mode in (Mode.REFERENCE, Mode.REPLAY):
+        if self.capture.is_recording:
             self.capture.handle_spawn(event, self.require_game())
 
     async def _handle_level_exit(self, event: LevelExitEvent) -> None:
@@ -304,7 +304,7 @@ class SessionManager:
             # Pit-fall / death-fall — same reload semantics as a Death event.
             await self.practice_session.handle_level_exit_abort()
             return
-        if self.mode not in (Mode.REFERENCE, Mode.REPLAY):
+        if not self.capture.is_recording:
             return
         self.capture.handle_exit(event, self.require_game())
         await self._notify_sse()

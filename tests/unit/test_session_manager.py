@@ -218,6 +218,7 @@ class TestReferenceCapture:
         sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
+        sm.capture.recorder.capture_run_id = "run1"  # arm recorder so is_recording=True
         await sm.route_event(DeathEvent())
         assert sm.capture.recorder.died is True
 
@@ -596,3 +597,35 @@ class TestDisconnectAndShutdown:
         await sm.shutdown()
         assert sm.mode == Mode.IDLE
         assert emu.is_connected is False
+
+
+async def test_capture_event_routed_while_recording_even_if_mode_lags(db, emu):
+    """The race C3 fixes: between capture.start_replay setting is_recording=True
+    and the SessionManager's mode flipping to REPLAY, the poller can emit a
+    LevelEntranceEvent. The handler must route it to capture based on the
+    recording flag, not the mode."""
+    sm = make_sm(db, emu)
+    sm.game_id = "game1"
+    sm.game_name = "Test Game"
+
+    # Simulate the in-flight state: capture has been told to start replay
+    # (recorder is armed with a run id), but mode hasn't flipped yet.
+    sm.capture._enter_recording("replay_test123", "sess_test123")
+    sm.mode = Mode.IDLE  # mode lags
+
+    assert sm.capture.is_recording
+
+    # Spy on the handler.
+    handle_entrance_calls = []
+
+    async def _spy(ev):
+        handle_entrance_calls.append(ev)
+
+    sm.capture.handle_entrance = _spy  # type: ignore[method-assign]
+
+    await sm.route_event(LevelEntranceEvent(level=1, room=0))
+
+    assert len(handle_entrance_calls) == 1, (
+        "LevelEntranceEvent must be routed to capture while is_recording=True, "
+        "regardless of mode"
+    )
