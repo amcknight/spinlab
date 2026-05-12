@@ -49,6 +49,10 @@ class TestInstallConditionRegistry:
 
         assert len(sm.capture.condition_registry.definitions) == 1
         assert sm.capture.condition_registry.definitions[0].name == "powerup"
+        # set_condition_registry must propagate the same instance to the
+        # recorder, otherwise a game-switch leaves the recorder decoding
+        # against a stale registry.
+        assert sm.capture.recorder._condition_registry is registry
 
     async def test_install_condition_registry_sends_set_conditions_when_connected(
         self, db, emu, tmp_path, monkeypatch,
