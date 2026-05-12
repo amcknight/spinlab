@@ -45,6 +45,13 @@ QUIT_GRACE_S = 2.0
 WRAM_SANITY_RETRIES = 5
 WRAM_SANITY_RETRY_DELAY_S = 0.3
 
+# PAUSE_TOGGLE → status check race. Under load (e.g. pytest-xdist with N
+# concurrent RA processes), RA may take >0.5s to apply the toggle before
+# GET_STATUS reports PAUSED. Retry the verify a few times instead of
+# failing on the first miss.
+PAUSE_VERIFY_RETRIES = 5
+PAUSE_VERIFY_INTERVAL_S = 0.3
+
 # Null-driver appendconfig content — suppresses video and audio output so
 # tests run headless. RA 1.22.2 does not accept --video=null style CLI flags;
 # --appendconfig is the correct way to override driver settings.
@@ -170,20 +177,42 @@ class RAHarness:
             # Already paused — correct state for FRAMEADVANCE-driven tests.
             pass
         elif status.state == "PLAYING":
-            client.pause_toggle()
-            # Brief delay so the toggle takes effect before we verify.
-            time.sleep(NCI_PING_INTERVAL_S)
-            try:
-                after = client.get_status()
-            except Exception as exc:
+            # Re-send PAUSE_TOGGLE on each iteration if still PLAYING.
+            # Under xdist contention the toggle is sometimes lost or RA's
+            # NCI thread is starved before processing it; idle waiting
+            # alone never recovers. Toggle is safe to re-send only when
+            # PLAYING (sending while PAUSED would un-pause).
+            after_state: str | None = "PLAYING"
+            last_exc: Exception | None = None
+            for _ in range(PAUSE_VERIFY_RETRIES):
+                if after_state == "PLAYING":
+                    try:
+                        client.pause_toggle()
+                    except Exception:
+                        # Best-effort — keep trying. The next get_status
+                        # call surfaces a persistent error.
+                        pass
+                time.sleep(PAUSE_VERIFY_INTERVAL_S)
+                try:
+                    after = client.get_status()
+                except Exception as exc:
+                    last_exc = exc
+                    after_state = None
+                    continue
+                after_state = after.state
+                if after_state == "PAUSED":
+                    break
+            else:
                 cls._kill(proc)
                 tmp_cfg_path.unlink(missing_ok=True)
-                raise RAHarnessLaunchError(f"GET_STATUS after pause_toggle failed: {exc}") from exc
-            if after.state != "PAUSED":
-                cls._kill(proc)
-                tmp_cfg_path.unlink(missing_ok=True)
+                if last_exc is not None and after_state is None:
+                    raise RAHarnessLaunchError(
+                        f"GET_STATUS after pause_toggle kept failing: {last_exc}"
+                    ) from last_exc
                 raise RAHarnessLaunchError(
-                    f"PAUSE_TOGGLE did not pause RA (status={after.state!r})"
+                    f"PAUSE_TOGGLE did not pause RA after "
+                    f"{PAUSE_VERIFY_RETRIES} retries "
+                    f"(last status={after_state!r})"
                 )
         else:
             cls._kill(proc)

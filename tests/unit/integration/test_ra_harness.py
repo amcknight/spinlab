@@ -93,18 +93,19 @@ def test_launch_raises_when_nci_never_replies(fake_paths, fake_proc):
 
 
 def test_launch_raises_when_pause_doesnt_stop_frames(fake_paths, fake_proc):
-    """Deep-pause guard: if PAUSE_TOGGLE doesn't result in PAUSED state,
-    refuse to proceed rather than enter a hung state."""
+    """Deep-pause guard: if PAUSE_TOGGLE doesn't result in PAUSED state
+    after every retry, refuse to proceed rather than enter a hung state."""
     from spinlab.retroarch.responses import StatusInfo
+    from tests.integration.ra_harness import PAUSE_VERIFY_RETRIES
 
     rom, core, exe = fake_paths
     runaway_client = MagicMock()
     runaway_client.version.return_value = "1.0"
-    # First GET_STATUS: PLAYING (triggers toggle). Second: still PLAYING (toggle failed).
-    runaway_client.get_status.side_effect = [
-        StatusInfo(state="PLAYING"),
-        StatusInfo(state="PLAYING"),
-    ]
+    # First GET_STATUS: PLAYING (triggers toggle).
+    # Every subsequent verify (one per retry): still PLAYING (toggle keeps failing).
+    runaway_client.get_status.side_effect = (
+        [StatusInfo(state="PLAYING")] * (1 + PAUSE_VERIFY_RETRIES)
+    )
 
     with patch("tests.integration.ra_harness.subprocess.Popen", return_value=fake_proc), \
          patch("tests.integration.ra_harness.NCIClient", return_value=runaway_client), \
