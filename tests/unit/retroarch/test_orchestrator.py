@@ -53,7 +53,7 @@ def _build_orchestrator(
     conditions = ConditionRegistry()
     from spinlab.retroarch.movies import MovieController
     movies = MovieController(
-        movie_io=movie_io,
+        movie_io=movie_io,  # type: ignore[arg-type]  # duck-typed FakeMovieIO
         raclient=raclient,
         enable=enable_movies,
         on_event=lambda ev: None,  # rebound by orch.__init__
