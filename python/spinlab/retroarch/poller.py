@@ -41,12 +41,18 @@ class PollerDeps:
 
 
 class Poller:
-    def __init__(self, deps: PollerDeps, period_sec: float = DEFAULT_PERIOD_SEC) -> None:
+    def __init__(
+        self,
+        deps: PollerDeps,
+        period_sec: float = DEFAULT_PERIOD_SEC,
+        detector: TransitionDetector | None = None,
+        cold_fill: ColdFillSpawnDetector | None = None,
+    ) -> None:
         self._deps = deps
         self._period = period_sec
         self._stopped = False
-        self._detector = TransitionDetector()
-        self._cold_fill = ColdFillSpawnDetector()
+        self._detector = detector if detector is not None else TransitionDetector()
+        self._cold_fill = cold_fill if cold_fill is not None else ColdFillSpawnDetector()
         self._start_ms = time.perf_counter() * 1000
         self._last_seen_state_version = deps.state_version()
         # Number of successful RAM reads completed (excludes polls that raised

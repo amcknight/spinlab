@@ -121,3 +121,41 @@ async def test_poll_count_increments_on_successful_reads():
     assert poller.poll_count == _SNAPSHOTS_TO_SERVE, (
         f"Expected poll_count={_SNAPSHOTS_TO_SERVE}, got {poller.poll_count}"
     )
+
+
+@pytest.mark.asyncio
+async def test_poller_uses_injected_detectors():
+    """An injected detector is the one Poller drives — DI works.
+
+    Smoke test for C2: when callers (production or tests) want to substitute
+    the transition detector, they pass a constructed instance to Poller's
+    constructor, and that's the instance whose .step is called per tick.
+    """
+    from spinlab.retroarch.cold_fill_detector import ColdFillSpawnDetector
+    from spinlab.retroarch.detector import TransitionDetector
+
+    class _SpyDetector(TransitionDetector):
+        def __init__(self) -> None:
+            super().__init__()
+            self.step_calls = 0
+
+        def step(self, snapshot, timestamp_ms):
+            self.step_calls += 1
+            return []
+
+    snapshots = iter([_snap(), _snap(), _snap()])
+    spy = _SpyDetector()
+    cold_fill = ColdFillSpawnDetector()
+
+    deps = PollerDeps(
+        client=_FakeClient(),
+        read_snapshot=_make_snapshots(snapshots),
+        on_event=lambda _ev: None,
+    )
+    poller = Poller(deps, period_sec=0.001, detector=spy, cold_fill=cold_fill)
+    task = asyncio.create_task(poller.run())
+    await asyncio.sleep(0.02)
+    poller.stop()
+    await task
+
+    assert spy.step_calls >= 1
