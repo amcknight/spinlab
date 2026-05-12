@@ -118,9 +118,18 @@ class TestModeGuards:
         assert sm.mode == Mode.IDLE
 
 
+def _segment_rows(db) -> list[dict]:
+    """Helper: read all segment rows ordered by id."""
+    rows = db.conn.execute(
+        "SELECT id, level_number, start_type, end_type, end_ordinal FROM segments ORDER BY rowid"
+    ).fetchall()
+    cols = ["id", "level_number", "start_type", "end_type", "end_ordinal"]
+    return [dict(zip(cols, row)) for row in rows]
+
+
 class TestReferenceCapture:
-    async def test_entrance_buffered(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_entrance_buffered(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
         sm.capture.recorder.capture_run_id = "run1"
@@ -131,11 +140,10 @@ class TestReferenceCapture:
         assert sm.capture.recorder.pending_start is not None
         assert sm.capture.recorder.pending_start.level_num == 105
 
-    async def test_exit_pairs_with_entrance(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_exit_pairs_with_entrance(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
-        sm.mode = Mode.REFERENCE
-        sm.capture.recorder.capture_run_id = "run1"
+        await sm.start_reference()  # sets up capture_run row for FK
 
         await sm.route_event(LevelEntranceEvent(
             level=105, room=0, state_path="/path/to/state.mss",
@@ -143,13 +151,12 @@ class TestReferenceCapture:
         await sm.route_event(LevelExitEvent(
             level=105, room=0, goal="normal", elapsed_ms=5000,
         ))
-        assert mock_db.upsert_segment.call_count == 1
+        assert len(_segment_rows(db)) == 1
 
-    async def test_exit_pairs_across_rooms(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_exit_pairs_across_rooms(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
-        sm.mode = Mode.REFERENCE
-        sm.capture.recorder.capture_run_id = "run1"
+        await sm.start_reference()  # sets up capture_run row for FK
 
         await sm.route_event(LevelEntranceEvent(
             level=105, room=0, state_path="/path/to/state.mss",
@@ -157,21 +164,21 @@ class TestReferenceCapture:
         await sm.route_event(LevelExitEvent(
             level=105, room=5, goal="normal", elapsed_ms=8000,
         ))
-        assert mock_db.upsert_segment.call_count == 1
-        seg = mock_db.upsert_segment.call_args[0][0]
-        assert seg.level_number == 105
+        rows = _segment_rows(db)
+        assert len(rows) == 1
+        assert rows[0]["level_number"] == 105
 
-    async def test_abort_discards_entrance(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_abort_discards_entrance(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
 
         await sm.route_event(LevelEntranceEvent(level=105, room=0))
         await sm.route_event(LevelExitEvent(level=105, room=0, goal="abort"))
-        assert mock_db.upsert_segment.call_count == 0
+        assert _segment_rows(db) == []
 
-    async def test_checkpoint_creates_segment(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_checkpoint_creates_segment(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         await sm.start_reference()
 
@@ -183,15 +190,15 @@ class TestReferenceCapture:
             timestamp_ms=5000, state_path="/states/105_cp1_hot.mss",
         ))
 
-        assert mock_db.upsert_segment.call_count == 1
-        seg = mock_db.upsert_segment.call_args[0][0]
-        assert seg.start_type == "entrance"
-        assert seg.end_type == "checkpoint"
-        assert seg.end_ordinal == 1
+        rows = _segment_rows(db)
+        assert len(rows) == 1
+        assert rows[0]["start_type"] == "entrance"
+        assert rows[0]["end_type"] == "checkpoint"
+        assert rows[0]["end_ordinal"] == 1
         assert sm.capture.recorder.pending_start.type == "checkpoint"
 
-    async def test_checkpoint_then_exit_creates_two_segments(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_checkpoint_then_exit_creates_two_segments(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         await sm.start_reference()
 
@@ -206,20 +213,20 @@ class TestReferenceCapture:
             level=105, room=0, goal="normal", elapsed_ms=10000,
         ))
 
-        assert mock_db.upsert_segment.call_count == 2
-        seg2 = mock_db.upsert_segment.call_args_list[1][0][0]
-        assert seg2.start_type == "checkpoint"
-        assert seg2.end_type == "goal"
+        rows = _segment_rows(db)
+        assert len(rows) == 2
+        assert rows[1]["start_type"] == "checkpoint"
+        assert rows[1]["end_type"] == "goal"
 
-    async def test_death_sets_ref_died(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_death_sets_ref_died(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
         await sm.route_event(DeathEvent())
         assert sm.capture.recorder.died is True
 
-    async def test_entrance_clears_ref_died(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_entrance_clears_ref_died(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.mode = Mode.REFERENCE
         sm.capture.recorder.capture_run_id = "run1"
@@ -303,8 +310,8 @@ class TestColdFill:
         assert result.status == Status.OK
         assert sm.mode == Mode.IDLE
 
-    async def test_cold_fill_spawn_routes_correctly(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_cold_fill_spawn_routes_correctly(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.mode = Mode.COLD_FILL
         sm.cold_fill.current = "seg1"
@@ -320,13 +327,13 @@ class TestColdFill:
         ))
         assert sm.mode == Mode.IDLE
 
-    async def test_cold_fill_completion_sends_reset_command(self, mock_db, mock_emu):
+    async def test_cold_fill_completion_sends_reset_command(self, db, emu):
         # When the last cold state is captured we want the emulator power-
         # cycled back to the title screen, not left mid-respawn in whatever
         # level the final capture happened in.
         from spinlab.protocol import ResetCmd
 
-        sm = make_sm(mock_db, mock_emu)
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.mode = Mode.COLD_FILL
         sm.cold_fill.current = "seg1"
@@ -341,12 +348,11 @@ class TestColdFill:
             state_path="/cold1.mss",
         ))
         assert sm.mode == Mode.IDLE
-        sent_cmds = [call.args[0] for call in mock_emu.send_command.call_args_list]
-        sent_resets = [c for c in sent_cmds if isinstance(c, ResetCmd)]
-        assert len(sent_resets) == 1, f"expected one ResetCmd, got: {sent_cmds}"
+        sent_resets = [c for c in emu.sent_commands if isinstance(c, ResetCmd)]
+        assert len(sent_resets) == 1, f"expected one ResetCmd, got: {emu.sent_commands}"
 
-    async def test_disconnect_during_cold_fill_returns_idle(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_disconnect_during_cold_fill_returns_idle(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.mode = Mode.COLD_FILL
         sm.cold_fill.current = "seg1"
@@ -358,8 +364,8 @@ class TestColdFill:
         assert sm.cold_fill.current is None
         assert sm.cold_fill.queue == []
 
-    async def test_cold_fill_state_in_get_state(self, mock_db, mock_emu):
-        sm = make_sm(mock_db, mock_emu)
+    async def test_cold_fill_state_in_get_state(self, db, emu):
+        sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.mode = Mode.COLD_FILL
         sm.cold_fill.current = "seg1"
