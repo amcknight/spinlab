@@ -232,3 +232,11 @@ class SegmentsMixin:
                 (run_id,),
             ).fetchone()
         return int(row[0])
+
+    def count_segments_for_capture_session(self, session_id: str) -> int:
+        """Count segments belonging to a specific capture session."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM segments WHERE capture_session_id = ?",
+            (session_id,),
+        ).fetchone()
+        return int(row[0])

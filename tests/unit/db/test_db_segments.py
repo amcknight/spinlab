@@ -49,3 +49,30 @@ def test_count_segments_for_run(tmp_path):
     assert db.count_segments_for_run("ref1") == 3
     assert db.count_segments_for_run("ref1", active_only=True) == 2
     assert db.count_segments_for_run("missing") == 0
+
+
+def test_count_segments_for_capture_session(tmp_path):
+    from spinlab.db import Database
+    from spinlab.models import Segment
+
+    db = Database(tmp_path / "t.db")
+    db.upsert_game("g", "G", "any%")
+    db.create_capture_run("ref1", "g", "Run 1")
+    db.create_capture_session(session_id="sess1", capture_run_id="ref1", ordinal=1)
+    db.create_capture_session(session_id="sess2", capture_run_id="ref1", ordinal=2)
+
+    def _seg(seg_id: str, sess_id: str | None):
+        db.upsert_segment(Segment(
+            id=seg_id, game_id="g", level_number=1,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0,
+            reference_id="ref1", capture_session_id=sess_id,
+        ))
+
+    _seg("s1", "sess1")
+    _seg("s2", "sess1")
+    _seg("s3", "sess2")
+
+    assert db.count_segments_for_capture_session("sess1") == 2
+    assert db.count_segments_for_capture_session("sess2") == 1
+    assert db.count_segments_for_capture_session("missing") == 0
