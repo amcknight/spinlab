@@ -100,10 +100,10 @@ class SegmentRecorder:
         is_primary = self._compute_is_primary(
             db, game_id, level, start.type, start.ordinal,
             end_type, end_ordinal, seg_id)
-        existing_count = db.conn.execute(
-            "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
-            (self.capture_run_id,),
-        ).fetchone()[0]
+        existing_count = (
+            db.count_segments_for_run(self.capture_run_id)
+            if self.capture_run_id else 0
+        )
         seg = Segment(
             id=seg_id, game_id=game_id, level_number=level,
             start_type=start.type, start_ordinal=start.ordinal,
@@ -149,16 +149,12 @@ class SegmentRecorder:
     @staticmethod
     def _compute_is_primary(db, game_id, level, start_type, start_ord,
                             end_type, end_ord, new_seg_id) -> bool:
-        row = db.conn.execute(
-            """SELECT id FROM segments
-               WHERE game_id = ? AND level_number = ?
-               AND start_type = ? AND start_ordinal = ?
-               AND end_type = ? AND end_ordinal = ?
-               AND active = 1 AND id != ?""",
-            (game_id, level, start_type, start_ord,
-             end_type, end_ord, new_seg_id),
-        ).fetchone()
-        return row is None
+        return not db.has_competing_active_segment(
+            game_id=game_id, level=level,
+            start_type=start_type, start_ordinal=start_ord,
+            end_type=end_type, end_ordinal=end_ord,
+            exclude_segment_id=new_seg_id,
+        )
 
     def handle_checkpoint(self, event: CheckpointEvent, game_id: str,
                           db: "Database",
