@@ -280,7 +280,6 @@ class TestCrossEstimatorAgreement:
     def test_all_agree_improving(self):
         signs = self._signs(IMPROVING_TIMES)
         if signs:
-            values = set(signs.values())
             # All should be positive (or zero for estimators that can't detect trend)
             assert all(v >= 0 for v in signs.values()), (
                 f"Estimators disagree on improving data: {signs}"

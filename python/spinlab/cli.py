@@ -10,6 +10,10 @@ import time
 import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from spinlab.config import AppConfig
 
 # Where startup errors land when the regular file logger isn't configured yet
 # (e.g. config-not-found before _setup_file_logging runs). AHK launches the
@@ -38,7 +42,7 @@ def _write_startup_error(exc: BaseException, context: str) -> Path:
         return _STARTUP_ERROR_DIR / "spinlab-startup-write-failed"
 
 
-def _load_config_or_die(config_path_str: str) -> "AppConfig":  # noqa: F821 — quoted forward ref
+def _load_config_or_die(config_path_str: str) -> AppConfig:
     """Load the YAML config or print an actionable error and exit.
 
     The default `config.yaml` (relative path) is resolved against CWD. When the

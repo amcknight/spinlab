@@ -5,7 +5,21 @@ from unittest.mock import AsyncMock
 import pytest
 
 from spinlab.db import Database
-from spinlab.models import Mode, Segment, Waypoint, WaypointSaveState, transition_mode
+from spinlab.models import (
+    Mode,
+    Segment,
+    Status,
+    Waypoint,
+    WaypointSaveState,
+    transition_mode,
+)
+from spinlab.protocol import (
+    SpeedRunCheckpointEvent,
+    SpeedRunCompleteEvent,
+    SpeedRunDeathEvent,
+    SpeedRunLoadCmd,
+)
+from spinlab.session_manager import SessionManager
 
 
 def test_speed_run_mode_exists():
@@ -23,14 +37,6 @@ def test_speed_run_to_idle_legal():
 def test_speed_run_to_practice_illegal():
     with pytest.raises(ValueError):
         transition_mode(Mode.SPEED_RUN, Mode.PRACTICE)
-
-
-from spinlab.protocol import (
-    SpeedRunCheckpointEvent,
-    SpeedRunCompleteEvent,
-    SpeedRunDeathEvent,
-    SpeedRunLoadCmd,
-)
 
 
 def _make_waypoint_and_state(db, game_id, level, ep_type, ordinal, state_path, conditions=None):
@@ -270,10 +276,6 @@ async def test_speed_run_stops_after_last_level(sr_db):
 
     result3 = await sr.run_one()
     assert result3 is False
-
-
-from spinlab.models import Status
-from spinlab.session_manager import SessionManager
 
 
 @pytest.fixture

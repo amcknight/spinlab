@@ -367,7 +367,7 @@ def test_practice_stop_clears_stale_mode(bare_client):
 
 
 def test_fresh_db_reference_start_creates_game(tmp_path):
-    from unittest.mock import AsyncMock, PropertyMock, patch
+    from unittest.mock import PropertyMock, patch
 
     from tests.conftest import make_test_config
 

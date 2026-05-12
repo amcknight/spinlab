@@ -249,8 +249,10 @@ class TestColdFill:
 
         # Write real (empty) hot-state files — cold_fill defensively skips
         # segments whose hot_state_path doesn't exist on disk.
-        hot1 = tmp_path / "hot1.mss"; hot1.write_bytes(b"")
-        hot2 = tmp_path / "hot2.mss"; hot2.write_bytes(b"")
+        hot1 = tmp_path / "hot1.mss"
+        hot1.write_bytes(b"")
+        hot2 = tmp_path / "hot2.mss"
+        hot2.write_bytes(b"")
 
         # Mock: 2 segments missing cold
         mock_db.segments_missing_cold = MagicMock(return_value=[

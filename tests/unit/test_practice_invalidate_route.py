@@ -1,5 +1,4 @@
 """Tests for the POST /api/practice/invalidate endpoint."""
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 

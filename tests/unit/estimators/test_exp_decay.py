@@ -5,10 +5,10 @@ import math
 import pytest
 
 np = pytest.importorskip("numpy")
-from tests.factories import make_attempt_record, make_incomplete
+from tests.factories import make_attempt_record, make_incomplete  # noqa: E402
 
-from spinlab.estimators.exp_decay import ExpDecayEstimator, ExpDecayState
-from spinlab.models import AttemptRecord, ModelOutput
+from spinlab.estimators.exp_decay import ExpDecayEstimator, ExpDecayState  # noqa: E402
+from spinlab.models import AttemptRecord, ModelOutput  # noqa: E402
 
 
 def _synthetic_exp_attempts(

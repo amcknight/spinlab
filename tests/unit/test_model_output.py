@@ -1,5 +1,14 @@
 """Tests for AttemptRecord and ModelOutput dataclasses."""
-from spinlab.models import AttemptRecord, Estimate, ModelOutput
+import json
+
+from spinlab.db import Database
+from spinlab.models import (
+    Attempt,
+    AttemptRecord,
+    Estimate,
+    ModelOutput,
+    Segment,
+)
 
 
 class TestAttemptRecord:
@@ -81,12 +90,6 @@ class TestModelOutput:
         mo2 = ModelOutput.from_dict(d)
         assert mo2.total.expected_ms is None
         assert mo2.clean.expected_ms is None
-
-
-import json
-
-from spinlab.db import Database
-from spinlab.models import Attempt, Segment
 
 
 class TestDBMultiModel:

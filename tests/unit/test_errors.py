@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from starlette.responses import JSONResponse
 
 from spinlab.errors import (
     ActionError,
@@ -60,10 +63,6 @@ def test_detail_codes_unique():
 
 
 # --- FastAPI handler integration ---
-
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from starlette.responses import JSONResponse
 
 
 def _build_app_with_raising_route(exc_factory):

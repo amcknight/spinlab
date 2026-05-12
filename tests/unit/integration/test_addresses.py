@@ -1,7 +1,8 @@
 """Verify the integration-test ADDR_MAP matches spinlab.retroarch.addresses."""
 
-from spinlab.retroarch import addresses as ra_addr
 from tests.integration.addresses import ADDR_MAP
+
+from spinlab.retroarch import addresses as ra_addr
 
 
 def test_addr_map_keys_match_lua_keys_used_in_poke_files():

@@ -7,13 +7,12 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
+from tests.conftest import FakeEmuBackend, make_seg_with_state
 
 from spinlab.db import Database
 from spinlab.models import Attempt, AttemptSource
 from spinlab.protocol import AttemptInvalidatedEvent
 from spinlab.session_manager import SessionManager
-
-from tests.conftest import FakeEmuBackend, make_seg_with_state
 
 
 @pytest.fixture

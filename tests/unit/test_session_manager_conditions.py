@@ -4,12 +4,11 @@ Uses real SQLite Database + FakeEmuBackend so the SessionManager constructor
 isn't being threaded through MagicMock objects whose call patterns drift.
 """
 import pytest
+from tests.conftest import FakeEmuBackend
 
 from spinlab.db import Database
 from spinlab.protocol import RomInfoEvent, SetConditionsCmd
 from spinlab.session_manager import SessionManager
-
-from tests.conftest import FakeEmuBackend
 
 
 @pytest.fixture

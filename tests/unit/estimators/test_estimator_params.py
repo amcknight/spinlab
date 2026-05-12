@@ -1,5 +1,7 @@
 # tests/test_estimator_params.py
 """Tests for estimator tunable params system."""
+from tests.factories import make_attempt_record
+
 from spinlab.estimators import ParamDef, get_estimator, list_estimators
 
 # Force registration
@@ -47,9 +49,6 @@ class TestDeclaredParamsABC:
             assert isinstance(params, list)
             for p in params:
                 assert isinstance(p, ParamDef)
-
-
-from tests.factories import make_attempt_record
 
 
 class TestKalmanDeclaredParams:

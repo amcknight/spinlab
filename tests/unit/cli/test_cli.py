@@ -1,7 +1,7 @@
 """Tests for CLI dispatch."""
 import pytest
 
-from spinlab.cli import main
+from spinlab.cli import _write_ports_file, main
 
 
 def test_stats_subcommand_prints_stub(capsys):
@@ -22,9 +22,6 @@ def test_dashboard_subcommand_imports():
     """Dashboard subcommand is registered and dashboard module is importable."""
     from spinlab import dashboard
     assert hasattr(dashboard, "create_app")
-
-
-from spinlab.cli import _write_ports_file
 
 
 def test_ports_file_includes_vite_port(tmp_path):

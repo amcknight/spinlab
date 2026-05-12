@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import pytest
+from tests.conftest import FakeEmuBackend, make_seg_with_state
 
 from spinlab.capture.fill_gap import FillGapController
 from spinlab.db import Database
 from spinlab.errors import NoHotVariantError, NotConnectedError
-from spinlab.models import Mode, Status, Waypoint, Segment
+from spinlab.models import Mode, Segment, Status, Waypoint
 from spinlab.protocol import FillGapLoadCmd, SpawnEvent
-
-from tests.conftest import FakeEmuBackend, make_seg_with_state
 
 
 @pytest.fixture

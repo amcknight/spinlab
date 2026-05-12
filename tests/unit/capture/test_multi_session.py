@@ -160,7 +160,6 @@ async def test_delete_capture_session_while_paused(started_session, db, tmp_path
 
 @pytest.mark.asyncio
 async def test_delete_capture_session_after_finalize_rejected(started_session, db):
-    run_id = started_session.recorder.capture_run_id
     sess_id = started_session.recorder.current_capture_session_id
     await started_session.save_and_finish_run(Mode.REFERENCE, name="Done")
     with pytest.raises(SessionDeleteAfterFinalizeError):

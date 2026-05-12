@@ -19,9 +19,10 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from tests.integration.ra_poke_engine import RAPokeEngine
+
 from spinlab.retroarch.exceptions import NCITimeout
 from spinlab.retroarch.nci import DEFAULT_PORT, NCIClient
-from tests.integration.ra_poke_engine import RAPokeEngine
 
 logger = logging.getLogger(__name__)
 

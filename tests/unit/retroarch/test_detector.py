@@ -6,7 +6,6 @@ from spinlab.protocol import (
     LevelExitEvent,
     SpawnEvent,
 )
-from spinlab.retroarch import addresses as a
 from spinlab.retroarch.detector import TransitionDetector
 from spinlab.retroarch.snapshot import MemorySnapshot
 

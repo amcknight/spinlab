@@ -4,11 +4,10 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from tests.conftest import FakeEmuBackend, make_seg_with_state
 
 from spinlab.capture.reference import ReferenceController
 from spinlab.db import Database
-
-from tests.conftest import FakeEmuBackend, make_seg_with_state
 
 
 @pytest.fixture

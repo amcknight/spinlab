@@ -7,7 +7,6 @@ details to a stable temp file regardless of how the process was started.
 """
 from __future__ import annotations
 
-import sys
 import tempfile
 from pathlib import Path
 

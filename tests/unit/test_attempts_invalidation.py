@@ -1,5 +1,6 @@
 from spinlab.db import Database
 from spinlab.models import Attempt, AttemptSource
+from spinlab.scheduler import _attempts_from_rows
 
 
 def _seed(db):
@@ -36,7 +37,7 @@ def test_set_attempt_invalidated():
 def test_get_last_practice_attempt():
     db = Database(":memory:")
     _seed(db)
-    a1 = db.log_attempt(_attempt(sid="sess1"))
+    db.log_attempt(_attempt(sid="sess1"))
     a2 = db.log_attempt(_attempt(sid="sess1"))
     last = db.get_last_practice_attempt(session_id="sess1")
     assert last is not None
@@ -47,9 +48,6 @@ def test_get_last_practice_attempt_none_when_empty():
     db = Database(":memory:")
     _seed(db)
     assert db.get_last_practice_attempt(session_id="sess1") is None
-
-
-from spinlab.scheduler import _attempts_from_rows
 
 
 def test_attempts_from_rows_excludes_invalidated():

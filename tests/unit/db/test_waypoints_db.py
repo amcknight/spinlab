@@ -1,4 +1,5 @@
 from spinlab.db import Database
+from spinlab.models import Segment, Waypoint, WaypointSaveState
 
 
 def test_waypoints_table_exists():
@@ -39,9 +40,6 @@ def test_segment_variants_table_dropped():
     assert row is None
 
 
-from spinlab.models import Waypoint
-
-
 def test_upsert_and_get_waypoint():
     db = Database(":memory:")
     db.upsert_game("g1", "Game", "any%")
@@ -62,9 +60,6 @@ def test_upsert_waypoint_idempotent():
     db.upsert_waypoint(w)
     rows = db.conn.execute("SELECT COUNT(*) FROM waypoints").fetchone()
     assert rows[0] == 1
-
-
-from spinlab.models import WaypointSaveState
 
 
 def test_save_state_attaches_to_waypoint():
@@ -90,9 +85,6 @@ def test_get_default_save_state_falls_back_to_any():
     got = db.get_default_save_state(w.id)
     assert got is not None
     assert got.variant_type == "cold"
-
-
-from spinlab.models import Segment  # noqa: F811
 
 
 def _make_seg_with_waypoints(db, game_id, level, start_type, start_ord,

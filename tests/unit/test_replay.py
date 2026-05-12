@@ -5,6 +5,7 @@ schema is actually exercised (game and segment FKs etc.) and the emu
 backend matches the EmuBackend Protocol verbatim.
 """
 import pytest
+from tests.conftest import FakeEmuBackend
 
 from spinlab.db import Database
 from spinlab.errors import PracticeActiveError, ReferenceActiveError
@@ -16,8 +17,6 @@ from spinlab.protocol import (
     ReplayFinishedEvent,
 )
 from spinlab.session_manager import SessionManager
-
-from tests.conftest import FakeEmuBackend
 
 
 @pytest.fixture

@@ -10,9 +10,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.integration.ra_harness import RAHarness, RAHarnessLaunchError
 
 from spinlab.retroarch.exceptions import NCITimeout
-from tests.integration.ra_harness import RAHarness, RAHarnessLaunchError
 
 
 @pytest.fixture
@@ -72,8 +72,10 @@ def test_launch_happy_path(fake_paths, fake_proc, fake_client_running_then_pause
 def test_launch_raises_when_rom_missing(tmp_path):
     """Use a path to a file that genuinely does not exist."""
     rom = tmp_path / "missing.smc"
-    core = tmp_path / "core.dll"; core.write_bytes(b"")
-    exe = tmp_path / "retroarch.exe"; exe.write_bytes(b"")
+    core = tmp_path / "core.dll"
+    core.write_bytes(b"")
+    exe = tmp_path / "retroarch.exe"
+    exe.write_bytes(b"")
 
     with pytest.raises(RAHarnessLaunchError, match="rom_path does not exist"):
         RAHarness.launch(rom_path=rom, core_path=core, retroarch_exe=exe)
@@ -95,8 +97,9 @@ def test_launch_raises_when_nci_never_replies(fake_paths, fake_proc):
 def test_launch_raises_when_pause_doesnt_stop_frames(fake_paths, fake_proc):
     """Deep-pause guard: if PAUSE_TOGGLE doesn't result in PAUSED state
     after every retry, refuse to proceed rather than enter a hung state."""
-    from spinlab.retroarch.responses import StatusInfo
     from tests.integration.ra_harness import PAUSE_VERIFY_RETRIES
+
+    from spinlab.retroarch.responses import StatusInfo
 
     rom, core, exe = fake_paths
     runaway_client = MagicMock()

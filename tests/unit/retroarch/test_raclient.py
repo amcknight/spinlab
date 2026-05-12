@@ -19,8 +19,6 @@ import pytest
 
 from spinlab.retroarch.exceptions import NCIError
 from spinlab.retroarch.raclient import (
-    MovieRecordError,
-    MoviePlaybackError,
     NotReachableError,
     RAClient,
     RAClientError,
@@ -30,7 +28,6 @@ from spinlab.retroarch.raclient import (
 )
 from spinlab.retroarch.responses import StatusInfo
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -38,13 +35,13 @@ from spinlab.retroarch.responses import StatusInfo
 @pytest.fixture
 def ra_dirs(tmp_path):
     """A trio of (savestate_dir, log_dir, movie_dir) under tmp_path."""
-    s = tmp_path / "ra-states"
-    s.mkdir()
-    l = tmp_path / "ra-logs"
-    l.mkdir()
-    m = tmp_path / "ra-movies"
-    m.mkdir()
-    return s, l, m
+    states = tmp_path / "ra-states"
+    states.mkdir()
+    logs = tmp_path / "ra-logs"
+    logs.mkdir()
+    movies = tmp_path / "ra-movies"
+    movies.mkdir()
+    return states, logs, movies
 
 
 @pytest.fixture

@@ -8,8 +8,6 @@ back into the 500 hole.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi.testclient import TestClient
 
 from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig

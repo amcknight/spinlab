@@ -28,9 +28,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from tests.integration.addresses import ADDR_MAP
+
 from spinlab.retroarch.detector import TransitionDetector
 from spinlab.retroarch.snapshot import read_snapshot
-from tests.integration.addresses import ADDR_MAP
 
 FRAME_PERIOD_MS = 16  # 60Hz approximation; only used for monotonic timestamps
 

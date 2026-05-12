@@ -1,6 +1,6 @@
 """Tests for spinlab.models."""
 
-from spinlab.models import Segment, Waypoint
+from spinlab.models import Attempt, AttemptSource, Segment, Waypoint
 
 
 def test_waypoint_id_is_deterministic():
@@ -49,9 +49,6 @@ def test_segment_is_primary_default_true():
         start_waypoint_id=wp_a.id, end_waypoint_id=wp_b.id,
     )
     assert seg.is_primary is True
-
-
-from spinlab.models import Attempt, AttemptSource
 
 
 def test_attempt_has_observed_conditions_and_invalidated():

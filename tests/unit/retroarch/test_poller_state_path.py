@@ -5,7 +5,6 @@ from typing import Iterator
 import pytest
 
 from spinlab.protocol import (
-    CheckpointEvent,
     DeathEvent,
     LevelEntranceEvent,
     SpawnEvent,

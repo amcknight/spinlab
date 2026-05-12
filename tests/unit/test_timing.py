@@ -8,7 +8,7 @@ from spinlab.protocol import (
     SpeedRunCompleteEvent,
     SpeedRunDeathEvent,
 )
-from spinlab.timing import SpeedRunEmittedEvent, PracticeTiming, SpeedRunTiming
+from spinlab.timing import PracticeTiming, SpeedRunEmittedEvent, SpeedRunTiming
 
 
 class _Clock:

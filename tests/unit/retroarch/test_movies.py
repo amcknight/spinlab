@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from tests.fakes.raclient import FakeRAClient
 
 from spinlab.errors import BackendNotImplementedError
 from spinlab.protocol import (
@@ -13,8 +14,6 @@ from spinlab.protocol import (
     ReplayStartedEvent,
 )
 from spinlab.retroarch.movies import MovieController
-
-from tests.fakes.raclient import FakeRAClient
 
 
 @pytest.fixture

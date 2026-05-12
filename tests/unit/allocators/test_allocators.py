@@ -3,6 +3,9 @@ from tests.factories import make_segment_with_model
 
 from spinlab.allocators import SegmentWithModel
 from spinlab.allocators.greedy import GreedyAllocator
+from spinlab.allocators.least_played import LeastPlayedAllocator
+from spinlab.allocators.random import RandomAllocator
+from spinlab.allocators.round_robin import RoundRobinAllocator
 
 
 class TestGreedyAllocator:
@@ -14,11 +17,6 @@ class TestGreedyAllocator:
     def test_empty_list_returns_none(self):
         alloc = GreedyAllocator()
         assert alloc.pick_next([]) is None
-
-
-from spinlab.allocators.least_played import LeastPlayedAllocator
-from spinlab.allocators.random import RandomAllocator
-from spinlab.allocators.round_robin import RoundRobinAllocator
 
 
 class TestRandomAllocator:
