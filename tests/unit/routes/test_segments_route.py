@@ -38,7 +38,7 @@ def db(tmp_path):
 
 @pytest.fixture
 def client(db):
-    from conftest import make_test_config
+    from tests.conftest import make_test_config
 
     from spinlab.dashboard import create_app
     app = create_app(db=db, config=make_test_config())
@@ -90,7 +90,7 @@ def test_segments_endpoint_null_waypoints_produce_empty_conditions(db, tmp_path)
     )
     db.upsert_segment(seg)
 
-    from conftest import make_test_config
+    from tests.conftest import make_test_config
 
     from spinlab.dashboard import create_app
     app = create_app(db=db, config=make_test_config())

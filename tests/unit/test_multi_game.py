@@ -42,7 +42,7 @@ def test_game_name_strips_extension():
 @pytest.fixture
 def app_with_rom_dir(tmp_path):
     """Dashboard app with rom_dir pointing to test fixtures."""
-    from conftest import make_test_config
+    from tests.conftest import make_test_config
 
     from spinlab.dashboard import create_app
 

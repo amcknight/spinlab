@@ -365,95 +365,18 @@ class ReferenceController:
         if not run_id:
             raise NoPausedRunError()
 
-        try:
-            self.db.conn.execute("BEGIN IMMEDIATE")
+        from .finalizer import atomic_save_and_finish_run
+        seeded = atomic_save_and_finish_run(self.db, run_id, sess_id, name)
 
-            # End the capture session inside the transaction so a later failure
-            # rolls it back. _end_current_session would commit it separately.
-            if sess_id:
-                self.db.conn.execute(
-                    "UPDATE capture_sessions SET ended_at = ?, end_reason = ? "
-                    "WHERE id = ? AND ended_at IS NULL",
-                    (_dt.now(UTC).isoformat(), "stopped", sess_id),
-                )
-
-            # Drain timing rows and delete them inside this transaction
-            rows = self.db.conn.execute(
-                "SELECT t.id, t.capture_session_id, t.segment_id, t.time_ms, "
-                "t.deaths, t.clean_tail_ms, t.recorded_at "
-                "FROM recorded_segment_times t "
-                "JOIN capture_sessions s ON t.capture_session_id = s.id "
-                "WHERE s.capture_run_id = ? ORDER BY t.id",
-                (run_id,),
-            ).fetchall()
-            timing_rows = [dict(r) for r in rows]
-            ids = [r["id"] for r in timing_rows]
-            if ids:
-                placeholders = ",".join("?" * len(ids))
-                self.db.conn.execute(
-                    f"DELETE FROM recorded_segment_times WHERE id IN ({placeholders})", ids,
-                )
-            # Promote draft → saved
-            self.db.conn.execute(
-                "UPDATE capture_runs SET draft = 0, name = ? WHERE id = ?",
-                (name, run_id),
-            )
-            # Activate this run (deactivate siblings for the same game first)
-            game_row = self.db.conn.execute(
-                "SELECT game_id FROM capture_runs WHERE id = ?", (run_id,)
-            ).fetchone()
-            if game_row:
-                self.db.conn.execute(
-                    "UPDATE capture_runs SET active = 0 WHERE game_id = ?",
-                    (game_row[0],),
-                )
-                self.db.conn.execute(
-                    "UPDATE capture_runs SET active = 1 WHERE id = ?", (run_id,)
-                )
-            now = _dt.now(UTC)
-            seeded = 0
-            for row in timing_rows:
-                attempt = Attempt(
-                    segment_id=row["segment_id"],
-                    parent_id=run_id,
-                    completed=True,
-                    time_ms=row["time_ms"],
-                    deaths=row["deaths"],
-                    clean_tail_ms=row["clean_tail_ms"],
-                    source=AttemptSource.REFERENCE,
-                    created_at=now,
-                )
-                self.db.conn.execute(
-                    """INSERT INTO attempts
-                       (segment_id, parent_id, completed, time_ms,
-                        strat_version, source, deaths, clean_tail_ms,
-                        observed_start_conditions, observed_end_conditions, invalidated,
-                        chosen_allocator, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (attempt.segment_id, attempt.parent_id, int(attempt.completed),
-                     attempt.time_ms,
-                     attempt.strat_version, attempt.source,
-                     attempt.deaths, attempt.clean_tail_ms,
-                     attempt.observed_start_conditions, attempt.observed_end_conditions,
-                     int(attempt.invalidated),
-                     attempt.chosen_allocator,
-                     attempt.created_at.isoformat()),
-                )
-                seeded += 1
-                logger.info("seed: segment=%s time=%dms deaths=%d clean_tail=%dms",
-                             row["segment_id"], row["time_ms"], row["deaths"],
-                             row["clean_tail_ms"])
-            self.db.conn.commit()
-        except Exception:
-            self.db.conn.rollback()
-            raise
-
-        # Always rebuild — see finalize_run for rationale.
         if scheduler:
             scheduler.rebuild_all_states()
         self._enter_idle()
+        for attempt in seeded:
+            logger.info("seed: segment=%s time=%dms deaths=%d clean_tail=%dms",
+                         attempt.segment_id, attempt.time_ms, attempt.deaths,
+                         attempt.clean_tail_ms)
         logger.info("reference: save_and_finish run=%s as %r (seeded %d attempts)",
-                     run_id, name, seeded)
+                     run_id, name, len(seeded))
         return ActionResult(status=Status.OK, new_mode=Mode.IDLE)
 
     async def discard_run(self) -> ActionResult:
