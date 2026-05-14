@@ -33,7 +33,7 @@ class PendingStart:
     state_path: str | None
     timestamp_ms: int
     level_num: int
-    raw_conditions: dict
+    raw_conditions: dict[str, int]
 
 
 class SegmentRecorder:
