@@ -13,16 +13,20 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from spinlab import log
 from spinlab.condition_registry import ConditionRegistry
 from spinlab.retroarch.cold_fill_detector import ColdFillSpawnDetector
 from spinlab.retroarch.detector import TransitionDetector
 from spinlab.retroarch.nci import NCIClient
 from spinlab.retroarch.snapshot import MemorySnapshot
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_PERIOD_SEC = 1.0 / 60.0  # one frame at 60 Hz
 
@@ -58,6 +62,8 @@ class Poller:
         # Number of successful RAM reads completed (excludes polls that raised
         # an exception). Used by tests to verify throughput during playback.
         self.poll_count: int = 0
+        # Transition-log state: log once on entering failure, once on recovery.
+        self._read_failing: bool = False
 
     def _stamp_state_path(self, ev: Any) -> Any:
         if self._deps.state_path_for is None:
@@ -98,9 +104,15 @@ class Poller:
         while not self._stopped:
             try:
                 snap = self._deps.read_snapshot(self._deps.client)
-            except Exception:
+            except Exception as exc:
+                if not self._read_failing:
+                    log.warn(logger, "poller read failed", exc=exc)
+                    self._read_failing = True
                 await asyncio.sleep(self._period)
                 continue
+            if self._read_failing:
+                log.info(logger, "poller read recovered")
+                self._read_failing = False
 
             self.poll_count += 1
             ts = int(time.perf_counter() * 1000 - self._start_ms)

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import Iterator
 
 import pytest
@@ -159,3 +160,36 @@ async def test_poller_uses_injected_detectors():
     await task
 
     assert spy.step_calls >= 1
+
+
+@pytest.mark.asyncio
+async def test_poller_logs_read_failure_then_recovery(caplog):
+    """Poller should log exactly one warning on read failure and one info on recovery."""
+    fail_then_recover: list = [RuntimeError("nci dead")] + [None] * 10
+    idx = [0]
+
+    def _read_with_failure(_client) -> MemorySnapshot:
+        item = fail_then_recover[idx[0]]
+        idx[0] = min(idx[0] + 1, len(fail_then_recover) - 1)
+        if isinstance(item, Exception):
+            raise item
+        return _snap()
+
+    deps = PollerDeps(
+        client=_FakeClient(),
+        read_snapshot=_read_with_failure,
+        on_event=lambda _: None,
+    )
+    poller = Poller(deps, period_sec=0.001)
+
+    with caplog.at_level(logging.INFO, logger="spinlab.retroarch.poller"):
+        task = asyncio.create_task(poller.run())
+        await asyncio.sleep(0.05)
+        poller.stop()
+        await task
+
+    warns = [r for r in caplog.records if r.levelno == logging.WARNING]
+    infos = [r for r in caplog.records if r.levelno == logging.INFO]
+    assert len(warns) == 1, f"expected 1 warn, got {[r.getMessage() for r in warns]}"
+    assert "poller read failed" in warns[0].getMessage()
+    assert any("poller read recovered" in r.getMessage() for r in infos)
