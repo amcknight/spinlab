@@ -15,16 +15,16 @@ SPEED_UNCAPPED = 0  # passed to ReplayCmd.speed; RA interprets 0 as uncapped
 # Events (backend → SessionManager)
 # ---------------------------------------------------------------------------
 
-@dataclass
+@dataclass(frozen=True)
 class RomInfoEvent:
     filename: str = ""
 
-@dataclass
+@dataclass(frozen=True)
 class GameContextEvent:
     game_id: str = ""
     game_name: str = ""
 
-@dataclass
+@dataclass(frozen=True)
 class LevelEntranceEvent:
     level: int = 0
     room: int = 0
@@ -33,7 +33,7 @@ class LevelEntranceEvent:
     timestamp_ms: int = 0
     conditions: dict = field(default_factory=dict)
 
-@dataclass
+@dataclass(frozen=True)
 class CheckpointEvent:
     level_num: int = 0
     cp_ordinal: int = 1
@@ -42,13 +42,13 @@ class CheckpointEvent:
     timestamp_ms: int = 0
     conditions: dict = field(default_factory=dict)
 
-@dataclass
+@dataclass(frozen=True)
 class DeathEvent:
     level_num: int = 0
     timestamp_ms: int = 0
     conditions: dict = field(default_factory=dict)
 
-@dataclass
+@dataclass(frozen=True)
 class SpawnEvent:
     level_num: int = 0
     state_path: str | None = None
@@ -58,7 +58,7 @@ class SpawnEvent:
     segment_id: str = ""
     timestamp_ms: int = 0
 
-@dataclass
+@dataclass(frozen=True)
 class LevelExitEvent:
     level: int = 0
     room: int = 0
@@ -68,7 +68,7 @@ class LevelExitEvent:
     timestamp_ms: int = 0
     conditions: dict = field(default_factory=dict)
 
-@dataclass
+@dataclass(frozen=True)
 class AttemptResultEvent:
     segment_id: str = ""
     completed: bool = False
@@ -76,35 +76,35 @@ class AttemptResultEvent:
     deaths: int = 0
     clean_tail_ms: int | None = None
 
-@dataclass
+@dataclass(frozen=True)
 class ReplayStartedEvent:
     path: str = ""
     frame_count: int = 0
 
-@dataclass
+@dataclass(frozen=True)
 class ReplayFinishedEvent:
     pass
 
-@dataclass
+@dataclass(frozen=True)
 class ReplayErrorEvent:
     message: str = ""
 
-@dataclass
+@dataclass(frozen=True)
 class AttemptInvalidatedEvent:
     pass
 
-@dataclass
+@dataclass(frozen=True)
 class SpeedRunCheckpointEvent:
     ordinal: int = 0
     elapsed_ms: int = 0
     split_ms: int = 0
 
-@dataclass
+@dataclass(frozen=True)
 class SpeedRunDeathEvent:
     elapsed_ms: int = 0
     split_ms: int = 0
 
-@dataclass
+@dataclass(frozen=True)
 class SpeedRunCompleteEvent:
     elapsed_ms: int = 0
     split_ms: int = 0

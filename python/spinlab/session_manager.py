@@ -452,6 +452,10 @@ class SessionManager:
         return ActionResult(status=Status.STARTED, session_id=ps.session_id)
 
     def _on_practice_done(self, task: asyncio.Task) -> None:
+        if not task.cancelled():
+            exc = task.exception()
+            if exc is not None:
+                logger.error("practice task crashed", exc_info=exc)
         if self.mode == Mode.PRACTICE:
             self.mode = Mode.IDLE
             asyncio.ensure_future(self._notify_sse())
@@ -500,6 +504,10 @@ class SessionManager:
         return ActionResult(status=Status.STARTED, session_id=sr.session_id)
 
     def _on_speed_run_done(self, task: asyncio.Task) -> None:
+        if not task.cancelled():
+            exc = task.exception()
+            if exc is not None:
+                logger.error("speed_run task crashed", exc_info=exc)
         if self.mode == Mode.SPEED_RUN:
             self.mode = Mode.IDLE
             asyncio.ensure_future(self._notify_sse())

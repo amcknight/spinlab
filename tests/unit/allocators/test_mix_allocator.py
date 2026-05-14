@@ -47,7 +47,8 @@ class TestMixAllocator:
         segments = [make_segment_with_model("x")]
         results = [mix.pick_next(segments) for _ in range(1000)]
         a_count = results.count("from_a")
-        assert 650 < a_count < 950
+        # 80/20 weight, n=1000 → mean 800, sigma ≈ 12.6. ±80 is ~6.3σ — safe but tight.
+        assert 720 < a_count < 880
 
     def test_round_robin_preserves_state_across_picks(self):
         from spinlab.allocators.mix import MixAllocator
