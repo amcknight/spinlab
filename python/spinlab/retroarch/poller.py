@@ -64,6 +64,7 @@ class Poller:
         self.poll_count: int = 0
         # Transition-log state: log once on entering failure, once on recovery.
         self._read_failing: bool = False
+        self._conditions_failing: bool = False
 
     def _stamp_state_path(self, ev: Any) -> Any:
         if self._deps.state_path_for is None:
@@ -81,8 +82,14 @@ class Poller:
             return ev
         try:
             values = reg.read_all(self._deps.client)
-        except Exception:
+        except Exception as exc:
+            if not self._conditions_failing:
+                log.warn(logger, "poller condition read failed", exc=exc)
+                self._conditions_failing = True
             return ev
+        if self._conditions_failing:
+            log.info(logger, "poller condition read recovered")
+            self._conditions_failing = False
         if not values:
             return ev
         return dataclasses.replace(ev, conditions=values)
