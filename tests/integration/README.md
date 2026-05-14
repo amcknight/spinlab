@@ -32,12 +32,16 @@ pytest                         RetroArch (headless, null drivers)
 
 **RA launch model.** One RetroArch process per unique `rom_key`,
 session-scoped via `ra_harness_factory`. Today there are two registered
-keys: `default` maps to `Toothpaste.smc` (used by poke transitions, harness
-isolation, practice smoke) and `love_yourself` maps to `Love Yourself.smc`
-(pinned for the replay fixture). Each key gets its own RA process — that's
-what keeps `test_two_harnesses_use_distinct_nci_ports` honest. Expected
-long-run registry size is 2-5 entries. To add a test that needs a different
-ROM, add an entry to `ROM_REGISTRY` in `conftest.py` and request it via
+keys: `default` and `love_yourself`, both currently mapped to
+`Love Yourself.smc` because the harness's FRAMEADVANCE sanity probe
+rejects `Toothpaste.smc` and vanilla `_clean.smc` as "deep-frozen" (likely
+a probe bug — see the conftest comment on `ROM_REGISTRY`). Each key still
+gets its own RA process — that's what keeps
+`test_two_harnesses_use_distinct_nci_ports` honest, and the registry
+preserves the design intent that `default` will swap back to a vanilla SMW
+base once the probe is widened. Expected long-run registry size is 2-5
+entries. To add a test that needs a different ROM, add an entry to
+`ROM_REGISTRY` in `conftest.py` and request it via
 `ra_harness_factory("<key>")`.
 
 **No silent skips.** Missing RA binary, missing core, missing ROM, or

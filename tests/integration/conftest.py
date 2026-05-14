@@ -40,7 +40,15 @@ pytestmark = pytest.mark.emulator
 LOVE_YOURSELF_ROM_NAME = "Love Yourself.smc"
 LOVE_YOURSELF_GAME_ID = "bd94dbb29012c7f5"
 
+# Both Toothpaste.smc and _clean.smc (vanilla SMW) deep-freeze the Snes9x
+# core under the harness's FRAMEADVANCE sanity probe. Only Love Yourself.smc
+# survives the probe across the ROMs tried so far. Suspected cause: the
+# probe is too aggressive (reads WRAM 0x0000-0x0010 across only 5 retries;
+# SMW's early frames may not touch that band) rather than the ROMs being
+# genuinely frozen. Follow-up: project_framadvance_probe_too_aggressive,
+# project_test_rom_declaration_design.
 TOOTHPASTE_ROM_NAME = "Toothpaste.smc"
+CLEAN_SMW_ROM_NAME = "_clean.smc"
 
 # ---------------------------------------------------------------------------
 # ROM registry: rom_key -> filename in config.yaml's rom.dir.
@@ -51,10 +59,14 @@ TOOTHPASTE_ROM_NAME = "Toothpaste.smc"
 # `test_two_harnesses_use_distinct_nci_ports` and the broader "parallel RAs"
 # infrastructure (see project_pytest_xdist_experiment_2026_05_11 memory).
 #
-# Today:
-#   - "default" -> Toothpaste.smc — used by poke transitions, harness
-#     isolation, practice smoke. These tests poke generic SMW WRAM addresses
-#     so any vanilla-ish SMW base works.
+# Today (both keys point at Love Yourself.smc — see probe note above):
+#   - "default" -> Love Yourself.smc — used by poke transitions, harness
+#     isolation, practice smoke. Three transition tests
+#     (test_checkpoint_cold_spawn, test_multiple_checkpoints,
+#     test_same_frame_exit_entrance) currently FAIL under this fallback —
+#     they assume vanilla SMW level numbering, but Love Yourself's level
+#     layout differs. Acceptable temporary state until the FRAMEADVANCE
+#     probe is widened to accept vanilla SMW.
 #   - "love_yourself" -> Love Yourself.smc — pinned ROM for the replay
 #     fixture (replay was recorded against this ROM, so it must match).
 #
@@ -62,7 +74,7 @@ TOOTHPASTE_ROM_NAME = "Toothpaste.smc"
 # needs a different ROM, add a key/filename pair here and request it via
 # `ra_harness_factory("<key>")`.
 ROM_REGISTRY: dict[str, str] = {
-    "default": TOOTHPASTE_ROM_NAME,
+    "default": LOVE_YOURSELF_ROM_NAME,
     "love_yourself": LOVE_YOURSELF_ROM_NAME,
 }
 
