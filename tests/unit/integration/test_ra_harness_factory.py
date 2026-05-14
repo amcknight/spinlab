@@ -6,7 +6,7 @@ resolver/factory plumbing only. Real RA launch is mocked.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -112,3 +112,95 @@ def test_resolve_ra_paths_raises_when_retroarch_exe_missing_on_disk(tmp_path):
     with patch("tests.integration.conftest._load_config", return_value=fake_config):
         with pytest.raises(RuntimeError, match="retroarch_path does not exist"):
             _resolve_ra_paths("default")
+
+
+def test_factory_caches_per_key(tmp_path):
+    """factory(key) returns same instance on subsequent calls; factory(key1) and
+    factory(key2) return DIFFERENT instances even if their ROMs happen to match."""
+    from tests.integration.conftest import _harness_factory_impl
+    from tests.integration.ra_harness import RAHarness
+
+    h_default = MagicMock(spec=RAHarness)
+    h_love = MagicMock(spec=RAHarness)
+    launched = [h_default, h_love]
+
+    with patch(
+        "tests.integration.conftest.RAHarness.launch",
+        side_effect=lambda **kw: launched.pop(0),
+    ), patch(
+        "tests.integration.conftest._resolve_ra_paths",
+        return_value=(Path("exe"), Path("core"), Path("rom")),
+    ), patch(
+        "tests.integration.conftest._free_udp_port",
+        side_effect=[55001, 55002],
+    ):
+        factory_impl = _harness_factory_impl()
+        a1 = factory_impl("default")
+        a2 = factory_impl("default")
+        b = factory_impl("love_yourself")
+
+    assert a1 is a2  # cached
+    assert a1 is not b  # distinct keys -> distinct instances
+
+
+def test_factory_raises_runtime_error_on_launch_failure(tmp_path):
+    """If RAHarness.launch raises RAHarnessLaunchError, factory must surface it
+    as a RuntimeError (not pytest.skip)."""
+    from tests.integration.conftest import _harness_factory_impl
+    from tests.integration.ra_harness import RAHarnessLaunchError
+
+    with patch(
+        "tests.integration.conftest.RAHarness.launch",
+        side_effect=RAHarnessLaunchError("simulated deep-freeze"),
+    ), patch(
+        "tests.integration.conftest._resolve_ra_paths",
+        return_value=(Path("exe"), Path("core"), Path("rom")),
+    ), patch(
+        "tests.integration.conftest._free_udp_port",
+        return_value=55001,
+    ):
+        factory_impl = _harness_factory_impl()
+        with pytest.raises(RuntimeError, match="ra_harness launch failed.*simulated deep-freeze"):
+            factory_impl("default")
+
+
+def test_factory_propagates_resolver_runtime_errors(tmp_path):
+    """If _resolve_ra_paths raises RuntimeError, factory must NOT swallow it."""
+    from tests.integration.conftest import _harness_factory_impl
+
+    with patch(
+        "tests.integration.conftest._resolve_ra_paths",
+        side_effect=RuntimeError("rom.dir not configured in config.yaml"),
+    ):
+        factory_impl = _harness_factory_impl()
+        with pytest.raises(RuntimeError, match="rom.dir not configured"):
+            factory_impl("default")
+
+
+def test_factory_teardown_calls_each_harness(tmp_path):
+    """Factory must teardown every cached harness exactly once when the
+    fixture's `yield` returns."""
+    from tests.integration.conftest import _harness_factory_impl
+    from tests.integration.ra_harness import RAHarness
+
+    h_a = MagicMock(spec=RAHarness)
+    h_b = MagicMock(spec=RAHarness)
+    launched = [h_a, h_b]
+
+    with patch(
+        "tests.integration.conftest.RAHarness.launch",
+        side_effect=lambda **kw: launched.pop(0),
+    ), patch(
+        "tests.integration.conftest._resolve_ra_paths",
+        return_value=(Path("exe"), Path("core"), Path("rom")),
+    ), patch(
+        "tests.integration.conftest._free_udp_port",
+        side_effect=[55001, 55002],
+    ):
+        factory_impl = _harness_factory_impl()
+        factory_impl("default")
+        factory_impl("love_yourself")
+        factory_impl.teardown_all()
+
+    h_a.teardown.assert_called_once()
+    h_b.teardown.assert_called_once()

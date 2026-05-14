@@ -29,6 +29,7 @@ import requests as http_requests
 import uvicorn
 import yaml
 from tests.integration.poke_parser import parse_poke_file
+from tests.integration.ra_harness import RAHarness, RAHarnessLaunchError
 
 # Resolve project paths
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -335,6 +336,60 @@ async def fake_game_loaded(fake_dashboard_server):
 # ---------------------------------------------------------------------------
 # RetroArch poke harness
 # ---------------------------------------------------------------------------
+
+
+class _HarnessFactory:
+    """Session-scoped cache mapping rom_key -> RAHarness.
+
+    Separated from the pytest fixture so unit tests can drive the cache and
+    teardown logic without a real fixture lifecycle.
+    """
+
+    def __init__(self) -> None:
+        self._cache: dict[str, RAHarness] = {}
+
+    def __call__(self, rom_key: str) -> RAHarness:
+        if rom_key in self._cache:
+            return self._cache[rom_key]
+        retroarch_exe, ra_core_path, rom_path = _resolve_ra_paths(rom_key)
+        try:
+            harness = RAHarness.launch(
+                rom_path=rom_path,
+                core_path=ra_core_path,
+                retroarch_exe=retroarch_exe,
+                nci_port=_free_udp_port(),
+            )
+        except RAHarnessLaunchError as exc:
+            # CLAUDE.md: launch failure is a FAILURE, not a skip.
+            raise RuntimeError(f"ra_harness launch failed for rom_key={rom_key!r}: {exc}") from exc
+        self._cache[rom_key] = harness
+        return harness
+
+    def teardown_all(self) -> None:
+        while self._cache:
+            _key, harness = self._cache.popitem()
+            try:
+                harness.teardown()
+            except Exception:
+                # Best-effort: surface in the log, don't mask the original test failure.
+                logging.getLogger(__name__).exception("ra_harness teardown failed for %r", _key)
+
+
+def _harness_factory_impl() -> _HarnessFactory:
+    """Factory constructor surface used by both the pytest fixture and unit tests."""
+    return _HarnessFactory()
+
+
+@pytest.fixture(scope="session")
+def ra_harness_factory():
+    """Session-scoped factory: factory(rom_key) -> RAHarness, cached per rom_key.
+
+    Hard-fails (RuntimeError) on any missing infrastructure — no pytest.skip.
+    See ROM_REGISTRY for the available rom_keys.
+    """
+    factory = _harness_factory_impl()
+    yield factory
+    factory.teardown_all()
 
 
 def _ra_paths() -> tuple[Path | None, Path | None, Path | None]:
