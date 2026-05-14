@@ -259,6 +259,9 @@ class PracticeSession:
         finally:
             try:
                 await self.emu.send_command(PracticeStopCmd())
-            except (ConnectionError, OSError):
-                pass
+            except (ConnectionError, OSError) as exc:
+                log.info(
+                    logger, "practice teardown after backend disconnect",
+                    exc=exc,
+                )
             self.stop()

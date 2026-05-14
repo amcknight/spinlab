@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 
+from spinlab import log
 from spinlab.protocol import SpawnEvent
 from spinlab.retroarch import addresses as a
 from spinlab.retroarch.predicates import (
@@ -61,6 +62,12 @@ class ColdFillSpawnDetector:
         self._prev_anim = snapshot.player_anim
         self._prev_level_start = snapshot.level_start
         self._prev_exit_mode = snapshot.exit_mode
+        if snapshot.exit_mode != 0:
+            log.info(
+                logger, "cold_fill_detector: resync suppressed phantom death",
+                exit_mode=snapshot.exit_mode,
+                segment_id=self._segment_id,
+            )
 
     def step(self, curr: MemorySnapshot, timestamp_ms: int) -> SpawnEvent | None:
         if not self._active:

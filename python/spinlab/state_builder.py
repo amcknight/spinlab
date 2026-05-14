@@ -9,6 +9,8 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
+from spinlab import log
+
 if TYPE_CHECKING:
     from .db import Database
     from .session_manager import SessionManager
@@ -170,8 +172,13 @@ class StateBuilder:
                             model_outputs[sr["estimator"]] = ModelOutput.from_dict(
                                 json.loads(output_json)
                             ).to_dict()
-                        except (json.JSONDecodeError, KeyError):
-                            pass
+                        except (json.JSONDecodeError, KeyError) as exc:
+                            log.warn(
+                                logger, "model output deserialization failed",
+                                exc=exc,
+                                segment_id=ps.current_segment_id,
+                                estimator=sr["estimator"],
+                            )
                 current_seg["model_outputs"] = model_outputs
                 current_seg["selected_model"] = sched.estimator.name
                 base["current_segment"] = current_seg
