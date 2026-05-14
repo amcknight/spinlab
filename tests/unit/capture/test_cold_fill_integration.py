@@ -67,7 +67,7 @@ def _create_segments_with_hot_only(db, tmp_path=None):
             start_type="entrance", start_ordinal=0,
             end_type="checkpoint", end_ordinal=1,
             start_waypoint_id=wp_entrance.id, end_waypoint_id=wp_cp1.id,
-            reference_id="run1",
+            capture_run_id="run1",
         ),
         Segment(
             id=Segment.make_id(game_id, level, "checkpoint", 1, "checkpoint", 2,
@@ -76,7 +76,7 @@ def _create_segments_with_hot_only(db, tmp_path=None):
             start_type="checkpoint", start_ordinal=1,
             end_type="checkpoint", end_ordinal=2,
             start_waypoint_id=wp_cp1.id, end_waypoint_id=wp_cp2.id,
-            reference_id="run1",
+            capture_run_id="run1",
         ),
         Segment(
             id=Segment.make_id(game_id, level, "checkpoint", 2, "goal", 0,
@@ -85,17 +85,17 @@ def _create_segments_with_hot_only(db, tmp_path=None):
             start_type="checkpoint", start_ordinal=2,
             end_type="goal", end_ordinal=0,
             start_waypoint_id=wp_cp2.id, end_waypoint_id=wp_goal.id,
-            reference_id="run1",
+            capture_run_id="run1",
         ),
     ]
     for s in segs:
         db.upsert_segment(s)
 
     # Entrance segment: cold save state (entrance IS the cold start)
-    db.add_save_state(WaypointSaveState(wp_entrance.id, "cold", _path("cold0.mss"), True))
+    db.add_save_state(WaypointSaveState(wp_entrance.id, "cold", _path("cold0.mss")))
     # cp1 and cp2: hot save states only (cold fill will capture cold ones)
-    db.add_save_state(WaypointSaveState(wp_cp1.id, "hot", _path("hot1.mss"), True))
-    db.add_save_state(WaypointSaveState(wp_cp2.id, "hot", _path("hot2.mss"), True))
+    db.add_save_state(WaypointSaveState(wp_cp1.id, "hot", _path("hot1.mss")))
+    db.add_save_state(WaypointSaveState(wp_cp2.id, "hot", _path("hot2.mss")))
 
     return segs, wp_cp1, wp_cp2
 
@@ -105,7 +105,7 @@ class TestColdFillIntegration:
         sm.game_id = "g1"
 
         # Set up and save draft — capture run must exist before segments (FK)
-        db.create_capture_run("run1", "g1", "Test Run", draft=True)
+        db.create_capture_run("run1", "g1", "Test Run", kind="live")
         segs, wp_cp1, wp_cp2 = _create_segments_with_hot_only(db, tmp_path=tmp_path)
         sm.capture.paused_run_id = "run1"
         result = await sm.finalize_run("Test Run")
@@ -127,7 +127,6 @@ class TestColdFillIntegration:
         ss = db.get_save_state(wp_cp1.id, "cold")
         assert ss is not None
         assert ss.state_path == "/cold1.mss"
-        assert ss.is_default is True
 
         # Simulate spawn for second segment
         await sm.route_event(SpawnEvent(state_path="/cold2.mss"))

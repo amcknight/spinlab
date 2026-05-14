@@ -21,50 +21,23 @@ def db_with_attempts(tmp_path):
     # s1: 3 completed, 1 incomplete
     for t in [12000, 11000, 10000]:
         db.log_attempt(Attempt(
-            segment_id="s1", parent_id="sess1", completed=True,
+            segment_id="s1", session_id="sess1", completed=True,
             time_ms=t, deaths=0, clean_tail_ms=t,
         ))
     db.log_attempt(Attempt(
-        segment_id="s1", parent_id="sess1", completed=False,
+        segment_id="s1", session_id="sess1", completed=False,
         time_ms=None, deaths=1,
     ))
     # s2: 2 completed with deaths
     db.log_attempt(Attempt(
-        segment_id="s2", parent_id="sess1", completed=True,
+        segment_id="s2", session_id="sess1", completed=True,
         time_ms=20000, deaths=2, clean_tail_ms=8000,
     ))
     db.log_attempt(Attempt(
-        segment_id="s2", parent_id="sess1", completed=True,
+        segment_id="s2", session_id="sess1", completed=True,
         time_ms=18000, deaths=1, clean_tail_ms=9000,
     ))
     return db
-
-
-class TestGetSegmentStats:
-    def test_basic_aggregation(self, db_with_attempts):
-        stats = db_with_attempts.get_segment_stats("s1")
-        assert stats["total_attempts"] == 4
-        assert stats["completions"] == 3
-        assert stats["avg_time_ms"] == pytest.approx(11000.0)
-        assert stats["best_time_ms"] == 10000
-
-    def test_no_attempts(self, db_with_attempts):
-        db_with_attempts.upsert_segment(Segment(
-            id="s3", game_id="g1", level_number=3,
-            start_type="entrance", start_ordinal=0,
-            end_type="goal", end_ordinal=0,
-        ))
-        stats = db_with_attempts.get_segment_stats("s3")
-        assert stats["total_attempts"] == 0
-        assert stats["completions"] is None or stats["completions"] == 0
-
-    def test_strat_version_filter(self, db_with_attempts):
-        # Default strat_version is 1, so filtering by 1 should match all
-        stats = db_with_attempts.get_segment_stats("s1", strat_version=1)
-        assert stats["total_attempts"] == 4
-        # Nonexistent version
-        stats = db_with_attempts.get_segment_stats("s1", strat_version=99)
-        assert stats["total_attempts"] == 0
 
 
 class TestGetRecentAttempts:
@@ -117,13 +90,14 @@ def test_attempt_exists(tmp_path):
 
     db = Database(str(tmp_path / "t.db"))
     db.upsert_game("g", "G", "any%")
+    db.create_session("sess1", "g")
     db.upsert_segment(Segment(
         id="s1", game_id="g", level_number=1,
         start_type="entrance", start_ordinal=0,
         end_type="goal", end_ordinal=0,
     ))
     db.log_attempt(Attempt(
-        segment_id="s1", parent_id="sess1", completed=True,
+        segment_id="s1", session_id="sess1", completed=True,
         time_ms=1000, source=AttemptSource.PRACTICE,
         created_at=datetime.now(UTC),
     ))

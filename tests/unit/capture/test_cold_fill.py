@@ -70,14 +70,14 @@ def cold_fill_db(tmp_path):
     hot1.write_bytes(b"fake hot 1")
     db.add_save_state(WaypointSaveState(
         waypoint_id=wp_cp1.id, variant_type="hot",
-        state_path=str(hot1), is_default=True,
+        state_path=str(hot1),
     ))
 
     hot2 = tmp_path / "hot2.mss"
     hot2.write_bytes(b"fake hot 2")
     db.add_save_state(WaypointSaveState(
         waypoint_id=wp_cp2.id, variant_type="hot",
-        state_path=str(hot2), is_default=True,
+        state_path=str(hot2),
     ))
 
     db._seg1_id = seg1_id
@@ -107,11 +107,11 @@ class TestStartColdFill:
         # Add cold save states so there are no gaps
         cold_fill_db.add_save_state(WaypointSaveState(
             waypoint_id=cold_fill_db._wp_cp1_id, variant_type="cold",
-            state_path="/cold1.mss", is_default=True,
+            state_path="/cold1.mss",
         ))
         cold_fill_db.add_save_state(WaypointSaveState(
             waypoint_id=cold_fill_db._wp_cp2_id, variant_type="cold",
-            state_path="/cold2.mss", is_default=True,
+            state_path="/cold2.mss",
         ))
         cc = ColdFillController(cold_fill_db, emu)
         result = await cc.start("g")
@@ -144,7 +144,6 @@ class TestHandleColdFillSpawn:
         assert cold is not None
         assert cold.variant_type == "cold"
         assert cold.state_path == "/cold1.mss"
-        assert cold.is_default is True
 
         # Verify second segment loaded
         cmd = emu.send_command.call_args[0][0]

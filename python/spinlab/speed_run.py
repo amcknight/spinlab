@@ -52,6 +52,7 @@ class SpeedRunSession:
         auto_advance_delay_ms: int = 1000,
         death_delay_ms: int = 1500,
         on_event: Callable | None = None,
+        session_id: str | None = None,
     ) -> None:
         # death_delay_ms: time the emulator holds a black-screen overlay after
         # a death before reloading the cold save state.  The cold save is
@@ -65,7 +66,7 @@ class SpeedRunSession:
         self.death_delay_ms = death_delay_ms
         self.on_event = on_event
 
-        self.session_id = uuid.uuid4().hex
+        self.session_id = session_id or uuid.uuid4().hex
         self.started_at = datetime.now(UTC).isoformat()
         self.is_running = False
         self.current_level_index = 0
@@ -74,6 +75,8 @@ class SpeedRunSession:
 
         self.levels = self._build_levels()
         self._event_queue: asyncio.Queue[SpeedRunEvent] = asyncio.Queue()
+        # Attempts FK to sessions(id); the row must exist before any attempt is logged.
+        self.db.create_session(self.session_id, self.game_id)
 
     def _build_levels(self) -> list[LevelPlan]:
         """Query segments, group into levels, validate save states exist."""
@@ -142,7 +145,6 @@ class SpeedRunSession:
         )
 
     def start(self) -> None:
-        self.db.create_session(self.session_id, self.game_id)
         self.is_running = True
         self.current_level_index = 0
         logger.info(
@@ -241,7 +243,7 @@ class SpeedRunSession:
         """Record a cold attempt for a sub-segment."""
         attempt = Attempt(
             segment_id=seg["id"],
-            parent_id=self.session_id,
+            session_id=self.session_id,
             completed=completed,
             time_ms=time_ms if completed else None,
             deaths=0,

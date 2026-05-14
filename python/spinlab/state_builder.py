@@ -45,7 +45,10 @@ class StateBuilder:
                 active_run_id, active_only=True,
             )
 
-        base = {
+        # Every key is set unconditionally below — the AppState contract is
+        # "always present, sometimes null", never "key absent". Conditional
+        # assignments override the null defaults further down.
+        base: dict = {
             "mode": mode.value,
             "emu_connected": session.emu.is_connected,
             "game_id": game_id,
@@ -56,6 +59,10 @@ class StateBuilder:
             "sections_captured": sections_captured,
             "allocator_weights": None,
             "estimator": None,
+            "capture_run_id": None,
+            "replay": None,
+            "paused_run": None,
+            "cold_fill": None,
         }
 
         if game_id is None:

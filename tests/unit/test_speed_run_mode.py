@@ -40,12 +40,16 @@ def test_speed_run_to_practice_illegal():
 
 
 def _make_waypoint_and_state(db, game_id, level, ep_type, ordinal, state_path, conditions=None):
-    """Create a waypoint + save state, return waypoint."""
+    """Create a waypoint + save state, return waypoint.
+
+    Variant follows the production convention: entrance → cold, checkpoint → hot.
+    """
     wp = Waypoint.make(game_id, level, ep_type, ordinal, conditions or {})
     db.upsert_waypoint(wp)
+    variant = "cold" if ep_type == "entrance" else "hot"
     db.add_save_state(WaypointSaveState(
-        waypoint_id=wp.id, variant_type="hot",
-        state_path=str(state_path), is_default=True,
+        waypoint_id=wp.id, variant_type=variant,
+        state_path=str(state_path),
     ))
     return wp
 

@@ -27,7 +27,8 @@ Two markers, two suites:
 - **Everything:** `python -m pytest` (~52s). **This is the command you must run before reporting work as done.** Not `pytest -m "not emulator"`, not a subset — the full unfiltered suite. Fix all failures, even pre-existing ones unrelated to your current work. A red suite is never acceptable.
 
 **Replay fixture:** `tests/integration/test_replay_fixture.py`. Uses `tests/fixtures/love_yourself/one_level.replay` recorded on live RA. Validates the full replay→segment-capture pipeline; expects `state["replay"]["total"]` to populate from `ReplayStartedEvent.frame_count`. Gates on `sections_captured` (the content milestone) rather than wall-clock — the test ends as soon as the expected segments land in the DB, so the speedup from `FAST_FORWARD` actually shows up.
-- **DB reset:** `spinlab db reset [--config config.yaml]` — deletes and recreates the database. Useful after schema changes during development.
+- **Schema changes:** add a new `python/spinlab/db/migrations/NNNN_name.sql`. Files are immutable once shipped — fix mistakes with another migration. Runner details: `python/spinlab/db/migrations/__init__.py`.
+- **DB reset:** `spinlab db reset [--config config.yaml]` — deletes and recreates the database. Useful for local dev when you want a clean slate; not for prod recovery (use migrations).
 - **Frontend tests:** `cd frontend && npm test` (~2s). Vitest + happy-dom. Pure logic and API contract tests.
 - **Coverage:** `./scripts/coverage.sh` (unit), `--all` (unit+emulator), `--html` (opens report).
 
@@ -62,7 +63,8 @@ Source lives in `frontend/src/`. Built output goes to `python/spinlab/static/` (
 - **Type check:** `cd frontend && npm run typecheck`
 
 Run `npm run build` after frontend changes before testing with FastAPI directly.
-Types in `frontend/src/types.ts` must stay in sync with Python response models.
+
+**Frontend types are codegen'd from FastAPI's OpenAPI schema** by `npm run gen-types` (also invoked automatically by `npm run dev` and `npm run build`). The pipeline: `scripts/dump_openapi.py` writes `frontend/openapi.json` → `openapi-typescript` writes `frontend/src/api-types.ts`. `frontend/src/types.ts` is a thin re-export facade that gives the rest of the frontend friendly names (`AppState`, `ModelData`, etc.). Source of truth: `python/spinlab/api_schemas.py` — edit there, and the frontend types update on the next dev/build.
 
 ## Logging
 

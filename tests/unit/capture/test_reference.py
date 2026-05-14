@@ -83,9 +83,9 @@ class TestStopReference:
         assert len(stop_cmds) == 1
         assert controller.paused_run_id == run_id
         row = db.conn.execute(
-            "SELECT draft FROM capture_runs WHERE id = ?", (run_id,)
+            "SELECT status FROM capture_runs WHERE id = ?", (run_id,)
         ).fetchone()
-        assert row is not None and row[0] == 1
+        assert row is not None and row[0] == "draft"
 
 
 class TestStartReplay:
@@ -139,10 +139,10 @@ class TestHandleReplayFinished:
         controller.handle_replay_finished()
 
         row = db.conn.execute(
-            "SELECT id, draft FROM capture_runs WHERE id = ?", (run_id,)
+            "SELECT id, status FROM capture_runs WHERE id = ?", (run_id,)
         ).fetchone()
         assert row is not None, "replay capture_run should remain in DB as paused"
-        assert row[1] == 1, "replay capture_run should still be draft=1"
+        assert row[1] == "draft", "replay capture_run should still be a draft"
         assert controller.paused_run_id == run_id
 
     async def test_recovery_non_clobber_after_replay(self, controller, db, tmp_path):
@@ -157,7 +157,7 @@ class TestHandleReplayFinished:
         """
         # Simulate a real paused run already in the DB (e.g. from a previous session)
         real_run_id = "live_real_run"
-        db.create_capture_run(real_run_id, "g1", "My Real Run", draft=True)
+        db.create_capture_run(real_run_id, "g1", "My Real Run", kind="live")
 
         # Do a replay (paused_run_id is None so no guard fires)
         await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
@@ -206,17 +206,17 @@ class TestHandleReplayError:
             start_ordinal=0,
             end_type=EndpointType.GOAL,
             end_ordinal=0,
-            reference_id=run_id,
+            capture_run_id=run_id,
         )
         db.upsert_segment(seg)
 
         controller.handle_replay_error()
 
         row = db.conn.execute(
-            "SELECT id, draft FROM capture_runs WHERE id = ?", (run_id,)
+            "SELECT id, status FROM capture_runs WHERE id = ?", (run_id,)
         ).fetchone()
         assert row is not None, "capture_run should remain when segments were captured"
-        assert row[1] == 1, "capture_run should still be draft=1"
+        assert row[1] == "draft", "capture_run should still be a draft"
         assert controller.paused_run_id == run_id
 
 
@@ -331,7 +331,7 @@ class TestRunStateInvariant:
 
     async def test_recover_paused_run_enters_paused(self, controller, db):
         # Seed a draft capture_run directly in the DB to simulate restart.
-        db.create_capture_run("live_xyz", "g1", "Old draft", draft=True)
+        db.create_capture_run("live_xyz", "g1", "Old draft", kind="live")
         controller.recover_paused_run("g1")
         controller._assert_run_state_invariant()
         assert controller.has_paused_run
@@ -370,7 +370,7 @@ class TestSaveAndFinishAtomicity:
 
         class FailingConn:
             def execute(self, sql, *args, **kwargs):
-                if "UPDATE capture_runs SET draft" in sql:
+                if "UPDATE capture_runs SET status = 'saved'" in sql:
                     raise RuntimeError("simulated finalize failure")
                 return real_conn.execute(sql, *args, **kwargs)
 
@@ -392,10 +392,10 @@ class TestSaveAndFinishAtomicity:
 
         # Run still in draft, name unchanged.
         run_row = db.conn.execute(
-            "SELECT draft, name FROM capture_runs WHERE id = ?", (run_id,),
+            "SELECT status, name FROM capture_runs WHERE id = ?", (run_id,),
         ).fetchone()
         assert run_row is not None
-        assert run_row[0] == 1
+        assert run_row[0] == "draft"
         assert run_row[1] != "MyRun"
 
         # Recorder still pointing at the live session — user can retry.

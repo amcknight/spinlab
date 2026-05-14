@@ -5,6 +5,7 @@ from spinlab.scheduler import _attempts_from_rows
 
 def _seed(db):
     db.upsert_game("g", "Game", "any%")
+    db.create_session("sess1", "g")
     db.conn.execute(
         "INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal,"
         " end_type, end_ordinal, created_at, updated_at)"
@@ -14,7 +15,7 @@ def _seed(db):
 
 
 def _attempt(sid="sess1"):
-    return Attempt(segment_id="s1", parent_id=sid, completed=True,
+    return Attempt(segment_id="s1", session_id=sid, completed=True,
                    time_ms=1000, source=AttemptSource.PRACTICE)
 
 

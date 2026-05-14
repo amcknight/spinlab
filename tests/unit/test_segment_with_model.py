@@ -20,13 +20,13 @@ def _make_seg_with_state(db, game_id, level, start_type, end_type, state_path):
         game_id=game_id, level_number=level,
         start_type=start_type, start_ordinal=0,
         end_type=end_type, end_ordinal=0,
-        description=f"Segment {level}", strat_version=1,
+        description=f"Segment {level}",
         start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
     )
     db.upsert_segment(seg)
     db.add_save_state(WaypointSaveState(
         waypoint_id=wp_start.id, variant_type="hot",
-        state_path=state_path, is_default=True,
+        state_path=state_path,
     ))
     return seg
 
@@ -90,8 +90,9 @@ class TestLoadAll:
         from spinlab.models import Attempt
         rows = db_with_segments.get_all_segments_with_model("g1")
         seg_id = rows[0]["id"]
+        db_with_segments.create_session("s1", "g1")
         db_with_segments.log_attempt(Attempt(
-            segment_id=seg_id, parent_id="s1", completed=True,
+            segment_id=seg_id, session_id="s1", completed=True,
             time_ms=10000, deaths=0, clean_tail_ms=10000,
         ))
         results = SegmentWithModel.load_all(db_with_segments, "g1")

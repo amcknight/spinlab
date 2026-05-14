@@ -237,11 +237,22 @@ class TestReferenceCapture:
 
 class TestFillGap:
     async def test_fill_gap_loads_hot_and_captures_cold(self, practice_db, emu):
+        from spinlab.models import WaypointSaveState
         sm = make_sm(practice_db, emu)
         sm.game_id = "g"
         sm.capture.recorder.capture_run_id = "run1"
 
         seg_id = practice_db._test_seg_id
+
+        # Fill-gap is the "I have hot but not cold" recovery flow. The
+        # practice_db fixture only writes the conventional cold variant for
+        # entrance segments; seed a hot variant explicitly so this test
+        # exercises the actual fill-gap path.
+        seg = practice_db.get_segment_by_id(seg_id)
+        practice_db.add_save_state(WaypointSaveState(
+            waypoint_id=seg.start_waypoint_id, variant_type="hot",
+            state_path=str(practice_db._test_state_file),
+        ))
 
         result = await sm.start_fill_gap(seg_id)
         assert result.status == Status.STARTED
@@ -277,7 +288,7 @@ def _seed_paused_run_with_hot_segments(
     when it has a hot variant on its start waypoint but no cold variant.
     """
     from tests.conftest import make_seg_with_state
-    db.create_capture_run(run_id, game_id, "Paused", draft=True)
+    db.create_capture_run(run_id, game_id, "Paused", kind="live")
     for i in range(n_segments):
         hot_file = tmp_path / f"hot{i}.mss"
         hot_file.write_bytes(b"")
@@ -307,7 +318,7 @@ class TestColdFill:
         sm.game_id = "game1"
 
         # Paused run with zero segments missing cold → finalize stays IDLE.
-        db.create_capture_run("run1", "game1", "Paused", draft=True)
+        db.create_capture_run("run1", "game1", "Paused", kind="live")
         sm.capture.paused_run_id = "run1"
 
         result = await sm.finalize_run("Test")

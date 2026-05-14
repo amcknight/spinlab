@@ -8,6 +8,16 @@ from fastapi import APIRouter, Depends, HTTPException
 
 logger = logging.getLogger(__name__)
 
+from spinlab.api_schemas import (
+    AllocatorWeightsResponse,
+    EstimatorParamsRequest,
+    EstimatorSwitchRequest,
+    EstimatorSwitchResponse,
+    ModelData,
+    OkResponse,
+    SegmentHistory,
+    TuningData,
+)
 from spinlab.db import Database
 from spinlab.estimators import get_estimator, list_estimators
 from spinlab.scheduler import _attempts_from_rows
@@ -18,7 +28,7 @@ from ._deps import get_db, get_session
 router = APIRouter(prefix="/api")
 
 
-@router.get("/model")
+@router.get("/model", response_model=ModelData)
 def api_model(session: SessionManager = Depends(get_session)):
     if session.game_id is None:
         return {"estimator": None, "estimators": [], "allocator_weights": None, "segments": []}
@@ -55,8 +65,8 @@ def api_model(session: SessionManager = Depends(get_session)):
     }
 
 
-@router.post("/allocator-weights")
-def set_allocator_weights(body: dict, session: SessionManager = Depends(get_session)):
+@router.post("/allocator-weights", response_model=AllocatorWeightsResponse)
+def set_allocator_weights(body: dict[str, int], session: SessionManager = Depends(get_session)):
     sched = session.get_scheduler()
     try:
         sched.set_allocator_weights(body)
@@ -66,20 +76,19 @@ def set_allocator_weights(body: dict, session: SessionManager = Depends(get_sess
     return {"weights": body}
 
 
-@router.post("/estimator")
-def switch_estimator(body: dict, session: SessionManager = Depends(get_session)):
+@router.post("/estimator", response_model=EstimatorSwitchResponse)
+def switch_estimator(body: EstimatorSwitchRequest, session: SessionManager = Depends(get_session)):
     from spinlab.estimators import list_estimators
-    name = body.get("name")
     valid = list_estimators()
-    if name not in valid:
-        logger.warning("switch_estimator: unknown %r (valid: %s)", name, valid)
-        raise HTTPException(status_code=400, detail=f"Unknown estimator: {name}. Valid: {valid}")
+    if body.name not in valid:
+        logger.warning("switch_estimator: unknown %r (valid: %s)", body.name, valid)
+        raise HTTPException(status_code=400, detail=f"Unknown estimator: {body.name}. Valid: {valid}")
     sched = session.get_scheduler()
-    sched.switch_estimator(name)
-    return {"estimator": name}
+    sched.switch_estimator(body.name)
+    return {"estimator": body.name}
 
 
-@router.get("/estimator-params")
+@router.get("/estimator-params", response_model=TuningData)
 def get_estimator_params(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
     if session.game_id is None:
         return {"estimator": None, "params": []}
@@ -100,22 +109,25 @@ def get_estimator_params(session: SessionManager = Depends(get_session), db: Dat
     }
 
 
-@router.post("/estimator-params")
-def set_estimator_params(body: dict, session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
+@router.post("/estimator-params", response_model=OkResponse)
+def set_estimator_params(
+    body: EstimatorParamsRequest,
+    session: SessionManager = Depends(get_session),
+    db: Database = Depends(get_db),
+):
     sched = session.get_scheduler()
     est = sched.estimator
-    params = body.get("params", {})
     valid_names = {p.name for p in est.declared_params()}
-    for name in params:
+    for name in body.params:
         if name not in valid_names:
             logger.warning("set_estimator_params: unknown param %r (valid: %s)", name, valid_names)
             raise HTTPException(status_code=400, detail=f"Unknown param: {name}")
-    db.save_allocator_config(f"estimator_params:{est.name}", json.dumps(params))
+    db.save_allocator_config(f"estimator_params:{est.name}", json.dumps(body.params))
     sched.rebuild_all_states()
     return {"status": "ok"}
 
 
-@router.get("/segments/{segment_id}/history")
+@router.get("/segments/{segment_id}/history", response_model=SegmentHistory)
 def segment_history(segment_id: str, db: Database = Depends(get_db)):
     seg = db.get_segment_by_id(segment_id)
     if seg is None:

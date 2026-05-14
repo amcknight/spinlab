@@ -72,7 +72,7 @@ def _make_segment_with_ordinal(segment_id: str, ordinal: int) -> SegmentWithMode
         segment_id=segment_id, game_id="test", level_number=ordinal * 10,
         start_type="level_enter", start_ordinal=ordinal,
         end_type="level_exit", end_ordinal=ordinal,
-        description=f"Segment {segment_id}", strat_version=1,
+        description=f"Segment {segment_id}",
         state_path=None, active=True,
     )
 

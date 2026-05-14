@@ -77,7 +77,7 @@ def seeded_db(tmp_path):
 
     for segment_id, time_ms, completed in ATTEMPTS:
         db.log_attempt(Attempt(
-            segment_id=segment_id, parent_id="sess1",
+            segment_id=segment_id, session_id="sess1",
             completed=completed, time_ms=time_ms,
         ))
 
@@ -120,10 +120,11 @@ def active_client(seeded_db):
 
     mock_emu = AsyncMock()
     mock_emu.is_connected = True
-    ps = PracticeSession(emu=mock_emu, db=seeded_db, game_id=GAME_ID)
+    ps = PracticeSession(
+        emu=mock_emu, db=seeded_db, game_id=GAME_ID, session_id="sess1",
+    )
     ps.is_running = True
     ps.current_segment_id = "s1"
-    ps.session_id = "sess1"
 
     app.state.session.practice_session = ps
     app.state.session.mode = Mode.PRACTICE
@@ -286,8 +287,11 @@ class TestAllocatorSwitch:
         assert resp.status_code == 400
 
     def test_set_allocator_weights_missing_body(self, active_client):
+        # Body must be dict[str, int]; {"name": "random"} has a non-int value
+        # which Pydantic rejects at the validation layer (422), not the
+        # business-rule layer (400).
         resp = active_client.post("/api/allocator-weights", json={"name": "random"})
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
     def test_switch_estimator(self, active_client):
         resp = active_client.post("/api/estimator", json={"name": "kalman"})

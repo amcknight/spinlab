@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import pytest
-from tests.conftest import FakeEmuBackend, make_seg_with_state
+from tests.conftest import FakeEmuBackend
 
 from spinlab.capture.fill_gap import FillGapController
 from spinlab.db import Database
 from spinlab.errors import NoHotVariantError, NotConnectedError
-from spinlab.models import Mode, Segment, Status, Waypoint
+from spinlab.models import Mode, Segment, Status, Waypoint, WaypointSaveState
 from spinlab.protocol import FillGapLoadCmd, SpawnEvent
 
 
@@ -21,12 +21,29 @@ def fg_db(tmp_path):
 
 @pytest.fixture
 def fg_db_with_hot(tmp_path):
-    """Database with one entrance→goal segment that has a hot save state."""
+    """Database with one entrance→goal segment whose start waypoint has a hot
+    save state (the fill-gap input)."""
     db = Database(tmp_path / "fg_hot.db")
     db.upsert_game("g1", "Test", "any%")
     state_file = tmp_path / "seg1_hot.mss"
     state_file.write_bytes(b"")
-    seg = make_seg_with_state(db, "g1", 1, "entrance", "goal", state_file)
+    wp_start = Waypoint.make("g1", 1, "entrance", 0, {})
+    wp_end = Waypoint.make("g1", 1, "goal", 0, {})
+    db.upsert_waypoint(wp_start)
+    db.upsert_waypoint(wp_end)
+    seg = Segment(
+        id=Segment.make_id("g1", 1, "entrance", 0, "goal", 0, wp_start.id, wp_end.id),
+        game_id="g1", level_number=1,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
+        description="L1", ordinal=1,
+        start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
+    )
+    db.upsert_segment(seg)
+    db.add_save_state(WaypointSaveState(
+        waypoint_id=wp_start.id, variant_type="hot",
+        state_path=str(state_file),
+    ))
     db._seg_id = seg.id
     db._wp_id = seg.start_waypoint_id
     return db

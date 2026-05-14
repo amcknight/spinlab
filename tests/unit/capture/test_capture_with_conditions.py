@@ -72,6 +72,7 @@ def test_save_state_attaches_to_start_waypoint():
     cap.handle_exit(LevelExitEvent(level=5, goal="goal", conditions={"powerup": 0}),
                     "g1")
     segs = db.get_active_segments("g1")
-    ss = db.get_default_save_state(segs[0].start_waypoint_id)
+    # Entrance segments store their start state under the 'cold' variant.
+    ss = db.get_save_state(segs[0].start_waypoint_id, "cold")
     assert ss is not None
     assert ss.state_path == "/tmp/start.mss"

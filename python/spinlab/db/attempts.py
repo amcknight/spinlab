@@ -2,7 +2,7 @@
 
 import sqlite3
 from collections import defaultdict
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 from ..models import Attempt
 
@@ -20,10 +20,10 @@ class AttemptRow(TypedDict):
 class RecentAttemptRow(TypedDict, total=False):
     id: int
     segment_id: str
-    parent_id: str
+    session_id: str | None
+    capture_run_id: str | None
     completed: int
     time_ms: int | None
-    strat_version: int
     source: str
     deaths: int
     clean_tail_ms: int | None
@@ -46,51 +46,23 @@ class AttemptsMixin:
     def log_attempt(self, attempt: Attempt) -> int:
         cur = self.conn.execute(
             """INSERT INTO attempts
-               (segment_id, parent_id, completed, time_ms,
-                strat_version, source, deaths, clean_tail_ms,
-                observed_start_conditions, observed_end_conditions, invalidated,
-                chosen_allocator, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (attempt.segment_id, attempt.parent_id, int(attempt.completed),
-             attempt.time_ms,
-             attempt.strat_version, attempt.source,
-             attempt.deaths, attempt.clean_tail_ms,
-             attempt.observed_start_conditions, attempt.observed_end_conditions,
-             int(attempt.invalidated),
-             attempt.chosen_allocator,
+               (segment_id, session_id, capture_run_id, completed, time_ms,
+                source, deaths, clean_tail_ms,
+                invalidated, chosen_allocator, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (attempt.segment_id, attempt.session_id, attempt.capture_run_id,
+             int(attempt.completed), attempt.time_ms,
+             attempt.source, attempt.deaths, attempt.clean_tail_ms,
+             int(attempt.invalidated), attempt.chosen_allocator,
              attempt.created_at.isoformat()),
         )
-        self.conn.commit()
         return cur.lastrowid  # type: ignore[return-value]  # always set after INSERT
 
-    def get_segment_stats(self, segment_id: str, strat_version: Optional[int] = None) -> dict:
-        """Get aggregate stats for a segment."""
-        where = "segment_id = ?"
-        params: list = [segment_id]
-        if strat_version is not None:
-            where += " AND strat_version = ?"
-            params.append(strat_version)
-
-        row = self.conn.execute(
-            f"""SELECT
-                COUNT(*) as total_attempts,
-                SUM(completed) as completions,
-                AVG(CASE WHEN completed = 1 THEN time_ms END) as avg_time_ms,
-                MIN(CASE WHEN completed = 1 THEN time_ms END) as best_time_ms
-            FROM attempts WHERE {where}""",
-            params,
-        ).fetchone()
-        return dict(row)
-
     def get_segment_attempt_count(self, segment_id: str, session_id: str) -> int:
-        """Count attempts on a segment in a specific practice session.
-
-        Note: ``session_id`` here is whatever populates ``attempts.parent_id`` —
-        a practice session id, capture run id, or speed-run id, depending on call site.
-        """
+        """Count attempts on a segment in a specific practice/speed-run session."""
         row = self.conn.execute(
             "SELECT COUNT(*) as cnt FROM attempts "
-            "WHERE segment_id = ? AND parent_id = ?",
+            "WHERE segment_id = ? AND session_id = ?",
             (segment_id, session_id),
         ).fetchone()
         return row["cnt"]
@@ -101,14 +73,13 @@ class AttemptsMixin:
     ) -> list[RecentAttemptRow]:
         """Last N attempts joined with segment info, most recent first.
 
-        If session_id is given, only return attempts from that session.
-        Note: ``session_id`` is matched against ``attempts.parent_id``, which
-        is polymorphic (practice session id, capture run id, or speed-run id).
+        If ``session_id`` is given, filter to attempts from that practice or
+        speed-run session.
         """
         where = "s.game_id = ?"
         params: list = [game_id]
         if session_id:
-            where += " AND a.parent_id = ?"
+            where += " AND a.session_id = ?"
             params.append(session_id)
         params.append(limit)
         rows = self.conn.execute(
@@ -157,14 +128,11 @@ class AttemptsMixin:
             "UPDATE attempts SET invalidated = ? WHERE id = ?",
             (int(invalidated), attempt_id),
         )
-        self.conn.commit()
 
     def get_last_practice_attempt(self, session_id: str) -> int | None:
-        """Most recent attempt id for a given parent (practice session today,
-        but ``parent_id`` is polymorphic; the only caller is the practice-mode
-        invalidate flow)."""
+        """Most recent attempt id for a given practice/speed-run session."""
         row = self.conn.execute(
-            "SELECT id FROM attempts WHERE parent_id = ? "
+            "SELECT id FROM attempts WHERE session_id = ? "
             "ORDER BY id DESC LIMIT 1",
             (session_id,),
         ).fetchone()

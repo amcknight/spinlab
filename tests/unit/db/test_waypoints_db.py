@@ -13,7 +13,7 @@ def test_waypoint_save_states_table_exists():
     db = Database(":memory:")
     cols = {r[1] for r in db.conn.execute(
         "PRAGMA table_info(waypoint_save_states)").fetchall()}
-    assert cols == {"waypoint_id", "variant_type", "state_path", "is_default"}
+    assert cols == {"waypoint_id", "variant_type", "state_path"}
 
 
 def test_segments_table_has_waypoint_columns():
@@ -24,12 +24,14 @@ def test_segments_table_has_waypoint_columns():
     assert "is_primary" in cols
 
 
-def test_attempts_table_has_condition_columns():
+def test_attempts_table_has_invalidated_column():
     db = Database(":memory:")
     cols = {r[1] for r in db.conn.execute("PRAGMA table_info(attempts)").fetchall()}
-    assert "observed_start_conditions" in cols
-    assert "observed_end_conditions" in cols
     assert "invalidated" in cols
+    # The polymorphic parent_id field is gone; FK split into typed columns.
+    assert "session_id" in cols
+    assert "capture_run_id" in cols
+    assert "parent_id" not in cols
 
 
 def test_segment_variants_table_dropped():
@@ -69,27 +71,16 @@ def test_save_state_attaches_to_waypoint():
     db.upsert_waypoint(w)
     db.add_save_state(WaypointSaveState(
         waypoint_id=w.id, variant_type="hot",
-        state_path="/tmp/hot.mss", is_default=True))
+        state_path="/tmp/hot.mss"))
     got = db.get_save_state(w.id, "hot")
     assert got is not None
     assert got.state_path == "/tmp/hot.mss"
 
-def test_get_default_save_state_falls_back_to_any():
-    db = Database(":memory:")
-    db.upsert_game("g1", "Game", "any%")
-    w = Waypoint.make("g1", 1, "checkpoint", 1, {})
-    db.upsert_waypoint(w)
-    db.add_save_state(WaypointSaveState(
-        waypoint_id=w.id, variant_type="cold",
-        state_path="/tmp/cold.mss", is_default=False))
-    got = db.get_default_save_state(w.id)
-    assert got is not None
-    assert got.variant_type == "cold"
-
-
 def _make_seg_with_waypoints(db, game_id, level, start_type, start_ord,
                              end_type, end_ord, start_conds, end_conds,
-                             hot_path):
+                             state_path):
+    """Build a segment with the conventional save-state variant for its start
+    type (entrance → cold, checkpoint → hot)."""
     wp_start = Waypoint.make(game_id, level, start_type, start_ord, start_conds)
     wp_end = Waypoint.make(game_id, level, end_type, end_ord, end_conds)
     db.upsert_waypoint(wp_start)
@@ -104,9 +95,10 @@ def _make_seg_with_waypoints(db, game_id, level, start_type, start_ord,
         is_primary=True,
     )
     db.upsert_segment(seg)
+    variant = "cold" if start_type == "entrance" else "hot"
     db.add_save_state(WaypointSaveState(
-        waypoint_id=wp_start.id, variant_type="hot",
-        state_path=hot_path, is_default=True))
+        waypoint_id=wp_start.id, variant_type=variant,
+        state_path=state_path))
     return seg
 
 

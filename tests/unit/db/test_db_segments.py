@@ -6,7 +6,7 @@ from spinlab.models import EndpointType, Segment, Waypoint
 def test_segment_persists_capture_session_id():
     d = Database(":memory:")
     d.upsert_game("smw", "Super Mario World", "any%")
-    d.create_capture_run("run_1", "smw", "Test Run", draft=True)
+    d.create_capture_run("run_1", "smw", "Test Run", kind="live")
     d.create_capture_session("sess_1", "run_1", 1)
     wp_a = Waypoint.make("smw", 1, EndpointType.ENTRANCE, 0, {})
     wp_b = Waypoint.make("smw", 1, EndpointType.GOAL, 0, {})
@@ -17,7 +17,7 @@ def test_segment_persists_capture_session_id():
         start_type=EndpointType.ENTRANCE, start_ordinal=0,
         end_type=EndpointType.GOAL, end_ordinal=0,
         start_waypoint_id=wp_a.id, end_waypoint_id=wp_b.id,
-        reference_id="run_1", capture_session_id="sess_1",
+        capture_run_id="run_1", capture_session_id="sess_1",
     )
     d.upsert_segment(seg)
     fetched = d.get_segment_by_id("seg_x")
@@ -39,7 +39,7 @@ def test_count_segments_for_run(tmp_path):
             id=seg_id, game_id="g", level_number=1,
             start_type="entrance", start_ordinal=0,
             end_type="goal", end_ordinal=0,
-            reference_id="ref1", active=active,
+            capture_run_id="ref1", active=active,
         ))
 
     _seg("s1", active=True)
@@ -66,7 +66,7 @@ def test_count_segments_for_capture_session(tmp_path):
             id=seg_id, game_id="g", level_number=1,
             start_type="entrance", start_ordinal=0,
             end_type="goal", end_ordinal=0,
-            reference_id="ref1", capture_session_id=sess_id,
+            capture_run_id="ref1", capture_session_id=sess_id,
         ))
 
     _seg("s1", "sess1")

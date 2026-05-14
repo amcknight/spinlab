@@ -1,149 +1,36 @@
-"""Database core: schema, connection, transaction, shared helpers."""
+"""Database core: connection, transaction, shared helpers.
 
+Schema lives in ``migrations/NNNN_name.sql`` files; see
+``spinlab.db.migrations`` for the runner.
+
+Transactional model
+-------------------
+The connection runs in **autocommit mode** (``isolation_level=None``). Each
+statement is its own transaction by default — matching the original "every
+mixin method calls ``.commit()``" behavior, but without scattering
+``self.conn.commit()`` calls through every mixin file.
+
+When a code path needs multiple statements to commit atomically, wrap it::
+
+    with db.transaction():
+        db.do_one_thing()
+        db.do_another_thing()
+
+``transaction()`` uses ``BEGIN IMMEDIATE`` at the top level and SAVEPOINTs
+when nested, so methods that wrap their own body in ``with self.transaction():``
+compose cleanly under an outer caller transaction.
+"""
+
+import itertools
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
 from ..models import Segment
+from .migrations import run_migrations
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS games (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  category TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS waypoints (
-  id TEXT PRIMARY KEY,
-  game_id TEXT NOT NULL REFERENCES games(id),
-  level_number INTEGER NOT NULL,
-  endpoint_type TEXT NOT NULL,
-  ordinal INTEGER NOT NULL DEFAULT 0,
-  conditions_json TEXT NOT NULL DEFAULT '{}'
-);
-
-CREATE TABLE IF NOT EXISTS segments (
-  id TEXT PRIMARY KEY,
-  game_id TEXT NOT NULL REFERENCES games(id),
-  level_number INTEGER NOT NULL,
-  start_type TEXT NOT NULL,
-  start_ordinal INTEGER NOT NULL DEFAULT 0,
-  end_type TEXT NOT NULL,
-  end_ordinal INTEGER NOT NULL DEFAULT 0,
-  start_waypoint_id TEXT REFERENCES waypoints(id),
-  end_waypoint_id TEXT REFERENCES waypoints(id),
-  is_primary INTEGER DEFAULT 1,
-  description TEXT DEFAULT '',
-  strat_version INTEGER DEFAULT 1,
-  active INTEGER DEFAULT 1,
-  ordinal INTEGER,
-  reference_id TEXT REFERENCES capture_runs(id),
-  capture_session_id TEXT REFERENCES capture_sessions(id) ON DELETE CASCADE,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS waypoint_save_states (
-  waypoint_id TEXT NOT NULL REFERENCES waypoints(id),
-  variant_type TEXT NOT NULL,
-  state_path TEXT NOT NULL,
-  is_default INTEGER DEFAULT 0,
-  PRIMARY KEY (waypoint_id, variant_type)
-);
-
-CREATE TABLE IF NOT EXISTS attempts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  segment_id TEXT NOT NULL REFERENCES segments(id),
-  parent_id TEXT NOT NULL,
-  completed INTEGER NOT NULL,
-  time_ms INTEGER,
-  strat_version INTEGER NOT NULL,
-  source TEXT DEFAULT 'practice',
-  deaths INTEGER DEFAULT 0,
-  clean_tail_ms INTEGER,
-  observed_start_conditions TEXT,
-  observed_end_conditions TEXT,
-  invalidated INTEGER DEFAULT 0,
-  chosen_allocator TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS transitions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  game_id TEXT NOT NULL,
-  event TEXT NOT NULL,
-  level_number INTEGER NOT NULL,
-  room_id INTEGER,
-  goal_type TEXT,
-  timestamp_ms INTEGER NOT NULL,
-  session_type TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS sessions (
-  id TEXT PRIMARY KEY,
-  game_id TEXT NOT NULL REFERENCES games(id),
-  started_at TEXT NOT NULL,
-  ended_at TEXT,
-  segments_attempted INTEGER DEFAULT 0,
-  segments_completed INTEGER DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS model_state (
-  segment_id TEXT NOT NULL REFERENCES segments(id),
-  estimator TEXT NOT NULL,
-  state_json TEXT NOT NULL,
-  output_json TEXT NOT NULL DEFAULT '{}',
-  updated_at TEXT NOT NULL,
-  PRIMARY KEY (segment_id, estimator)
-);
-
-CREATE TABLE IF NOT EXISTS allocator_config (
-  key TEXT PRIMARY KEY,
-  value TEXT
-);
-
-CREATE TABLE IF NOT EXISTS capture_runs (
-  id TEXT PRIMARY KEY,
-  game_id TEXT NOT NULL REFERENCES games(id),
-  name TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  active INTEGER DEFAULT 0,
-  draft INTEGER DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS capture_sessions (
-  id TEXT PRIMARY KEY,
-  capture_run_id TEXT NOT NULL REFERENCES capture_runs(id) ON DELETE CASCADE,
-  ordinal INTEGER NOT NULL,
-  started_at TEXT NOT NULL,
-  ended_at TEXT,
-  end_reason TEXT,
-  UNIQUE (capture_run_id, ordinal)
-);
-
-CREATE TABLE IF NOT EXISTS recorded_segment_times (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  capture_session_id TEXT NOT NULL REFERENCES capture_sessions(id) ON DELETE CASCADE,
-  segment_id TEXT NOT NULL,
-  time_ms INTEGER NOT NULL,
-  deaths INTEGER NOT NULL,
-  clean_tail_ms INTEGER NOT NULL,
-  recorded_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_attempts_segment ON attempts(segment_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_attempts_parent ON attempts(parent_id);
-CREATE INDEX IF NOT EXISTS idx_transitions_game ON transitions(game_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_capture_sessions_run ON capture_sessions(capture_run_id, ordinal);
-CREATE INDEX IF NOT EXISTS idx_recorded_segment_times_session ON recorded_segment_times(capture_session_id);
-CREATE INDEX IF NOT EXISTS idx_segments_capture_session ON segments(capture_session_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_one_paused_run_per_game
-  ON capture_runs(game_id)
-  WHERE draft = 1 AND id NOT LIKE 'replay_%';
-"""
+_savepoint_counter = itertools.count()
 
 
 class DatabaseCore:
@@ -153,58 +40,47 @@ class DatabaseCore:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        # Autocommit: lets BEGIN / COMMIT / ROLLBACK / SAVEPOINT do what they
+        # say in the SQL we issue. In the default mode, sqlite3 hides those
+        # behind a per-statement state machine that fights explicit transaction
+        # control (see ``run_migrations`` for the historic battle).
+        self.conn.isolation_level = None
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
-        self._init_schema()
-
-    def _init_schema(self) -> None:
-        # STOP: this routine drops any table whose columns drift from
-        # _expected_columns(). Fine while the DB is recreatable. Once you
-        # change the schema for a table that holds data a user would not want
-        # to lose (reference runs, accumulated attempts), DO NOT add the table
-        # here — switch to a forward-only migration log instead.
-        stale_tables = ["splits", "segment_variants"]
-        for table in ["model_state", "attempts", "segments", "waypoints", "waypoint_save_states"]:
-            cols = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})").fetchall()}
-            if cols and cols != self._expected_columns(table):
-                stale_tables.append(table)
-        if stale_tables:
-            drops = "; ".join(f"DROP TABLE IF EXISTS {t}" for t in stale_tables)
-            self.conn.executescript(
-                "PRAGMA foreign_keys=OFF; " + drops + "; PRAGMA foreign_keys=ON;"
-            )
-        self.conn.executescript(SCHEMA)
-        self.conn.commit()
-
-    @staticmethod
-    def _expected_columns(table: str) -> set[str]:
-        return {
-            "model_state": {"segment_id", "estimator", "state_json", "output_json", "updated_at"},
-            "attempts": {"id", "segment_id", "parent_id", "completed", "time_ms",
-                         "strat_version", "source", "deaths", "clean_tail_ms",
-                         "observed_start_conditions", "observed_end_conditions",
-                         "invalidated", "chosen_allocator", "created_at"},
-            "segments": {"id", "game_id", "level_number", "start_type", "start_ordinal",
-                         "end_type", "end_ordinal", "start_waypoint_id", "end_waypoint_id",
-                         "is_primary", "description", "strat_version", "active", "ordinal",
-                         "reference_id", "capture_session_id", "created_at", "updated_at"},
-            "waypoints": {"id", "game_id", "level_number", "endpoint_type",
-                          "ordinal", "conditions_json"},
-            "waypoint_save_states": {"waypoint_id", "variant_type", "state_path", "is_default"},
-        }.get(table, set())
+        run_migrations(self.conn)
 
     def close(self) -> None:
         self.conn.close()
 
     @contextmanager
     def transaction(self):
-        """Context manager for grouping operations in a single transaction."""
-        try:
-            yield self
-            self.conn.commit()
-        except Exception:
-            self.conn.rollback()
-            raise
+        """Group statements into a single atomic unit. Composable.
+
+        Top-level: uses ``BEGIN IMMEDIATE`` / ``COMMIT`` / ``ROLLBACK``.
+        Nested under an outer ``with db.transaction():``: uses ``SAVEPOINT``,
+        so an inner failure rolls back the inner block but leaves the outer
+        transaction free to continue or roll back itself.
+        """
+        if self.conn.in_transaction:
+            sp = f"sp_{next(_savepoint_counter)}"
+            self.conn.execute(f"SAVEPOINT {sp}")
+            try:
+                yield self
+            except Exception:
+                self.conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
+                self.conn.execute(f"RELEASE SAVEPOINT {sp}")
+                raise
+            else:
+                self.conn.execute(f"RELEASE SAVEPOINT {sp}")
+        else:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield self
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            else:
+                self.conn.execute("COMMIT")
 
     def upsert_game(self, game_id: str, name: str, category: str) -> None:
         now = datetime.now(UTC).isoformat()
@@ -213,32 +89,29 @@ class DatabaseCore:
             " ON CONFLICT(id) DO NOTHING",
             (game_id, name, category, now),
         )
-        self.conn.commit()
 
     def reset_all_data(self) -> None:
         """Delete all attempts, sessions, model state, and allocator config."""
-        self.conn.execute("DELETE FROM attempts")
-        self.conn.execute("DELETE FROM sessions")
-        self.conn.execute("DELETE FROM model_state")
-        self.conn.execute("DELETE FROM allocator_config")
-        self.conn.execute("DELETE FROM transitions")
-        self.conn.commit()
+        with self.transaction():
+            self.conn.execute("DELETE FROM attempts")
+            self.conn.execute("DELETE FROM sessions")
+            self.conn.execute("DELETE FROM model_state")
+            self.conn.execute("DELETE FROM allocator_config")
 
     def reset_game_data(self, game_id: str) -> None:
         """Delete attempts, sessions, model state for a specific game."""
-        self.conn.execute(
-            "DELETE FROM attempts WHERE segment_id IN"
-            " (SELECT id FROM segments WHERE game_id = ?)",
-            (game_id,),
-        )
-        self.conn.execute(
-            "DELETE FROM model_state WHERE segment_id IN"
-            " (SELECT id FROM segments WHERE game_id = ?)",
-            (game_id,),
-        )
-        self.conn.execute("DELETE FROM sessions WHERE game_id = ?", (game_id,))
-        self.conn.execute("DELETE FROM transitions WHERE game_id = ?", (game_id,))
-        self.conn.commit()
+        with self.transaction():
+            self.conn.execute(
+                "DELETE FROM attempts WHERE segment_id IN"
+                " (SELECT id FROM segments WHERE game_id = ?)",
+                (game_id,),
+            )
+            self.conn.execute(
+                "DELETE FROM model_state WHERE segment_id IN"
+                " (SELECT id FROM segments WHERE game_id = ?)",
+                (game_id,),
+            )
+            self.conn.execute("DELETE FROM sessions WHERE game_id = ?", (game_id,))
 
     @staticmethod
     def _row_to_segment(row: sqlite3.Row) -> Segment:
@@ -252,10 +125,9 @@ class DatabaseCore:
             end_type=row["end_type"],
             end_ordinal=row["end_ordinal"],
             description=row["description"] or "",
-            strat_version=row["strat_version"],
             active=bool(row["active"]),
-            ordinal=row["ordinal"] if "ordinal" in keys else None,
-            reference_id=row["reference_id"] if "reference_id" in keys else None,
+            ordinal=row["ordinal"] if "ordinal" in keys else 0,
+            capture_run_id=row["capture_run_id"] if "capture_run_id" in keys else None,
             start_waypoint_id=row["start_waypoint_id"] if "start_waypoint_id" in keys else None,
             end_waypoint_id=row["end_waypoint_id"] if "end_waypoint_id" in keys else None,
             is_primary=bool(row["is_primary"]) if "is_primary" in keys else True,

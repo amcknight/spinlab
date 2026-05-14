@@ -33,7 +33,7 @@ def reference_controller_recording(tmp_path):
     ctl = ReferenceController(db, emu)
 
     run_id = f"live_{uuid.uuid4().hex[:8]}"
-    db.create_capture_run(run_id, "g1", "In-Progress", draft=True)
+    db.create_capture_run(run_id, "g1", "In-Progress", kind="live")
     sess_id = f"sess_{uuid.uuid4().hex[:8]}"
     db.create_capture_session(session_id=sess_id, capture_run_id=run_id, ordinal=1)
     ctl._enter_recording(run_id, sess_id)

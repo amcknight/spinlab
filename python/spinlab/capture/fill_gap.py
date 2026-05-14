@@ -68,7 +68,6 @@ class FillGapController:
                 waypoint_id=self._waypoint_id,
                 variant_type="cold",
                 state_path=event.state_path,
-                is_default=True,
             ))
         self.clear()
         return True

@@ -11,7 +11,8 @@ from spinlab.scheduler import Scheduler
 
 def _make_seg_with_state(db, game_id, level, start_type, end_type,
                          state_path, start_conds=None, end_conds=None):
-    """Create waypoints + segment + hot save state; return segment."""
+    """Create waypoints + segment + save state in the conventional variant
+    (cold for entrance, hot for checkpoint); return segment."""
     start_conds = start_conds or {}
     end_conds = end_conds or {"e": end_type, "l": level}
     wp_start = Waypoint.make(game_id, level, start_type, 0, start_conds)
@@ -24,13 +25,14 @@ def _make_seg_with_state(db, game_id, level, start_type, end_type,
         game_id=game_id, level_number=level,
         start_type=start_type, start_ordinal=0,
         end_type=end_type, end_ordinal=0,
-        description=f"Segment {level}", strat_version=1,
+        description=f"Segment {level}",
         start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
     )
     db.upsert_segment(seg)
+    variant = "cold" if start_type == "entrance" else "hot"
     db.add_save_state(WaypointSaveState(
-        waypoint_id=wp_start.id, variant_type="hot",
-        state_path=str(state_path), is_default=True,
+        waypoint_id=wp_start.id, variant_type=variant,
+        state_path=str(state_path),
     ))
     return seg
 
@@ -219,9 +221,12 @@ class TestStateFileFilter:
             start_waypoint_id=wp_start2.id, end_waypoint_id=wp_end2.id,
         )
         db.upsert_segment(seg2)
+        # Entrance segments resolve state from the 'cold' variant; use that
+        # so the segments query returns the (nonexistent) path and pick_next
+        # can exercise its "skip missing state files" branch.
         db.add_save_state(WaypointSaveState(
-            waypoint_id=wp_start2.id, variant_type="hot",
-            state_path="/nonexistent/path.mss", is_default=True,
+            waypoint_id=wp_start2.id, variant_type="cold",
+            state_path="/nonexistent/path.mss",
         ))
         sched = Scheduler(db, "g1")
         picked = sched.pick_next()

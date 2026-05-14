@@ -10,6 +10,7 @@ GAME_ID = "g"
 
 def _seed(db: Database) -> int:
     db.upsert_game(GAME_ID, "Game", "any%")
+    db.create_session("sess1", GAME_ID)
     db.conn.execute(
         "INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal,"
         " end_type, end_ordinal, created_at, updated_at)"
@@ -17,7 +18,7 @@ def _seed(db: Database) -> int:
     )
     db.conn.commit()
     return db.log_attempt(Attempt(
-        segment_id="s1", parent_id="sess1", completed=True,
+        segment_id="s1", session_id="sess1", completed=True,
         time_ms=1000, source=AttemptSource.PRACTICE,
     ))
 

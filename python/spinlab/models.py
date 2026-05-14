@@ -99,10 +99,9 @@ class Segment:
     end_type: EndpointType
     end_ordinal: int
     description: str = ""
-    strat_version: int = 1
     active: bool = True
-    ordinal: Optional[int] = None
-    reference_id: Optional[str] = None
+    ordinal: int = 0
+    capture_run_id: Optional[str] = None
     start_waypoint_id: Optional[str] = None
     end_waypoint_id: Optional[str] = None
     is_primary: bool = True
@@ -147,24 +146,35 @@ class WaypointSaveState:
     waypoint_id: str
     variant_type: str        # 'cold', 'hot'
     state_path: str
-    is_default: bool = False
 
 
 @dataclass
 class Attempt:
+    """An attempt of a segment.
+
+    Exactly one of ``session_id`` or ``capture_run_id`` is set, enforced by a
+    DB CHECK constraint. Practice and speed-run attempts use ``session_id``
+    (FK to ``sessions``); reference-seeded attempts use ``capture_run_id``
+    (FK to ``capture_runs``). ``source`` distinguishes practice from speed-run
+    within the session-attempt category.
+    """
     segment_id: str
-    parent_id: str
     completed: bool
+    session_id: str | None = None
+    capture_run_id: str | None = None
     time_ms: int | None = None
-    strat_version: int = 1
     source: AttemptSource = AttemptSource.PRACTICE
     deaths: int = 0
     clean_tail_ms: int | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    observed_start_conditions: str | None = None
-    observed_end_conditions: str | None = None
     invalidated: bool = False
     chosen_allocator: str | None = None
+
+    def __post_init__(self) -> None:
+        if (self.session_id is None) == (self.capture_run_id is None):
+            raise ValueError(
+                "Attempt requires exactly one of session_id or capture_run_id"
+            )
 
 
 @dataclass
@@ -180,6 +190,16 @@ class SegmentCommand:
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
+
+
+class CaptureRunStatus(StrEnum):
+    DRAFT = "draft"
+    SAVED = "saved"
+
+
+class CaptureRunKind(StrEnum):
+    LIVE = "live"
+    REPLAY = "replay"
 
 
 @dataclass

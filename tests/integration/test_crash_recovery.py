@@ -83,25 +83,27 @@ def test_paused_run_survives_replay_then_dashboard_restart(db):
     between recovery and replay's ephemeral capture_run rows. This test pins
     the contract end-to-end.
     """
-    # 1. Paused run A with one segment captured.
-    db.create_capture_run("run_A", "smw", "A paused", draft=True)
+    # 1. Finalised reference B (created and promoted FIRST so its saved status
+    #    frees the one-live-draft-per-game unique index for run_A below).
+    db.create_capture_run("run_B", "smw", "B finalised", kind="live")
+    db.promote_draft("run_B", "B finalised")
+    # 2. Paused run A with one segment captured.
+    db.create_capture_run("run_A", "smw", "A paused", kind="live")
     db.create_capture_session("sA1", "run_A", 1)
     db.conn.execute(
         "INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal, "
-        "end_type, end_ordinal, capture_session_id, reference_id, "
+        "end_type, end_ordinal, capture_session_id, capture_run_id, "
         "created_at, updated_at) VALUES "
         "('seg_A', 'smw', 1, 'entrance', 0, 'goal', 0, 'sA1', 'run_A', "
         "datetime('now'), datetime('now'))"
     )
-    # 2. Finalised reference B.
-    db.create_capture_run("run_B", "smw", "B finalised", draft=False)
-    # 3. Simulate replay: an ephemeral replay_xxx capture_run draft exists with
+    # 3. Simulate replay: an ephemeral replay-kind capture_run draft exists with
     #    one segment.
-    db.create_capture_run("replay_abc", "smw", "Replay X", draft=True)
+    db.create_capture_run("replay_abc", "smw", "Replay X", kind="replay")
     db.create_capture_session("sR", "replay_abc", 1)
     db.conn.execute(
         "INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal, "
-        "end_type, end_ordinal, capture_session_id, reference_id, "
+        "end_type, end_ordinal, capture_session_id, capture_run_id, "
         "created_at, updated_at) VALUES "
         "('seg_R', 'smw', 99, 'entrance', 0, 'goal', 0, 'sR', 'replay_abc', "
         "datetime('now'), datetime('now'))"
@@ -114,7 +116,7 @@ def test_paused_run_survives_replay_then_dashboard_restart(db):
     assert recovered == "run_A", "recovery picked replay run instead of paused A"
 
     a_segs = db.conn.execute(
-        "SELECT id FROM segments WHERE reference_id = 'run_A'"
+        "SELECT id FROM segments WHERE capture_run_id = 'run_A'"
     ).fetchall()
     assert {r[0] for r in a_segs} == {"seg_A"}, "B's segments leaked into A"
 

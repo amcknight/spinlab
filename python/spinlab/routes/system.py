@@ -11,6 +11,15 @@ logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from spinlab.api_schemas import (
+    AppState,
+    EmulatorLaunchRequest,
+    EmulatorLaunchResponse,
+    OkResponse,
+    RomsResponse,
+    SessionsResponse,
+    ShutdownResponse,
+)
 from spinlab.config import AppConfig
 from spinlab.dashboard import SSE_KEEPALIVE_S
 from spinlab.db import Database
@@ -22,7 +31,7 @@ from ._deps import get_config, get_db, get_session
 router = APIRouter(prefix="/api")
 
 
-@router.get("/state")
+@router.get("/state", response_model=AppState)
 def api_state(session: SessionManager = Depends(get_session)):
     return session.get_state()
 
@@ -47,7 +56,7 @@ async def sse_events(session: SessionManager = Depends(get_session)):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-@router.get("/sessions")
+@router.get("/sessions", response_model=SessionsResponse)
 def api_sessions(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
     if session.game_id is None:
         return {"sessions": []}
@@ -55,7 +64,7 @@ def api_sessions(session: SessionManager = Depends(get_session), db: Database = 
     return {"sessions": sessions}
 
 
-@router.post("/reset")
+@router.post("/reset", response_model=OkResponse)
 async def reset_data(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
     from spinlab.errors import NotRunningError
     try:
@@ -73,7 +82,7 @@ async def reset_data(session: SessionManager = Depends(get_session), db: Databas
     return {"status": "ok"}
 
 
-@router.get("/roms")
+@router.get("/roms", response_model=RomsResponse)
 def list_roms(config: AppConfig = Depends(get_config)):
     rom_dir = config.rom_dir
     if not rom_dir or not rom_dir.is_dir():
@@ -104,7 +113,7 @@ def _retroarch_already_running(nci_port: int) -> bool:
         client.close()
 
 
-def _launch_emulator(body: dict | None, config: AppConfig):
+def _launch_emulator(body: EmulatorLaunchRequest | None, config: AppConfig) -> dict:
     """Launch RetroArch with the requested ROM, or no-op if RA's already running.
 
     Click a game in the dashboard → emulator pops up with that ROM loaded.
@@ -126,7 +135,7 @@ def _launch_emulator(body: dict | None, config: AppConfig):
         )
 
     rom_dir = config.rom_dir
-    rom_name = (body or {}).get("rom", "")
+    rom_name = body.rom if body else ""
     if not rom_name:
         raise HTTPException(status_code=400, detail="No ROM specified in request body")
     if not rom_dir:
@@ -150,12 +159,12 @@ def _launch_emulator(body: dict | None, config: AppConfig):
     return {"status": "ok"}
 
 
-@router.post("/emulator/launch")
-def launch_emulator(body: dict | None = None, config: AppConfig = Depends(get_config)):
+@router.post("/emulator/launch", response_model=EmulatorLaunchResponse)
+def launch_emulator(body: EmulatorLaunchRequest | None = None, config: AppConfig = Depends(get_config)):
     return _launch_emulator(body, config)
 
 
-@router.post("/shutdown")
+@router.post("/shutdown", response_model=ShutdownResponse)
 async def api_shutdown(session: SessionManager = Depends(get_session)):
     await session.shutdown()
     import signal

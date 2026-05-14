@@ -106,7 +106,6 @@ class ColdFillController:
                 waypoint_id=self.cold_waypoint_id,
                 variant_type="cold",
                 state_path=event.state_path,
-                is_default=True,
             ))
         self.queue.pop(0)
         if not self.queue:

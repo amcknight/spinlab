@@ -77,8 +77,9 @@ class TestColdFillBranch:
         assert state["cold_fill"]["current"] == 4
         assert state["cold_fill"]["total"] == 5
 
-    def test_cold_fill_none_state_omitted(self, practice_db, mock_emu):
-        """When cold_fill has no current segment, no cold_fill key is added."""
+    def test_cold_fill_none_state_present_but_null(self, practice_db, mock_emu):
+        """When cold_fill has no current segment, the key is present with
+        value None — AppState contract is always-present-sometimes-null."""
         sm = _make_sm(practice_db, mock_emu)
         sm.game_id = "g"
         sm.game_name = "Game"
@@ -86,7 +87,7 @@ class TestColdFillBranch:
         # cold_fill.current is None by default → get_state() returns None
 
         state = sm.get_state()
-        assert "cold_fill" not in state
+        assert state["cold_fill"] is None
 
 
 class TestSectionsCaptured:
@@ -110,7 +111,7 @@ class TestSectionsCaptured:
 
         # Create a draft capture_run and associate it with the recorder
         run_id = "run-test-count"
-        practice_db.create_capture_run(run_id, "g", "Test", draft=True)
+        practice_db.create_capture_run(run_id, "g", "Test", kind="live")
 
         # Add a segment linked to this run
         from spinlab.models import Segment, Waypoint
@@ -125,7 +126,7 @@ class TestSectionsCaptured:
             end_type="goal", end_ordinal=0,
             start_waypoint_id=wp_s.id, end_waypoint_id=wp_e.id,
             ordinal=1,
-            reference_id=run_id,
+            capture_run_id=run_id,
         )
         practice_db.upsert_segment(seg)
 
@@ -141,7 +142,7 @@ class TestDraftBranch:
         sm.game_name = "Game"
 
         # Create a capture run in the DB and set as paused
-        practice_db.create_capture_run("run-xyz", "g", "Test Run", draft=True)
+        practice_db.create_capture_run("run-xyz", "g", "Test Run", kind="live")
         sm.capture.paused_run_id = "run-xyz"
 
         state = sm.get_state()

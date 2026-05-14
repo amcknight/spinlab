@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
+from spinlab.api_schemas import AttemptPatchRequest, AttemptPatchResponse
 from spinlab.db import Database
 
 from ._deps import get_db
@@ -11,16 +11,12 @@ from ._deps import get_db
 router = APIRouter(prefix="/api")
 
 
-class AttemptPatch(BaseModel):
-    invalidated: bool
-
-
-@router.patch("/attempts/{attempt_id}")
+@router.patch("/attempts/{attempt_id}", response_model=AttemptPatchResponse)
 def patch_attempt(
     attempt_id: int,
-    body: AttemptPatch,
+    body: AttemptPatchRequest,
     db: Database = Depends(get_db),
-) -> dict:
+):
     """Toggle the invalidation flag on a single attempt."""
     if not db.attempt_exists(attempt_id):
         raise HTTPException(status_code=404, detail="attempt not found")

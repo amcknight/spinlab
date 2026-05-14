@@ -61,9 +61,9 @@ async def test_save_and_finish_from_paused_after_stop_finalizes(started_session,
     result = await started_session.save_and_finish_run(Mode.IDLE, name="Stopped First")
     assert result.status == Status.OK
     row = db.conn.execute(
-        "SELECT draft, name FROM capture_runs WHERE id = ?", (run_id,)
+        "SELECT status, name FROM capture_runs WHERE id = ?", (run_id,)
     ).fetchone()
-    assert row[0] == 0  # promoted from draft
+    assert row[0] == "saved"  # promoted from draft
     assert row[1] == "Stopped First"
 
 
@@ -80,8 +80,8 @@ async def test_save_and_finish_seeds_attempts_and_finalizes(started_session, db)
 
     assert result.status == Status.OK
     assert result.new_mode == Mode.IDLE
-    row = db.conn.execute("SELECT draft, name FROM capture_runs WHERE id = ?", (run_id,)).fetchone()
-    assert row[0] == 0
+    row = db.conn.execute("SELECT status, name FROM capture_runs WHERE id = ?", (run_id,)).fetchone()
+    assert row[0] == "saved"
     assert row[1] == "My Run"
     attempts = db.conn.execute(
         "SELECT segment_id, time_ms FROM attempts WHERE segment_id = 'seg_x'"
@@ -105,10 +105,10 @@ async def test_stop_session_pauses_run(started_session, db):
     sessions = db.list_capture_sessions_for_run(run_id)
     assert len(sessions) == 1
     assert sessions[0]["end_reason"] == "stopped"
-    draft = db.conn.execute(
-        "SELECT draft FROM capture_runs WHERE id = ?", (run_id,)
+    status = db.conn.execute(
+        "SELECT status FROM capture_runs WHERE id = ?", (run_id,)
     ).fetchone()[0]
-    assert draft == 1
+    assert status == "draft"
 
 
 @pytest.mark.asyncio
@@ -216,12 +216,12 @@ async def test_save_and_finish_is_atomic_rolls_back_on_failure(started_session, 
     with pytest.raises(sqlite3.IntegrityError):
         await started_session.save_and_finish_run(Mode.REFERENCE, name="Should Roll Back")
 
-    # Run must still be draft=1 (promotion was rolled back)
-    row = db.conn.execute("SELECT draft FROM capture_runs WHERE id = ?", (run_id,)).fetchone()
-    assert row is not None and row[0] == 1, "run must remain draft after rollback"
+    # Run must still be draft (promotion was rolled back)
+    row = db.conn.execute("SELECT status FROM capture_runs WHERE id = ?", (run_id,)).fetchone()
+    assert row is not None and row[0] == "draft", "run must remain draft after rollback"
     # No attempts persisted
     attempt_count = db.conn.execute(
-        "SELECT COUNT(*) FROM attempts WHERE parent_id = ?", (run_id,)
+        "SELECT COUNT(*) FROM attempts WHERE capture_run_id = ?", (run_id,)
     ).fetchone()[0]
     assert attempt_count == 0, "no attempts should survive a rolled-back transaction"
     # Timing rows must NOT have been deleted (drain was rolled back too)
@@ -242,9 +242,9 @@ def test_recovery_logs_warning_when_discarding_stranded_drafts(db, caplog):
     # scenario the recovery code defends against. Production code can't reach this
     # state (the index prevents it), but raw SQL can — and we still want to verify
     # recovery handles the edge case gracefully if it ever does.
-    db.conn.execute("DROP INDEX IF EXISTS idx_one_paused_run_per_game")
-    db.create_capture_run(older, "smw", "Older", draft=True)
-    db.create_capture_run(newer, "smw", "Newer", draft=True)
+    db.conn.execute("DROP INDEX IF EXISTS idx_one_live_draft_per_game")
+    db.create_capture_run(older, "smw", "Older", kind="live")
+    db.create_capture_run(newer, "smw", "Newer", kind="live")
     # Force created_at ordering
     db.conn.execute(
         "UPDATE capture_runs SET created_at = ? WHERE id = ?",
@@ -265,12 +265,12 @@ def test_session_end_log_includes_ordinal_duration_segments(db, caplog):
     """When a capture session ends, log line includes ordinal, duration, and
     segment count to aid post-hoc debugging."""
     db.upsert_game("smw", "SMW", "any%")
-    db.create_capture_run("run_x", "smw", "X", draft=True)
+    db.create_capture_run("run_x", "smw", "X", kind="live")
     db.create_capture_session("sess_x", "run_x", 3)
     # Add one segment so segment count > 0
     db.conn.execute(
         "INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal, "
-        "end_type, end_ordinal, capture_session_id, reference_id, created_at, updated_at) "
+        "end_type, end_ordinal, capture_session_id, capture_run_id, created_at, updated_at)"
         "VALUES ('seg1', 'smw', 1, 'entrance', 0, 'goal', 0, 'sess_x', 'run_x', "
         "datetime('now'), datetime('now'))"
     )
@@ -297,7 +297,7 @@ def test_session_end_log_includes_ordinal_duration_segments(db, caplog):
 
 def test_list_capture_sessions_includes_segment_count(db):
     db.upsert_game("smw", "SMW", "any%")
-    db.create_capture_run("run_y", "smw", "Y", draft=True)
+    db.create_capture_run("run_y", "smw", "Y", kind="live")
     db.create_capture_session("s1", "run_y", 1)
     db.create_capture_session("s2", "run_y", 2)
     # 2 segments in s1, 1 in s2
@@ -305,7 +305,7 @@ def test_list_capture_sessions_includes_segment_count(db):
         db.conn.execute(
             "INSERT INTO segments (id, game_id, level_number, start_type, "
             "start_ordinal, end_type, end_ordinal, capture_session_id, "
-            "reference_id, created_at, updated_at) VALUES (?, 'smw', 1, "
+            "capture_run_id, created_at, updated_at)VALUES (?, 'smw', 1, "
             "'entrance', 0, 'goal', 0, ?, 'run_y', datetime('now'), datetime('now'))",
             (sid, csid),
         )
@@ -318,13 +318,13 @@ def test_list_capture_sessions_includes_segment_count(db):
 
 def test_get_segments_by_reference_includes_session_ordinal(db):
     db.upsert_game("smw", "SMW", "any%")
-    db.create_capture_run("run_z", "smw", "Z", draft=True)
+    db.create_capture_run("run_z", "smw", "Z", kind="live")
     db.create_capture_session("s1", "run_z", 1)
     db.create_capture_session("s2", "run_z", 2)
     db.conn.execute(
         "INSERT INTO segments (id, game_id, level_number, start_type, "
         "start_ordinal, end_type, end_ordinal, capture_session_id, "
-        "reference_id, created_at, updated_at) VALUES "
+        "capture_run_id, created_at, updated_at)VALUES "
         "('a', 'smw', 1, 'entrance', 0, 'goal', 0, 's1', 'run_z', "
         "datetime('now'), datetime('now')), "
         "('b', 'smw', 1, 'entrance', 0, 'goal', 0, 's2', 'run_z', "
@@ -350,7 +350,7 @@ def test_finalize_rebuilds_scheduler_even_when_zero_segments(db):
     from spinlab.capture.reference import ReferenceController
 
     db.upsert_game("smw", "SMW", "any%")
-    db.create_capture_run("run_e", "smw", "Empty", draft=True)
+    db.create_capture_run("run_e", "smw", "Empty", kind="live")
     db.create_capture_session("s_e", "run_e", 1)
 
     class RecordingScheduler:
@@ -385,18 +385,18 @@ def test_two_paused_drafts_for_same_game_violate_unique_index(db):
     """Belt-and-suspenders constraint: at most one non-replay draft per game."""
     import sqlite3
     db.upsert_game("smw", "SMW", "any%")
-    db.create_capture_run("run_1", "smw", "1", draft=True)
+    db.create_capture_run("run_1", "smw", "1", kind="live")
     with pytest.raises(sqlite3.IntegrityError):
-        db.create_capture_run("run_2", "smw", "2", draft=True)
+        db.create_capture_run("run_2", "smw", "2", kind="live")
 
 
 def test_replay_drafts_can_coexist_with_paused_run(db):
-    """The unique index excludes replay_% IDs, so a replay draft does NOT
-    collide with a real paused run."""
+    """The unique index filters on kind='live', so a replay-kind draft does NOT
+    collide with a real live-kind paused run."""
     db.upsert_game("smw", "SMW", "any%")
-    db.create_capture_run("run_real", "smw", "Real", draft=True)
+    db.create_capture_run("run_real", "smw", "Real", kind="live")
     # Should not raise:
-    db.create_capture_run("replay_xx", "smw", "Replay", draft=True)
+    db.create_capture_run("replay_xx", "smw", "Replay", kind="replay")
 
 
 def test_delete_active_capture_session_raises_session_in_use(db):
@@ -409,7 +409,7 @@ def test_delete_active_capture_session_raises_session_in_use(db):
     from spinlab.capture.reference import ReferenceController
     from spinlab.errors import SessionInUseError
     db.upsert_game("smw", "SMW", "any%")
-    db.create_capture_run("run_d", "smw", "D", draft=True)
+    db.create_capture_run("run_d", "smw", "D", kind="live")
     db.create_capture_session("active_sess", "run_d", 1)
 
     ctl = ReferenceController(db, FakeEmuBackend(connected=False))
@@ -434,7 +434,7 @@ def _make_minimal_segment(db, run_id, sess_id, seg_id):
         start_type=EndpointType.ENTRANCE, start_ordinal=0,
         end_type=EndpointType.GOAL, end_ordinal=0,
         start_waypoint_id=wp_a.id, end_waypoint_id=wp_b.id,
-        reference_id=run_id, capture_session_id=sess_id,
+        capture_run_id=run_id, capture_session_id=sess_id,
     )
     db.upsert_segment(seg)
 

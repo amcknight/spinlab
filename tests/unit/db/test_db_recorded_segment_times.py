@@ -8,7 +8,7 @@ from spinlab.db import Database
 def db():
     d = Database(":memory:")
     d.upsert_game("smw", "Super Mario World", "any%")
-    d.create_capture_run("run_1", "smw", "Test Run", draft=True)
+    d.create_capture_run("run_1", "smw", "Test Run", kind="live")
     d.create_capture_session("sess_1", "run_1", 1)
     d.create_capture_session("sess_2", "run_1", 2)
     yield d
@@ -33,10 +33,10 @@ def test_add_and_drain_recorded_segment_times(db):
 
 
 def test_drain_only_pulls_from_specified_run(db):
-    # Non-draft so it doesn't collide with run_1 under the
-    # one-paused-run-per-game unique index. Drain filters by run_id and
-    # doesn't care about draft state.
-    db.create_capture_run("run_other", "smw", "Other", draft=False)
+    # Different kind so it doesn't collide with run_1 under the
+    # one-live-draft-per-game unique index. Drain filters by run_id and
+    # doesn't care about kind or status.
+    db.create_capture_run("run_other", "smw", "Other", kind="replay")
     db.create_capture_session("sess_other", "run_other", 1)
     db.add_recorded_segment_time("sess_1", "seg_x", time_ms=100, deaths=0, clean_tail_ms=100)
     db.add_recorded_segment_time("sess_other", "seg_y", time_ms=200, deaths=0, clean_tail_ms=200)

@@ -32,7 +32,6 @@ class SegmentWithModel:
     end_type: str
     end_ordinal: int
     description: str
-    strat_version: int
     state_path: str | None
     active: bool
     model_outputs: dict[str, ModelOutput] = field(default_factory=dict)
@@ -96,7 +95,6 @@ class SegmentWithModel:
                 end_type=row["end_type"],
                 end_ordinal=row["end_ordinal"],
                 description=row["description"],
-                strat_version=row["strat_version"],
                 state_path=row.get("state_path"),
                 active=bool(row["active"]),
                 model_outputs=model_outputs,

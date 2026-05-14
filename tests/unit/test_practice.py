@@ -190,9 +190,10 @@ def test_record_attempt_persists_and_updates_model_in_lockstep(practice_db):
     different result by going through the bundled path."""
     seg_id = practice_db._test_seg_id
     sched = Scheduler(practice_db, "g")
+    practice_db.create_session("sess1", "g")
 
     attempt = Attempt(
-        segment_id=seg_id, parent_id="sess1", completed=True, time_ms=10000,
+        segment_id=seg_id, session_id="sess1", completed=True, time_ms=10000,
         source=AttemptSource.PRACTICE,
     )
     sched.record_attempt(attempt)

@@ -1,10 +1,20 @@
 """Reference CRUD, drafts, and replay routes."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
+from spinlab.api_schemas import (
+    ActionResponse,
+    CaptureSessionsResponse,
+    OkResponse,
+    ReferenceFinalizeRequest,
+    ReferenceRenameRequest,
+    ReferenceSegmentsResponse,
+    ReferencesResponse,
+    ReplayExistsResponse,
+    ReplayStartRequest,
+)
 from spinlab.db import Database
-from spinlab.protocol import SPEED_UNCAPPED
 from spinlab.session_manager import SessionManager
 
 from ._deps import get_db, get_session
@@ -12,12 +22,12 @@ from ._deps import get_db, get_session
 router = APIRouter(prefix="/api")
 
 
-@router.post("/reference/start")
+@router.post("/reference/start", response_model=ActionResponse)
 async def reference_start(session: SessionManager = Depends(get_session)):
     return (await session.start_reference()).to_response()
 
 
-@router.post("/reference/stop")
+@router.post("/reference/stop", response_model=ActionResponse)
 async def reference_stop(session: SessionManager = Depends(get_session)):
     return (await session.stop_reference()).to_response()
 
@@ -46,26 +56,24 @@ def _resolve_replay_path(
     return str(path) if path.is_file() else None
 
 
-@router.post("/replay/start")
-async def replay_start(req: Request, session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
-    body = await req.json()
-    ref_id = body.get("ref_id")
-    session_id = body.get("session_id")  # optional: replay a specific session
-    speed = body.get("speed", SPEED_UNCAPPED)
-    if not ref_id:
-        raise HTTPException(status_code=400, detail="ref_id required")
-    replay_path = _resolve_replay_path(ref_id, session, db, session_id=session_id)
+@router.post("/replay/start", response_model=ActionResponse)
+async def replay_start(
+    body: ReplayStartRequest,
+    session: SessionManager = Depends(get_session),
+    db: Database = Depends(get_db),
+):
+    replay_path = _resolve_replay_path(body.ref_id, session, db, session_id=body.session_id)
     if not replay_path:
         raise HTTPException(status_code=404, detail="replay_not_found")
-    return (await session.start_replay(replay_path, speed=speed)).to_response()
+    return (await session.start_replay(replay_path, speed=body.speed)).to_response()
 
 
-@router.post("/replay/stop")
+@router.post("/replay/stop", response_model=ActionResponse)
 async def replay_stop(session: SessionManager = Depends(get_session)):
     return (await session.stop_replay()).to_response()
 
 
-@router.get("/references")
+@router.get("/references", response_model=ReferencesResponse)
 def list_references(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
     if session.game_id is None:
         return {"references": []}
@@ -88,36 +96,36 @@ def list_references(session: SessionManager = Depends(get_session), db: Database
     return {"references": out}
 
 
-@router.post("/reference/finalize")
-async def reference_finalize(req: Request, session: SessionManager = Depends(get_session)):
-    body = await req.json()
-    name = body.get("name", "Untitled")
-    return (await session.finalize_run(name)).to_response()
+@router.post("/reference/finalize", response_model=ActionResponse)
+async def reference_finalize(
+    body: ReferenceFinalizeRequest, session: SessionManager = Depends(get_session),
+):
+    return (await session.finalize_run(body.name)).to_response()
 
 
-@router.post("/reference/save_and_finish")
-async def reference_save_and_finish(req: Request, session: SessionManager = Depends(get_session)):
-    body = await req.json()
-    name = body.get("name", "Untitled")
-    return (await session.save_and_finish_run(name)).to_response()
+@router.post("/reference/save_and_finish", response_model=ActionResponse)
+async def reference_save_and_finish(
+    body: ReferenceFinalizeRequest, session: SessionManager = Depends(get_session),
+):
+    return (await session.save_and_finish_run(body.name)).to_response()
 
 
-@router.post("/reference/discard_run")
+@router.post("/reference/discard_run", response_model=ActionResponse)
 async def reference_discard_run(session: SessionManager = Depends(get_session)):
     return (await session.discard_run()).to_response()
 
 
-@router.post("/reference/resume")
+@router.post("/reference/resume", response_model=ActionResponse)
 async def reference_resume(session: SessionManager = Depends(get_session)):
     return (await session.resume_reference()).to_response()
 
 
-@router.delete("/capture_sessions/{session_id}")
+@router.delete("/capture_sessions/{session_id}", response_model=ActionResponse)
 async def delete_capture_session(session_id: str, session: SessionManager = Depends(get_session)):
     return (await session.delete_capture_session(session_id)).to_response()
 
 
-@router.get("/capture_sessions")
+@router.get("/capture_sessions", response_model=CaptureSessionsResponse)
 def list_capture_sessions(
     run_id: str,
     session: SessionManager = Depends(get_session),
@@ -126,7 +134,7 @@ def list_capture_sessions(
     return {"sessions": db.list_capture_sessions_for_run(run_id)}
 
 
-@router.get("/references/{ref_id}/replay")
+@router.get("/references/{ref_id}/replay", response_model=ReplayExistsResponse)
 def check_replay(ref_id: str, session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
     replay_path = _resolve_replay_path(ref_id, session, db)
     if replay_path:
@@ -134,26 +142,27 @@ def check_replay(ref_id: str, session: SessionManager = Depends(get_session), db
     return {"exists": False}
 
 
-@router.patch("/references/{ref_id}")
-def rename_reference(ref_id: str, body: dict, db: Database = Depends(get_db)):
-    name = body.get("name")
-    if name:
-        db.rename_capture_run(ref_id, name)
+@router.patch("/references/{ref_id}", response_model=OkResponse)
+def rename_reference(
+    ref_id: str, body: ReferenceRenameRequest, db: Database = Depends(get_db),
+):
+    if body.name:
+        db.rename_capture_run(ref_id, body.name)
     return {"status": "ok"}
 
 
-@router.delete("/references/{ref_id}")
+@router.delete("/references/{ref_id}", response_model=OkResponse)
 def delete_reference(ref_id: str, db: Database = Depends(get_db)):
     db.delete_capture_run(ref_id)
     return {"status": "ok"}
 
 
-@router.post("/references/{ref_id}/activate")
+@router.post("/references/{ref_id}/activate", response_model=OkResponse)
 def activate_reference(ref_id: str, db: Database = Depends(get_db)):
     db.set_active_capture_run(ref_id)
     return {"status": "ok"}
 
 
-@router.get("/references/{ref_id}/segments")
+@router.get("/references/{ref_id}/segments", response_model=ReferenceSegmentsResponse)
 def get_reference_segments(ref_id: str, db: Database = Depends(get_db)):
     return {"segments": db.get_segments_by_reference(ref_id)}

@@ -63,7 +63,8 @@ def seed_basic_game(db: "Database") -> str:
     session_id = f"{game_id}:sess"
 
     db.upsert_game(game_id, _SEED_GAME_NAME, _SEED_CATEGORY)
-    db.create_capture_run(reference_id, game_id, "FakeRef", draft=False)
+    db.create_capture_run(reference_id, game_id, "FakeRef", kind="live")
+    db.promote_draft(reference_id, "FakeRef")
     db.set_active_capture_run(reference_id)
 
     seg_ids: list[str] = []
@@ -74,14 +75,14 @@ def seed_basic_game(db: "Database") -> str:
             id=seg_id, game_id=game_id, level_number=level,
             start_type="entrance", start_ordinal=0,
             end_type="goal", end_ordinal=0,
-            description=desc, reference_id=reference_id, active=True,
+            description=desc, capture_run_id=reference_id, active=True,
         ))
 
     db.create_session(session_id, game_id)
     for seg_idx, offset_ms, completed, alloc_idx in _SEED_ATTEMPT_SPECS:
         _, _, _, ref_ms = _SEED_SEGMENT_SPECS[seg_idx]
         db.log_attempt(Attempt(
-            segment_id=seg_ids[seg_idx], parent_id=session_id,
+            segment_id=seg_ids[seg_idx], session_id=session_id,
             completed=completed,
             time_ms=(ref_ms + offset_ms) if completed else None,
             chosen_allocator=_SEED_ALLOCATORS[alloc_idx],
@@ -158,7 +159,6 @@ def make_segment_with_model(
         end_type=end_type,
         end_ordinal=end_ordinal,
         description=f"Segment {segment_id}",
-        strat_version=1,
         state_path=state_path,
         active=True,
         model_outputs={selected_model: out},

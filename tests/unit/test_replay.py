@@ -92,7 +92,7 @@ class TestReplayEvents:
         # insert FK on capture_runs(id) is satisfied if this test ever
         # extends past the pending_start check.
         run_id = "replay_test123"
-        db.create_capture_run(run_id, "abcdef0123456789", "Test Replay", draft=True)
+        db.create_capture_run(run_id, "abcdef0123456789", "Test Replay", kind="live")
         sm.capture.recorder.capture_run_id = run_id
 
         await sm.route_event(LevelEntranceEvent(

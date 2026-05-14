@@ -7,7 +7,6 @@ When an item ships, delete it from this file rather than checking it off — the
 ## High-priority follow-ups
 
 - **[L] RetroArch migration — finish to parity.** Backend works for reference + practice in unit tests and basic live testing; cold-fill on cp-respawn hacks and second-death practice reload have provisional fixes that need field verification. Phase E (BSV input recording + replay) is not started. Detailed status: `docs/retroarch-migration/status.md`. Path to parity: `docs/retroarch-migration/path-to-parity.md`.
-- **[L] Replace `_init_schema` rebuild-on-mismatch with real migrations.** `db/core.py:_init_schema` drops any table whose columns drift from `_expected_columns()`. Greenfield-friendly today; catastrophic once references and attempts represent meaningful accumulated work. Move to alembic or a homegrown forward-only migration log **before** the data starts mattering. Single biggest tech debt item in the repo.
 - **[M] Long-run / load test.** No test exercises >100 segments or multi-GB accumulation across many sessions. A test that simulates 1000 segments across 20 sessions then runs recovery would catch scaling regressions early. The whole point of the multi-session work was to support 50-hour runs.
 - **[M] Playwright crash-and-resume smoke test.** Scaffold exists at `tests/integration/test_multi_session_smoke.py` (skipped). Extend the `test_frontend_smoke.py` fixture chain to support process restart against a shared DB file. Python-level crash test (`test_crash_recovery.py`) covers the data layer; this is purely UI confidence.
 
@@ -15,8 +14,6 @@ When an item ships, delete it from this file rather than checking it off — the
 
 - **[M] Consolidate `paused_run_id` and `recorder.capture_run_id` state.** `ReferenceController` has two state fields managed by separate methods. The `_assert_run_state_invariant` helper guards against drift, but the next refactor that touches state transitions is at risk. Either consolidate into a single state object or expand the invariant assertions.
 - **[M] `is_primary` auto-promotion on segment delete.** Today: deleting the primary segment for a geography silently drops it from practice scheduling. Now that segments carry `capture_session_id`, the natural behavior is to auto-promote the most-recent active sibling.
-- **[M] Replay-creates-ephemeral-capture_run is awkward.** Replay needs a `capture_run` row purely so the recorder has somewhere to attach segments. The `id LIKE 'replay_%'` filter in recovery is a hack working around it. Cleaner: scratch run that's not in `capture_runs` at all. Big refactor, low priority — the hack works.
-- **[S] `save_and_finish_run` atomicity uses raw SQL.** Works correctly. Cleaner long-term API would be teaching the mixin methods to honor an open transaction. Defer until another transaction-spanning operation needs the same pattern.
 
 ## Efficiency
 

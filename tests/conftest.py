@@ -136,7 +136,12 @@ def fake_emu():
 
 def make_seg_with_state(db, game_id, level, start_type, end_type,
                         state_path, ordinal=1):
-    """Create waypoints + segment + hot save state; return segment."""
+    """Create waypoints + segment + save state; return segment.
+
+    Picks the conventional variant for the start_type (cold for entrance,
+    hot for checkpoint) so `get_all_segments_with_model` resolves the
+    state_path correctly in tests.
+    """
     wp_start = Waypoint.make(game_id, level, start_type, 0, {})
     wp_end = Waypoint.make(game_id, level, end_type, 0, {})
     db.upsert_waypoint(wp_start)
@@ -152,9 +157,10 @@ def make_seg_with_state(db, game_id, level, start_type, end_type,
         start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
     )
     db.upsert_segment(seg)
+    variant = "cold" if start_type == "entrance" else "hot"
     db.add_save_state(WaypointSaveState(
-        waypoint_id=wp_start.id, variant_type="hot",
-        state_path=str(state_path), is_default=True,
+        waypoint_id=wp_start.id, variant_type=variant,
+        state_path=str(state_path),
     ))
     return seg
 

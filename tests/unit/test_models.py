@@ -1,5 +1,7 @@
 """Tests for spinlab.models."""
 
+import pytest
+
 from spinlab.models import Attempt, AttemptSource, Segment, Waypoint
 
 
@@ -51,13 +53,17 @@ def test_segment_is_primary_default_true():
     assert seg.is_primary is True
 
 
-def test_attempt_has_observed_conditions_and_invalidated():
+def test_attempt_defaults_invalidated_false():
     a = Attempt(
-        segment_id="s1", parent_id="sess1", completed=True,
+        segment_id="s1", session_id="sess1", completed=True,
         time_ms=1000, source=AttemptSource.PRACTICE, deaths=0,
-        observed_start_conditions='{"powerup": "big"}',
-        observed_end_conditions='{"powerup": "small"}',
     )
-    assert a.observed_start_conditions == '{"powerup": "big"}'
-    assert a.observed_end_conditions == '{"powerup": "small"}'
     assert a.invalidated is False
+
+
+def test_attempt_requires_exactly_one_parent():
+    """The Attempt model enforces the XOR invariant on session_id / capture_run_id."""
+    with pytest.raises(ValueError):
+        Attempt(segment_id="s1", completed=True)
+    with pytest.raises(ValueError):
+        Attempt(segment_id="s1", session_id="s", capture_run_id="r", completed=True)

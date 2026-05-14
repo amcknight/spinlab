@@ -51,6 +51,10 @@ async def test_rollback_on_mid_transaction_failure(
         def rollback(self):
             return real_conn.rollback()
 
+        @property
+        def in_transaction(self):
+            return real_conn.in_transaction
+
     monkeypatch.setattr(db, "conn", FailingConn())
 
     with pytest.raises(RuntimeError, match="injected failure"):
@@ -58,11 +62,11 @@ async def test_rollback_on_mid_transaction_failure(
 
     monkeypatch.undo()  # restores db.conn to real_conn
 
-    # capture_runs.draft still 1, name unchanged
+    # capture_runs.status still draft, name unchanged
     row = db.conn.execute(
-        "SELECT draft, name FROM capture_runs WHERE id = ?", (run_id,),
+        "SELECT status, name FROM capture_runs WHERE id = ?", (run_id,),
     ).fetchone()
-    assert row[0] == 1, "draft flag should have rolled back to 1"
+    assert row[0] == "draft", "status should have rolled back to draft"
     assert row[1] == "In-Progress", "name should not have been updated"
 
     # Timing row still present
@@ -74,7 +78,7 @@ async def test_rollback_on_mid_transaction_failure(
 
     # No attempts inserted for this run
     rows = db.conn.execute(
-        "SELECT id FROM attempts WHERE parent_id = ?", (run_id,),
+        "SELECT id FROM attempts WHERE capture_run_id = ?", (run_id,),
     ).fetchall()
     assert len(rows) == 0
 
@@ -117,15 +121,15 @@ async def test_happy_path_commits_all_five_mutations(
     assert rows == []
 
     cap = db.conn.execute(
-        "SELECT draft, name, active FROM capture_runs WHERE id = ?", (run_id,),
+        "SELECT status, name, active FROM capture_runs WHERE id = ?", (run_id,),
     ).fetchone()
-    assert cap[0] == 0, "draft should be promoted to 0"
+    assert cap[0] == "saved", "status should be promoted to saved"
     assert cap[1] == "Finalized Name"
     assert cap[2] == 1, "run should be activated"
 
     att = db.conn.execute(
         "SELECT segment_id, time_ms, deaths, source FROM attempts "
-        "WHERE parent_id = ?", (run_id,),
+        "WHERE capture_run_id = ?", (run_id,),
     ).fetchone()
     assert att is not None
     assert att[0] == "seg1"

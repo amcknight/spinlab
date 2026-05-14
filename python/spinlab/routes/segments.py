@@ -7,8 +7,14 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 logger = logging.getLogger(__name__)
-from pydantic import BaseModel
 
+from spinlab.api_schemas import (
+    ActionResponse,
+    OkResponse,
+    SegmentPatchRequest,
+    SegmentPatchResponse,
+    SegmentsResponse,
+)
 from spinlab.db import Database
 from spinlab.session_manager import SessionManager
 
@@ -17,13 +23,7 @@ from ._deps import get_db, get_session
 router = APIRouter(prefix="/api")
 
 
-class SegmentPatch(BaseModel):
-    is_primary: bool | None = None
-    description: str | None = None
-    active: bool | None = None
-
-
-@router.get("/segments")
+@router.get("/segments", response_model=SegmentsResponse)
 def api_segments(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
     if session.game_id is None:
         return {"segments": []}
@@ -42,8 +42,8 @@ def api_segments(session: SessionManager = Depends(get_session), db: Database = 
     return {"segments": out}
 
 
-@router.patch("/segments/{segment_id}")
-def patch_segment(segment_id: str, body: SegmentPatch, db: Database = Depends(get_db)):
+@router.patch("/segments/{segment_id}", response_model=SegmentPatchResponse)
+def patch_segment(segment_id: str, body: SegmentPatchRequest, db: Database = Depends(get_db)):
     if not db.segment_exists(segment_id):
         logger.warning("patch_segment: not found %s", segment_id)
         raise HTTPException(status_code=404, detail="segment not found")
@@ -55,7 +55,7 @@ def patch_segment(segment_id: str, body: SegmentPatch, db: Database = Depends(ge
     return {"ok": True, "id": segment_id, "is_primary": body.is_primary}
 
 
-@router.delete("/segments/{segment_id}")
+@router.delete("/segments/{segment_id}", response_model=OkResponse)
 def delete_segment(segment_id: str, db: Database = Depends(get_db)):
     if not db.segment_exists(segment_id):
         logger.warning("delete_segment: not found %s", segment_id)
@@ -64,6 +64,6 @@ def delete_segment(segment_id: str, db: Database = Depends(get_db)):
     return {"status": "ok"}
 
 
-@router.post("/segments/{segment_id}/fill-gap")
+@router.post("/segments/{segment_id}/fill-gap", response_model=ActionResponse)
 async def fill_gap(segment_id: str, session: SessionManager = Depends(get_session)):
     return (await session.start_fill_gap(segment_id)).to_response()

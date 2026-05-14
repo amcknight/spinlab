@@ -26,34 +26,44 @@ def client(db, tmp_path):
     return TestClient(app)
 
 
+def _saved_run(db, run_id, game_id, name):
+    """Create a finalized (saved) capture run — drafts are excluded from
+    /api/references, so list-style tests need to promote."""
+    db.create_capture_run(run_id, game_id, name)
+    db.promote_draft(run_id, name)
+
+
 class TestReferenceEndpoints:
     def test_list_references(self, client, db):
-        db.create_capture_run("ref1", "test_game", "Run 1")
+        _saved_run(db, "ref1", "test_game", "Run 1")
         resp = client.get("/api/references")
         assert resp.status_code == 200
         assert len(resp.json()["references"]) == 1
 
     def test_rename_reference(self, client, db):
-        db.create_capture_run("ref1", "test_game", "Old")
+        _saved_run(db, "ref1", "test_game", "Old")
         resp = client.patch("/api/references/ref1", json={"name": "New"})
         assert resp.status_code == 200
         refs = db.list_capture_runs("test_game")
         assert refs[0]["name"] == "New"
 
     def test_delete_reference(self, client, db):
-        db.create_capture_run("ref1", "test_game", "Run 1")
+        _saved_run(db, "ref1", "test_game", "Run 1")
         s = Segment(id="s1", game_id="test_game", level_number=1,
                     start_type="entrance", start_ordinal=0,
                     end_type="goal", end_ordinal=0,
-                    reference_id="ref1")
+                    capture_run_id="ref1")
         db.upsert_segment(s)
         resp = client.delete("/api/references/ref1")
         assert resp.status_code == 200
         assert db.list_capture_runs("test_game") == []
 
     def test_activate_reference(self, client, db):
-        db.create_capture_run("ref1", "test_game", "Run 1")
-        db.create_capture_run("ref2", "test_game", "Run 2")
+        _saved_run(db, "ref1", "test_game", "Run 1")
+        # Second run uses a different kind so it doesn't collide with the
+        # one-live-draft-per-game unique index before promotion.
+        db.create_capture_run("ref2", "test_game", "Run 2", kind="replay")
+        db.promote_draft("ref2", "Run 2")
         resp = client.post("/api/references/ref2/activate")
         assert resp.status_code == 200
         refs = db.list_capture_runs("test_game")
@@ -195,7 +205,8 @@ class TestReplayByRefId:
 
     def test_replay_start_missing_ref_id(self, client):
         resp = client.post("/api/replay/start", json={"speed": 0})
-        assert resp.status_code == 400
+        # 422 = Pydantic body validation rejected the missing required field.
+        assert resp.status_code == 422
 
     def test_replay_start_resolves_session_replay_path(self, client, db, tmp_path):
         """POST /replay/start resolves the first session's .replay path by ordinal."""
@@ -207,7 +218,7 @@ class TestReplayByRefId:
         rec_dir.mkdir(parents=True)
         session_replay = rec_dir / "run1__sess001.replay"
         session_replay.write_bytes(b"RPLA")
-        db.create_capture_run("run1", "test_game", "Run 1", draft=True)
+        db.create_capture_run("run1", "test_game", "Run 1", kind="live")
         db.create_capture_session(
             session_id="sess_a", capture_run_id="run1",
             ordinal=1,
@@ -223,7 +234,7 @@ class TestListReferencesHasReplay:
     def test_list_references_includes_has_replay(self, client, db, tmp_path):
         """Legacy path fallback: run with no capture_sessions, .replay file on disk."""
         client.app.state.session.data_dir = tmp_path
-        db.create_capture_run("ref1", "test_game", "Run 1")
+        _saved_run(db, "ref1", "test_game", "Run 1")
         rec_dir = tmp_path / "test_game" / "rec"
         rec_dir.mkdir(parents=True)
         (rec_dir / "ref1.replay").write_bytes(b"RPLA")
@@ -237,7 +248,7 @@ class TestListReferencesHasReplay:
     def test_list_references_has_replay_false_when_missing(self, client, db, tmp_path):
         """Legacy path fallback: run with no capture_sessions, file absent."""
         client.app.state.session.data_dir = tmp_path
-        db.create_capture_run("ref1", "test_game", "Run 1")
+        _saved_run(db, "ref1", "test_game", "Run 1")
 
         resp = client.get("/api/references")
         assert resp.status_code == 200
@@ -292,7 +303,7 @@ class TestReferenceSegments:
         s = Segment(id="s1", game_id="test_game", level_number=1,
                     start_type="entrance", start_ordinal=0,
                     end_type="goal", end_ordinal=0,
-                    reference_id="ref1")
+                    capture_run_id="ref1")
         db.upsert_segment(s)
 
         resp = client.get("/api/references/ref1/segments")

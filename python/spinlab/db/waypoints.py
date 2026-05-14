@@ -16,7 +16,6 @@ class WaypointsMixin:
             (w.id, w.game_id, w.level_number, w.endpoint_type,
              w.ordinal, w.conditions_json),
         )
-        self.conn.commit()
 
     def get_waypoint(self, waypoint_id: str) -> Waypoint | None:
         row = self.conn.execute(

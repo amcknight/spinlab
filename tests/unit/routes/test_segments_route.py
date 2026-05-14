@@ -27,7 +27,7 @@ def _seed_segment_with_conditions(db: Database) -> Segment:
     db.upsert_segment(seg)
     db.add_save_state(WaypointSaveState(
         waypoint_id=wp_start.id, variant_type="hot",
-        state_path="/tmp/start.mss", is_default=True))
+        state_path="/tmp/start.mss"))
     return seg
 
 

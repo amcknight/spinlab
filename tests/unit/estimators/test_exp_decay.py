@@ -119,7 +119,7 @@ class TestExpDecayPriors:
                 game_id="g1", level_number=i + 1,
                 start_type="entrance", start_ordinal=0,
                 end_type="goal", end_ordinal=0,
-                description=f"L{i+1}", strat_version=1,
+                description=f"L{i+1}",
                 start_waypoint_id=wp_s.id, end_waypoint_id=wp_e.id,
             )
             db.upsert_segment(seg)
@@ -153,7 +153,7 @@ class TestExpDecayPriors:
             game_id="g1", level_number=1,
             start_type="entrance", start_ordinal=0,
             end_type="goal", end_ordinal=0,
-            description="L1", strat_version=1,
+            description="L1",
             start_waypoint_id=wp_s.id, end_waypoint_id=wp_e.id,
         )
         db.upsert_segment(seg)

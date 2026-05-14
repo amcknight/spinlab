@@ -21,12 +21,13 @@ class SessionsMixin:
     conn: sqlite3.Connection
 
     def create_session(self, session_id: str, game_id: str) -> None:
+        """Idempotent — re-create with the same id is a no-op so tests that
+        pre-seed a session row can still construct a session object with that id."""
         now = datetime.now(UTC).isoformat()
         self.conn.execute(
-            "INSERT INTO sessions (id, game_id, started_at) VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO sessions (id, game_id, started_at) VALUES (?, ?, ?)",
             (session_id, game_id, now),
         )
-        self.conn.commit()
 
     def end_session(self, session_id: str, segments_attempted: int, segments_completed: int) -> None:
         now = datetime.now(UTC).isoformat()
@@ -35,7 +36,6 @@ class SessionsMixin:
                WHERE id = ?""",
             (now, segments_attempted, segments_completed, session_id),
         )
-        self.conn.commit()
 
     def get_current_session(self, game_id: str) -> SessionRow | None:
         """Get active session (ended_at IS NULL)."""

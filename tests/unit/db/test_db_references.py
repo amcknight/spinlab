@@ -25,7 +25,7 @@ def _make_segment(db, game_id, level, start_type="entrance", start_ord=0,
         game_id=game_id, level_number=level,
         start_type=start_type, start_ordinal=start_ord,
         end_type=end_type, end_ordinal=end_ord,
-        description=desc, ordinal=ordinal, reference_id=ref_id,
+        description=desc, ordinal=ordinal, capture_run_id=ref_id,
     )
     db.upsert_segment(seg)
     return seg
@@ -39,17 +39,23 @@ def test_upsert_game_preserves_existing_name(tmp_db):
     assert row[0] == "Original Name"
 
 
+def _saved(db, run_id, game_id, name):
+    """Create and promote a run to 'saved'. Drafts are excluded from list_capture_runs."""
+    db.create_capture_run(run_id, game_id, name)
+    db.promote_draft(run_id, name)
+
+
 class TestCaptureRunCRUD:
     def test_create_and_list(self, db):
-        db.create_capture_run("ref1", "g", "First Run")
-        db.create_capture_run("ref2", "g", "Second Run")
+        _saved(db, "ref1", "g", "First Run")
+        _saved(db, "ref2", "g", "Second Run")
         refs = db.list_capture_runs("g")
         assert len(refs) == 2
         assert refs[0]["name"] == "First Run"
 
     def test_set_active(self, db):
-        db.create_capture_run("ref1", "g", "Run 1")
-        db.create_capture_run("ref2", "g", "Run 2")
+        _saved(db, "ref1", "g", "Run 1")
+        _saved(db, "ref2", "g", "Run 2")
         db.set_active_capture_run("ref2")
         refs = db.list_capture_runs("g")
         active = [r for r in refs if r["active"]]
@@ -57,7 +63,7 @@ class TestCaptureRunCRUD:
         assert active[0]["id"] == "ref2"
 
     def test_rename(self, db):
-        db.create_capture_run("ref1", "g", "Old Name")
+        _saved(db, "ref1", "g", "Old Name")
         db.rename_capture_run("ref1", "New Name")
         refs = db.list_capture_runs("g")
         assert refs[0]["name"] == "New Name"
@@ -98,12 +104,12 @@ class TestCaptureRunCRUD:
         # Run gone, but segment row still exists (deactivated).
         assert db.list_capture_runs("g") == []
         seg_row = db.conn.execute(
-            "SELECT active, reference_id, capture_session_id FROM segments WHERE id = ?",
+            "SELECT active, capture_run_id, capture_session_id FROM segments WHERE id = ?",
             (seg.id,),
         ).fetchone()
         assert seg_row is not None
         assert seg_row[0] == 0  # active=False
-        assert seg_row[1] is None  # reference_id NULL
+        assert seg_row[1] is None  # capture_run_id NULL
         assert seg_row[2] is None  # capture_session_id NULL
 
 
@@ -131,49 +137,53 @@ class TestSegmentEdit:
         assert rows[0]["ordinal"] == 1
 
 
-class TestDraftColumn:
-    def test_create_capture_run_defaults_draft_zero(self, tmp_db):
-        """Existing behavior: create_capture_run sets draft=0 (backwards compat)."""
+class TestStatusColumn:
+    def test_create_capture_run_starts_as_draft(self, tmp_db):
+        """All capture runs start as drafts; finalize promotes them."""
         tmp_db.upsert_game("g1", "Game", "any%")
         tmp_db.create_capture_run("r1", "g1", "Run 1")
         rows = tmp_db.conn.execute(
-            "SELECT draft FROM capture_runs WHERE id = 'r1'"
+            "SELECT status FROM capture_runs WHERE id = 'r1'"
         ).fetchone()
-        assert rows[0] == 0
+        assert rows[0] == "draft"
 
-    def test_create_draft_capture_run(self, tmp_db):
+    def test_create_replay_kind(self, tmp_db):
+        """Replay-kind runs are created as drafts but stay out of recovery."""
         tmp_db.upsert_game("g1", "Game", "any%")
-        tmp_db.create_capture_run("r1", "g1", "Run 1", draft=True)
+        tmp_db.create_capture_run("r1", "g1", "Replay 1", kind="replay")
         rows = tmp_db.conn.execute(
-            "SELECT draft FROM capture_runs WHERE id = 'r1'"
+            "SELECT status, kind FROM capture_runs WHERE id = 'r1'"
         ).fetchone()
-        assert rows[0] == 1
+        assert rows[0] == "draft"
+        assert rows[1] == "replay"
 
     def test_list_capture_runs_excludes_drafts(self, tmp_db):
         tmp_db.upsert_game("g1", "Game", "any%")
-        tmp_db.create_capture_run("r1", "g1", "Saved", draft=False)
-        tmp_db.create_capture_run("r2", "g1", "Draft", draft=True)
+        tmp_db.create_capture_run("r1", "g1", "Saved", kind="live")
+        tmp_db.promote_draft("r1", "Saved")
+        tmp_db.create_capture_run("r2", "g1", "Draft", kind="replay")
         refs = tmp_db.list_capture_runs("g1")
         assert len(refs) == 1
         assert refs[0]["id"] == "r1"
 
     def test_promote_draft(self, tmp_db):
         tmp_db.upsert_game("g1", "Game", "any%")
-        tmp_db.create_capture_run("r1", "g1", "Draft", draft=True)
+        tmp_db.create_capture_run("r1", "g1", "Draft", kind="live")
         tmp_db.promote_draft("r1", "My Run")
         refs = tmp_db.list_capture_runs("g1")
         assert len(refs) == 1
         assert refs[0]["name"] == "My Run"
-        assert refs[0]["draft"] == 0
+        assert refs[0]["status"] == "saved"
 
 
 class TestIsRunDraft:
     def test_draft_returns_true(self, db):
-        db.create_capture_run("r1", "g", "Run 1", draft=True)
+        db.create_capture_run("r1", "g", "Run 1", kind="live")
         assert db.is_run_draft("r1") is True
 
-    def test_non_draft_returns_false(self, db):
-        db.create_capture_run("r1", "g", "Run 1", draft=False)
+    def test_promoted_returns_false(self, db):
+        db.create_capture_run("r1", "g", "Run 1", kind="live")
+        db.promote_draft("r1", "Run 1")
         assert db.is_run_draft("r1") is False
 
     def test_missing_returns_false(self, db):
@@ -185,7 +195,7 @@ class TestHardDelete:
         """Hard delete cascades: model_state, attempts, segments, run."""
         from spinlab.models import Segment, Waypoint, WaypointSaveState
         tmp_db.upsert_game("g1", "Game", "any%")
-        tmp_db.create_capture_run("r1", "g1", "Draft", draft=True)
+        tmp_db.create_capture_run("r1", "g1", "Draft", kind="live")
         wp_start = Waypoint.make("g1", 0x105, "entrance", 0, {})
         wp_end = Waypoint.make("g1", 0x105, "goal", 0, {})
         tmp_db.upsert_waypoint(wp_start)
@@ -196,13 +206,13 @@ class TestHardDelete:
             id=seg_id, game_id="g1", level_number=0x105,
             start_type="entrance", start_ordinal=0,
             end_type="goal", end_ordinal=0,
-            ordinal=1, reference_id="r1",
+            ordinal=1, capture_run_id="r1",
             start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
         )
         tmp_db.upsert_segment(seg)
         tmp_db.add_save_state(WaypointSaveState(
             waypoint_id=wp_start.id, variant_type="cold",
-            state_path="/tmp/s.mss", is_default=True,
+            state_path="/tmp/s.mss",
         ))
         # Add a model_state row
         tmp_db.conn.execute(
@@ -210,9 +220,10 @@ class TestHardDelete:
             f"VALUES ('{seg_id}', 'kalman', '{{}}', '2026-01-01')"
         )
         # Add an attempt row
+        tmp_db.create_session("sess1", "g1")
         tmp_db.conn.execute(
-            "INSERT INTO attempts (segment_id, parent_id, completed, time_ms, strat_version, created_at) "
-            f"VALUES ('{seg_id}', 'sess1', 1, 5000, 1, '2026-01-01')"
+            "INSERT INTO attempts (segment_id, session_id, completed, time_ms, created_at) "
+            f"VALUES ('{seg_id}', 'sess1', 1, 5000, '2026-01-01')"
         )
         tmp_db.conn.commit()
 

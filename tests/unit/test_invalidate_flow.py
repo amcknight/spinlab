@@ -17,13 +17,16 @@ from spinlab.session_manager import SessionManager
 
 @pytest.fixture
 def db(tmp_path):
-    """Real Database with one game + one segment ready to receive attempts."""
+    """Real Database with one game + one segment + the test session rows."""
     d = Database(tmp_path / "inv.db")
     d.upsert_game("g1", "Test Game", "any%")
     state_file = tmp_path / "hot.mss"
     state_file.write_bytes(b"")
     seg = make_seg_with_state(d, "g1", 1, "entrance", "goal", state_file)
     d._seg_id = seg.id
+    # FK targets for the attempts logged below.
+    for sid in ("sess1", "sess_active", "sess_other", "sess_empty"):
+        d.create_session(sid, "g1")
     return d
 
 
@@ -37,10 +40,10 @@ def make_sm(db, emu):
 
 
 def _log_attempt(db: Database, segment_id: str, session_id: str) -> int:
-    """Insert an attempt for the segment + parent_id; return its id."""
+    """Insert an attempt for the segment + session_id; return its id."""
     attempt = Attempt(
         segment_id=segment_id,
-        parent_id=session_id,
+        session_id=session_id,
         completed=True,
         time_ms=5000,
         deaths=0,
@@ -81,7 +84,7 @@ class TestAttemptInvalidatedEvent:
         assert _is_invalidated(db, last_id) is True
 
     async def test_only_invalidates_attempts_in_active_session(self, db, emu):
-        """Attempts from a different parent_id are untouched."""
+        """Attempts from a different session_id are untouched."""
         sm = make_sm(db, emu)
 
         fake_session = MagicMock()
@@ -120,6 +123,6 @@ class TestAttemptInvalidatedEvent:
 
         # And the row count for that session is still zero.
         count = db.conn.execute(
-            "SELECT COUNT(*) FROM attempts WHERE parent_id = ?", ("sess_empty",),
+            "SELECT COUNT(*) FROM attempts WHERE session_id = ?", ("sess_empty",),
         ).fetchone()[0]
         assert count == 0

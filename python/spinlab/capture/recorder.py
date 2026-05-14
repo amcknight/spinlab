@@ -121,7 +121,7 @@ class SegmentRecorder:
             start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
             is_primary=is_primary,
             ordinal=existing_count + 1,
-            reference_id=self.capture_run_id,
+            capture_run_id=self.capture_run_id,
             capture_session_id=self.current_capture_session_id,
         )
         self._db.upsert_segment(seg)
@@ -133,7 +133,6 @@ class SegmentRecorder:
                 waypoint_id=wp_start.id,
                 variant_type=variant,
                 state_path=state_path,
-                is_default=True,
             ))
 
         # Persist timing immediately so a crash before finalize keeps the data.
@@ -216,5 +215,5 @@ class SegmentRecorder:
         self._db.upsert_waypoint(wp)
         self._db.add_save_state(WaypointSaveState(
             waypoint_id=wp.id, variant_type="cold",
-            state_path=cold_path, is_default=True))
+            state_path=cold_path))
         logger.debug("Stored cold save state for waypoint %s: %s", wp.id, cold_path)

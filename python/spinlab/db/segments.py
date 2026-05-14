@@ -17,9 +17,8 @@ class SegmentRow(TypedDict):
     end_type: str
     end_ordinal: int
     description: str
-    strat_version: int
     active: int
-    ordinal: int | None
+    ordinal: int
     is_primary: int
     start_waypoint_id: str | None
     end_waypoint_id: str | None
@@ -47,13 +46,13 @@ class SegmentsMixin:
         self.conn.execute(
             """INSERT INTO segments (id, game_id, level_number, start_type, start_ordinal,
                end_type, end_ordinal, start_waypoint_id, end_waypoint_id, is_primary,
-               description, strat_version, active, ordinal,
-               reference_id, capture_session_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               description, active, ordinal,
+               capture_run_id, capture_session_id, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  description=excluded.description,
                  ordinal=excluded.ordinal,
-                 reference_id=excluded.reference_id,
+                 capture_run_id=excluded.capture_run_id,
                  capture_session_id=excluded.capture_session_id,
                  active=excluded.active,
                  is_primary=excluded.is_primary,
@@ -61,10 +60,9 @@ class SegmentsMixin:
             (seg.id, seg.game_id, seg.level_number, seg.start_type,
              seg.start_ordinal, seg.end_type, seg.end_ordinal,
              seg.start_waypoint_id, seg.end_waypoint_id, int(seg.is_primary),
-             seg.description, seg.strat_version, int(seg.active),
-             seg.ordinal, seg.reference_id, seg.capture_session_id, now, now),
+             seg.description, int(seg.active),
+             seg.ordinal, seg.capture_run_id, seg.capture_session_id, now, now),
         )
-        self.conn.commit()
 
     def get_active_segments(self, game_id: str) -> list[Segment]:
         rows = self.conn.execute(
@@ -78,19 +76,13 @@ class SegmentsMixin:
             "UPDATE segments SET active = 0, updated_at = ? WHERE id = ?",
             (now, segment_id),
         )
-        self.conn.commit()
-
-    def increment_strat_version(self, segment_id: str) -> None:
-        now = datetime.now(UTC).isoformat()
-        self.conn.execute(
-            "UPDATE segments SET strat_version = strat_version + 1, updated_at = ? WHERE id = ?",
-            (now, segment_id),
-        )
-        self.conn.commit()
 
     def get_all_segments_with_model(self, game_id: str, *,
                                     primary_only: bool = True) -> list[SegmentRow]:
         """Get all active segments with their start-waypoint save state path.
+
+        The default variant resolves from start_type: entrance segments load
+        their 'cold' save state (pre-respawn), checkpoint segments load 'hot'.
 
         Args:
             game_id: game to query
@@ -101,12 +93,14 @@ class SegmentsMixin:
         primary_clause = "AND s.is_primary = 1" if primary_only else ""
         cur = self.conn.execute(
             f"""SELECT s.id, s.game_id, s.level_number, s.start_type, s.start_ordinal,
-                       s.end_type, s.end_ordinal, s.description, s.strat_version,
+                       s.end_type, s.end_ordinal, s.description,
                        s.active, s.ordinal, s.is_primary,
                        s.start_waypoint_id, s.end_waypoint_id,
                        (SELECT wss.state_path FROM waypoint_save_states wss
                         WHERE wss.waypoint_id = s.start_waypoint_id
-                        ORDER BY wss.is_default DESC LIMIT 1) AS state_path
+                          AND wss.variant_type = (CASE
+                            WHEN s.start_type = 'entrance' THEN 'cold' ELSE 'hot' END)
+                        LIMIT 1) AS state_path
                 FROM segments s
                 WHERE s.game_id = ? AND s.active = 1 {primary_clause}
                 ORDER BY s.ordinal, s.level_number""",
@@ -148,7 +142,6 @@ class SegmentsMixin:
         self.conn.execute(
             f"UPDATE segments SET {sets}, updated_at = ? WHERE id = ?", vals
         )
-        self.conn.commit()
 
     def set_segment_is_primary(self, segment_id: str, is_primary: bool) -> None:
         now = datetime.now(UTC).isoformat()
@@ -156,7 +149,6 @@ class SegmentsMixin:
             "UPDATE segments SET is_primary = ?, updated_at = ? WHERE id = ?",
             (int(is_primary), now, segment_id),
         )
-        self.conn.commit()
 
     def segment_exists(self, segment_id: str) -> bool:
         row = self.conn.execute(
@@ -178,19 +170,17 @@ class SegmentsMixin:
     def add_save_state(self, s: WaypointSaveState) -> None:
         self.conn.execute(
             """INSERT INTO waypoint_save_states
-               (waypoint_id, variant_type, state_path, is_default)
-               VALUES (?, ?, ?, ?)
+               (waypoint_id, variant_type, state_path)
+               VALUES (?, ?, ?)
                ON CONFLICT(waypoint_id, variant_type) DO UPDATE SET
-                 state_path=excluded.state_path,
-                 is_default=excluded.is_default""",
-            (s.waypoint_id, s.variant_type, s.state_path, int(s.is_default)),
+                 state_path=excluded.state_path""",
+            (s.waypoint_id, s.variant_type, s.state_path),
         )
-        self.conn.commit()
 
     def get_save_state(self, waypoint_id: str,
                        variant_type: str) -> WaypointSaveState | None:
         row = self.conn.execute(
-            """SELECT waypoint_id, variant_type, state_path, is_default
+            """SELECT waypoint_id, variant_type, state_path
                FROM waypoint_save_states
                WHERE waypoint_id = ? AND variant_type = ?""",
             (waypoint_id, variant_type),
@@ -198,37 +188,22 @@ class SegmentsMixin:
         if row is None:
             return None
         return WaypointSaveState(
-            waypoint_id=row[0], variant_type=row[1],
-            state_path=row[2], is_default=bool(row[3]),
-        )
-
-    def get_default_save_state(self, waypoint_id: str) -> WaypointSaveState | None:
-        row = self.conn.execute(
-            """SELECT waypoint_id, variant_type, state_path, is_default
-               FROM waypoint_save_states WHERE waypoint_id = ?
-               ORDER BY is_default DESC LIMIT 1""",
-            (waypoint_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        return WaypointSaveState(
-            waypoint_id=row[0], variant_type=row[1],
-            state_path=row[2], is_default=bool(row[3]),
+            waypoint_id=row[0], variant_type=row[1], state_path=row[2],
         )
 
     def count_segments_for_run(self, run_id: str, *, active_only: bool = False) -> int:
-        """Count segments whose ``reference_id`` matches ``run_id``.
+        """Count segments whose ``capture_run_id`` matches ``run_id``.
 
         ``active_only=True`` filters to ``active = 1`` (excludes soft-deleted).
         """
         if active_only:
             row = self.conn.execute(
-                "SELECT COUNT(*) FROM segments WHERE reference_id = ? AND active = 1",
+                "SELECT COUNT(*) FROM segments WHERE capture_run_id = ? AND active = 1",
                 (run_id,),
             ).fetchone()
         else:
             row = self.conn.execute(
-                "SELECT COUNT(*) FROM segments WHERE reference_id = ?",
+                "SELECT COUNT(*) FROM segments WHERE capture_run_id = ?",
                 (run_id,),
             ).fetchone()
         return int(row[0])
@@ -252,14 +227,7 @@ class SegmentsMixin:
         end_ordinal: int,
         exclude_segment_id: str,
     ) -> bool:
-        """True if another *active* segment shares these endpoints.
-
-        Used by capture to compute ``is_primary``: a segment is primary iff
-        no other active segment occupies the same (game, level, endpoints)
-        slot. ``exclude_segment_id`` is the id of the segment being evaluated;
-        excluding it lets the caller pass either a hypothetical-new id or an
-        existing id and get a meaningful answer.
-        """
+        """True if another *active* segment shares these endpoints."""
         row = self.conn.execute(
             """SELECT id FROM segments
                WHERE game_id = ? AND level_number = ?

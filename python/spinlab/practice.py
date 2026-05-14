@@ -33,6 +33,7 @@ class PracticeSession:
         auto_advance_delay_ms: int = 1000,
         death_penalty_ms: int = 3200,
         on_attempt: Callable | None = None,
+        session_id: str | None = None,
     ) -> None:
         self.emu = emu
         self.db = db
@@ -42,8 +43,11 @@ class PracticeSession:
         self.on_attempt = on_attempt
 
         self.scheduler = Scheduler(db, game_id)
-        self.session_id = uuid.uuid4().hex
+        self.session_id = session_id or uuid.uuid4().hex
         self.started_at = datetime.now(UTC).isoformat()
+        # Attempts FK to sessions(id); the row must exist before any attempt
+        # is logged. Idempotent in tests that pre-seed the row with the same id.
+        self.db.create_session(self.session_id, self.game_id)
 
         self.is_running = False
         self.current_segment_id: str | None = None
@@ -103,7 +107,6 @@ class PracticeSession:
         return self._snapshot_expected_times(self.scheduler.estimator.name)
 
     def start(self) -> None:
-        self.db.create_session(self.session_id, self.game_id)
         (
             self.initial_expected_total_ms,
             self.initial_expected_clean_ms,
@@ -219,7 +222,7 @@ class PracticeSession:
     def _process_result(self, result: AttemptResultEvent, cmd: SegmentCommand) -> None:
         attempt = Attempt(
             segment_id=result.segment_id,
-            parent_id=self.session_id,
+            session_id=self.session_id,
             completed=result.completed,
             time_ms=result.time_ms,
             deaths=result.deaths,

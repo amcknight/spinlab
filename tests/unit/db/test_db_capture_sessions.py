@@ -8,7 +8,7 @@ from spinlab.db import Database
 def db():
     d = Database(":memory:")
     d.upsert_game("smw", "Super Mario World", "any%")
-    d.create_capture_run("run_1", "smw", "Test Run", draft=True)
+    d.create_capture_run("run_1", "smw", "Test Run", kind="live")
     yield d
     d.close()
 
@@ -118,10 +118,10 @@ def test_recover_paused_capture_run_finds_most_recent_draft(db):
     # scenario the recovery code defends against. Production code can't reach this
     # state (the index prevents it), but raw SQL can — and we still want to verify
     # recovery handles the edge case gracefully if it ever does.
-    db.conn.execute("DROP INDEX IF EXISTS idx_one_paused_run_per_game")
-    db.create_capture_run("run_old", "smw", "Old", draft=True)
+    db.conn.execute("DROP INDEX IF EXISTS idx_one_live_draft_per_game")
+    db.create_capture_run("run_old", "smw", "Old", kind="live")
     time.sleep(0.01)  # ensure different created_at
-    db.create_capture_run("run_new", "smw", "New", draft=True)
+    db.create_capture_run("run_new", "smw", "New", kind="live")
     found = db.recover_paused_capture_run("smw")
     assert found == "run_new"
     # All older drafts (run_1 from fixture and run_old) are gone; only run_new survives

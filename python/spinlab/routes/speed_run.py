@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from spinlab.api_schemas import ActionResponse
 from spinlab.session_manager import SessionManager
 
 from ._deps import get_session
@@ -10,11 +11,11 @@ from ._deps import get_session
 router = APIRouter(prefix="/api")
 
 
-@router.post("/speedrun/start")
+@router.post("/speedrun/start", response_model=ActionResponse)
 async def speed_run_start(session: SessionManager = Depends(get_session)):
     return (await session.start_speed_run()).to_response()
 
 
-@router.post("/speedrun/stop")
+@router.post("/speedrun/stop", response_model=ActionResponse)
 async def speed_run_stop(session: SessionManager = Depends(get_session)):
     return (await session.stop_speed_run()).to_response()

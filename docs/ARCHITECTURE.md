@@ -92,15 +92,17 @@ Phase E option (a) shipped 2026-05-08: `MovieRecorder` integrates into the refer
 
 - **Capture session** (`capture_sessions` table) — one continuous recording window inside a multi-session reference run. A `capture_run` has 1..N capture sessions.
 - **Practice session** (`sessions` table) — one practice loop instance from start to stop.
-- **`attempts.parent_id`** — polymorphic foreign key: a practice session id when `source='practice'`, a `capture_run` id when `source='reference'`.
+- **`attempts.session_id` / `attempts.capture_run_id`** — typed nullable FKs; exactly one is set per row (`CHECK` constraint). Practice and speed-run attempts use `session_id`; reference-seeded attempts use `capture_run_id`. The `source` enum (`practice` | `speed_run` | `reference` | `replay`) discriminates within each category.
 
 ## Database Schema
 
-SQLite (`{data.dir}/spinlab.db`). WAL mode, foreign keys on. Schema in `python/spinlab/db/core.py`.
+SQLite (`{data.dir}/spinlab.db`). WAL mode, foreign keys on. Schema is declared in numbered migration files under `python/spinlab/db/migrations/`; the runner in that package's `__init__.py` applies any unapplied file at `Database()` construction and records the result in `schema_migrations`.
 
-Core tables: `games`, `waypoints`, `segments`, `waypoint_save_states`, `attempts`, `capture_runs`, `capture_sessions`, `recorded_segment_times`, `model_state`, `sessions`, `allocator_config`.
+Core tables: `games`, `waypoints`, `segments`, `waypoint_save_states`, `attempts`, `capture_runs`, `capture_sessions`, `recorded_segment_times`, `model_state`, `sessions`, `allocator_config`, `schema_migrations`.
 
-Schema migration policy: `_init_schema` drops any table whose columns drift from `_expected_columns()`. Fine while the DB is recreatable. Switch to a forward-only migration log before the DB holds data users would not want to lose (see `docs/BACKLOG.md`).
+Schema-change workflow: create a new `NNNN_name.sql` file. Never edit an existing migration — that's how environments diverge.
+
+Transactional model: the SQLite connection runs in autocommit mode. Single-statement mixin methods commit on the spot; multi-statement work composes via `with db.transaction():`. The context manager uses `BEGIN IMMEDIATE` at the top level and `SAVEPOINT` when nested, so methods that wrap their own body in `self.transaction()` (e.g. `drain_recorded_segment_times_for_run`) still join an outer caller transaction cleanly. See `db/core.py` module docstring for the full rationale.
 
 ## Scheduler: Estimator + Allocator Pipeline
 

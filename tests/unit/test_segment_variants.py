@@ -55,46 +55,27 @@ def test_add_save_state(db, segment):
         waypoint_id=wp_start.id,
         variant_type="cold",
         state_path="/states/105_entrance.mss",
-        is_default=True,
     ))
     got = db.get_save_state(wp_start.id, "cold")
     assert got is not None
     assert got.variant_type == "cold"
-    assert got.is_default is True
+    assert got.state_path == "/states/105_entrance.mss"
 
 
 def test_add_save_state_replace(db, segment):
     """ON CONFLICT: re-adding same (waypoint_id, variant_type) overwrites."""
     seg, wp_start, _ = segment
-    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/old.mss", True))
-    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/new.mss", True))
+    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/old.mss"))
+    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/new.mss"))
     got = db.get_save_state(wp_start.id, "cold")
     assert got is not None
     assert got.state_path == "/new.mss"
 
 
-def test_get_default_save_state(db, segment):
-    seg, wp_start, _ = segment
-    db.add_save_state(WaypointSaveState(wp_start.id, "hot", "/hot.mss", False))
-    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/cold.mss", True))
-    default = db.get_default_save_state(wp_start.id)
-    assert default is not None
-    assert default.variant_type == "cold"
-
-
-def test_get_default_save_state_fallback(db, segment):
-    """If no save state marked default, return any available."""
-    seg, wp_start, _ = segment
-    db.add_save_state(WaypointSaveState(wp_start.id, "hot", "/hot.mss", False))
-    default = db.get_default_save_state(wp_start.id)
-    assert default is not None
-    assert default.variant_type == "hot"
-
-
 def test_get_save_state_by_type(db, segment):
     seg, wp_start, _ = segment
-    db.add_save_state(WaypointSaveState(wp_start.id, "hot", "/hot.mss", False))
-    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/cold.mss", True))
+    db.add_save_state(WaypointSaveState(wp_start.id, "hot", "/hot.mss"))
+    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/cold.mss"))
     hot = db.get_save_state(wp_start.id, "hot")
     assert hot is not None
     assert hot.state_path == "/hot.mss"
@@ -103,8 +84,9 @@ def test_get_save_state_by_type(db, segment):
 
 
 def test_segments_with_model_includes_state_path(db, segment):
+    """Entrance segments resolve their state_path from the 'cold' variant."""
     seg, wp_start, _ = segment
-    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/cold.mss", True))
+    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/cold.mss"))
     rows = db.get_all_segments_with_model("g1")
     assert len(rows) == 1
     assert rows[0]["state_path"] == "/cold.mss"
@@ -122,9 +104,9 @@ def test_segments_missing_cold(db):
                               start_conds={"s": "2"})
 
     # s1 start waypoint has both hot and cold; s2 start waypoint has only hot
-    db.add_save_state(WaypointSaveState(wp_s1.id, "hot", "/hot1.mss", False))
-    db.add_save_state(WaypointSaveState(wp_s1.id, "cold", "/cold1.mss", True))
-    db.add_save_state(WaypointSaveState(wp_s2.id, "hot", "/hot2.mss", False))
+    db.add_save_state(WaypointSaveState(wp_s1.id, "hot", "/hot1.mss"))
+    db.add_save_state(WaypointSaveState(wp_s1.id, "cold", "/cold1.mss"))
+    db.add_save_state(WaypointSaveState(wp_s2.id, "hot", "/hot2.mss"))
 
     missing = db.segments_missing_cold("g1")
     assert len(missing) == 1

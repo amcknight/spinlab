@@ -20,7 +20,10 @@ class RecordedSegmentTimeRow(TypedDict):
 
 
 class RecordedSegmentTimesMixin:
-    """Per-segment timing buffer for in-progress reference runs."""
+    """Per-segment timing buffer for in-progress reference runs.
+
+    ``self.transaction()`` is the composable atomic-block CM from ``DatabaseCore``.
+    """
     conn: sqlite3.Connection
 
     def add_recorded_segment_time(
@@ -34,17 +37,16 @@ class RecordedSegmentTimesMixin:
             "VALUES (?, ?, ?, ?, ?, ?)",
             (capture_session_id, segment_id, time_ms, deaths, clean_tail_ms, now),
         )
-        self.conn.commit()
 
     def drain_recorded_segment_times_for_run(self, capture_run_id: str) -> list[RecordedSegmentTimeRow]:
         """Return all timing rows for the run, then delete them, atomically.
 
-        Wraps SELECT and DELETE in a single transaction so finalize is
-        all-or-nothing: a crash mid-drain cannot leave the buffer in a
-        half-drained state that would seed duplicate attempts on retry.
+        SELECT and DELETE go in a single ``self.transaction()`` so a crash
+        mid-drain cannot leave the buffer in a half-drained state that would
+        seed duplicate attempts on retry. Composes under an outer transaction
+        via SAVEPOINT.
         """
-        try:
-            self.conn.execute("BEGIN IMMEDIATE")
+        with self.transaction():  # type: ignore[attr-defined]
             rows = self.conn.execute(
                 "SELECT t.id, t.capture_session_id, t.segment_id, t.time_ms, "
                 "t.deaths, t.clean_tail_ms, t.recorded_at "
@@ -60,8 +62,4 @@ class RecordedSegmentTimesMixin:
                 self.conn.execute(
                     f"DELETE FROM recorded_segment_times WHERE id IN ({placeholders})", ids,
                 )
-            self.conn.commit()
-        except Exception:
-            self.conn.rollback()
-            raise
         return result  # type: ignore[return-value]

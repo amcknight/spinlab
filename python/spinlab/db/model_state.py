@@ -36,7 +36,6 @@ class ModelStateMixin:
                  updated_at=excluded.updated_at""",
             (segment_id, estimator, state_json, output_json, now),
         )
-        self.conn.commit()
 
     def load_model_state(self, segment_id: str, estimator: str | None = None) -> ModelStateRow | None:
         if estimator:
@@ -119,7 +118,6 @@ class ModelStateMixin:
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value),
         )
-        self.conn.commit()
 
     def load_allocator_config(self, key: str) -> str | None:
         cur = self.conn.execute(
@@ -130,4 +128,3 @@ class ModelStateMixin:
 
     def delete_allocator_config(self, key: str) -> None:
         self.conn.execute("DELETE FROM allocator_config WHERE key = ?", (key,))
-        self.conn.commit()

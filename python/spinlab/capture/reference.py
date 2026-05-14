@@ -75,7 +75,7 @@ def _seed_reference_attempts(
     for row in timing_rows:
         attempt = Attempt(
             segment_id=row["segment_id"],
-            parent_id=capture_run_id,
+            capture_run_id=capture_run_id,
             completed=True,
             time_ms=row["time_ms"],
             deaths=row["deaths"],
@@ -262,7 +262,7 @@ class ReferenceController:
         self._enter_idle()
         run_id = f"live_{uuid.uuid4().hex[:8]}"
         run_name = run_name or f"Live {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
-        self.db.create_capture_run(run_id, game_id, run_name, draft=True)
+        self.db.create_capture_run(run_id, game_id, run_name, kind="live")
         sess_id, ordinal = self._create_new_session(run_id, data_dir, game_id)
         replay_path = self._game_rec_dir(data_dir, game_id) / f"{run_id}__sess{ordinal:03d}.replay"
 
@@ -416,11 +416,12 @@ class ReferenceController:
         if not self.emu.is_connected:
             raise NotConnectedError()
 
-        # Replay creates its own ephemeral capture_run + session for capture machinery
+        # Replay creates its own ephemeral capture_run + session for capture machinery.
+        # kind='replay' keeps it out of the paused-run recovery flow on restart.
         self._enter_idle()
         run_id = f"replay_{uuid.uuid4().hex[:8]}"
         run_name = f"Replay {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}"
-        self.db.create_capture_run(run_id, game_id, run_name, draft=True)
+        self.db.create_capture_run(run_id, game_id, run_name, kind="replay")
         sess_id = f"sess_{uuid.uuid4().hex[:8]}"
         self.db.create_capture_session(
             session_id=sess_id, capture_run_id=run_id,
