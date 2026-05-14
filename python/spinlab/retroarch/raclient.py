@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from spinlab import log
 from spinlab.retroarch.exceptions import NCIError
 from spinlab.retroarch.movie_io import RAMovieIO
 from spinlab.retroarch.nci import NCIClient
@@ -310,9 +311,10 @@ class RAClient:
             cur_game = self._nci.get_status().game or "<none>"
         except Exception:
             cur_game = "<get_status failed>"
-        logger.warning(
-            'save_state timeout dest="%s" pattern=%s ra_game="%s" %s',
-            dest_path, pattern, cur_game, last_err,
+        log.warn(
+            logger, "save_state timed out",
+            dest=str(dest_path), pattern=pattern, ra_game=cur_game,
+            attempts=SAVE_RETRY_ATTEMPTS, detail=last_err,
         )
         raise StateSaveTimeoutError(
             f"SAVE_STATE failed after {SAVE_RETRY_ATTEMPTS} attempts: "
@@ -353,10 +355,9 @@ class RAClient:
         # the startup sweep) cleans it up.
         try:
             shutil.copyfile(str(src), str(dst))
-            logger.warning(
-                'save_state move_fallback src="%s" dst="%s" — copied but '
-                "couldn't unlink source after %d retries (RA still holds handle)",
-                src, dst, MOVE_RETRY_ATTEMPTS,
+            log.warn(
+                logger, "move fell back to copy, source not deleted",
+                src=str(src), dst=str(dst), attempts=MOVE_RETRY_ATTEMPTS,
             )
         except OSError:
             raise last_exc if last_exc else OSError(f"move failed: {src} -> {dst}")
@@ -425,13 +426,17 @@ class RAClient:
             slot_path.unlink()
             logger.info('startup_sweep removed stale slot_file="%s"', slot_path)
         except OSError as exc:
-            logger.warning(
-                'startup_sweep could not remove slot_file="%s" err=%s',
-                slot_path, exc,
+            log.warn(
+                logger, "startup_sweep could not remove slot file",
+                exc=exc, slot_path=str(slot_path),
             )
 
     def _require_basename(self) -> None:
         if not self._game_basename:
+            log.warn(
+                logger, "RAClient: basename not set at op time",
+                connected=self._connected,
+            )
             raise RAClientError(
                 "RAClient: game basename not set yet — call connect() first "
                 "(or check that RetroArch is running and has a ROM loaded)."

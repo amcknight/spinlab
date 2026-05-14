@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from spinlab import log
+
 from ..db.segments import MissingColdRow
 from ..errors import NotConnectedError
 from ..models import ActionResult, Mode, Status, WaypointSaveState
@@ -95,9 +97,11 @@ class ColdFillController:
         seg_id = event.segment_id or self.current
         try:
             await self.emu.save_state(seg_id)
-        except Exception:
-            logger.exception("cold_fill: save_state failed for seg_id=%r — "
-                             "continuing without storing this cold state", seg_id)
+        except Exception as exc:
+            log.warn(
+                logger, "cold_fill: save_state failed, skipping segment",
+                exc=exc, segment_id=seg_id,
+            )
             return False
         logger.info("cold_fill: captured cold state for segment=%s path=%s",
                      self.current, event.state_path)

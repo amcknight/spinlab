@@ -8,6 +8,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Callable
 
+from spinlab import log
+
 from .allocators import SegmentWithModel
 from .models import Attempt, AttemptSource, SegmentCommand
 from .protocol import AttemptResultEvent, PracticeLoadCmd, PracticeStopCmd
@@ -206,11 +208,18 @@ class PracticeSession:
         self._result_event.clear()
         self._result_data = None
 
+        load_timeouts = 0
         while self.is_running and self.emu.is_connected:
             try:
                 await asyncio.wait_for(self._result_event.wait(), timeout=SEGMENT_LOAD_TIMEOUT_S)
                 break
             except asyncio.TimeoutError:
+                load_timeouts += 1
+                if load_timeouts == 1:
+                    log.info(
+                        logger, "practice: waiting for attempt result",
+                        segment_id=cmd.id, timeout_s=SEGMENT_LOAD_TIMEOUT_S,
+                    )
                 continue
 
         if self._result_data is not None:

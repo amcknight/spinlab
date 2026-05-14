@@ -28,6 +28,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from spinlab import log
 from spinlab.retroarch.exceptions import NCIError
 from spinlab.retroarch.nci import NCIClient
 
@@ -206,9 +207,10 @@ class RAMovieIO:
                     'this often means retroarch.cfg has replay_max_keep=0. '
                     'Set replay_max_keep = "99" to fix.'
                 )
-            logger.warning(
-                'record_movie no_new_file dir="%s" attempts=%d%s',
-                movie_dir, MOVIE_POLL_ATTEMPTS, hint,
+            log.warn(
+                logger, "record_movie: no new file appeared",
+                movie_dir=str(movie_dir), attempts=MOVIE_POLL_ATTEMPTS,
+                existing_replays=existing_replays, hint=hint.strip() or None,
             )
             raise MovieRecordError(
                 f"No new or rewritten movie file appeared in {movie_dir} "

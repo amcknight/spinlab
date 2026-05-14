@@ -6,12 +6,16 @@ calls in `asyncio.to_thread` if they need to.
 """
 from __future__ import annotations
 
+import logging
 import socket
 from types import TracebackType
 from typing import Self
 
+from spinlab import log
 from spinlab.retroarch.exceptions import NCIProtocolError, NCITimeout
 from spinlab.retroarch.responses import StatusInfo
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 55355
@@ -151,6 +155,10 @@ class NCIClient:
         if not data_tokens:
             raise NCIProtocolError(f"reply has no data bytes: {reply!r}")
         if data_tokens[0] == "-1":
+            log.warn(
+                logger, "RA read_ram returned -1",
+                addr=hex(addr), length=length, reply=reply,
+            )
             raise NCIProtocolError(f"RetroArch returned error for read at {addr:#x}: {reply!r}")
         try:
             return bytes(int(t, 16) for t in data_tokens)

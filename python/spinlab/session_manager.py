@@ -8,6 +8,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from spinlab import log
+
 from .capture import ColdFillController, FillGapController, ReferenceController
 from .errors import (
     AlreadyRunningError,
@@ -208,8 +210,11 @@ class SessionManager:
             return
         try:
             await self.sse.broadcast(self.get_state())
-        except Exception:
-            logger.exception("SSE broadcast failed; subscribers will sync on next event")
+        except Exception as exc:
+            log.warn(
+                logger, "SSE broadcast failed; subscribers will sync on next event",
+                exc=exc, subscriber_count=self.sse.subscriber_count,
+            )
 
 
     async def route_event(self, event: object) -> None:

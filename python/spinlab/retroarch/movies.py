@@ -22,6 +22,7 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
+from spinlab import log
 from spinlab.errors import BackendNotImplementedError
 from spinlab.protocol import (
     SPEED_UNCAPPED,
@@ -114,11 +115,17 @@ class MovieController:
         try:
             self._active_playback = await self._movie_io.play_movie(path)
         except MoviePlaybackError as exc:
-            logger.error("Movie replay verification failed: %s", exc)
+            log.error(
+                logger, "movie replay verification failed",
+                exc=exc, replay_path=str(path),
+            )
             self._on_event(ReplayErrorEvent(message=str(exc)))
             return
         except RAClientError as exc:
-            logger.error("Movie replay failed: %s", exc)
+            log.error(
+                logger, "movie replay failed",
+                exc=exc, replay_path=str(path),
+            )
             self._on_event(ReplayErrorEvent(message=str(exc)))
             return
 
@@ -146,7 +153,10 @@ class MovieController:
         try:
             await self._active_playback.stop()
         except RAClientError as exc:
-            logger.warning("Movie replay failed to stop: %s", exc)
+            log.warn(
+                logger, "movie replay failed to stop",
+                exc=exc, replay_path=str(self._active_playback.path),
+            )
         finally:
             self._active_playback = None
             if self._fast_forwarding:

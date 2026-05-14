@@ -28,6 +28,10 @@ class SSEBroadcaster:
     def has_subscribers(self) -> bool:
         return len(self._subscribers) > 0
 
+    @property
+    def subscriber_count(self) -> int:
+        return len(self._subscribers)
+
     async def broadcast(self, state: Any) -> None:
         """Push state snapshot to all subscribers, dropping stale ones."""
         if not self._subscribers:
