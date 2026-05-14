@@ -194,7 +194,7 @@ class RAClient:
         """Monotonic counter; increments after every successful ``load_state``.
 
         The poller reads this each tick; a change tells it to treat the next
-        snapshot as a fresh prev (replaces the old ``mark_state_loaded`` flag).
+        snapshot as a fresh prev.
         """
         return self._state_version
 

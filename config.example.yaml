@@ -11,9 +11,6 @@ emulator:
   # Optional: explicit override for where RA writes .replay files. Usually unset
   # (derived as savestate_dir / ra_core_subdir).
   # ra_movie_dir: "C:/RetroArch-Win64/states/Snes9x"
-  # Optional: stale-or-fallback hint for the ROM filename. Auto-detected from
-  # RA's GET_STATUS at connect time, so usually unset.
-  # ra_game_basename: "Toothpaste World"
 
 rom:
   dir: "C:/path/to/your/romhacks"

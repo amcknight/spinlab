@@ -79,7 +79,6 @@ emulator:
   savestate_dir: "C:/RetroArch-Win64/saves/states"
   spinlab_state_dir: "data/spinlab_states"
   ra_core_subdir: "snes9x"        # subdir RA uses under savestate_dir for movie files
-  ra_game_basename: "My Hack"     # ROM filename without extension (optional — auto-detected)
 
 rom:
   dir: "C:/path/to/your/romhacks"
@@ -143,7 +142,6 @@ See [config.example.yaml](config.example.yaml) for the full template.
 | `emulator.savestate_dir` | Where RA writes save state files (e.g. `<RA dir>/saves/states`) |
 | `emulator.spinlab_state_dir` | Where SpinLab stores its keyed state files (relative or absolute) |
 | `emulator.ra_core_subdir` | Core name subdir RA uses under `savestate_dir` for movie files (e.g. `snes9x`) |
-| `emulator.ra_game_basename` | ROM filename without extension — auto-detected from RA if omitted |
 | `emulator.ra_movie_dir` | Override movie file directory if RA puts movies elsewhere |
 | `emulator.ra_core_path` | Path to the libretro core `.dll` (used when launching RA from dashboard) |
 | `rom.dir` | Directory containing ROM files (`.sfc`/`.smc`) |

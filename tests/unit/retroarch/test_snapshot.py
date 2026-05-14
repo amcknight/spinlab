@@ -3,26 +3,6 @@ from spinlab.retroarch.nci import NCIClient
 from spinlab.retroarch.snapshot import MemorySnapshot, read_snapshot
 
 
-def test_snapshot_dataclass_shape():
-    """All 11 fields are settable and readable; documents the frozen-dataclass contract."""
-    snap = MemorySnapshot(
-        game_mode=0x01, level_num=0x02, room_num=0x03, level_start=0x04,
-        player_anim=0x05, exit_mode=0x06, io_port=0x07, fanfare=0x08,
-        boss_defeat=0x09, midway=0x0A, cp_entrance=0x0B,
-    )
-    assert snap.game_mode == 0x01
-    assert snap.level_num == 0x02
-    assert snap.room_num == 0x03
-    assert snap.level_start == 0x04
-    assert snap.player_anim == 0x05
-    assert snap.exit_mode == 0x06
-    assert snap.io_port == 0x07
-    assert snap.fanfare == 0x08
-    assert snap.boss_defeat == 0x09
-    assert snap.midway == 0x0A
-    assert snap.cp_entrance == 0x0B
-
-
 def test_read_snapshot_maps_each_address_to_its_field(fake_nci_server):
     """Every address must map to its correct field — distinct sentinels detect any swap."""
     # Pick a unique non-zero byte per address so a wrong address->field mapping

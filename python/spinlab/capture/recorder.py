@@ -107,9 +107,12 @@ class SegmentRecorder:
             game_id, level, start.type, start.ordinal,
             end_type, end_ordinal, wp_start.id, wp_end.id,
         )
-        is_primary = self._compute_is_primary(
-            self._db, game_id, level, start.type, start.ordinal,
-            end_type, end_ordinal, seg_id)
+        is_primary = not self._db.has_competing_active_segment(
+            game_id=game_id, level=level,
+            start_type=start.type, start_ordinal=start.ordinal,
+            end_type=end_type, end_ordinal=end_ordinal,
+            exclude_segment_id=seg_id,
+        )
         existing_count = (
             self._db.count_segments_for_run(self.capture_run_id)
             if self.capture_run_id else 0
@@ -154,16 +157,6 @@ class SegmentRecorder:
 
         self._deaths_in_segment = 0
         self._last_spawn_ms = None
-
-    @staticmethod
-    def _compute_is_primary(db, game_id, level, start_type, start_ord,
-                            end_type, end_ord, new_seg_id) -> bool:
-        return not db.has_competing_active_segment(
-            game_id=game_id, level=level,
-            start_type=start_type, start_ordinal=start_ord,
-            end_type=end_type, end_ordinal=end_ord,
-            exclude_segment_id=new_seg_id,
-        )
 
     def handle_checkpoint(self, event: CheckpointEvent, game_id: str) -> None:
         if not self.pending_start:

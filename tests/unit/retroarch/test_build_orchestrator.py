@@ -11,7 +11,6 @@ def _config(tmp_path, **emu_overrides) -> AppConfig:
     base = dict(
         savestate_dir=tmp_path / "ra",
         spinlab_state_dir=tmp_path / "sl",
-        ra_game_basename="Test Game",
     )
     base.update(emu_overrides)
     return AppConfig(
@@ -38,15 +37,6 @@ def test_build_orchestrator_rejects_missing_spinlab_state_dir(tmp_path):
     cfg = _config(tmp_path, spinlab_state_dir=None)
     with pytest.raises(ValueError, match="spinlab_state_dir"):
         build_orchestrator(cfg)
-
-
-def test_build_orchestrator_accepts_missing_ra_game_basename(tmp_path):
-    """ra_game_basename is optional — RAClient overrides it from RA's
-    GET_STATUS at connect() time.
-    """
-    cfg = _config(tmp_path, ra_game_basename=None)
-    orch = build_orchestrator(cfg)
-    assert orch is not None
 
 
 # ---------------------------------------------------------------------------

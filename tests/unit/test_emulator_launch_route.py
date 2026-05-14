@@ -21,7 +21,6 @@ def _app(
     emu_kwargs: dict = dict(
         savestate_dir=tmp_path / "ra",
         spinlab_state_dir=tmp_path / "sl",
-        ra_game_basename="Test",
     )
     if retroarch_path is not None:
         emu_kwargs["retroarch_path"] = retroarch_path

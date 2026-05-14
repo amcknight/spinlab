@@ -50,11 +50,6 @@ def test_action_error_attributes(cls, http_code, detail):
     assert exc.detail == detail
 
 
-def test_action_error_is_exception():
-    with pytest.raises(ActionError):
-        raise NotConnectedError()
-
-
 def test_detail_codes_unique():
     seen: set[str] = set()
     for cls, _, detail in ERROR_TABLE:

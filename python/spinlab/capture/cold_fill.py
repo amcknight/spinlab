@@ -48,11 +48,9 @@ class ColdFillController:
     async def _load_next(self) -> ActionResult:
         """Load the next segment's hot state into the emulator.
 
-        Skips segments whose hot state file doesn't exist on disk — that can
-        happen when a reference run completed but the underlying state save
-        failed (e.g. early dashboard versions where ra_game_basename mismatch
-        caused silent SAVE_STATE timeouts). Skipping lets the rest of the
-        cold-fill batch proceed; the user gets a warning per skipped segment.
+        Skips segments whose hot state file doesn't exist on disk; the rest
+        of the cold-fill batch proceeds and the user gets a warning per
+        skipped segment.
         """
         from pathlib import Path
         while self.queue:

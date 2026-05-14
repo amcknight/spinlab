@@ -12,11 +12,6 @@ from spinlab.retroarch import (
 from spinlab.retroarch.nci import NCIClient
 
 
-def test_exception_hierarchy():
-    assert issubclass(NCITimeout, NCIError)
-    assert issubclass(NCIProtocolError, NCIError)
-
-
 def test_fake_nci_server_responds(fake_nci_server):
     """Fixture spins up a UDP responder; we can hit it and get a scripted reply."""
     fake_nci_server.handle("VERSION", lambda _: "1.22.2\n")

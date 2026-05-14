@@ -20,7 +20,6 @@ def test_orchestrator_connects_to_live_retroarch(ra_harness, tmp_path):
         emulator=EmulatorConfig(
             savestate_dir=tmp_path / "ra",
             spinlab_state_dir=tmp_path / "sl",
-            ra_game_basename="LiveRATest",
         ),
         data_dir=tmp_path,
         rom_dir=None,

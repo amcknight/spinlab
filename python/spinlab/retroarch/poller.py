@@ -7,7 +7,7 @@ through a caller-supplied callback.
 State-load handling: the Poller checks ``state_version()`` once per tick.
 When the version increments (RAClient.load_state was called since the last
 tick), it treats the current snapshot as a fresh prev and skips detection
-for that tick — replaces the old ``mark_state_loaded`` side-band call.
+for that tick.
 """
 from __future__ import annotations
 

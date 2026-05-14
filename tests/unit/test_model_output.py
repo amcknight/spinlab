@@ -1,42 +1,13 @@
-"""Tests for AttemptRecord and ModelOutput dataclasses."""
+"""Tests for ModelOutput / Estimate dataclasses."""
 import json
 
 from spinlab.db import Database
 from spinlab.models import (
     Attempt,
-    AttemptRecord,
     Estimate,
     ModelOutput,
     Segment,
 )
-
-
-class TestAttemptRecord:
-    def test_completed_attempt(self):
-        ar = AttemptRecord(
-            time_ms=12000, completed=True, deaths=2,
-            clean_tail_ms=4500, created_at="2026-03-27T12:00:00",
-        )
-        assert ar.time_ms == 12000
-        assert ar.completed is True
-        assert ar.deaths == 2
-        assert ar.clean_tail_ms == 4500
-
-    def test_incomplete_attempt(self):
-        ar = AttemptRecord(
-            time_ms=None, completed=False, deaths=0,
-            clean_tail_ms=None, created_at="2026-03-27T12:00:00",
-        )
-        assert ar.time_ms is None
-        assert ar.completed is False
-        assert ar.clean_tail_ms is None
-
-    def test_zero_death_clean_tail_equals_time(self):
-        ar = AttemptRecord(
-            time_ms=8000, completed=True, deaths=0,
-            clean_tail_ms=8000, created_at="2026-03-27T12:00:00",
-        )
-        assert ar.clean_tail_ms == ar.time_ms
 
 
 class TestEstimate:

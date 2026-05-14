@@ -32,14 +32,12 @@ def test_retroarch_paths_parse(tmp_path):
             "retroarch_path": "C:/RetroArch-Win64/retroarch.exe",
             "savestate_dir": "C:/RetroArch-Win64/saves/states",
             "spinlab_state_dir": "data/spinlab_states",
-            "ra_game_basename": "Toothpaste World",
         },
     }))
     cfg = AppConfig.from_yaml(cfg_path)
     assert cfg.emulator.retroarch_path == Path("C:/RetroArch-Win64/retroarch.exe")
     assert cfg.emulator.savestate_dir == Path("C:/RetroArch-Win64/saves/states")
     assert cfg.emulator.spinlab_state_dir == Path("data/spinlab_states")
-    assert cfg.emulator.ra_game_basename == "Toothpaste World"
 
 
 def test_retroarch_paths_default_to_none_when_omitted(tmp_path):
@@ -48,7 +46,6 @@ def test_retroarch_paths_default_to_none_when_omitted(tmp_path):
     assert cfg.emulator.retroarch_path is None
     assert cfg.emulator.savestate_dir is None
     assert cfg.emulator.spinlab_state_dir is None
-    assert cfg.emulator.ra_game_basename is None
 
 
 def test_nci_port_default_55355(tmp_path):
