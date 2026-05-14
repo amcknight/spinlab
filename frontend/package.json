@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "gen-types": "python ../scripts/dump_openapi.py openapi.json && openapi-typescript openapi.json -o src/api-types.ts",
+    "dev": "npm run gen-types && vite",
+    "build": "npm run gen-types && tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -12,6 +13,7 @@
   },
   "devDependencies": {
     "happy-dom": "^17.4",
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5.8",
     "vite": "^6.3",
     "vitest": "^3.1"

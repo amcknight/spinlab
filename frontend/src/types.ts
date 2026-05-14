@@ -1,258 +1,69 @@
-export type Mode =
-  | "idle"
-  | "reference"
-  | "practice"
-  | "replay"
-  | "fill_gap"
-  | "cold_fill"
-  | "speed_run";
+/**
+ * Public type surface for the rest of the frontend.
+ *
+ * Everything in this file is either:
+ *   1) re-exported from the auto-generated `api-types.ts` (which is produced
+ *      from the FastAPI app's OpenAPI schema by `npm run gen-types`), or
+ *   2) a frontend-only convenience type that doesn't appear in any API
+ *      response.
+ *
+ * Don't add response/request shapes here by hand — edit
+ * `python/spinlab/api_schemas.py` and let codegen pick it up.
+ */
+import type { components } from "./api-types";
+
+type S = components["schemas"];
+
+// ---- API response shapes (auto-generated) ---------------------------------
+
+export type AppState = S["AppState"];
+export type Mode = AppState["mode"];
+
+export type Estimate = S["Estimate"];
+export type ModelOutput = S["ModelOutput"];
+
+export type CurrentSegment = S["CurrentSegment"];
+export type RecentAttempt = S["RecentAttempt"];
+export type SessionInfo = S["SessionInfo"];
+export type ReplayState = S["ReplayState"];
+export type PausedRunState = S["PausedRunState"];
+export type ColdFillState = S["ColdFillState"];
+
+export type ModelData = S["ModelData"];
+export type ModelSegment = S["ModelSegment"];
+export type EstimatorInfo = S["EstimatorInfo"];
+
+export type TuningData = S["TuningData"];
+export type ParamDef = S["ParamDef"];
+
+export type ApiSegment = S["ApiSegment"];
+
+export type Reference = S["Reference"];
+export type CaptureSession = S["CaptureSession"];
+export type ReferenceSegment = S["ReferenceSegment"];
+
+export type SegmentHistory = S["SegmentHistory"];
+export type SegmentAttempt = S["SegmentAttempt"];
+export type EstimatorCurves = S["EstimatorCurves"];
+export type EstimatorSeries = S["EstimatorSeries"];
+
+// ---- Request bodies (auto-generated) --------------------------------------
+
+export type AttemptPatch = S["AttemptPatchRequest"];
+export type AttemptPatchResponse = S["AttemptPatchResponse"];
+
+// ---- Frontend-only conveniences -------------------------------------------
+
+/** Any object with segment-naming fields, used by segmentName/shortSegName.
+ *  Not part of any API response — intentionally structural so it accepts
+ *  both ApiSegment and ReferenceSegment without coupling to either. */
+export interface SegmentLike {
+  description?: string | null;
+  level_number: number;
+  start_type: string;
+  start_ordinal: number;
+  end_type: string;
+  end_ordinal: number;
+}
 
 export type EndpointType = "entrance" | "checkpoint" | "goal";
-
-export interface Estimate {
-  expected_ms: number | null;
-  ms_per_attempt: number | null;
-  floor_ms: number | null;
-}
-
-export interface ModelOutput {
-  total: Estimate;
-  clean: Estimate;
-}
-
-/** Shape of a segment in the /api/model response. */
-export interface ModelSegment {
-  segment_id: string;
-  description: string;
-  level_number: number;
-  start_type: string;
-  start_ordinal: number;
-  end_type: string;
-  end_ordinal: number;
-  selected_model: string;
-  model_outputs: Record<string, ModelOutput>;
-  n_completed: number;
-  n_attempts: number;
-  gold_ms: number | null;
-  clean_gold_ms: number | null;
-}
-
-export interface EstimatorInfo {
-  name: string;
-  display_name: string;
-}
-
-/** GET /api/model */
-export interface ModelData {
-  estimator: string | null;
-  estimators: EstimatorInfo[];
-  allocator_weights: Record<string, number> | null;
-  segments: ModelSegment[];
-}
-
-export interface ParamDef {
-  name: string;
-  display_name: string;
-  default: number;
-  min: number;
-  max: number;
-  step: number;
-  description: string;
-  value: number;
-}
-
-/** GET /api/estimator-params */
-export interface TuningData {
-  estimator: string;
-  params: ParamDef[];
-}
-
-export interface CaptureSession {
-  id: string;
-  capture_run_id: string;
-  ordinal: number;
-  started_at: string;
-  ended_at: string | null;
-  spinrec_path: string;
-  end_reason: string | null;
-  segment_count: number;
-}
-
-export interface PausedRunState {
-  run_id: string;
-  segments_captured: number;
-  session_count: number;
-}
-
-export interface ReplayState {
-  rec_path: string | null;
-  total: number;
-}
-
-export interface ColdFillState {
-  current: number;
-  total: number;
-  segment_label: string;
-}
-
-export interface SessionInfo {
-  id: string;
-  started_at: string;
-  segments_attempted: number;
-  segments_completed: number;
-  saved_total_ms: number | null;
-  saved_clean_ms: number | null;
-}
-
-/** Segment as it appears in current_segment (practice state). */
-export interface CurrentSegment {
-  id: string;
-  game_id: string;
-  level_number: number;
-  start_type: string;
-  start_ordinal: number;
-  end_type: string;
-  end_ordinal: number;
-  description: string;
-  attempt_count: number;
-  model_outputs: Record<string, ModelOutput>;
-  selected_model: string;
-  state_path: string | null;
-}
-
-export interface RecentAttempt {
-  id: number;
-  segment_id: string;
-  completed: number;
-  time_ms: number | null;
-  description: string;
-  level_number: number;
-  start_type: string;
-  start_ordinal: number;
-  end_type: string;
-  end_ordinal: number;
-  invalidated: boolean;
-  chosen_allocator: string | null;
-}
-
-/** PATCH /api/attempts/:id request body. */
-export interface AttemptPatch {
-  invalidated: boolean;
-}
-
-/** PATCH /api/attempts/:id response body. */
-export interface AttemptPatchResponse {
-  ok: boolean;
-  id: number;
-  invalidated: boolean;
-}
-
-/** GET /api/state and SSE event payload. */
-export interface AppState {
-  mode: Mode;
-  emu_connected: boolean;
-  game_id: string | null;
-  game_name: string | null;
-  current_segment: CurrentSegment | null;
-  recent: RecentAttempt[];
-  session: SessionInfo | null;
-  sections_captured: number | null;
-  allocator_weights: Record<string, number> | null;
-  estimator: string | null;
-  capture_run_id: string | null;
-  replay: ReplayState | null;
-  paused_run: PausedRunState | null;
-  cold_fill: ColdFillState | null;
-}
-
-/** Segment as returned by GET /api/segments. */
-export interface ApiSegment {
-  id: string;
-  game_id: string;
-  level_number: number;
-  start_type: string;
-  start_ordinal: number;
-  end_type: string;
-  end_ordinal: number;
-  description: string;
-  active: number;
-  ordinal: number | null;
-  state_path: string | null;
-  is_primary: boolean;
-  start_waypoint_id: string | null;
-  end_waypoint_id: string | null;
-  start_conditions: Record<string, string | boolean>;
-  end_conditions: Record<string, string | boolean>;
-}
-
-/** Segment as returned by /api/references/{id}/segments. */
-export interface ReferenceSegment {
-  id: string;
-  game_id: string;
-  level_number: number;
-  start_type: string;
-  start_ordinal: number;
-  end_type: string;
-  end_ordinal: number;
-  description: string;
-  active: number;
-  ordinal: number | null;
-  reference_id: string | null;
-  state_path: string | null;
-  capture_session_id?: string | null;
-  session_ordinal: number | null;
-}
-
-export interface Reference {
-  id: string;
-  game_id: string;
-  name: string;
-  created_at: string;
-  active: number;
-  draft: number;
-  has_replay: boolean;
-}
-
-/** One completed attempt as returned by GET /api/segments/{id}/history. */
-export interface SegmentAttempt {
-  attempt_number: number;
-  time_ms: number | null;
-  clean_tail_ms: number | null;
-  deaths: number;
-  created_at: string;
-}
-
-/** Estimator curve series (arrays parallel to attempts). */
-export interface EstimatorSeries {
-  expected_ms: (number | null)[];
-  floor_ms: (number | null)[];
-}
-
-/** Curves for one estimator (total + clean). */
-export interface EstimatorCurves {
-  total: EstimatorSeries;
-  clean: EstimatorSeries;
-}
-
-/** GET /api/segments/{id}/history */
-export interface SegmentHistory {
-  segment_id: string;
-  description: string;
-  level_number: number;
-  start_type: string;
-  start_ordinal: number;
-  end_type: string;
-  end_ordinal: number;
-  attempts: SegmentAttempt[];
-  estimator_curves: Record<string, EstimatorCurves>;
-}
-
-/** Any object with segment-naming fields (used by segmentName/shortSegName). */
-export interface SegmentLike {
-  description?: string;
-  level_number: number;
-  start_type: string;
-  start_ordinal: number;
-  end_type: string;
-  end_ordinal: number;
-}
