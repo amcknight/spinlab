@@ -17,10 +17,10 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
 from spinlab import log
 from spinlab.condition_registry import ConditionRegistry
+from spinlab.protocol import PollerEvent
 from spinlab.retroarch.cold_fill_detector import ColdFillSpawnDetector
 from spinlab.retroarch.detector import TransitionDetector
 from spinlab.retroarch.nci import NCIClient
@@ -35,8 +35,8 @@ DEFAULT_PERIOD_SEC = 1.0 / 60.0  # one frame at 60 Hz
 class PollerDeps:
     client: NCIClient
     read_snapshot: Callable[[NCIClient], MemorySnapshot]
-    on_event: Callable[[Any], None]
-    state_path_for: Callable[[Any], str | None] | None = None
+    on_event: Callable[[PollerEvent], None]
+    state_path_for: Callable[[PollerEvent], str | None] | None = None
     conditions_registry: ConditionRegistry | None = None
     # Returns RAClient's monotonic state_version. The Poller compares against
     # the last seen value each tick; an increment means "RA just reloaded, the
@@ -66,7 +66,7 @@ class Poller:
         self._read_failing: bool = False
         self._conditions_failing: bool = False
 
-    def _stamp_state_path(self, ev: Any) -> Any:
+    def _stamp_state_path(self, ev: PollerEvent) -> PollerEvent:
         if self._deps.state_path_for is None:
             return ev
         path = self._deps.state_path_for(ev)
@@ -76,7 +76,7 @@ class Poller:
             return ev
         return dataclasses.replace(ev, state_path=path)
 
-    def _stamp_conditions(self, ev: Any) -> Any:
+    def _stamp_conditions(self, ev: PollerEvent) -> PollerEvent:
         reg = self._deps.conditions_registry
         if reg is None:
             return ev
