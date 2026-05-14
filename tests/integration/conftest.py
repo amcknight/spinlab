@@ -99,6 +99,38 @@ def _resolve_rom_path(rom_key: str) -> Path:
     return rom_path
 
 
+def _resolve_ra_paths(rom_key: str) -> tuple[Path, Path, Path]:
+    """Resolve (retroarch_exe, ra_core_path, rom_path) for a given rom_key.
+
+    Hard-fail if any of:
+      - emulator.retroarch_path missing/empty in config.yaml
+      - emulator.ra_core_path missing/empty in config.yaml
+      - retroarch_path file does not exist on disk
+      - ra_core_path file does not exist on disk
+      - rom_path can't be resolved by `_resolve_rom_path` (propagates)
+    """
+    config = _load_config()
+    emu = config.get("emulator", {})
+    exe_str = emu.get("retroarch_path")
+    core_str = emu.get("ra_core_path")
+    if not exe_str:
+        raise RuntimeError(
+            "emulator.retroarch_path not configured in config.yaml"
+        )
+    if not core_str:
+        raise RuntimeError(
+            "emulator.ra_core_path not configured in config.yaml"
+        )
+    exe = Path(exe_str)
+    core = Path(core_str)
+    if not exe.exists():
+        raise RuntimeError(f"retroarch_path does not exist on disk: {exe}")
+    if not core.exists():
+        raise RuntimeError(f"ra_core_path does not exist on disk: {core}")
+    rom_path = _resolve_rom_path(rom_key)
+    return exe, core, rom_path
+
+
 def _load_config() -> dict:
     """Load config.yaml from project root."""
     config_path = PROJECT_ROOT / "config.yaml"
