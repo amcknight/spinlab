@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Protocol
+from typing import Iterable, Protocol
 
 import yaml
 
@@ -156,9 +156,13 @@ class ConditionRegistry:
                 out[d.name] = data[0] | (data[1] << 8)
         return out
 
-    def decode(self, raw: dict[str, int], level: int) -> dict[str, Any]:
-        """Decode raw memory values into logical conditions, filtering to in-scope."""
-        result: dict[str, Any] = {}
+    def decode(self, raw: dict[str, int], level: int) -> dict[str, str | bool]:
+        """Decode raw memory values into logical conditions, filtering to in-scope.
+
+        Returns enum conditions as their string label (from ConditionDef.values)
+        and bool conditions as Python bools. Unknown ``type`` values raise.
+        """
+        result: dict[str, str | bool] = {}
         for d in self.in_scope(level):
             if d.name not in raw:
                 continue
