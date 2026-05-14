@@ -31,7 +31,7 @@ class LevelEntranceEvent:
     frame: int = 0
     state_path: str | None = None
     timestamp_ms: int = 0
-    conditions: dict = field(default_factory=dict)
+    conditions: dict[str, int] = field(default_factory=dict)
 
 @dataclass(frozen=True)
 class CheckpointEvent:
@@ -40,19 +40,19 @@ class CheckpointEvent:
     cp_type: str = ""
     state_path: str | None = None
     timestamp_ms: int = 0
-    conditions: dict = field(default_factory=dict)
+    conditions: dict[str, int] = field(default_factory=dict)
 
 @dataclass(frozen=True)
 class DeathEvent:
     level_num: int = 0
     timestamp_ms: int = 0
-    conditions: dict = field(default_factory=dict)
+    conditions: dict[str, int] = field(default_factory=dict)
 
 @dataclass(frozen=True)
 class SpawnEvent:
     level_num: int = 0
     state_path: str | None = None
-    conditions: dict = field(default_factory=dict)
+    conditions: dict[str, int] = field(default_factory=dict)
     is_cold_cp: bool = False
     cp_ordinal: int | None = None
     segment_id: str = ""
@@ -66,7 +66,7 @@ class LevelExitEvent:
     elapsed_ms: int = 0
     frame: int = 0
     timestamp_ms: int = 0
-    conditions: dict = field(default_factory=dict)
+    conditions: dict[str, int] = field(default_factory=dict)
 
 @dataclass(frozen=True)
 class AttemptResultEvent:
