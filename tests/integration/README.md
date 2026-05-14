@@ -30,11 +30,39 @@ pytest                         RetroArch (headless, null drivers)
   |  teardown: quit + terminate  |
 ```
 
-One RetroArch launch per pytest session (session-scoped `ra_harness` /
-`ra_harness_love_yourself` fixtures). Each test gets its own scenario run
-under a fresh `TransitionDetector`. Tests cooperate on a single RA process,
-but each starts from a zeroed WRAM region (within `ADDR_MAP`) so they
-don't observe each other's pokes.
+**RA launch model.** One RetroArch process per unique `rom_key`,
+session-scoped via `ra_harness_factory`. Today there are two registered
+keys: `default` maps to `Toothpaste.smc` (used by poke transitions, harness
+isolation, practice smoke) and `love_yourself` maps to `Love Yourself.smc`
+(pinned for the replay fixture). Each key gets its own RA process — that's
+what keeps `test_two_harnesses_use_distinct_nci_ports` honest. Expected
+long-run registry size is 2-5 entries. To add a test that needs a different
+ROM, add an entry to `ROM_REGISTRY` in `conftest.py` and request it via
+`ra_harness_factory("<key>")`.
+
+**No silent skips.** Missing RA binary, missing core, missing ROM, or
+launch failure all raise `RuntimeError` — never `pytest.skip` (per
+CLAUDE.md's "an env var the harness needs ... is a failure, not a skip"
+rule).
+
+**SRAM isolation.** The harness writes a per-launch
+`sram_directory = <temp>/saves` into its appendconfig so RA's libretro
+layer doesn't auto-load the user's `<saves_dir>/<core>/<rom>.srm` on boot.
+Without this, a stale or wrong-ROM SRAM can deep-freeze the snes9x core
+(FRAMEADVANCE-sanity probe sees zero WRAM movement). `savestate_directory`
+is *not* isolated — the dashboard's replay flow expects to write/read
+`.replay` files in the user's configured savestate dir.
+
+Each test gets its own scenario run under a fresh `TransitionDetector`.
+Tests cooperate on a single RA process per `rom_key`, but each starts
+from a zeroed `ADDR_MAP` region so they don't observe each other's pokes.
+
+**Known fragility.** The session-scoped harness can leak ROM-CPU /
+audio-engine state between scenarios — `test_key_exit` and `test_orb_exit`
+fail when run after `test_entrance_goal` because the goal-fanfare music
+keeps writing to `$1DFB` between our `io_port` poke and the snapshot
+read. Both pass in isolation. See
+`docs/superpowers/plans/2026-05-14-transition-state-leak-followup.md`.
 
 ## Running
 
@@ -157,8 +185,9 @@ scenario completes. Increase `settle` for scenarios with many transitions.
 
 ### Per-harness UDP port allocation
 
-The session-scoped `ra_harness` and `ra_harness_love_yourself` fixtures
-both launch their own RA. Each gets a free UDP port via
-`_free_udp_port()` in `tests/integration/conftest.py` so the second
-process doesn't fail to bind. See `test_harness_isolation.py` for the
-regression guard.
+The session-scoped `ra_harness_factory` (and its `ra_harness` /
+`ra_harness_love_yourself` shims) caches one RAHarness per `rom_key`.
+Each gets a free UDP port via `_free_udp_port()` in
+`tests/integration/conftest.py` so the second process doesn't fail to
+bind. Teardown fires at session-end via the fixture's `yield`. See
+`test_harness_isolation.py` for the regression guard.
