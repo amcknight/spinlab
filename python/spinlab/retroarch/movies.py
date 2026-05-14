@@ -26,6 +26,7 @@ from spinlab import log
 from spinlab.errors import BackendNotImplementedError
 from spinlab.protocol import (
     SPEED_UNCAPPED,
+    MovieEvent,
     ReplayErrorEvent,
     ReplayFinishedEvent,
     ReplayStartedEvent,
@@ -48,7 +49,7 @@ class MovieController:
         movie_io: RAMovieIO,
         raclient: RAClient,
         enable: bool,
-        on_event: Callable[[object], None],
+        on_event: Callable[[MovieEvent], None],
     ) -> None:
         self._movie_io = movie_io
         self._raclient = raclient
@@ -58,7 +59,7 @@ class MovieController:
         self._active_playback: MoviePlayback | None = None
         self._fast_forwarding: bool = False
 
-    def set_event_callback(self, on_event: Callable[[object], None]) -> None:
+    def set_event_callback(self, on_event: Callable[[MovieEvent], None]) -> None:
         """Rebind the event callback. Used by build_orchestrator to bind
         ``orch.events.put_nowait`` after both objects exist (see module
         docstring)."""
