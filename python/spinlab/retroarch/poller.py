@@ -135,15 +135,37 @@ class Poller:
                 await asyncio.sleep(self._period)
                 continue
 
-            for event in self._detector.step(snap, timestamp_ms=ts):
+            try:
+                events = list(self._detector.step(snap, timestamp_ms=ts))
+            except Exception as exc:
+                log.error(logger, "detector.step raised", exc=exc)
+                events = []
+
+            for event in events:
                 event = self._stamp_state_path(event)
                 event = self._stamp_conditions(event)
-                self._deps.on_event(event)
+                try:
+                    self._deps.on_event(event)
+                except Exception as exc:
+                    log.error(
+                        logger, "poller event handler raised",
+                        exc=exc, event_type=type(event).__name__,
+                    )
 
-            cf_event = self._cold_fill.step(snap, timestamp_ms=ts)
+            try:
+                cf_event = self._cold_fill.step(snap, timestamp_ms=ts)
+            except Exception as exc:
+                log.error(logger, "cold_fill.step raised", exc=exc)
+                cf_event = None
             if cf_event is not None:
                 cf_event = self._stamp_state_path(cf_event)
                 cf_event = self._stamp_conditions(cf_event)
-                self._deps.on_event(cf_event)
+                try:
+                    self._deps.on_event(cf_event)
+                except Exception as exc:
+                    log.error(
+                        logger, "poller event handler raised",
+                        exc=exc, event_type=type(cf_event).__name__,
+                    )
 
             await asyncio.sleep(self._period)

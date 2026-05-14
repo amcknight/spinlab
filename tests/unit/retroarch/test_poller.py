@@ -163,6 +163,50 @@ async def test_poller_uses_injected_detectors():
 
 
 @pytest.mark.asyncio
+async def test_poller_event_handler_exception_does_not_crash_tick(caplog):
+    """A handler that raises should be logged at ERROR and not stop the poller."""
+    # Alternate dead/alive to keep firing DeathEvents across multiple snapshots.
+    # The TransitionDetector emits a DeathEvent on the 0→9 edge, so cycling
+    # back to 0 lets us trigger another edge on the next pair.
+    cycle = [
+        _snap(player_anim=0),
+        _snap(player_anim=9),
+        _snap(player_anim=0),
+        _snap(player_anim=9),
+        _snap(player_anim=0),
+        _snap(player_anim=9),
+        _snap(player_anim=0),
+        _snap(player_anim=9),
+        _snap(player_anim=0),
+        _snap(player_anim=9),
+    ]
+    snap_iter = iter(cycle)
+
+    def crashy_handler(_event):
+        raise ValueError("handler exploded")
+
+    deps = PollerDeps(
+        client=_FakeClient(),
+        read_snapshot=_make_snapshots(snap_iter),
+        on_event=crashy_handler,
+    )
+    poller = Poller(deps, period_sec=0.001)
+
+    with caplog.at_level(logging.ERROR, logger="spinlab.retroarch.poller"):
+        task = asyncio.create_task(poller.run())
+        await asyncio.sleep(0.05)
+        poller.stop()
+        await task
+
+    errs = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("event handler raised" in r.getMessage() for r in errs), (
+        f"expected ERROR log with 'event handler raised', got: {[r.getMessage() for r in errs]}"
+    )
+    # Crucially, the poller must have continued to tick (poll_count > 1).
+    assert poller.poll_count > 1, f"poller.poll_count={poller.poll_count}, expected >1"
+
+
+@pytest.mark.asyncio
 async def test_poller_logs_read_failure_then_recovery(caplog):
     """Poller should log exactly one warning on read failure and one info on recovery."""
     fail_then_recover: list = [RuntimeError("nci dead")] + [None] * 10
