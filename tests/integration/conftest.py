@@ -39,6 +39,65 @@ pytestmark = pytest.mark.emulator
 LOVE_YOURSELF_ROM_NAME = "Love Yourself.smc"
 LOVE_YOURSELF_GAME_ID = "bd94dbb29012c7f5"
 
+TOOTHPASTE_ROM_NAME = "Toothpaste.smc"
+
+# ---------------------------------------------------------------------------
+# ROM registry: rom_key -> filename in config.yaml's rom.dir.
+#
+# Each entry produces one cached session-scoped RAHarness in
+# `ra_harness_factory`. Even when two keys point at the same filename, they
+# produce two distinct RA processes (different cache entries) — preserves
+# `test_two_harnesses_use_distinct_nci_ports` and the broader "parallel RAs"
+# infrastructure (see project_pytest_xdist_experiment_2026_05_11 memory).
+#
+# Today:
+#   - "default" -> Toothpaste.smc — used by poke transitions, harness
+#     isolation, practice smoke. These tests poke generic SMW WRAM addresses
+#     so any vanilla-ish SMW base works.
+#   - "love_yourself" -> Love Yourself.smc — pinned ROM for the replay
+#     fixture (replay was recorded against this ROM, so it must match).
+#
+# Expected long-run size: 2-5 entries total per Andrew. To add a test that
+# needs a different ROM, add a key/filename pair here and request it via
+# `ra_harness_factory("<key>")`.
+ROM_REGISTRY: dict[str, str] = {
+    "default": TOOTHPASTE_ROM_NAME,
+    "love_yourself": LOVE_YOURSELF_ROM_NAME,
+}
+
+
+def _resolve_rom_path(rom_key: str) -> Path:
+    """Resolve a registered rom_key to an absolute Path under config.yaml's rom.dir.
+
+    Hard-fail on every step:
+      - unknown rom_key (registry typo)
+      - rom.dir missing from config.yaml
+      - rom.dir set but the registered filename isn't present on disk
+
+    Hard-fail (RuntimeError) rather than pytest.skip so missing infrastructure
+    surfaces as a red test per CLAUDE.md ("an env var the harness needs - is
+    a failure, not a skip").
+    """
+    if rom_key not in ROM_REGISTRY:
+        raise RuntimeError(
+            f"unknown rom_key {rom_key!r}; known keys: {sorted(ROM_REGISTRY)}"
+        )
+    config = _load_config()
+    rom_dir_str = config.get("rom", {}).get("dir")
+    if not rom_dir_str:
+        raise RuntimeError(
+            "rom.dir not configured in config.yaml; ROM-keyed test harness "
+            f"cannot resolve {rom_key!r}"
+        )
+    rom_path = Path(rom_dir_str) / ROM_REGISTRY[rom_key]
+    if not rom_path.exists():
+        raise RuntimeError(
+            f"ROM file not found for rom_key={rom_key!r}: expected "
+            f"{rom_path} (filename {ROM_REGISTRY[rom_key]!r} under "
+            f"rom.dir={rom_dir_str!r})"
+        )
+    return rom_path
+
 
 def _load_config() -> dict:
     """Load config.yaml from project root."""
