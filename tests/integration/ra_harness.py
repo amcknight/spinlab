@@ -13,6 +13,7 @@ NOT owned:
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 import tempfile
 import time
@@ -70,7 +71,7 @@ class RAHarnessLaunchError(RuntimeError):
 class RAHarness:
     proc: subprocess.Popen
     client: NCIClient
-    _tmp_cfg: Path | None = field(default=None, repr=False)
+    _tmp_dir: Path | None = field(default=None, repr=False)
     engine: RAPokeEngine = field(init=False)
 
     def __post_init__(self) -> None:
@@ -106,22 +107,40 @@ class RAHarness:
 
         port = nci_port if nci_port is not None else DEFAULT_PORT
 
-        # Write a temporary appendconfig to enable null drivers + pin the NCI
-        # port. ``--appendconfig`` keys override the user's retroarch.cfg, so
+        # Per-launch isolation directory. Holds the appendconfig, plus an
+        # empty SRAM subdir that we point RA at via ``sram_directory``.
+        # Without SRAM isolation, RA's libretro layer auto-loads any existing
+        # ``<user_saves_dir>/<core>/<rom>.srm`` on boot, which can deep-freeze
+        # the core when the SRAM is stale or was written by a different
+        # ROM/build (root cause of all-day FRAMEADVANCE-sanity failures on
+        # Toothpaste prior to this isolation).
+        #
+        # ``savestate_directory`` is *not* overridden here — the dashboard's
+        # replay flow expects to write/read .replay files in the user's
+        # configured savestate dir, and isolating it desyncs RA from the
+        # dashboard. Savestates aren't auto-loaded (``savestate_auto_load``
+        # is "false" in the user cfg), so they don't trigger the SRAM-style
+        # deep-freeze.
+        tmp_dir = Path(tempfile.mkdtemp(prefix="spinlab_ra_"))
+        sram_dir = tmp_dir / "saves"
+        sram_dir.mkdir()
+        tmp_cfg_path = tmp_dir / "null.cfg"
+        # RA cfg paths use forward slashes even on Windows.
+        sram_cfg = sram_dir.as_posix()
+        # ``--appendconfig`` keys override the user's retroarch.cfg, so
         # specifying ``network_cmd_port`` here lets multiple harnesses run
         # concurrently on distinct ports regardless of what the user's cfg has.
         # ``network_cmd_enable`` is intentionally NOT set here — the user's
         # cfg must already enable NCI, or no harness ever works.
-        tmp_cfg_fd, tmp_cfg_path_str = tempfile.mkstemp(suffix=".cfg", prefix="spinlab_ra_null_")
-        tmp_cfg_path = Path(tmp_cfg_path_str)
         try:
-            with open(tmp_cfg_fd, "w") as f:
+            with open(tmp_cfg_path, "w") as f:
                 f.write(_NULL_DRIVER_CFG)
                 f.write(f'network_cmd_port = "{port}"\n')
+                f.write(f'sram_directory = "{sram_cfg}"\n')
                 if extra_cfg:
                     f.write(extra_cfg)
         except Exception:
-            tmp_cfg_path.unlink(missing_ok=True)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
             raise
 
         cmd = [
@@ -147,7 +166,7 @@ class RAHarness:
                 time.sleep(NCI_PING_INTERVAL_S)
         else:
             cls._kill(proc)
-            tmp_cfg_path.unlink(missing_ok=True)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
             raise RAHarnessLaunchError(
                 f"NCI did not reply after {NCI_PING_RETRIES} attempts × {NCI_PING_INTERVAL_S}s"
             )
@@ -171,7 +190,7 @@ class RAHarness:
             status = client.get_status()
         except Exception as exc:
             cls._kill(proc)
-            tmp_cfg_path.unlink(missing_ok=True)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
             raise RAHarnessLaunchError(f"GET_STATUS failed: {exc}") from exc
 
         if status.state == "PAUSED":
@@ -205,7 +224,7 @@ class RAHarness:
                     break
             else:
                 cls._kill(proc)
-                tmp_cfg_path.unlink(missing_ok=True)
+                shutil.rmtree(tmp_dir, ignore_errors=True)
                 if last_exc is not None and after_state is None:
                     raise RAHarnessLaunchError(
                         f"GET_STATUS after pause_toggle kept failing: {last_exc}"
@@ -217,7 +236,7 @@ class RAHarness:
                 )
         else:
             cls._kill(proc)
-            tmp_cfg_path.unlink(missing_ok=True)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
             raise RAHarnessLaunchError(
                 f"Unexpected RA status after launch: {status.state!r} — expected PAUSED or PLAYING"
             )
@@ -240,13 +259,13 @@ class RAHarness:
             snap_before = snap_after
         if not advanced:
             cls._kill(proc)
-            tmp_cfg_path.unlink(missing_ok=True)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
             raise RAHarnessLaunchError(
                 f"FRAMEADVANCE did not change any WRAM byte after "
                 f"{WRAM_SANITY_RETRIES} attempts — core may be in deep-freeze"
             )
 
-        return cls(proc=proc, client=client, _tmp_cfg=tmp_cfg_path)
+        return cls(proc=proc, client=client, _tmp_dir=tmp_dir)
 
     def teardown(self) -> None:
         try:
@@ -258,9 +277,9 @@ class RAHarness:
         except subprocess.TimeoutExpired:
             self._kill(self.proc)
         self.client.close()
-        if self._tmp_cfg is not None:
-            self._tmp_cfg.unlink(missing_ok=True)
-            self._tmp_cfg = None
+        if self._tmp_dir is not None:
+            shutil.rmtree(self._tmp_dir, ignore_errors=True)
+            self._tmp_dir = None
 
     @staticmethod
     def _kill(proc: subprocess.Popen) -> None:
