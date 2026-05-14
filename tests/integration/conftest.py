@@ -543,6 +543,9 @@ class _RingHandler(logging.Handler):
     def recent(self, n: int = 30) -> list[str]:
         return self._buf[-n:]
 
+    def clear(self) -> None:
+        self._buf = []
+
 
 _ring = _RingHandler()
 _ring.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
@@ -609,3 +612,13 @@ def pytest_runtest_makereport(item, call):
         # diagnostic block has to ride along on `sections` instead.  pytest
         # renders sections in the terminal report after the traceback.
         report.sections.append(("SpinLab Diagnostics", diag))
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_setup(item):
+    """Clear the diagnostic ring buffer at the start of each integration test
+    so the failure diagnostic only shows logs from the current test, not stale
+    lines bled in from earlier tests in the session-scoped harness."""
+    if "integration" in str(item.fspath):
+        _ring.clear()
+    yield
