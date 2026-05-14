@@ -141,45 +141,6 @@ def _load_config() -> dict:
     return {}
 
 
-def _test_rom_path() -> str | None:
-    """Resolve a ROM path for testing."""
-    env_rom = os.environ.get("SPINLAB_TEST_ROM")
-    if env_rom:
-        return env_rom
-    config = _load_config()
-    rom_dir = config.get("rom", {}).get("dir")
-    if rom_dir:
-        # Use first .sfc/.smc/.emc file found
-        rom_path = Path(rom_dir)
-        for ext in ("*.sfc", "*.smc", "*.emc"):
-            roms = list(rom_path.glob(ext))
-            if roms:
-                return str(roms[0])
-    return None
-
-
-def _love_yourself_rom_path() -> str | None:
-    """Find the Love Yourself ROM for replay fixture tests."""
-    env_rom = os.environ.get("SPINLAB_REPLAY_ROM")
-    if env_rom:
-        return env_rom
-    config = _load_config()
-    rom_dir = config.get("rom", {}).get("dir")
-    if rom_dir:
-        rom_path = Path(rom_dir) / LOVE_YOURSELF_ROM_NAME
-        if rom_path.exists():
-            return str(rom_path)
-    return None
-
-
-_love_yourself_rom = _love_yourself_rom_path()
-
-skip_no_love_yourself = pytest.mark.skipif(
-    not _love_yourself_rom or not Path(_love_yourself_rom).exists(),
-    reason=f"Love Yourself ROM not found (SPINLAB_REPLAY_ROM or '{LOVE_YOURSELF_ROM_NAME}' in rom.dir)",
-)
-
-
 def _free_port() -> int:
     """Find a free TCP port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -392,106 +353,20 @@ def ra_harness_factory():
     factory.teardown_all()
 
 
-def _ra_paths() -> tuple[Path | None, Path | None, Path | None]:
-    """Resolve (retroarch_exe, ra_core_path, rom_path) from env/config."""
-    config = _load_config()
-    emu = config.get("emulator", {})
-    retroarch_exe = emu.get("retroarch_path")
-    ra_core_path = emu.get("ra_core_path")
-    rom_path = _test_rom_path()
-    return (
-        Path(retroarch_exe) if retroarch_exe else None,
-        Path(ra_core_path) if ra_core_path else None,
-        Path(rom_path) if rom_path else None,
-    )
-
-
-def _ra_paths_love_yourself() -> tuple[Path | None, Path | None, Path | None]:
-    """Resolve (retroarch_exe, ra_core_path, love_yourself_rom_path) from env/config."""
-    config = _load_config()
-    emu = config.get("emulator", {})
-    retroarch_exe = emu.get("retroarch_path")
-    ra_core_path = emu.get("ra_core_path")
-    rom_path = _love_yourself_rom_path()
-    return (
-        Path(retroarch_exe) if retroarch_exe else None,
-        Path(ra_core_path) if ra_core_path else None,
-        Path(rom_path) if rom_path else None,
-    )
+@pytest.fixture(scope="session")
+def ra_harness(ra_harness_factory):
+    """Session-scoped RAHarness for poke-driven tests. Backed by the
+    factory under rom_key='default'. Hard-fails on missing infrastructure
+    per CLAUDE.md."""
+    return ra_harness_factory("default")
 
 
 @pytest.fixture(scope="session")
-def ra_harness():
-    """Launch one RetroArch process per pytest session for poke-driven tests."""
-    from tests.integration.ra_harness import RAHarness, RAHarnessLaunchError
-
-    retroarch_exe, ra_core_path, rom_path = _ra_paths()
-    missing = [
-        label for label, p in
-        [("retroarch_path", retroarch_exe), ("ra_core_path", ra_core_path), ("rom", rom_path)]
-        if p is None or not p.exists()
-    ]
-    if missing:
-        pytest.skip(
-            f"ra_harness requires: {', '.join(missing)} "
-            "(retroarch_path/ra_core_path in config.yaml emulator section; "
-            "rom from SPINLAB_TEST_ROM env or rom.dir in config.yaml)"
-        )
-
-    try:
-        harness = RAHarness.launch(
-            rom_path=rom_path,
-            core_path=ra_core_path,
-            retroarch_exe=retroarch_exe,
-            nci_port=_free_udp_port(),
-        )
-    except RAHarnessLaunchError as exc:
-        pytest.skip(f"ra_harness launch failed: {exc}")
-
-    try:
-        yield harness
-    finally:
-        harness.teardown()
-
-
-@pytest.fixture(scope="session")
-def ra_harness_love_yourself():
-    """Launch one RetroArch process per pytest session using the Love Yourself ROM.
-
-    Same shape as ``ra_harness`` but uses ``_love_yourself_rom_path()`` instead
-    of the default test ROM.  Skips if Love Yourself is not available, keeping
-    the Phase E movie smoke test aligned with ``test_replay_fixture.py`` which
-    also gates on this ROM.
-    """
-    from tests.integration.ra_harness import RAHarness, RAHarnessLaunchError
-
-    retroarch_exe, ra_core_path, rom_path = _ra_paths_love_yourself()
-    missing = [
-        label for label, p in
-        [("retroarch_path", retroarch_exe), ("ra_core_path", ra_core_path), ("rom", rom_path)]
-        if p is None or not p.exists()
-    ]
-    if missing:
-        pytest.skip(
-            f"ra_harness_love_yourself requires: {', '.join(missing)} "
-            "(retroarch_path/ra_core_path in config.yaml emulator section; "
-            f"Love Yourself ROM from SPINLAB_REPLAY_ROM env or '{LOVE_YOURSELF_ROM_NAME}' in rom.dir)"
-        )
-
-    try:
-        harness = RAHarness.launch(
-            rom_path=rom_path,
-            core_path=ra_core_path,
-            retroarch_exe=retroarch_exe,
-            nci_port=_free_udp_port(),
-        )
-    except RAHarnessLaunchError as exc:
-        pytest.skip(f"ra_harness_love_yourself launch failed: {exc}")
-
-    try:
-        yield harness
-    finally:
-        harness.teardown()
+def ra_harness_love_yourself(ra_harness_factory):
+    """Session-scoped RAHarness pinned to Love Yourself.smc. Distinct from
+    `ra_harness` (different rom_key) so the two run as separate processes —
+    see test_two_harnesses_use_distinct_nci_ports."""
+    return ra_harness_factory("love_yourself")
 
 
 @pytest.fixture
@@ -550,7 +425,7 @@ def replay_ra_dashboard(ra_harness_love_yourself):
     db = Database(str(tmp_path / "spinlab.db"))
     dashboard_port = _free_port()
 
-    rom_dir = Path(_love_yourself_rom).parent if _love_yourself_rom else None
+    rom_dir = _resolve_rom_path("love_yourself").parent
 
     config = AppConfig(
         network=NetworkConfig(
