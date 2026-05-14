@@ -111,6 +111,29 @@ class SpeedRunCompleteEvent:
 
 
 # ---------------------------------------------------------------------------
+# Event unions
+#
+# PollerEvent: events the Poller can emit (memory-driven transitions + the
+# infrastructure events stamped onto the same stream by the orchestrator).
+# MovieEvent: events the MovieController emits during replay playback.
+# Used as the parameter type of callback signatures so call sites stop
+# defaulting to `Any`.
+# ---------------------------------------------------------------------------
+
+PollerEvent = (
+    RomInfoEvent
+    | GameContextEvent
+    | LevelEntranceEvent
+    | CheckpointEvent
+    | DeathEvent
+    | SpawnEvent
+    | LevelExitEvent
+)
+
+MovieEvent = ReplayStartedEvent | ReplayFinishedEvent | ReplayErrorEvent
+
+
+# ---------------------------------------------------------------------------
 # Commands (SessionManager → backend)
 # ---------------------------------------------------------------------------
 
