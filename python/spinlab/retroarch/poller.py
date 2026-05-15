@@ -63,8 +63,13 @@ class Poller:
         # an exception). Used by tests to verify throughput during playback.
         self.poll_count: int = 0
         # Transition-log state: log once on entering failure, once on recovery.
+        # The poller runs at 60Hz, so per-frame exception logging would spam the
+        # log; these flags collapse a persistent fault into one entry + one
+        # "recovered" entry per fault episode.
         self._read_failing: bool = False
         self._conditions_failing: bool = False
+        self._detector_failing: bool = False
+        self._cold_fill_failing: bool = False
 
     def _stamp_state_path(self, ev: PollerEvent) -> PollerEvent:
         if self._deps.state_path_for is None:
@@ -138,8 +143,14 @@ class Poller:
             try:
                 events = list(self._detector.step(snap, timestamp_ms=ts))
             except Exception as exc:
-                log.error(logger, "detector.step raised", exc=exc)
+                if not self._detector_failing:
+                    log.error(logger, "detector.step raised", exc=exc)
+                    self._detector_failing = True
                 events = []
+            else:
+                if self._detector_failing:
+                    log.info(logger, "detector.step recovered")
+                    self._detector_failing = False
 
             for event in events:
                 event = self._stamp_state_path(event)
@@ -155,8 +166,14 @@ class Poller:
             try:
                 cf_event = self._cold_fill.step(snap, timestamp_ms=ts)
             except Exception as exc:
-                log.error(logger, "cold_fill.step raised", exc=exc)
+                if not self._cold_fill_failing:
+                    log.error(logger, "cold_fill.step raised", exc=exc)
+                    self._cold_fill_failing = True
                 cf_event = None
+            else:
+                if self._cold_fill_failing:
+                    log.info(logger, "cold_fill.step recovered")
+                    self._cold_fill_failing = False
             if cf_event is not None:
                 cf_event = self._stamp_state_path(cf_event)
                 cf_event = self._stamp_conditions(cf_event)
