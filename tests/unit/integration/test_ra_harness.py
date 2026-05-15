@@ -121,3 +121,34 @@ def test_teardown_calls_quit_then_terminates_on_timeout(fake_client_running_then
 
     fake_client_running_then_paused.quit.assert_called_once()
     proc.terminate.assert_called_once()
+
+
+def test_launch_writes_ra_stdout_stderr_to_logfile(fake_paths, fake_proc):
+    """Launch must point RA's stdout/stderr at a real file we can inspect later."""
+    rom, core, exe = fake_paths
+
+    captured: dict[str, object] = {}
+
+    def fake_popen(cmd, **kwargs):
+        captured["stdout"] = kwargs.get("stdout")
+        captured["stderr"] = kwargs.get("stderr")
+        return fake_proc
+
+    fake_client = MagicMock()
+    fake_client.version.return_value = None
+    status = MagicMock()
+    status.state = "PAUSED"
+    fake_client.get_status.return_value = status
+
+    with patch("tests.integration.ra_harness.subprocess.Popen", side_effect=fake_popen), \
+         patch("tests.integration.ra_harness.NCIClient", return_value=fake_client):
+        harness = RAHarness.launch(rom_path=rom, core_path=core, retroarch_exe=exe)
+
+    assert captured["stdout"] is not None
+    assert captured["stderr"] is not None
+    assert captured["stdout"] is captured["stderr"], "stderr must alias stdout for combined log"
+
+    assert harness.log_path is not None
+    assert harness.log_path.exists()
+    assert harness.log_path.parent == harness._tmp_dir
+    harness.teardown()

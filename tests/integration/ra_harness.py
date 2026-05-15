@@ -64,6 +64,8 @@ class RAHarnessLaunchError(RuntimeError):
 class RAHarness:
     proc: subprocess.Popen
     client: NCIClient
+    log_path: Path | None = field(default=None, repr=False)
+    _log_handle: object = field(default=None, repr=False)
     _tmp_dir: Path | None = field(default=None, repr=False)
     fresh_boot_slot: int | None = field(default=None, repr=False)
     engine: RAPokeEngine = field(init=False)
@@ -176,11 +178,18 @@ class RAHarness:
             str(rom_path),
         ]
         logger.info("ra_harness: launching %s on NCI port %d", cmd, port)
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        log_path = tmp_dir / "retroarch.log"
+        log_handle = open(log_path, "wb")
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=log_handle,
+                stderr=log_handle,
+            )
+        except Exception:
+            log_handle.close()
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise
 
         client = NCIClient(port=port)
         # Ping until NCI replies or we exhaust retries.
@@ -191,8 +200,7 @@ class RAHarness:
             except NCITimeout:
                 time.sleep(NCI_PING_INTERVAL_S)
         else:
-            cls._kill(proc)
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            cls._cleanup_launch(proc, log_handle, tmp_dir)
             raise RAHarnessLaunchError(
                 f"NCI did not reply after {NCI_PING_RETRIES} attempts × {NCI_PING_INTERVAL_S}s"
             )
@@ -215,8 +223,7 @@ class RAHarness:
         try:
             status = client.get_status()
         except Exception as exc:
-            cls._kill(proc)
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            cls._cleanup_launch(proc, log_handle, tmp_dir)
             raise RAHarnessLaunchError(f"GET_STATUS failed: {exc}") from exc
 
         if status.state == "PAUSED":
@@ -249,8 +256,7 @@ class RAHarness:
                 if after_state == "PAUSED":
                     break
             else:
-                cls._kill(proc)
-                shutil.rmtree(tmp_dir, ignore_errors=True)
+                cls._cleanup_launch(proc, log_handle, tmp_dir)
                 if last_exc is not None and after_state is None:
                     raise RAHarnessLaunchError(
                         f"GET_STATUS after pause_toggle kept failing: {last_exc}"
@@ -261,8 +267,7 @@ class RAHarness:
                     f"(last status={after_state!r})"
                 )
         else:
-            cls._kill(proc)
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            cls._cleanup_launch(proc, log_handle, tmp_dir)
             raise RAHarnessLaunchError(
                 f"Unexpected RA status after launch: {status.state!r} — expected PAUSED or PLAYING"
             )
@@ -276,7 +281,14 @@ class RAHarness:
         # for poke tests; for non-poke tests (replay) downstream failures
         # surface a deep-frozen core just as well.
         slot = FRESH_BOOT_STATE_SLOT if fresh_state_path is not None else None
-        return cls(proc=proc, client=client, _tmp_dir=tmp_dir, fresh_boot_slot=slot)
+        return cls(
+            proc=proc,
+            client=client,
+            log_path=log_path,
+            _log_handle=log_handle,
+            _tmp_dir=tmp_dir,
+            fresh_boot_slot=slot,
+        )
 
     def teardown(self) -> None:
         try:
@@ -288,6 +300,12 @@ class RAHarness:
         except subprocess.TimeoutExpired:
             self._kill(self.proc)
         self.client.close()
+        if self._log_handle is not None:
+            try:
+                self._log_handle.close()
+            except Exception:
+                pass
+            self._log_handle = None
         if self._tmp_dir is not None:
             shutil.rmtree(self._tmp_dir, ignore_errors=True)
             self._tmp_dir = None
@@ -305,3 +323,13 @@ class RAHarness:
                 proc.wait(timeout=1)
             except subprocess.TimeoutExpired:
                 pass
+
+    @staticmethod
+    def _cleanup_launch(proc: subprocess.Popen, log_handle, tmp_dir: Path) -> None:
+        """Tear down a half-launched harness on a launch-failure path."""
+        RAHarness._kill(proc)
+        try:
+            log_handle.close()
+        except Exception:
+            pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)
