@@ -94,3 +94,19 @@ def test_pause_toggle_failure_message_includes_context():
     assert "4242" in msg
     assert "55355" in msg
     assert "nci unresponsive" in msg
+
+
+def test_dashboard_startup_timeout_message_includes_port_and_error():
+    """The retry loop's failure helper names the port it tried and the
+    most recent connection error."""
+    from tests.integration.conftest import _format_dashboard_startup_failure
+
+    msg = _format_dashboard_startup_failure(
+        port=18080,
+        attempts=40,
+        interval_s=0.25,
+        last_error=ConnectionError("port not listening"),
+    )
+    assert "18080" in msg
+    assert "10.0" in msg  # 40 × 0.25 = 10.0
+    assert "port not listening" in msg

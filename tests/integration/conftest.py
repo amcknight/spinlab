@@ -270,16 +270,25 @@ async def fake_dashboard_server():
     thread.start()
 
     base_url = f"http://127.0.0.1:{dashboard_port}"
+    last_error: Exception | None = None
     for _ in range(40):
         try:
             resp = http_requests.get(f"{base_url}/api/state", timeout=1)
             if resp.status_code == 200:
                 break
-        except http_requests.ConnectionError:
-            pass
+            last_error = http_requests.HTTPError(f"status {resp.status_code}")
+        except http_requests.ConnectionError as exc:
+            last_error = exc
+        except Exception as exc:
+            last_error = exc
         await asyncio.sleep(0.25)
     else:
-        pytest.fail("Fake dashboard server did not start within 10 seconds")
+        pytest.fail(_format_dashboard_startup_failure(
+            port=dashboard_port,
+            attempts=40,
+            interval_s=0.25,
+            last_error=last_error,
+        ))
 
     yield base_url, db, app.state.session
 
@@ -542,28 +551,34 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
             pass
         _time.sleep(0.25)
     else:
-        server.should_exit = True
-        thread.join(timeout=5)
-        db.close()
-        import shutil as _s
-        _s.rmtree(tmp, ignore_errors=True)
+        _teardown_replay_dashboard(server, thread, db, tmp)
         pytest.fail("replay_ra_dashboard: uvicorn did not start within 10 seconds")
 
     # Wait for the orchestrator to connect to RA and receive rom_info so the
     # dashboard has a game_id (required before /api/replay/start will resolve).
+    last_state_error: Exception | None = None
     for _ in range(40):
-        resp = http_requests.get(f"{base_url}/api/state", timeout=2)
-        state = resp.json()
-        if state.get("emu_connected") and state.get("game_id"):
-            break
+        try:
+            resp = http_requests.get(f"{base_url}/api/state", timeout=2)
+            state = resp.json()
+            if state.get("emu_connected") and state.get("game_id"):
+                break
+            last_state_error = RuntimeError(
+                f"emu_connected={state.get('emu_connected')!r} "
+                f"game_id={state.get('game_id')!r}"
+            )
+        except Exception as exc:
+            last_state_error = exc
         _time.sleep(0.25)
     else:
-        server.should_exit = True
-        thread.join(timeout=5)
-        db.close()
-        import shutil as _s
-        _s.rmtree(tmp, ignore_errors=True)
-        pytest.fail("replay_ra_dashboard: orchestrator did not connect to RA within 10 seconds")
+        _teardown_replay_dashboard(server, thread, db, tmp)
+        pytest.fail(_format_dashboard_startup_failure(
+            port=dashboard_port,
+            attempts=40,
+            interval_s=0.25,
+            last_error=last_state_error,
+            subject="replay_ra_dashboard orchestrator connection",
+        ))
 
     # PLAY_REPLAY requires RA to be in PLAYING state. The harness left RA paused;
     # unpause it now so the orchestrator's _on_replay → MoviePlayer.play_replay()
@@ -577,20 +592,12 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
     except Exception as exc:
         # Tear down what we built before failing — preserves the no-yield
         # invariant for downstream cleanup hooks.
-        server.should_exit = True
-        thread.join(timeout=5)
-        db.close()
-        import shutil as _s
-        _s.rmtree(tmp, ignore_errors=True)
+        _teardown_replay_dashboard(server, thread, db, tmp)
         pytest.fail(_format_pause_toggle_failure(harness, exc))
 
     yield base_url, db, tmp_path
 
-    server.should_exit = True
-    thread.join(timeout=5)
-    db.close()
-    import shutil as _shutil_cleanup
-    _shutil_cleanup.rmtree(tmp, ignore_errors=True)
+    _teardown_replay_dashboard(server, thread, db, tmp)
 
 
 # ---------------------------------------------------------------------------
@@ -648,6 +655,42 @@ def _format_pause_toggle_failure(harness, exc: Exception) -> str:
         f"replay_ra_dashboard: pause_toggle on harness "
         f"(pid={pid}, port={port}) failed with {type(exc).__name__}: {exc}"
     )
+
+
+def _format_dashboard_startup_failure(
+    *,
+    port: int,
+    attempts: int,
+    interval_s: float,
+    last_error: Exception | None,
+    subject: str = "Fake dashboard server",
+) -> str:
+    """Format a dashboard startup timeout message.
+
+    Used by both retry loops that wait for a dashboard/orchestrator to reach a
+    ready state. Names the bound port, the elapsed wall time, and the most
+    recent error observed so the operator can tell port-occupied apart from
+    a panicked dashboard.
+    """
+    elapsed = attempts * interval_s
+    err_str = (
+        f"{type(last_error).__name__}: {last_error}" if last_error else "no error captured"
+    )
+    return (
+        f"{subject} did not start on port {port} within "
+        f"{elapsed:.1f}s ({attempts} × {interval_s}s). Last error: {err_str}"
+    )
+
+
+def _teardown_replay_dashboard(server, thread, db, tmp) -> None:
+    """Tear down the uvicorn server, DB connection, and tmp dir created by
+    replay_ra_dashboard. Used by all bail-out paths and the happy-path cleanup.
+    """
+    server.should_exit = True
+    thread.join(timeout=5)
+    db.close()
+    import shutil
+    shutil.rmtree(tmp, ignore_errors=True)
 
 
 # How many lines to tail from each diagnostic source. 30 is plenty to capture the
