@@ -31,18 +31,26 @@ pytest                         RetroArch (headless, null drivers)
 ```
 
 **RA launch model.** One RetroArch process per unique `rom_key`,
-session-scoped via `ra_harness_factory`. Today there are two registered
-keys: `default` and `love_yourself`, both currently mapped to
-`Love Yourself.smc` because the harness's FRAMEADVANCE sanity probe
-rejects `Toothpaste.smc` and vanilla `_clean.smc` as "deep-frozen" (likely
-a probe bug — see the conftest comment on `ROM_REGISTRY`). Each key still
-gets its own RA process — that's what keeps
-`test_two_harnesses_use_distinct_nci_ports` honest, and the registry
-preserves the design intent that `default` will swap back to a vanilla SMW
-base once the probe is widened. Expected long-run registry size is 2-5
-entries. To add a test that needs a different ROM, add an entry to
-`ROM_REGISTRY` in `conftest.py` and request it via
-`ra_harness_factory("<key>")`.
+session-scoped via `ra_harness_factory`. Three registered keys:
+`vanilla_smw` (`_clean.smc`), `love_yourself` (`Love Yourself.smc`),
+`toothpaste` (`Toothpaste.smc`). Each key gets its own RA process — that's
+what keeps `test_two_harnesses_use_distinct_nci_ports` honest. Tests
+declare which ROM they need via the matching named fixture
+(`ra_harness_vanilla_smw`, `ra_harness_love_yourself`); there is no
+implicit `default` fallback. To add a new ROM: add a `ROM_REGISTRY` entry
+in `conftest.py`, run `python scripts/make_fresh_boot_state.py --rom-key
+<key>` to generate the fresh-boot savestate, and add a
+`ra_harness_<key>` fixture next to the others.
+
+**Per-scenario fresh-boot reset.** `RAPokeEngine.run_scenario`
+`LOAD_STATE_SLOT`s a per-ROM "fresh boot" savestate
+(`tests/integration/states/<rom_basename>.state`) before each scenario.
+This resets WRAM + SPC700 + 65816 CPU state in one shot, so the
+session-scoped harness doesn't leak audio-engine writes (e.g. fanfare music
+overwriting `$1DFB`) between scenarios. The replay fixture intentionally
+opts out (`use_fresh_state=False`) because it needs RA's
+`savestate_directory` to point at the user's actual savestate dir to find
+its `.replay` files.
 
 **No silent skips.** Missing RA binary, missing core, missing ROM, or
 launch failure all raise `RuntimeError` — never `pytest.skip` (per
@@ -189,8 +197,8 @@ scenario completes. Increase `settle` for scenarios with many transitions.
 
 ### Per-harness UDP port allocation
 
-The session-scoped `ra_harness_factory` (and its `ra_harness` /
-`ra_harness_love_yourself` shims) caches one RAHarness per `rom_key`.
+The session-scoped `ra_harness_factory` (and the per-ROM
+`ra_harness_<rom_key>` shims) caches one RAHarness per `rom_key`.
 Each gets a free UDP port via `_free_udp_port()` in
 `tests/integration/conftest.py` so the second process doesn't fail to
 bind. Teardown fires at session-end via the fixture's `yield`. See

@@ -16,13 +16,13 @@ def test_resolve_rom_path_returns_path_when_rom_present(tmp_path):
 
     rom_dir = tmp_path / "roms"
     rom_dir.mkdir()
-    # The default key must exist in the registry; create a file matching its filename.
-    filename = ROM_REGISTRY["default"]
+    # The vanilla_smw key must exist in the registry; create a file matching its filename.
+    filename = ROM_REGISTRY["vanilla_smw"]
     (rom_dir / filename).write_bytes(b"\x00")
 
     fake_config = {"rom": {"dir": str(rom_dir)}}
     with patch("tests.integration.conftest._load_config", return_value=fake_config):
-        path = _resolve_rom_path("default")
+        path = _resolve_rom_path("vanilla_smw")
 
     assert path == rom_dir / filename
 
@@ -43,7 +43,7 @@ def test_resolve_rom_path_raises_on_missing_rom_file(tmp_path):
     fake_config = {"rom": {"dir": str(rom_dir)}}
     with patch("tests.integration.conftest._load_config", return_value=fake_config):
         with pytest.raises(RuntimeError, match="ROM file not found"):
-            _resolve_rom_path("default")
+            _resolve_rom_path("vanilla_smw")
 
 
 def test_resolve_rom_path_raises_on_missing_rom_dir_in_config():
@@ -51,7 +51,7 @@ def test_resolve_rom_path_raises_on_missing_rom_dir_in_config():
 
     with patch("tests.integration.conftest._load_config", return_value={}):
         with pytest.raises(RuntimeError, match="rom.dir not configured"):
-            _resolve_rom_path("default")
+            _resolve_rom_path("vanilla_smw")
 
 
 def test_resolve_ra_paths_returns_triple(tmp_path):
@@ -60,30 +60,30 @@ def test_resolve_ra_paths_returns_triple(tmp_path):
     exe = tmp_path / "retroarch.exe"; exe.write_bytes(b"")
     core = tmp_path / "core.dll"; core.write_bytes(b"")
     rom_dir = tmp_path / "roms"; rom_dir.mkdir()
-    default_rom_name = ROM_REGISTRY["default"]
-    (rom_dir / default_rom_name).write_bytes(b"")
+    vanilla_rom_name = ROM_REGISTRY["vanilla_smw"]
+    (rom_dir / vanilla_rom_name).write_bytes(b"")
 
     fake_config = {
         "emulator": {"retroarch_path": str(exe), "ra_core_path": str(core)},
         "rom": {"dir": str(rom_dir)},
     }
     with patch("tests.integration.conftest._load_config", return_value=fake_config):
-        retroarch_exe, ra_core_path, rom_path = _resolve_ra_paths("default")
+        retroarch_exe, ra_core_path, rom_path = _resolve_ra_paths("vanilla_smw")
 
     assert retroarch_exe == exe
     assert ra_core_path == core
-    assert rom_path == rom_dir / default_rom_name
+    assert rom_path == rom_dir / vanilla_rom_name
 
 
 def test_resolve_ra_paths_raises_on_missing_retroarch_path(tmp_path):
     from tests.integration.conftest import _resolve_ra_paths, ROM_REGISTRY
 
     rom_dir = tmp_path / "roms"; rom_dir.mkdir()
-    (rom_dir / ROM_REGISTRY["default"]).write_bytes(b"")
+    (rom_dir / ROM_REGISTRY["vanilla_smw"]).write_bytes(b"")
     fake_config = {"emulator": {}, "rom": {"dir": str(rom_dir)}}
     with patch("tests.integration.conftest._load_config", return_value=fake_config):
         with pytest.raises(RuntimeError, match="emulator.retroarch_path not configured"):
-            _resolve_ra_paths("default")
+            _resolve_ra_paths("vanilla_smw")
 
 
 def test_resolve_ra_paths_raises_on_missing_ra_core_path(tmp_path):
@@ -91,11 +91,11 @@ def test_resolve_ra_paths_raises_on_missing_ra_core_path(tmp_path):
 
     exe = tmp_path / "retroarch.exe"; exe.write_bytes(b"")
     rom_dir = tmp_path / "roms"; rom_dir.mkdir()
-    (rom_dir / ROM_REGISTRY["default"]).write_bytes(b"")
+    (rom_dir / ROM_REGISTRY["vanilla_smw"]).write_bytes(b"")
     fake_config = {"emulator": {"retroarch_path": str(exe)}, "rom": {"dir": str(rom_dir)}}
     with patch("tests.integration.conftest._load_config", return_value=fake_config):
         with pytest.raises(RuntimeError, match="emulator.ra_core_path not configured"):
-            _resolve_ra_paths("default")
+            _resolve_ra_paths("vanilla_smw")
 
 
 def test_resolve_ra_paths_raises_when_retroarch_exe_missing_on_disk(tmp_path):
@@ -104,14 +104,14 @@ def test_resolve_ra_paths_raises_when_retroarch_exe_missing_on_disk(tmp_path):
     nonexistent_exe = tmp_path / "does_not_exist" / "retroarch.exe"
     core = tmp_path / "core.dll"; core.write_bytes(b"")
     rom_dir = tmp_path / "roms"; rom_dir.mkdir()
-    (rom_dir / ROM_REGISTRY["default"]).write_bytes(b"")
+    (rom_dir / ROM_REGISTRY["vanilla_smw"]).write_bytes(b"")
     fake_config = {
         "emulator": {"retroarch_path": str(nonexistent_exe), "ra_core_path": str(core)},
         "rom": {"dir": str(rom_dir)},
     }
     with patch("tests.integration.conftest._load_config", return_value=fake_config):
         with pytest.raises(RuntimeError, match="retroarch_path does not exist"):
-            _resolve_ra_paths("default")
+            _resolve_ra_paths("vanilla_smw")
 
 
 def test_factory_caches_per_key(tmp_path):
@@ -120,9 +120,9 @@ def test_factory_caches_per_key(tmp_path):
     from tests.integration.conftest import _harness_factory_impl
     from tests.integration.ra_harness import RAHarness
 
-    h_default = MagicMock(spec=RAHarness)
+    h_vanilla = MagicMock(spec=RAHarness)
     h_love = MagicMock(spec=RAHarness)
-    launched = [h_default, h_love]
+    launched = [h_vanilla, h_love]
 
     with patch(
         "tests.integration.conftest.RAHarness.launch",
@@ -135,8 +135,8 @@ def test_factory_caches_per_key(tmp_path):
         side_effect=[55001, 55002],
     ):
         factory_impl = _harness_factory_impl()
-        a1 = factory_impl("default")
-        a2 = factory_impl("default")
+        a1 = factory_impl("vanilla_smw")
+        a2 = factory_impl("vanilla_smw")
         b = factory_impl("love_yourself")
 
     assert a1 is a2  # cached
@@ -161,7 +161,7 @@ def test_factory_raises_runtime_error_on_launch_failure(tmp_path):
     ):
         factory_impl = _harness_factory_impl()
         with pytest.raises(RuntimeError, match="ra_harness launch failed.*simulated deep-freeze"):
-            factory_impl("default")
+            factory_impl("vanilla_smw")
 
 
 def test_factory_propagates_resolver_runtime_errors(tmp_path):
@@ -174,7 +174,7 @@ def test_factory_propagates_resolver_runtime_errors(tmp_path):
     ):
         factory_impl = _harness_factory_impl()
         with pytest.raises(RuntimeError, match="rom.dir not configured"):
-            factory_impl("default")
+            factory_impl("vanilla_smw")
 
 
 def test_factory_teardown_calls_each_harness(tmp_path):
@@ -198,7 +198,7 @@ def test_factory_teardown_calls_each_harness(tmp_path):
         side_effect=[55001, 55002],
     ):
         factory_impl = _harness_factory_impl()
-        factory_impl("default")
+        factory_impl("vanilla_smw")
         factory_impl("love_yourself")
         factory_impl.teardown_all()
 

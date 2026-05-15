@@ -1,6 +1,6 @@
 """Live-RA smoke test for orchestrator wiring.
 
-Launches its own RetroArch via ``ra_harness`` (dynamic port) so no manual
+Launches its own RetroArch via ``ra_harness_vanilla_smw`` (dynamic port) so no manual
 ``retroarch`` invocation is required — same pattern as the rest of the
 emulator-marked suite. Skipped only when the harness itself can't launch
 (missing retroarch_path / core / ROM in config.yaml).
@@ -13,10 +13,10 @@ from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
 
 
 @pytest.mark.emulator
-def test_orchestrator_connects_to_live_retroarch(ra_harness, tmp_path):
+def test_orchestrator_connects_to_live_retroarch(ra_harness_vanilla_smw, tmp_path):
     """Smoke: orchestrator can issue VERSION and emit rom_info via NCI."""
     cfg = AppConfig(
-        network=NetworkConfig(nci_port=ra_harness.client.port),
+        network=NetworkConfig(nci_port=ra_harness_vanilla_smw.client.port),
         emulator=EmulatorConfig(
             savestate_dir=tmp_path / "ra",
             spinlab_state_dir=tmp_path / "sl",
