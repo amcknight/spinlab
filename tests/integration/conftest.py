@@ -575,10 +575,14 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
             harness.client.pause_toggle()
             _time.sleep(0.3)  # allow RA to settle into PLAYING before the test POSTs replay/start
     except Exception as exc:
-        import logging as _logging
-        _logging.getLogger(__name__).warning(
-            "replay_ra_dashboard: could not unpause RA before yield: %s", exc
-        )
+        # Tear down what we built before failing — preserves the no-yield
+        # invariant for downstream cleanup hooks.
+        server.should_exit = True
+        thread.join(timeout=5)
+        db.close()
+        import shutil as _s
+        _s.rmtree(tmp, ignore_errors=True)
+        pytest.fail(_format_pause_toggle_failure(harness, exc))
 
     yield base_url, db, tmp_path
 
@@ -624,6 +628,26 @@ class _RingHandler(logging.Handler):
 _ring = _RingHandler()
 _ring.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
 logging.getLogger("spinlab").addHandler(_ring)
+
+
+def _format_pause_toggle_failure(harness, exc: Exception) -> str:
+    """Format a pause_toggle failure message for the replay fixture path.
+
+    Pulls pid/port off the harness defensively (older test doubles may not
+    have them) and includes the original exception type + message.
+    """
+    try:
+        pid = harness.proc.pid
+    except Exception:
+        pid = "<unknown>"
+    try:
+        port = harness.client.port
+    except Exception:
+        port = "<unknown>"
+    return (
+        f"replay_ra_dashboard: pause_toggle on harness "
+        f"(pid={pid}, port={port}) failed with {type(exc).__name__}: {exc}"
+    )
 
 
 # How many lines to tail from each diagnostic source. 30 is plenty to capture the

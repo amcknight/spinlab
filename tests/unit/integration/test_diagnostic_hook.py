@@ -79,3 +79,18 @@ def test_collect_diagnostics_returns_empty_when_no_funcargs_match(mock_item):
     out = _collect_diagnostics(mock_item)
     assert "/api/state" not in out
     assert "harness:" not in out
+
+
+def test_pause_toggle_failure_message_includes_context():
+    """Sanity check on the format helper used in the fixture path. Verifies
+    the helper exists and produces a message that names the harness, the
+    underlying exception, and the harness port/pid."""
+    from tests.integration.conftest import _format_pause_toggle_failure
+
+    harness = MagicMock()
+    harness.proc.pid = 4242
+    harness.client.port = 55355
+    msg = _format_pause_toggle_failure(harness, RuntimeError("nci unresponsive"))
+    assert "4242" in msg
+    assert "55355" in msg
+    assert "nci unresponsive" in msg
