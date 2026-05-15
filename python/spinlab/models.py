@@ -43,22 +43,6 @@ class EndpointType(StrEnum):
     GOAL = "goal"
 
 
-class EventType(StrEnum):
-    ROM_INFO = "rom_info"
-    GAME_CONTEXT = "game_context"
-    LEVEL_ENTRANCE = "level_entrance"
-    CHECKPOINT = "checkpoint"
-    DEATH = "death"
-    SPAWN = "spawn"
-    LEVEL_EXIT = "level_exit"
-    ATTEMPT_RESULT = "attempt_result"
-    REC_SAVED = "rec_saved"
-    REPLAY_STARTED = "replay_started"
-    REPLAY_FINISHED = "replay_finished"
-    REPLAY_ERROR = "replay_error"
-    ATTEMPT_INVALIDATED = "attempt_invalidated"
-
-
 class Status(StrEnum):
     """Success outcomes from controller actions. Errors are raised as ActionError subclasses."""
     OK = "ok"

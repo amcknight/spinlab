@@ -60,7 +60,6 @@ def create_app(
     session = SessionManager(
         db, emu, config.rom_dir, config.category,
         data_dir=config.data_dir,
-        invalidate_combo=list(config.practice.invalidate_combo),
     )
     emu.on_disconnect = session.on_disconnect
 

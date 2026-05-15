@@ -66,14 +66,12 @@ class SessionManager:
         rom_dir: Path | None,
         default_category: str = "any%",
         data_dir: Path | None = None,
-        invalidate_combo: list[str] | None = None,
     ) -> None:
         self.db = db
         self.emu = emu
         self.rom_dir = rom_dir
         self.default_category = default_category
         self.data_dir = data_dir or Path("data")
-        self.invalidate_combo: list[str] = invalidate_combo if invalidate_combo is not None else ["L", "Select"]
 
         self.state = SystemState()  # SystemState is the single source of truth
         self.scheduler = None  # Scheduler | None, lazy-init
