@@ -19,6 +19,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import IO
 
 from tests.integration.ra_poke_engine import RAPokeEngine
 
@@ -64,8 +65,10 @@ class RAHarnessLaunchError(RuntimeError):
 class RAHarness:
     proc: subprocess.Popen
     client: NCIClient
+    # Per-launch RA combined stdout+stderr log. Parent equals _tmp_dir;
+    # deleted on teardown — the diagnostic hook must read it before teardown.
     log_path: Path | None = field(default=None, repr=False)
-    _log_handle: object = field(default=None, repr=False)
+    _log_handle: IO[bytes] | None = field(default=None, repr=False)
     _tmp_dir: Path | None = field(default=None, repr=False)
     fresh_boot_slot: int | None = field(default=None, repr=False)
     engine: RAPokeEngine = field(init=False)
@@ -191,7 +194,13 @@ class RAHarness:
             shutil.rmtree(tmp_dir, ignore_errors=True)
             raise
 
-        client = NCIClient(port=port)
+        try:
+            client = NCIClient(port=port)
+        except Exception as exc:
+            cls._cleanup_launch(proc, log_handle, tmp_dir)
+            raise RAHarnessLaunchError(
+                f"NCIClient(port={port}) construction failed: {exc}"
+            ) from exc
         # Ping until NCI replies or we exhaust retries.
         for attempt in range(NCI_PING_RETRIES):
             try:
@@ -325,7 +334,11 @@ class RAHarness:
                 pass
 
     @staticmethod
-    def _cleanup_launch(proc: subprocess.Popen, log_handle, tmp_dir: Path) -> None:
+    def _cleanup_launch(
+        proc: subprocess.Popen,
+        log_handle: IO[bytes] | None,
+        tmp_dir: Path,
+    ) -> None:
         """Tear down a half-launched harness on a launch-failure path."""
         RAHarness._kill(proc)
         try:

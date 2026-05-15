@@ -123,6 +123,60 @@ def test_teardown_calls_quit_then_terminates_on_timeout(fake_client_running_then
     proc.terminate.assert_called_once()
 
 
+def test_launch_raises_when_get_status_fails(fake_paths, fake_proc):
+    """If client.get_status() raises after a successful NCI ping, the harness
+    raises RAHarnessLaunchError and cleans up proc + tmp_dir + log handle."""
+    rom, core, exe = fake_paths
+
+    fake_client = MagicMock()
+    fake_client.version.return_value = None
+    fake_client.get_status.side_effect = RuntimeError("status broke")
+
+    with patch("tests.integration.ra_harness.subprocess.Popen", return_value=fake_proc), \
+         patch("tests.integration.ra_harness.NCIClient", return_value=fake_client), \
+         patch("tests.integration.ra_harness.time.sleep"), \
+         pytest.raises(RAHarnessLaunchError, match="GET_STATUS failed"):
+        RAHarness.launch(rom_path=rom, core_path=core, retroarch_exe=exe)
+
+    fake_proc.terminate.assert_called_once()
+
+
+def test_launch_raises_on_unexpected_status(fake_paths, fake_proc):
+    """If RA reports a state that isn't PAUSED or PLAYING after launch, the
+    harness raises RAHarnessLaunchError and cleans up."""
+    rom, core, exe = fake_paths
+
+    fake_client = MagicMock()
+    fake_client.version.return_value = None
+    status = MagicMock()
+    status.state = "UNKNOWN"
+    fake_client.get_status.return_value = status
+
+    with patch("tests.integration.ra_harness.subprocess.Popen", return_value=fake_proc), \
+         patch("tests.integration.ra_harness.NCIClient", return_value=fake_client), \
+         patch("tests.integration.ra_harness.time.sleep"), \
+         pytest.raises(RAHarnessLaunchError, match="Unexpected RA status"):
+        RAHarness.launch(rom_path=rom, core_path=core, retroarch_exe=exe)
+
+    fake_proc.terminate.assert_called_once()
+
+
+def test_launch_raises_when_nci_client_construction_fails(fake_paths, fake_proc):
+    """If NCIClient(port=...) raises, the harness cleans up proc + tmp_dir +
+    log handle and raises RAHarnessLaunchError."""
+    rom, core, exe = fake_paths
+
+    with patch("tests.integration.ra_harness.subprocess.Popen", return_value=fake_proc), \
+         patch(
+             "tests.integration.ra_harness.NCIClient",
+             side_effect=OSError("port already bound"),
+         ), \
+         pytest.raises(RAHarnessLaunchError, match="NCIClient"):
+        RAHarness.launch(rom_path=rom, core_path=core, retroarch_exe=exe)
+
+    fake_proc.terminate.assert_called_once()
+
+
 def test_launch_writes_ra_stdout_stderr_to_logfile(fake_paths, fake_proc):
     """Launch must point RA's stdout/stderr at a real file we can inspect later."""
     rom, core, exe = fake_paths
