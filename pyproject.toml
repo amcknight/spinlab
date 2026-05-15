@@ -27,6 +27,9 @@ where = ["python"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
+# --strict-markers makes `@pytest.mark.<typo>` an error instead of silently
+# routing a test into whatever filter the misspelling fell through.
+addopts = ["--strict-markers"]
 markers = [
     "emulator: requires a live RetroArch launch (handled by the RAHarness fixture)",
 ]
