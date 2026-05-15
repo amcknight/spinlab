@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from enum import Enum, StrEnum
 from typing import Optional
 
+from pydantic.dataclasses import dataclass as pydantic_dataclass
+
 
 class Mode(Enum):
     IDLE = "idle"
@@ -196,9 +198,14 @@ class AttemptRecord:
     created_at: str              # ISO timestamp
 
 
-@dataclass
+@pydantic_dataclass
 class Estimate:
-    """One coherent set of predictions for a single time series."""
+    """One coherent set of predictions for a single time series.
+
+    Pydantic dataclass: behaves as a plain @dataclass at runtime (asdict,
+    fields, ``to_dict``/``from_dict`` all work) AND emits an OpenAPI schema
+    so api_schemas.py can re-export it rather than re-declaring.
+    """
     expected_ms: float | None = None
     ms_per_attempt: float | None = None
     floor_ms: float | None = None
@@ -219,9 +226,12 @@ class Estimate:
         )
 
 
-@dataclass
+@pydantic_dataclass
 class ModelOutput:
-    """What every estimator produces — predictions for total time and clean tail."""
+    """What every estimator produces — predictions for total time and clean tail.
+
+    Pydantic dataclass: see ``Estimate`` for rationale.
+    """
     total: Estimate
     clean: Estimate
 

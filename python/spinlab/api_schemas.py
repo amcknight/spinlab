@@ -37,25 +37,15 @@ class _BaseResponse(BaseModel):
 # treats Enum / StrEnum as a value type whose OpenAPI schema is a string enum,
 # which openapi-typescript emits as a TS string union — identical wire format
 # to the prior Literal alias, but with no second definition to drift.
-from spinlab.models import EndpointType, Mode, Status
+#
+# ``Estimate`` and ``ModelOutput`` are pydantic.dataclasses.dataclass over in
+# models.py — they ARE dataclasses (asdict/fields/to_dict still work) AND
+# Pydantic schema sources, so FastAPI generates OpenAPI definitions from the
+# same class the estimator pipeline constructs and state_builder serializes.
+from spinlab.models import EndpointType, Estimate, ModelOutput, Mode, Status
 
 CaptureRunStatus = Literal["draft", "saved"]
 CaptureRunKind = Literal["live", "replay"]
-
-
-# ---------------------------------------------------------------------------
-# Estimator / model output shapes
-# ---------------------------------------------------------------------------
-
-class Estimate(_BaseResponse):
-    expected_ms: float | None = None
-    ms_per_attempt: float | None = None
-    floor_ms: float | None = None
-
-
-class ModelOutput(_BaseResponse):
-    total: Estimate
-    clean: Estimate
 
 
 # ---------------------------------------------------------------------------
