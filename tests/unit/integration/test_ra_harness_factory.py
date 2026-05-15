@@ -151,7 +151,7 @@ def test_factory_raises_runtime_error_on_launch_failure(tmp_path):
 
     with patch(
         "tests.integration.conftest.RAHarness.launch",
-        side_effect=RAHarnessLaunchError("simulated deep-freeze"),
+        side_effect=RAHarnessLaunchError("simulated deep-freeze", stage="nci_ping"),
     ), patch(
         "tests.integration.conftest._resolve_ra_paths",
         return_value=(Path("exe"), Path("core"), Path("rom")),

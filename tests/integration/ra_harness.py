@@ -58,7 +58,30 @@ audio_driver = "null"
 
 
 class RAHarnessLaunchError(RuntimeError):
-    """Raised when RA fails to launch into a usable state."""
+    """Raised when RA fails to launch into a usable state.
+
+    Carries structured context so the failure can be reported without parsing
+    the message string. ``pid``/``port``/``startup_duration_s`` are populated
+    once Popen has succeeded; before that they stay ``None``. ``log_path``
+    points at the per-launch RA log so the caller can tail it for context.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        stage: str,
+        pid: int | None = None,
+        port: int | None = None,
+        startup_duration_s: float | None = None,
+        log_path: Path | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.stage = stage
+        self.pid = pid
+        self.port = port
+        self.startup_duration_s = startup_duration_s
+        self.log_path = log_path
 
 
 @dataclass
@@ -111,8 +134,11 @@ class RAHarness:
         """
         for p, label in [(retroarch_exe, "retroarch_exe"), (core_path, "core_path"), (rom_path, "rom_path")]:
             if not p.exists():
-                raise RAHarnessLaunchError(f"{label} does not exist: {p}")
+                raise RAHarnessLaunchError(
+                    f"{label} does not exist: {p}", stage="path_check"
+                )
 
+        launch_started_at = time.monotonic()
         port = nci_port if nci_port is not None else DEFAULT_PORT
 
         # Per-launch isolation directory. Holds the appendconfig, plus an
@@ -148,7 +174,8 @@ class RAHarness:
             if not fresh_state_path.exists():
                 shutil.rmtree(tmp_dir, ignore_errors=True)
                 raise RAHarnessLaunchError(
-                    f"fresh_state_path does not exist: {fresh_state_path}"
+                    f"fresh_state_path does not exist: {fresh_state_path}",
+                    stage="fresh_state_path_check",
                 )
             savestate_dir = tmp_dir / "states"
             snes9x_subdir = savestate_dir / "Snes9x"
@@ -197,9 +224,14 @@ class RAHarness:
         try:
             client = NCIClient(port=port)
         except Exception as exc:
-            cls._cleanup_launch(proc, log_handle, tmp_dir)
+            preserved_log = cls._cleanup_launch(proc, log_handle, tmp_dir, log_path)
             raise RAHarnessLaunchError(
-                f"NCIClient(port={port}) construction failed: {exc}"
+                f"NCIClient(port={port}) construction failed: {exc}",
+                stage="nci_client_construct",
+                pid=proc.pid,
+                port=port,
+                startup_duration_s=time.monotonic() - launch_started_at,
+                log_path=preserved_log,
             ) from exc
         # Ping until NCI replies or we exhaust retries.
         for attempt in range(NCI_PING_RETRIES):
@@ -209,9 +241,14 @@ class RAHarness:
             except NCITimeout:
                 time.sleep(NCI_PING_INTERVAL_S)
         else:
-            cls._cleanup_launch(proc, log_handle, tmp_dir)
+            preserved_log = cls._cleanup_launch(proc, log_handle, tmp_dir, log_path)
             raise RAHarnessLaunchError(
-                f"NCI did not reply after {NCI_PING_RETRIES} attempts × {NCI_PING_INTERVAL_S}s"
+                f"NCI did not reply after {NCI_PING_RETRIES} attempts × {NCI_PING_INTERVAL_S}s",
+                stage="nci_ping",
+                pid=proc.pid,
+                port=port,
+                startup_duration_s=time.monotonic() - launch_started_at,
+                log_path=preserved_log,
             )
 
         # Bring RA to a known paused state so FRAMEADVANCE is the only
@@ -232,8 +269,15 @@ class RAHarness:
         try:
             status = client.get_status()
         except Exception as exc:
-            cls._cleanup_launch(proc, log_handle, tmp_dir)
-            raise RAHarnessLaunchError(f"GET_STATUS failed: {exc}") from exc
+            preserved_log = cls._cleanup_launch(proc, log_handle, tmp_dir, log_path)
+            raise RAHarnessLaunchError(
+                f"GET_STATUS failed: {exc}",
+                stage="get_status",
+                pid=proc.pid,
+                port=port,
+                startup_duration_s=time.monotonic() - launch_started_at,
+                log_path=preserved_log,
+            ) from exc
 
         if status.state == "PAUSED":
             # Already paused — correct state for FRAMEADVANCE-driven tests.
@@ -265,20 +309,35 @@ class RAHarness:
                 if after_state == "PAUSED":
                     break
             else:
-                cls._cleanup_launch(proc, log_handle, tmp_dir)
+                preserved_log = cls._cleanup_launch(proc, log_handle, tmp_dir, log_path)
                 if last_exc is not None and after_state is None:
                     raise RAHarnessLaunchError(
-                        f"GET_STATUS after pause_toggle kept failing: {last_exc}"
+                        f"GET_STATUS after pause_toggle kept failing: {last_exc}",
+                        stage="pause_verify",
+                        pid=proc.pid,
+                        port=port,
+                        startup_duration_s=time.monotonic() - launch_started_at,
+                        log_path=preserved_log,
                     ) from last_exc
                 raise RAHarnessLaunchError(
                     f"PAUSE_TOGGLE did not pause RA after "
                     f"{PAUSE_VERIFY_RETRIES} retries "
-                    f"(last status={after_state!r})"
+                    f"(last status={after_state!r})",
+                    stage="pause_verify",
+                    pid=proc.pid,
+                    port=port,
+                    startup_duration_s=time.monotonic() - launch_started_at,
+                    log_path=preserved_log,
                 )
         else:
-            cls._cleanup_launch(proc, log_handle, tmp_dir)
+            preserved_log = cls._cleanup_launch(proc, log_handle, tmp_dir, log_path)
             raise RAHarnessLaunchError(
-                f"Unexpected RA status after launch: {status.state!r} — expected PAUSED or PLAYING"
+                f"Unexpected RA status after launch: {status.state!r} — expected PAUSED or PLAYING",
+                stage="status_unexpected",
+                pid=proc.pid,
+                port=port,
+                startup_duration_s=time.monotonic() - launch_started_at,
+                log_path=preserved_log,
             )
 
         # No FRAMEADVANCE warm-up probe here. The probe used to read 32 bytes
@@ -338,11 +397,32 @@ class RAHarness:
         proc: subprocess.Popen,
         log_handle: IO[bytes] | None,
         tmp_dir: Path,
-    ) -> None:
-        """Tear down a half-launched harness on a launch-failure path."""
+        log_path: Path | None = None,
+    ) -> Path | None:
+        """Tear down a half-launched harness on a launch-failure path.
+
+        If ``log_path`` is supplied, the log file is preserved (moved out of
+        ``tmp_dir`` before the directory is removed) so the diagnostic hook
+        can read it after the exception propagates. Returns the preserved
+        path (or ``None`` if no log was supplied / the move failed).
+        """
         RAHarness._kill(proc)
-        try:
-            log_handle.close()
-        except Exception:
-            pass
+        if log_handle is not None:
+            try:
+                log_handle.close()
+            except Exception:
+                pass
+        preserved_log: Path | None = None
+        if log_path is not None and log_path.exists():
+            # Move the log to a sibling of tmp_dir (i.e. system temp root) so
+            # the rmtree below doesn't take it with us. Use a stable suffix so
+            # the file name still ties back to this launch.
+            try:
+                preserved_log = Path(
+                    tempfile.mkdtemp(prefix="spinlab_ra_failed_")
+                ) / log_path.name
+                shutil.move(str(log_path), str(preserved_log))
+            except Exception:
+                preserved_log = None
         shutil.rmtree(tmp_dir, ignore_errors=True)
+        return preserved_log

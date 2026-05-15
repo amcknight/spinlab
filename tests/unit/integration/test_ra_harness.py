@@ -177,6 +177,27 @@ def test_launch_raises_when_nci_client_construction_fails(fake_paths, fake_proc)
     fake_proc.terminate.assert_called_once()
 
 
+def test_launch_error_carries_context_fields(fake_paths, fake_proc):
+    """When NCI never replies, the raised error carries pid + port + duration."""
+    rom, core, exe = fake_paths
+
+    fake_client = MagicMock()
+    fake_client.version.side_effect = NCITimeout("no reply")
+
+    with patch("tests.integration.ra_harness.subprocess.Popen", return_value=fake_proc), \
+         patch("tests.integration.ra_harness.NCIClient", return_value=fake_client), \
+         patch("tests.integration.ra_harness.time.sleep"), \
+         pytest.raises(RAHarnessLaunchError) as excinfo:
+        RAHarness.launch(rom_path=rom, core_path=core, retroarch_exe=exe, nci_port=55355)
+
+    err = excinfo.value
+    assert err.pid == fake_proc.pid
+    assert err.port == 55355
+    assert err.stage == "nci_ping"
+    assert err.startup_duration_s is not None and err.startup_duration_s >= 0.0
+    assert err.log_path is not None and err.log_path.exists()
+
+
 def test_launch_writes_ra_stdout_stderr_to_logfile(fake_paths, fake_proc):
     """Launch must point RA's stdout/stderr at a real file we can inspect later."""
     rom, core, exe = fake_paths
