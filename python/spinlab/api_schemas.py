@@ -37,7 +37,7 @@ class _BaseResponse(BaseModel):
 # treats Enum / StrEnum as a value type whose OpenAPI schema is a string enum,
 # which openapi-typescript emits as a TS string union — identical wire format
 # to the prior Literal alias, but with no second definition to drift.
-from spinlab.models import EndpointType, Mode
+from spinlab.models import EndpointType, Mode, Status
 
 CaptureRunStatus = Literal["draft", "saved"]
 CaptureRunKind = Literal["live", "replay"]
@@ -149,12 +149,12 @@ class AppState(_BaseResponse):
 class ActionResponse(_BaseResponse):
     """Generic response for action endpoints. ``status`` is the outcome
     enum; ``session_id`` is set only when an action started a session."""
-    status: str
+    status: Status
     session_id: str | None = None
 
 
 class OkResponse(_BaseResponse):
-    status: str
+    status: Status
 
 
 # ---------------------------------------------------------------------------
