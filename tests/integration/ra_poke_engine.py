@@ -1,6 +1,11 @@
 """Per-frame poke engine — runs .poke scenarios via NCI against a paused RA.
 
 Each scenario:
+  0. (Optional) LOAD_STATE_SLOT a fresh-boot savestate and settle so the ROM
+     starts from a known clean WRAM/SPC/CPU state. Required to keep
+     SPC700/CPU state from leaking between scenarios on a session-scoped
+     harness — the WRAM-only zeroing in step 1 cannot reach the audio chip
+     or the program counter (see project_transition_state_leak).
   1. Zero every ADDR_MAP byte (per-scenario isolation).
   2. Construct a fresh TransitionDetector.
   3. Run frames in sequence; on each frame:
@@ -26,6 +31,7 @@ intermittently seeing io_port=0 instead of the poked io_port=3.
 """
 from __future__ import annotations
 
+import time
 from typing import Protocol
 
 from tests.integration.addresses import ADDR_MAP
@@ -42,18 +48,47 @@ FRAME_PERIOD_MS = 16  # 60Hz approximation; only used for monotonic timestamps
 # scenarios from ~75 frames to ~30 frames.
 QUIESCENCE_FRAMES = 12
 
+# Frames to free-run after LOAD_STATE_SLOT before zeroing ADDR_MAP. snes9x
+# needs a few frames to re-initialise the SPC core and finish unpacking the
+# state; without this settle, the first scenario poke can land before RA's
+# normal frame loop has resumed and the snapshot reads stale data.
+POST_LOAD_SETTLE_FRAMES = 30
+
 
 class _NCISurface(Protocol):
     def read_ram(self, addr: int, n: int = 1) -> bytes: ...
     def write_ram(self, addr: int, data: bytes) -> None: ...
     def frame_advance(self) -> None: ...
+    def load_state_slot(self, slot: int) -> None: ...
 
 
 class RAPokeEngine:
-    def __init__(self, client: _NCISurface) -> None:
+    def __init__(
+        self,
+        client: _NCISurface,
+        fresh_boot_slot: int | None = None,
+    ) -> None:
         self._client = client
+        self._fresh_boot_slot = fresh_boot_slot
 
     def run_scenario(self, scenario: dict) -> list:
+        # 0. If the harness staged a fresh-boot savestate, reset to it so
+        #    SPC700 / 65816 / WRAM are all back to a known clean state. WRAM-
+        #    only zeroing in step 1 can't reach the SPC chip, which is what
+        #    let test_entrance_goal's fanfare music leak io_port writes into
+        #    the next scenario before this hook landed.
+        if self._fresh_boot_slot is not None:
+            self._client.load_state_slot(self._fresh_boot_slot)
+            # snes9x writes the state asynchronously; advance a handful of
+            # frames so the load is fully applied before we start poking.
+            for _ in range(POST_LOAD_SETTLE_FRAMES):
+                self._client.frame_advance()
+            # Tiny wall-clock sleep so the FRAMEADVANCE chain has actually
+            # been processed by RA's NCI thread before we start bombing it
+            # with WRITE_CORE_RAM. Without this, the first scenario can
+            # see writes ignored.
+            time.sleep(0.1)
+
         # 1. Zero ADDR_MAP for per-scenario isolation
         for addr in ADDR_MAP.values():
             self._client.write_ram(addr, b"\x00")

@@ -182,8 +182,28 @@ class NCIClient:
         self._send_no_reply("SAVE_STATE")
 
     def load_state_slot(self, slot: int) -> None:
-        """Load state from a specific slot, ignoring RA's current slot."""
-        self._send_no_reply(f"LOAD_STATE_SLOT {slot}")
+        """Load state from a specific slot, ignoring RA's current slot.
+
+        RA echoes the command back as a UDP reply (e.g. "LOAD_STATE_SLOT 9998").
+        Without draining it, the echo sits in the socket buffer and is picked
+        up by the next ``_send`` call as if it were that command's reply,
+        producing ``NCIProtocolError: reply has no data bytes`` on the next
+        ``read_ram``. Drain explicitly after sending.
+        """
+        sock = self._get_socket()
+        sock.sendto(f"LOAD_STATE_SLOT {slot}".encode("ascii"), (self.host, self.port))
+        # Brief wait so RA has a chance to enqueue the reply before we drain.
+        # If RA never replies on some build, the drain is a no-op.
+        try:
+            sock.settimeout(0.2)
+            try:
+                sock.recvfrom(RECV_BUFFER_BYTES)
+            except (TimeoutError, OSError):
+                pass
+        finally:
+            sock.settimeout(self.timeout)
+        # Discard any additional datagrams (defence-in-depth).
+        self._drain_socket(sock)
 
     def reset(self) -> None:
         """Hard-reset the emulated console."""

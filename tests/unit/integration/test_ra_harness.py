@@ -37,11 +37,7 @@ def fake_proc():
 
 @pytest.fixture
 def fake_client_running_then_paused():
-    """NCI client that reports PLAYING on first GET_STATUS, then PAUSED after toggle.
-
-    Also simulates a successful FRAMEADVANCE: read_ram returns different bytes
-    before and after the advance so the FRAMEADVANCE sanity check passes.
-    """
+    """NCI client that reports PLAYING on first GET_STATUS, then PAUSED after toggle."""
     from spinlab.retroarch.responses import StatusInfo
 
     client = MagicMock()
@@ -51,8 +47,6 @@ def fake_client_running_then_paused():
         StatusInfo(state="PLAYING"),
         StatusInfo(state="PAUSED"),
     ]
-    # FRAMEADVANCE sanity: return different bytes before/after advance.
-    client.read_ram.side_effect = [b"\x00" * 16, b"\x01" * 16]
     return client
 
 
@@ -114,26 +108,6 @@ def test_launch_raises_when_pause_doesnt_stop_frames(fake_paths, fake_proc):
          patch("tests.integration.ra_harness.NCIClient", return_value=runaway_client), \
          patch("tests.integration.ra_harness.time.sleep"):
         with pytest.raises(RAHarnessLaunchError, match="PAUSE_TOGGLE did not pause RA"):
-            RAHarness.launch(rom_path=rom, core_path=core, retroarch_exe=exe)
-
-
-def test_launch_raises_on_deep_freeze(fake_paths, fake_proc):
-    """If RA is already paused but FRAMEADVANCE doesn't change low-WRAM bytes,
-    the core is deep-frozen; refuse to proceed."""
-    from spinlab.retroarch.responses import StatusInfo
-
-    rom, core, exe = fake_paths
-    frozen_client = MagicMock()
-    frozen_client.version.return_value = "1.0"
-    # Already paused — no toggle needed, goes straight to FRAMEADVANCE check.
-    frozen_client.get_status.return_value = StatusInfo(state="PAUSED")
-    # Both reads return identical bytes — FRAMEADVANCE had no effect.
-    frozen_client.read_ram.return_value = b"\x00" * 16
-
-    with patch("tests.integration.ra_harness.subprocess.Popen", return_value=fake_proc), \
-         patch("tests.integration.ra_harness.NCIClient", return_value=frozen_client), \
-         patch("tests.integration.ra_harness.time.sleep"):
-        with pytest.raises(RAHarnessLaunchError, match="deep-freeze"):
             RAHarness.launch(rom_path=rom, core_path=core, retroarch_exe=exe)
 
 

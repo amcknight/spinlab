@@ -31,28 +31,21 @@ logger = logging.getLogger(__name__)
 NCI_PING_RETRIES = 10
 NCI_PING_INTERVAL_S = 0.5
 
-# Bytes of low-WRAM read after FRAMEADVANCE to verify the core actually advanced.
-# Must cover at least WRAM[0x13] (byte index 19) — the standard SMW global frame
-# counter, which ticks every frame.  16 bytes missed this on Love Yourself; 32
-# comfortably includes it while remaining bandwidth-light.
-WRAM_SANITY_PROBE_BYTES = 32
-
 # Teardown timing.
 QUIT_GRACE_S = 2.0
 
-# Sanity-probe retry config. RA occasionally launches in a state where the
-# first FRAMEADVANCE after PAUSE_TOGGLE is a no-op (likely runahead / save-
-# buffer warm-up). Retrying a few times gets past the warm-up without
-# masking a true deep-freeze (where no advance ever changes WRAM).
-WRAM_SANITY_RETRIES = 5
-WRAM_SANITY_RETRY_DELAY_S = 0.3
-
-# PAUSE_TOGGLE → status check race. Under load (e.g. pytest-xdist with N
-# concurrent RA processes), RA may take >0.5s to apply the toggle before
-# GET_STATUS reports PAUSED. Retry the verify a few times instead of
-# failing on the first miss.
-PAUSE_VERIFY_RETRIES = 5
+# PAUSE_TOGGLE → status check race. Under load (e.g. multiple concurrent RA
+# processes — currently up to 3 in the emulator suite: vanilla_smw,
+# love_yourself, love_yourself_no_reset), RA may take >1s to apply the
+# toggle before GET_STATUS reports PAUSED. Retry the verify generously
+# instead of failing on the first miss. 10 × 0.3s = 3s total budget.
+PAUSE_VERIFY_RETRIES = 10
 PAUSE_VERIFY_INTERVAL_S = 0.3
+
+# When the harness is given a fresh_state_path, the state file is copied into
+# the harness's isolated savestate_directory at this slot. RAPokeEngine then
+# LOAD_STATE_SLOTs this slot before each scenario for hermetic per-test boot.
+FRESH_BOOT_STATE_SLOT = 9998
 
 # Null-driver appendconfig content — suppresses video and audio output so
 # tests run headless. RA 1.22.2 does not accept --video=null style CLI flags;
@@ -72,10 +65,11 @@ class RAHarness:
     proc: subprocess.Popen
     client: NCIClient
     _tmp_dir: Path | None = field(default=None, repr=False)
+    fresh_boot_slot: int | None = field(default=None, repr=False)
     engine: RAPokeEngine = field(init=False)
 
     def __post_init__(self) -> None:
-        self.engine = RAPokeEngine(self.client)
+        self.engine = RAPokeEngine(self.client, fresh_boot_slot=self.fresh_boot_slot)
 
     @classmethod
     def launch(
@@ -85,6 +79,7 @@ class RAHarness:
         retroarch_exe: Path,
         extra_cfg: str = "",
         nci_port: int | None = None,
+        fresh_state_path: Path | None = None,
     ) -> "RAHarness":
         """Launch RetroArch headless with the given ROM and core.
 
@@ -100,6 +95,14 @@ class RAHarness:
                 into the appendconfig as ``network_cmd_port`` and is also the
                 port the returned ``NCIClient`` talks to — letting two harnesses
                 run in the same pytest session by using distinct ports.
+            fresh_state_path: Optional path to a pre-recorded "fresh boot"
+                savestate. When set, the harness isolates ``savestate_directory``
+                to a per-launch tmp dir, copies the file in at slot
+                ``FRESH_BOOT_STATE_SLOT``, and configures the bound
+                ``RAPokeEngine`` to ``LOAD_STATE_SLOT`` it before each scenario.
+                This is the per-scenario boot mechanism — replaces the old
+                FRAMEADVANCE warm-up probe that intermittently rejected
+                valid ROMs.
         """
         for p, label in [(retroarch_exe, "retroarch_exe"), (core_path, "core_path"), (rom_path, "rom_path")]:
             if not p.exists():
@@ -127,6 +130,27 @@ class RAHarness:
         tmp_cfg_path = tmp_dir / "null.cfg"
         # RA cfg paths use forward slashes even on Windows.
         sram_cfg = sram_dir.as_posix()
+
+        # When a fresh-boot savestate is supplied, isolate ``savestate_directory``
+        # to a per-launch tmp dir and stage the state file into it at
+        # FRESH_BOOT_STATE_SLOT, named by snes9x's <rom_basename>.state{N}
+        # convention. The poke harness's tests do not rely on the user's
+        # savestate dir, so this isolation is safe; the replay fixture (which
+        # DOES rely on the user's savestate dir) launches the harness without
+        # ``fresh_state_path`` and keeps the user dir untouched.
+        savestate_dir: Path | None = None
+        if fresh_state_path is not None:
+            if not fresh_state_path.exists():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                raise RAHarnessLaunchError(
+                    f"fresh_state_path does not exist: {fresh_state_path}"
+                )
+            savestate_dir = tmp_dir / "states"
+            snes9x_subdir = savestate_dir / "Snes9x"
+            snes9x_subdir.mkdir(parents=True)
+            staged_state = snes9x_subdir / f"{rom_path.stem}.state{FRESH_BOOT_STATE_SLOT}"
+            shutil.copyfile(fresh_state_path, staged_state)
+
         # ``--appendconfig`` keys override the user's retroarch.cfg, so
         # specifying ``network_cmd_port`` here lets multiple harnesses run
         # concurrently on distinct ports regardless of what the user's cfg has.
@@ -137,6 +161,8 @@ class RAHarness:
                 f.write(_NULL_DRIVER_CFG)
                 f.write(f'network_cmd_port = "{port}"\n')
                 f.write(f'sram_directory = "{sram_cfg}"\n')
+                if savestate_dir is not None:
+                    f.write(f'savestate_directory = "{savestate_dir.as_posix()}"\n')
                 if extra_cfg:
                     f.write(extra_cfg)
         except Exception:
@@ -241,31 +267,16 @@ class RAHarness:
                 f"Unexpected RA status after launch: {status.state!r} — expected PAUSED or PLAYING"
             )
 
-        # Final sanity: confirm FRAMEADVANCE actually advances the core.
-        # Read any WRAM byte, advance one frame, re-read — some byte must change.
-        # Retry a handful of times: on Windows + patched RA the first one or
-        # two FRAMEADVANCE calls after launch occasionally produce no observable
-        # WRAM change (likely runahead/save-buffer warm-up). A genuine
-        # deep-freeze would still fail every retry.
-        advanced = False
-        snap_before = client.read_ram(0x0000, WRAM_SANITY_PROBE_BYTES)
-        for _ in range(WRAM_SANITY_RETRIES):
-            client.frame_advance()
-            time.sleep(WRAM_SANITY_RETRY_DELAY_S)
-            snap_after = client.read_ram(0x0000, WRAM_SANITY_PROBE_BYTES)
-            if snap_before != snap_after:
-                advanced = True
-                break
-            snap_before = snap_after
-        if not advanced:
-            cls._kill(proc)
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise RAHarnessLaunchError(
-                f"FRAMEADVANCE did not change any WRAM byte after "
-                f"{WRAM_SANITY_RETRIES} attempts — core may be in deep-freeze"
-            )
-
-        return cls(proc=proc, client=client, _tmp_dir=tmp_dir)
+        # No FRAMEADVANCE warm-up probe here. The probe used to read 32 bytes
+        # of low WRAM, FRAMEADVANCE, re-read, and reject the launch if no byte
+        # changed — but it intermittently rejected valid ROMs (Toothpaste,
+        # vanilla SMW, even Love Yourself under load). Replaced by the
+        # savestate-based per-scenario reset in RAPokeEngine: a loaded
+        # savestate is by construction a live frame, so the probe is moot
+        # for poke tests; for non-poke tests (replay) downstream failures
+        # surface a deep-frozen core just as well.
+        slot = FRESH_BOOT_STATE_SLOT if fresh_state_path is not None else None
+        return cls(proc=proc, client=client, _tmp_dir=tmp_dir, fresh_boot_slot=slot)
 
     def teardown(self) -> None:
         try:
