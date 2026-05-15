@@ -33,12 +33,11 @@ class _BaseResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-Mode = Literal[
-    "idle", "reference", "practice", "replay",
-    "fill_gap", "cold_fill", "speed_run",
-]
-
-EndpointType = Literal["entrance", "checkpoint", "goal"]
+# Re-export from models.py so there is a single source of truth. Pydantic v2
+# treats Enum / StrEnum as a value type whose OpenAPI schema is a string enum,
+# which openapi-typescript emits as a TS string union — identical wire format
+# to the prior Literal alias, but with no second definition to drift.
+from spinlab.models import EndpointType, Mode
 
 CaptureRunStatus = Literal["draft", "saved"]
 CaptureRunKind = Literal["live", "replay"]
