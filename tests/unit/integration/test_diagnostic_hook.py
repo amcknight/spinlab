@@ -110,3 +110,66 @@ def test_dashboard_startup_timeout_message_includes_port_and_error():
     assert "18080" in msg
     assert "10.0" in msg  # 40 × 0.25 = 10.0
     assert "port not listening" in msg
+
+
+def test_collect_launch_failure_diagnostics_renders_structured_fields(tmp_path):
+    """When RAHarness.launch fails, the diagnostic block names the stage,
+    pid, port, and startup duration from the typed exception."""
+    from tests.integration.conftest import _collect_launch_failure_diagnostics
+    from tests.integration.ra_harness import RAHarnessLaunchError
+
+    exc = RAHarnessLaunchError(
+        "NCI did not reply",
+        stage="nci_ping",
+        pid=7777,
+        port=55355,
+        startup_duration_s=2.5,
+        log_path=None,
+    )
+    out = _collect_launch_failure_diagnostics(exc)
+    assert "RAHarnessLaunchError" in out
+    assert "stage='nci_ping'" in out
+    assert "pid=7777" in out
+    assert "port=55355" in out
+    assert "startup_duration_s=2.5" in out
+
+
+def test_collect_launch_failure_diagnostics_tails_preserved_log(tmp_path):
+    """When the exception's log_path is a real file, the diagnostic block
+    includes its tail."""
+    from tests.integration.conftest import _collect_launch_failure_diagnostics
+    from tests.integration.ra_harness import RAHarnessLaunchError
+
+    log = tmp_path / "retroarch.log"
+    log.write_text("\n".join(f"line {i}" for i in range(50)))
+
+    exc = RAHarnessLaunchError(
+        "fake",
+        stage="get_status",
+        pid=1,
+        port=2,
+        startup_duration_s=0.1,
+        log_path=log,
+    )
+    out = _collect_launch_failure_diagnostics(exc)
+    assert "retroarch.log tail" in out
+    assert "line 49" in out
+    assert "line 19" not in out  # 30-line tail boundary
+
+
+def test_collect_launch_failure_diagnostics_handles_missing_log_path():
+    """If log_path is None, the block still renders fields, just no log tail."""
+    from tests.integration.conftest import _collect_launch_failure_diagnostics
+    from tests.integration.ra_harness import RAHarnessLaunchError
+
+    exc = RAHarnessLaunchError(
+        "no log",
+        stage="path_check",
+        pid=None,
+        port=None,
+        startup_duration_s=None,
+        log_path=None,
+    )
+    out = _collect_launch_failure_diagnostics(exc)
+    assert "stage='path_check'" in out
+    assert "retroarch.log" not in out

@@ -789,22 +789,90 @@ def _collect_diagnostics(item: pytest.Item) -> str:
     return "\n--- SpinLab Integration Diagnostics ---\n" + "\n".join(parts)
 
 
+def _collect_launch_failure_diagnostics(exc: RAHarnessLaunchError) -> str:
+    """Best-effort snapshot when RAHarness.launch fails during fixture setup.
+
+    Reads the structured fields off the typed exception (stage, pid, port,
+    startup_duration_s) and tails the preserved retroarch.log if its
+    ``log_path`` still exists on disk. Always tails the spinlab logger ring
+    buffer at the end so the report has parity with the call-phase block.
+
+    The setup-phase hook path can't walk ``item.funcargs`` because the failing
+    fixture never finished constructing — we only have the exception. The
+    structured fields make that recoverable without parsing the message
+    string.
+    """
+    parts: list[str] = [
+        f"  RAHarnessLaunchError:"
+        f" stage={exc.stage!r}"
+        f" pid={exc.pid}"
+        f" port={exc.port}"
+        f" startup_duration_s={exc.startup_duration_s}",
+    ]
+    log_path = exc.log_path
+    if log_path is not None:
+        try:
+            if log_path.exists():
+                text = log_path.read_text(errors="replace")
+                tail = text.splitlines()[-_HARNESS_LOG_TAIL_LINES:]
+                if tail:
+                    parts.append(
+                        f"  retroarch.log tail ({len(tail)} lines) from {log_path}:"
+                    )
+                    for line in tail:
+                        parts.append(f"    {line}")
+        except Exception as inner:
+            parts.append(f"  retroarch.log: <unavailable: {inner}>")
+
+    recent = _ring.recent(_RING_TAIL_LINES)
+    if recent:
+        parts.append(f"  Recent spinlab log ({len(recent)} lines):")
+        for line in recent:
+            parts.append(f"    {line}")
+
+    return "\n--- SpinLab Launch-Failure Diagnostics ---\n" + "\n".join(parts)
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
-    """Append diagnostic state to the report when an integration test fails."""
+    """Append diagnostic state to the report on integration test failure.
+
+    Two paths:
+      - ``report.when == "call"`` + test body failed: walks ``item.funcargs``
+        via ``_collect_diagnostics`` for dashboard and harness state.
+      - ``report.when == "setup"`` + the failing exception is
+        ``RAHarnessLaunchError``: renders the typed exception's structured
+        fields and tails the preserved retroarch.log. The factory never made
+        it into ``funcargs`` so there's nothing to walk; the exception is the
+        only source of truth.
+
+    Other setup-phase failures fall through to pytest's normal reporting.
+    """
     outcome = yield
     report = outcome.get_result()
-    if report.when != "call" or not report.failed:
+    if not report.failed:
         return
     # Only for tests in the integration directory
     if "integration" not in str(item.fspath):
         return
-    diag = _collect_diagnostics(item)
-    if diag:
-        # `longreprtext` is a read-only property in current pytest, so the
-        # diagnostic block has to ride along on `sections` instead.  pytest
-        # renders sections in the terminal report after the traceback.
-        report.sections.append(("SpinLab Diagnostics", diag))
+
+    if report.when == "call":
+        diag = _collect_diagnostics(item)
+        if diag:
+            # `longreprtext` is a read-only property in current pytest, so the
+            # diagnostic block has to ride along on `sections` instead.  pytest
+            # renders sections in the terminal report after the traceback.
+            report.sections.append(("SpinLab Diagnostics", diag))
+        return
+
+    if report.when == "setup" and call.excinfo is not None:
+        exc = call.excinfo.value
+        if isinstance(exc, RAHarnessLaunchError):
+            diag = _collect_launch_failure_diagnostics(exc)
+            if diag:
+                report.sections.append(
+                    ("SpinLab Launch-Failure Diagnostics", diag)
+                )
 
 
 @pytest.hookimpl(hookwrapper=True)
