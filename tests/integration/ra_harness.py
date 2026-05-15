@@ -19,7 +19,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO
+from typing import IO, Literal
 
 from tests.integration.ra_poke_engine import RAPokeEngine
 
@@ -27,6 +27,16 @@ from spinlab.retroarch.exceptions import NCITimeout
 from spinlab.retroarch.nci import DEFAULT_PORT, NCIClient
 
 logger = logging.getLogger(__name__)
+
+LaunchStage = Literal[
+    "path_check",
+    "fresh_state_path_check",
+    "nci_client_construct",
+    "nci_ping",
+    "get_status",
+    "pause_verify",
+    "status_unexpected",
+]
 
 # RA needs a moment after Popen before NCI starts replying.
 NCI_PING_RETRIES = 10
@@ -70,7 +80,7 @@ class RAHarnessLaunchError(RuntimeError):
         self,
         message: str,
         *,
-        stage: str,
+        stage: LaunchStage,
         pid: int | None = None,
         port: int | None = None,
         startup_duration_s: float | None = None,
@@ -224,13 +234,14 @@ class RAHarness:
         try:
             client = NCIClient(port=port)
         except Exception as exc:
+            startup_duration = time.monotonic() - launch_started_at
             preserved_log = cls._cleanup_launch(proc, log_handle, tmp_dir, log_path)
             raise RAHarnessLaunchError(
                 f"NCIClient(port={port}) construction failed: {exc}",
                 stage="nci_client_construct",
                 pid=proc.pid,
                 port=port,
-                startup_duration_s=time.monotonic() - launch_started_at,
+                startup_duration_s=startup_duration,
                 log_path=preserved_log,
             ) from exc
         # Ping until NCI replies or we exhaust retries.
@@ -241,13 +252,14 @@ class RAHarness:
             except NCITimeout:
                 time.sleep(NCI_PING_INTERVAL_S)
         else:
+            startup_duration = time.monotonic() - launch_started_at
             preserved_log = cls._cleanup_launch(proc, log_handle, tmp_dir, log_path)
             raise RAHarnessLaunchError(
                 f"NCI did not reply after {NCI_PING_RETRIES} attempts × {NCI_PING_INTERVAL_S}s",
                 stage="nci_ping",
                 pid=proc.pid,
                 port=port,
-                startup_duration_s=time.monotonic() - launch_started_at,
+                startup_duration_s=startup_duration,
                 log_path=preserved_log,
             )
 
@@ -269,13 +281,14 @@ class RAHarness:
         try:
             status = client.get_status()
         except Exception as exc:
+            startup_duration = time.monotonic() - launch_started_at
             preserved_log = cls._cleanup_launch(proc, log_handle, tmp_dir, log_path)
             raise RAHarnessLaunchError(
                 f"GET_STATUS failed: {exc}",
                 stage="get_status",
                 pid=proc.pid,
                 port=port,
-                startup_duration_s=time.monotonic() - launch_started_at,
+                startup_duration_s=startup_duration,
                 log_path=preserved_log,
             ) from exc
 
@@ -309,6 +322,7 @@ class RAHarness:
                 if after_state == "PAUSED":
                     break
             else:
+                startup_duration = time.monotonic() - launch_started_at
                 preserved_log = cls._cleanup_launch(proc, log_handle, tmp_dir, log_path)
                 if last_exc is not None and after_state is None:
                     raise RAHarnessLaunchError(
@@ -316,7 +330,7 @@ class RAHarness:
                         stage="pause_verify",
                         pid=proc.pid,
                         port=port,
-                        startup_duration_s=time.monotonic() - launch_started_at,
+                        startup_duration_s=startup_duration,
                         log_path=preserved_log,
                     ) from last_exc
                 raise RAHarnessLaunchError(
@@ -326,17 +340,18 @@ class RAHarness:
                     stage="pause_verify",
                     pid=proc.pid,
                     port=port,
-                    startup_duration_s=time.monotonic() - launch_started_at,
+                    startup_duration_s=startup_duration,
                     log_path=preserved_log,
                 )
         else:
+            startup_duration = time.monotonic() - launch_started_at
             preserved_log = cls._cleanup_launch(proc, log_handle, tmp_dir, log_path)
             raise RAHarnessLaunchError(
                 f"Unexpected RA status after launch: {status.state!r} — expected PAUSED or PLAYING",
                 stage="status_unexpected",
                 pid=proc.pid,
                 port=port,
-                startup_duration_s=time.monotonic() - launch_started_at,
+                startup_duration_s=startup_duration,
                 log_path=preserved_log,
             )
 
@@ -422,6 +437,10 @@ class RAHarness:
                     tempfile.mkdtemp(prefix="spinlab_ra_failed_")
                 ) / log_path.name
                 shutil.move(str(log_path), str(preserved_log))
+                logger.info(
+                    "ra_harness: preserved failed-launch RA log at %s",
+                    preserved_log,
+                )
             except Exception:
                 preserved_log = None
         shutil.rmtree(tmp_dir, ignore_errors=True)

@@ -194,7 +194,12 @@ def test_launch_error_carries_context_fields(fake_paths, fake_proc):
     assert err.pid == fake_proc.pid
     assert err.port == 55355
     assert err.stage == "nci_ping"
-    assert err.startup_duration_s is not None and err.startup_duration_s >= 0.0
+    # With time.sleep patched, the loop iterates instantly and _cleanup_launch
+    # is excluded from the measurement — duration should be well under a second.
+    assert err.startup_duration_s is not None
+    assert 0.0 <= err.startup_duration_s < 1.0, (
+        f"expected sub-second startup duration with patched sleep, got {err.startup_duration_s}"
+    )
     assert err.log_path is not None and err.log_path.exists()
 
 
