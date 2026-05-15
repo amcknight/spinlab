@@ -38,8 +38,7 @@ def run_fast_tests_with_contexts() -> None:
     cmd = [
         sys.executable, "-m", "pytest", "tests/",
         "--ignore=tests/integration",
-        "--ignore=tests/playwright",
-        "-m", "not (emulator or slow or frontend)",
+        "-m", "not emulator",
         "--cov=spinlab",
         "--cov-report=",  # suppress terminal report, we'll build our own
         # dynamic_context = "test_function" in pyproject.toml handles per-test
