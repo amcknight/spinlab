@@ -356,8 +356,13 @@ class _HarnessFactory:
                 fresh_state_path=fresh_state_path,
             )
         except RAHarnessLaunchError as exc:
-            # CLAUDE.md: launch failure is a FAILURE, not a skip.
-            raise RuntimeError(f"ra_harness launch failed for rom_key={rom_key!r}: {exc}") from exc
+            # CLAUDE.md: launch failure is a FAILURE, not a skip. RAHarnessLaunchError
+            # subclasses RuntimeError so the hard-fail rule still holds; re-raise the
+            # typed exception so the diagnostic hook can read its structured fields
+            # (pid, port, stage, log_path). Annotate args with rom_key so the test
+            # report still names the harness that failed.
+            exc.args = (f"ra_harness launch failed for rom_key={rom_key!r}: {exc.args[0]}",)
+            raise
         self._cache[cache_key] = harness
         return harness
 

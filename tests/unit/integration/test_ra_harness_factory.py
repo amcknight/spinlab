@@ -144,8 +144,10 @@ def test_factory_caches_per_key(tmp_path):
 
 
 def test_factory_raises_runtime_error_on_launch_failure(tmp_path):
-    """If RAHarness.launch raises RAHarnessLaunchError, factory must surface it
-    as a RuntimeError (not pytest.skip)."""
+    """If RAHarness.launch raises RAHarnessLaunchError, factory must surface
+    it as RAHarnessLaunchError (a RuntimeError subclass — so CLAUDE.md's
+    'hard-fail not skip' rule still holds — but with the typed exception's
+    structured fields preserved for the diagnostic hook)."""
     from tests.integration.conftest import _harness_factory_impl
     from tests.integration.ra_harness import RAHarnessLaunchError
 
@@ -162,6 +164,46 @@ def test_factory_raises_runtime_error_on_launch_failure(tmp_path):
         factory_impl = _harness_factory_impl()
         with pytest.raises(RuntimeError, match="ra_harness launch failed.*simulated deep-freeze"):
             factory_impl("vanilla_smw")
+
+
+def test_factory_propagates_ra_harness_launch_error_with_typed_fields(monkeypatch):
+    """Factory must not swallow RAHarnessLaunchError as bare RuntimeError —
+    the typed class and its structured fields are needed by the diagnostic hook."""
+    from tests.integration.conftest import _HarnessFactory
+    from tests.integration.ra_harness import RAHarnessLaunchError
+
+    def fake_launch(**kwargs):
+        raise RAHarnessLaunchError(
+            "fake failure", stage="nci_ping", pid=12345, port=55355,
+        )
+
+    monkeypatch.setattr(
+        "tests.integration.conftest._resolve_ra_paths",
+        lambda rom_key: (Path("ra.exe"), Path("core.dll"), Path("rom.smc")),
+    )
+    monkeypatch.setattr(
+        "tests.integration.conftest._state_path_for",
+        lambda rom_basename: None,
+    )
+    monkeypatch.setattr(
+        "tests.integration.conftest._free_udp_port", lambda: 55355,
+    )
+    monkeypatch.setattr(
+        "tests.integration.conftest.RAHarness.launch", staticmethod(fake_launch),
+    )
+
+    factory = _HarnessFactory()
+    with pytest.raises(RAHarnessLaunchError) as excinfo:
+        factory("love_yourself", use_fresh_state=False)
+    # Typed exception, not bare RuntimeError:
+    assert type(excinfo.value) is RAHarnessLaunchError
+    # Structured fields preserved:
+    assert excinfo.value.pid == 12345
+    assert excinfo.value.port == 55355
+    assert excinfo.value.stage == "nci_ping"
+    # rom_key annotated into the message:
+    assert "love_yourself" in str(excinfo.value)
+    assert "fake failure" in str(excinfo.value)
 
 
 def test_factory_propagates_resolver_runtime_errors(tmp_path):
