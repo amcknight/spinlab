@@ -40,7 +40,7 @@ class PollerDeps:
     conditions_registry: ConditionRegistry | None = None
     # Returns RAClient's monotonic state_version. The Poller compares against
     # the last seen value each tick; an increment means "RA just reloaded, the
-    # next snapshot is the new prev" — replaces the old mark_state_loaded flag.
+    # next snapshot is the new prev".
     state_version: Callable[[], int] = lambda: 0
 
 
