@@ -626,42 +626,95 @@ _ring.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(messa
 logging.getLogger("spinlab").addHandler(_ring)
 
 
+# How many lines to tail from each diagnostic source. 30 is plenty to capture the
+# RA boot sequence (~10 lines) plus any "core failed to load" + crash spew that
+# follows, without burying the pytest report under thousands of frame-tick lines.
+_HARNESS_LOG_TAIL_LINES = 30
+_RING_TAIL_LINES = 30
+
+
 def _collect_diagnostics(item: pytest.Item) -> str:
-    """Best-effort snapshot of integration test state at failure time."""
+    """Best-effort snapshot of integration test state at failure time.
+
+    Walks ``item.funcargs`` and:
+      - For tuples shaped ``(str_url, Database, ...)``, emits an /api/state +
+        DB-counts block (matches the dashboard-fixture shape).
+      - For objects exposing ``.proc`` (a Popen) and ``.client`` (NCIClient),
+        emits a harness block with pid / port / proc.poll() and the last
+        ``_HARNESS_LOG_TAIL_LINES`` of the per-launch retroarch.log if available.
+
+    Always tails the in-process spinlab log ring buffer at the end.
+    """
     parts: list[str] = []
 
-    # --- Dashboard API state ---
-    for fixture_name in ("replay_ra_dashboard",):
-        fixture_val = item.funcargs.get(fixture_name)
-        if fixture_val is None:
+    for fixture_name, fixture_val in item.funcargs.items():
+        # ---- Dashboard-shaped: (base_url, db, _) ----
+        if (
+            isinstance(fixture_val, tuple)
+            and len(fixture_val) >= 2
+            and isinstance(fixture_val[0], str)
+            and fixture_val[0].startswith("http")
+        ):
+            base_url = fixture_val[0]
+            db = fixture_val[1]
+            parts.append(f"  fixture: {fixture_name}")
+            try:
+                state = http_requests.get(f"{base_url}/api/state", timeout=2).json()
+                parts.append(f"  /api/state: {json.dumps(state, indent=2)}")
+            except Exception as exc:
+                parts.append(f"  /api/state: <unavailable: {exc}>")
+            try:
+                seg_count = db.conn.execute(
+                    "SELECT COUNT(*) FROM segments WHERE active = 1"
+                ).fetchone()[0]
+                ref_count = db.conn.execute(
+                    "SELECT COUNT(*) FROM capture_runs"
+                ).fetchone()[0]
+                draft_count = db.conn.execute(
+                    "SELECT COUNT(*) FROM capture_runs WHERE draft = 1"
+                ).fetchone()[0]
+                parts.append(
+                    f"  DB: {seg_count} active segments, "
+                    f"{ref_count} capture_runs ({draft_count} drafts)"
+                )
+            except Exception as exc:
+                parts.append(f"  DB: <unavailable: {exc}>")
             continue
-        base_url, db, _ = fixture_val
-        try:
-            state = http_requests.get(f"{base_url}/api/state", timeout=2).json()
-            parts.append(f"  /api/state: {json.dumps(state, indent=2)}")
-        except Exception as exc:
-            parts.append(f"  /api/state: <unavailable: {exc}>")
 
-        # DB row counts
-        try:
-            seg_count = db.conn.execute(
-                "SELECT COUNT(*) FROM segments WHERE active = 1"
-            ).fetchone()[0]
-            ref_count = db.conn.execute(
-                "SELECT COUNT(*) FROM capture_runs"
-            ).fetchone()[0]
-            draft_count = db.conn.execute(
-                "SELECT COUNT(*) FROM capture_runs WHERE draft = 1"
-            ).fetchone()[0]
-            parts.append(f"  DB: {seg_count} active segments, {ref_count} capture_runs ({draft_count} drafts)")
-        except Exception as exc:
-            parts.append(f"  DB: <unavailable: {exc}>")
-        break
+        # ---- Harness-shaped: duck-types on .proc + .client ----
+        if hasattr(fixture_val, "proc") and hasattr(fixture_val, "client"):
+            try:
+                proc_status = fixture_val.proc.poll()
+            except Exception as exc:
+                proc_status = f"<poll failed: {exc}>"
+            try:
+                port = fixture_val.client.port
+            except Exception:
+                port = "<unknown>"
+            try:
+                pid = fixture_val.proc.pid
+            except Exception:
+                pid = "<unknown>"
+            parts.append(
+                f"  harness: {fixture_name} pid={pid} port={port} proc.poll()={proc_status}"
+            )
+            log_path = getattr(fixture_val, "log_path", None)
+            if log_path is not None:
+                try:
+                    if log_path.exists():
+                        text = log_path.read_text(errors="replace")
+                        tail = text.splitlines()[-_HARNESS_LOG_TAIL_LINES:]
+                        if tail:
+                            parts.append(f"  retroarch.log tail ({len(tail)} lines):")
+                            for line in tail:
+                                parts.append(f"    {line}")
+                except Exception as exc:
+                    parts.append(f"  retroarch.log: <unavailable: {exc}>")
 
-    # --- Recent event log ---
-    recent = _ring.recent(30)
+    # --- Recent event log (always include if anything in the ring) ---
+    recent = _ring.recent(_RING_TAIL_LINES)
     if recent:
-        parts.append(f"  Recent log ({len(recent)} lines):")
+        parts.append(f"  Recent spinlab log ({len(recent)} lines):")
         for line in recent:
             parts.append(f"    {line}")
 
