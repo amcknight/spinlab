@@ -63,6 +63,12 @@ class PracticeSession:
         self._result_data: AttemptResultEvent | None = None
         self._last_allocator: str | None = None
 
+        # Segment IDs whose state_path has been observed missing during this
+        # session. _snapshot_expected_times silently skips such segments, which
+        # makes the dashboard's "saved time" panel shrink without explanation;
+        # logging once per segment surfaces the cause without spamming.
+        self._missing_state_paths: set[str] = set()
+
         # Doubles as the "armed for reload-on-death" flag: non-None means
         # an attempt is in flight and Death / LevelExit(abort) should
         # trigger a backend.load_state. Cleared the moment attempt_result
@@ -88,6 +94,14 @@ class PracticeSession:
         any_clean = False
         for seg in segments:
             if not seg.state_path or not os.path.exists(seg.state_path):
+                if seg.segment_id not in self._missing_state_paths:
+                    log.warn(
+                        logger,
+                        "practice: segment state file missing — excluded from expected-time totals",
+                        segment_id=seg.segment_id,
+                        state_path=seg.state_path or "",
+                    )
+                    self._missing_state_paths.add(seg.segment_id)
                 continue
             output = seg.model_outputs.get(estimator_name)
             if output is None:
