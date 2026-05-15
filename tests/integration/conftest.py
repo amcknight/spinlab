@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -276,7 +277,7 @@ async def fake_dashboard_server():
             resp = http_requests.get(f"{base_url}/api/state", timeout=1)
             if resp.status_code == 200:
                 break
-            last_error = http_requests.HTTPError(f"status {resp.status_code}")
+            last_error = RuntimeError(f"status {resp.status_code}")
         except http_requests.ConnectionError as exc:
             last_error = exc
         except Exception as exc:
@@ -295,7 +296,6 @@ async def fake_dashboard_server():
     server.should_exit = True
     thread.join(timeout=5)
     db.close()
-    import shutil
     shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -551,7 +551,7 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
             pass
         _time.sleep(0.25)
     else:
-        _teardown_replay_dashboard(server, thread, db, tmp)
+        _teardown_replay_dashboard(server=server, thread=thread, db=db, tmp=tmp)
         pytest.fail("replay_ra_dashboard: uvicorn did not start within 10 seconds")
 
     # Wait for the orchestrator to connect to RA and receive rom_info so the
@@ -571,7 +571,7 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
             last_state_error = exc
         _time.sleep(0.25)
     else:
-        _teardown_replay_dashboard(server, thread, db, tmp)
+        _teardown_replay_dashboard(server=server, thread=thread, db=db, tmp=tmp)
         pytest.fail(_format_dashboard_startup_failure(
             port=dashboard_port,
             attempts=40,
@@ -592,12 +592,12 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
     except Exception as exc:
         # Tear down what we built before failing — preserves the no-yield
         # invariant for downstream cleanup hooks.
-        _teardown_replay_dashboard(server, thread, db, tmp)
+        _teardown_replay_dashboard(server=server, thread=thread, db=db, tmp=tmp)
         pytest.fail(_format_pause_toggle_failure(harness, exc))
 
     yield base_url, db, tmp_path
 
-    _teardown_replay_dashboard(server, thread, db, tmp)
+    _teardown_replay_dashboard(server=server, thread=thread, db=db, tmp=tmp)
 
 
 # ---------------------------------------------------------------------------
@@ -682,14 +682,13 @@ def _format_dashboard_startup_failure(
     )
 
 
-def _teardown_replay_dashboard(server, thread, db, tmp) -> None:
+def _teardown_replay_dashboard(*, server, thread, db, tmp) -> None:
     """Tear down the uvicorn server, DB connection, and tmp dir created by
     replay_ra_dashboard. Used by all bail-out paths and the happy-path cleanup.
     """
     server.should_exit = True
     thread.join(timeout=5)
     db.close()
-    import shutil
     shutil.rmtree(tmp, ignore_errors=True)
 
 
