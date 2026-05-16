@@ -80,15 +80,19 @@ class NCIClient:
         interval cannot be misattributed to the next command issued on the same socket.
         """
         sock.setblocking(False)
+        drained = 0
         try:
             while True:
                 try:
                     sock.recvfrom(RECV_BUFFER_BYTES)
+                    drained += 1
                 except (BlockingIOError, OSError):
                     break
         finally:
             sock.setblocking(True)
             sock.settimeout(self.timeout)
+        if drained:
+            log.warn(logger, "NCI: drained late datagrams", count=drained)
 
     def _send_no_reply(self, command: str) -> None:
         """Send command and don't wait for any reply. For fire-and-forget commands

@@ -92,3 +92,58 @@ def test_tick_loop_logs_state_on_error(caplog):
     msg = records[0].getMessage()
     assert "practice_armed=True" in msg, msg
     assert "speed_run_armed=False" in msg, msg
+
+
+# ---------------------------------------------------------------------------
+# M12 — NCI _drain_socket logs late datagram count
+# ---------------------------------------------------------------------------
+
+def test_drain_socket_logs_drained_datagram_count(caplog):
+    """When a stale datagram is drained, log warn with count=1."""
+    import socket
+
+    from spinlab.retroarch.nci import NCIClient
+
+    fake_ra = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    fake_ra.bind(("127.0.0.1", 0))
+    fake_ra_port = fake_ra.getsockname()[1]
+
+    client_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    client_sock.bind(("127.0.0.1", 0))
+    client_port = client_sock.getsockname()[1]
+    client_sock.settimeout(0.5)
+
+    fake_ra.sendto(b"late reply", ("127.0.0.1", client_port))
+
+    client = NCIClient(host="127.0.0.1", port=fake_ra_port, timeout=0.5)
+
+    caplog.set_level(logging.WARNING, logger="spinlab.retroarch.nci")
+    client._drain_socket(client_sock)
+
+    client_sock.close()
+    fake_ra.close()
+
+    records = [r for r in caplog.records if "drained late" in r.getMessage().lower()]
+    assert records, "expected drained-late-datagram log line"
+    assert "count=1" in records[0].getMessage(), records[0].getMessage()
+
+
+def test_drain_socket_silent_when_nothing_drained(caplog):
+    """No log emitted when the buffer was already empty."""
+    import socket
+
+    from spinlab.retroarch.nci import NCIClient
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.settimeout(0.5)
+
+    client = NCIClient(host="127.0.0.1", port=1, timeout=0.5)
+
+    caplog.set_level(logging.WARNING, logger="spinlab.retroarch.nci")
+    client._drain_socket(sock)
+    sock.close()
+
+    assert not [r for r in caplog.records if "drained late" in r.getMessage().lower()], (
+        "drain should be silent when nothing was drained"
+    )
