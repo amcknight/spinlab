@@ -2,7 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
+
+from spinlab import log
+
+logger = logging.getLogger(__name__)
 
 SSE_QUEUE_MAX = 16
 
@@ -51,3 +56,7 @@ class SSEBroadcaster:
                     dead.append(q)
         for q in dead:
             self.unsubscribe(q)
+            log.warn(
+                logger, "SSE subscriber dropped (queue full)",
+                subscribers_left=len(self._subscribers),
+            )

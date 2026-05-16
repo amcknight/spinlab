@@ -147,3 +147,30 @@ def test_drain_socket_silent_when_nothing_drained(caplog):
     assert not [r for r in caplog.records if "drained late" in r.getMessage().lower()], (
         "drain should be silent when nothing was drained"
     )
+
+
+# ---------------------------------------------------------------------------
+# M14 — SSE broadcaster logs dropped subscriber
+# ---------------------------------------------------------------------------
+
+def test_sse_broadcaster_logs_dropped_subscriber(caplog):
+    """When recovery fails and a subscriber is unsubscribed, log warn."""
+    from spinlab.sse import SSEBroadcaster
+
+    broadcaster = SSEBroadcaster()
+    q = broadcaster.subscribe(maxsize=1)
+    import asyncio as _asyncio
+
+    def _always_full(_item: object) -> None:
+        raise _asyncio.QueueFull()
+
+    # Pre-fill so the initial put_nowait raises; then make recovery put also fail.
+    q.put_nowait("first")
+    q.put_nowait = _always_full  # type: ignore[assignment]
+
+    caplog.set_level(logging.WARNING, logger="spinlab.sse")
+    asyncio.run(broadcaster.broadcast({"hello": "world"}))
+
+    records = [r for r in caplog.records if "subscriber dropped" in r.getMessage().lower()]
+    assert records, "expected SSE subscriber-dropped log line"
+    assert "subscribers_left=0" in records[0].getMessage(), records[0].getMessage()
