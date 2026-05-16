@@ -28,7 +28,7 @@ def test_entrance_then_goal_creates_segment_with_waypoints():
         conditions={"powerup": 0},  # raw: small
     ))
     cap.handle_exit(
-        LevelExitEvent(level=5, goal="goal", conditions={"powerup": 0}),
+        LevelExitEvent(level=5, goal="normal", conditions={"powerup": 0}),
         "g1")
     segs = db.get_active_segments("g1")
     assert len(segs) == 1
@@ -48,13 +48,13 @@ def test_same_geography_different_powerup_creates_two_segments():
     # Run 1: entered small, exited
     cap.handle_entrance(LevelEntranceEvent(level=5, state_path="/tmp/s1.mss",
                                            conditions={"powerup": 0}))
-    cap.handle_exit(LevelExitEvent(level=5, goal="goal", conditions={"powerup": 0}),
+    cap.handle_exit(LevelExitEvent(level=5, goal="normal", conditions={"powerup": 0}),
                     "g1")
     # Run 2: entered big, exited
     cap.pending_start = None  # reset
     cap.handle_entrance(LevelEntranceEvent(level=5, state_path="/tmp/s2.mss",
                                            conditions={"powerup": 1}))
-    cap.handle_exit(LevelExitEvent(level=5, goal="goal", conditions={"powerup": 1}),
+    cap.handle_exit(LevelExitEvent(level=5, goal="normal", conditions={"powerup": 1}),
                     "g1")
     segs = db.get_active_segments("g1")
     assert len(segs) == 2
@@ -69,7 +69,7 @@ def test_save_state_attaches_to_start_waypoint():
     cap.capture_run_id = "run1"
     cap.handle_entrance(LevelEntranceEvent(level=5, state_path="/tmp/start.mss",
                                            conditions={"powerup": 0}))
-    cap.handle_exit(LevelExitEvent(level=5, goal="goal", conditions={"powerup": 0}),
+    cap.handle_exit(LevelExitEvent(level=5, goal="normal", conditions={"powerup": 0}),
                     "g1")
     segs = db.get_active_segments("g1")
     # Entrance segments store their start state under the 'cold' variant.

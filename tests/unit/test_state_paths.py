@@ -62,7 +62,7 @@ def test_death_event_returns_none():
 
 
 def test_level_exit_returns_none():
-    assert segment_id_for_event(LevelExitEvent(level=5, goal="goal")) is None
+    assert segment_id_for_event(LevelExitEvent(level=5, goal="normal")) is None
 
 
 # --- StatePathResolver ---

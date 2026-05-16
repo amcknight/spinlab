@@ -6,6 +6,7 @@ the source of truth for what the polling loop turns into events.
 """
 from __future__ import annotations
 
+from spinlab.protocol import CheckpointType, LevelExitGoal
 from spinlab.retroarch import addresses as a
 from spinlab.retroarch.snapshot import MemorySnapshot
 from spinlab.retroarch.transition_state import TransitionState
@@ -27,7 +28,7 @@ def is_exit_frame(prev: MemorySnapshot, curr: MemorySnapshot) -> bool:
     return curr.exit_mode != 0 and prev.exit_mode == 0
 
 
-def goal_type(curr: MemorySnapshot) -> str:
+def goal_type(curr: MemorySnapshot) -> LevelExitGoal:
     """Classify the current goal state of a level exit.
 
     Precedence is key > orb > boss > normal; anything else is 'abort'
@@ -46,7 +47,7 @@ def goal_type(curr: MemorySnapshot) -> str:
 
 def check_checkpoint_hit(
     prev: MemorySnapshot, curr: MemorySnapshot, state: TransitionState
-) -> str | None:
+) -> CheckpointType | None:
     """Returns "midway" or "cp_entrance" if a checkpoint fired this frame, else None.
 
     Suppressed if any goal-type signal also fired this frame (orb/goal/key/fadeout)

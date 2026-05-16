@@ -7,8 +7,19 @@ is by dataclass type — there is no JSON wire format at this seam.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 SPEED_UNCAPPED = 0  # passed to ReplayCmd.speed; RA interprets 0 as uncapped
+
+# Values produced by retroarch/predicates.py::check_checkpoint_hit().
+# Stored on CheckpointEvent.cp_type and persisted in the DB ``end_type``
+# column for checkpoint segments (after recorder normalizes to "checkpoint").
+CheckpointType = Literal["midway", "cp_entrance"]
+
+# Values produced by retroarch/predicates.py::goal_type(). The recorder
+# treats anything that isn't "abort" as a successful completion; ordering
+# (key > orb > boss > normal > abort) is set by predicates.
+LevelExitGoal = Literal["key", "orb", "boss", "normal", "abort"]
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +48,7 @@ class LevelEntranceEvent:
 class CheckpointEvent:
     level_num: int = 0
     cp_ordinal: int = 1
-    cp_type: str = ""
+    cp_type: CheckpointType = "midway"
     state_path: str | None = None
     timestamp_ms: int = 0
     conditions: dict[str, int] = field(default_factory=dict)
@@ -62,7 +73,7 @@ class SpawnEvent:
 class LevelExitEvent:
     level: int = 0
     room: int = 0
-    goal: str = "abort"
+    goal: LevelExitGoal = "abort"
     elapsed_ms: int = 0
     frame: int = 0
     timestamp_ms: int = 0
