@@ -2,13 +2,18 @@
 from __future__ import annotations
 
 import json
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, Self, TypeVar
 
+from spinlab import log
+
 if TYPE_CHECKING:
     from spinlab.db import Database
     from spinlab.models import AttemptRecord, ModelOutput
+
+logger = logging.getLogger(__name__)
 
 S = TypeVar("S", bound="EstimatorState")
 
@@ -85,7 +90,14 @@ def load_mature_states(
             continue
         try:
             states.append(state_cls.from_dict(json.loads(r["state_json"])))
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError) as exc:
+            log.warn(
+                logger, "skipped corrupt estimator state",
+                exc=exc,
+                segment_id=r.get("segment_id"),
+                estimator=estimator_name,
+                game_id=game_id,
+            )
             continue
     return [s for s in states if s.n_completed >= maturity_threshold]
 
