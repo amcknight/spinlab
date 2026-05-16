@@ -88,29 +88,32 @@ class ConditionRegistry:
 
     @classmethod
     def from_yaml(cls, path: Path) -> "ConditionRegistry":
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        defs: list[ConditionDef] = []
-        for c in raw.get("conditions", []):
-            scope_raw = c["scope"]
-            if scope_raw == "game":
-                scope = Scope.game()
-            elif isinstance(scope_raw, dict) and "levels" in scope_raw:
-                scope = Scope.levels_of(scope_raw["levels"])
-            else:
-                raise ValueError(f"unknown scope: {scope_raw!r}")
-            defs.append(ConditionDef(
-                name=c["name"],
-                address=int(c["address"]),
-                size=int(c["size"]),
-                type=c["type"],
-                values=({int(k): str(v) for k, v in c["values"].items()}
-                        if c.get("values") else None),
-                scope=scope,
-            ))
-        return cls(
-            definitions=defs,
-            death_penalty_ms=raw.get("death_penalty_ms", DEFAULT_DEATH_PENALTY_MS),
-        )
+        try:
+            raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            defs: list[ConditionDef] = []
+            for c in raw.get("conditions", []):
+                scope_raw = c["scope"]
+                if scope_raw == "game":
+                    scope = Scope.game()
+                elif isinstance(scope_raw, dict) and "levels" in scope_raw:
+                    scope = Scope.levels_of(scope_raw["levels"])
+                else:
+                    raise ValueError(f"unknown scope: {scope_raw!r}")
+                defs.append(ConditionDef(
+                    name=c["name"],
+                    address=int(c["address"]),
+                    size=int(c["size"]),
+                    type=c["type"],
+                    values=({int(k): str(v) for k, v in c["values"].items()}
+                            if c.get("values") else None),
+                    scope=scope,
+                ))
+            return cls(
+                definitions=defs,
+                death_penalty_ms=raw.get("death_penalty_ms", DEFAULT_DEATH_PENALTY_MS),
+            )
+        except (KeyError, TypeError, ValueError, yaml.YAMLError) as exc:
+            raise ValueError(f"failed to parse conditions yaml at {path}: {exc}") from exc
 
     def in_scope(self, level: int) -> list[ConditionDef]:
         return [d for d in self.definitions if d.scope.covers(level)]

@@ -5,6 +5,8 @@ import asyncio
 import logging
 from unittest.mock import MagicMock
 
+import pytest
+
 
 # ---------------------------------------------------------------------------
 # M10 — speed_run teardown
@@ -222,3 +224,53 @@ def test_load_mature_states_logs_corrupt_json(caplog):
     assert "segment_id='seg-corrupt'" in msg, msg
     assert "estimator='dummy'" in msg, msg
     assert "game_id='game-x'" in msg, msg
+
+
+# ---------------------------------------------------------------------------
+# M9 — condition_registry.from_yaml error includes path
+# ---------------------------------------------------------------------------
+
+def test_from_yaml_error_includes_path(tmp_path):
+    """A malformed conditions.yaml must raise with the yaml path in the message."""
+    from spinlab.condition_registry import ConditionRegistry
+
+    bad_yaml = tmp_path / "conditions.yaml"
+    bad_yaml.write_text(
+        # Missing 'name' key — will trigger KeyError("name") in the parse loop.
+        "conditions:\n"
+        "  - scope: game\n"
+        "    address: 0x1000\n"
+        "    size: 1\n"
+        "    type: u8\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        ConditionRegistry.from_yaml(bad_yaml)
+
+    msg = str(exc_info.value)
+    assert str(bad_yaml) in msg, f"path not in error message: {msg!r}"
+
+
+def test_from_yaml_typeerror_also_wrapped(tmp_path):
+    """A None-address triggers TypeError(int(None)); it must also be wrapped with path."""
+    from spinlab.condition_registry import ConditionRegistry
+
+    bad_yaml = tmp_path / "conditions.yaml"
+    bad_yaml.write_text(
+        # `address:` with no value parses as None; int(None) raises TypeError.
+        "conditions:\n"
+        "  - name: x\n"
+        "    scope: game\n"
+        "    address:\n"
+        "    size: 1\n"
+        "    type: u8\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        ConditionRegistry.from_yaml(bad_yaml)
+
+    assert str(bad_yaml) in str(exc_info.value)
+    # Make sure the underlying cause is preserved as TypeError, not silently swallowed.
+    assert isinstance(exc_info.value.__cause__, TypeError)
