@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from enum import Enum, StrEnum
 from typing import Optional
 
+from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 
@@ -198,7 +199,7 @@ class AttemptRecord:
     created_at: str              # ISO timestamp
 
 
-@pydantic_dataclass
+@pydantic_dataclass(config=ConfigDict(extra="allow"))
 class Estimate:
     """One coherent set of predictions for a single time series.
 
@@ -226,7 +227,7 @@ class Estimate:
         )
 
 
-@pydantic_dataclass
+@pydantic_dataclass(config=ConfigDict(extra="allow"))
 class ModelOutput:
     """What every estimator produces — predictions for total time and clean tail.
 
