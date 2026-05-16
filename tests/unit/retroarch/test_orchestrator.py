@@ -18,6 +18,7 @@ from spinlab.condition_registry import ConditionRegistry
 from spinlab.errors import BackendNotImplementedError
 from spinlab.protocol import (
     ColdFillLoadCmd,
+    ConditionSpec,
     FillGapLoadCmd,
     PracticeLoadCmd,
     PracticeStopCmd,
@@ -244,7 +245,7 @@ async def test_set_conditions_cmd_updates_registry(tmp_path):
     orch, _, _, conditions, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
-    defs = [{"name": "x", "address": 0x100, "size": 1}]
+    defs = [ConditionSpec(name="x", address=0x100, size=1)]
     await orch.send_command(SetConditionsCmd(definitions=defs))
     assert len(conditions.definitions) == 1
     assert conditions.definitions[0].name == "x"

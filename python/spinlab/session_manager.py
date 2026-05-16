@@ -27,6 +27,7 @@ from .protocol import (
     DeathEvent,
     GameContextEvent,
     LevelEntranceEvent,
+    ConditionSpec,
     LevelExitEvent,
     ReplayErrorEvent,
     ReplayFinishedEvent,
@@ -247,7 +248,7 @@ class SessionManager:
         self.capture.set_condition_registry(registry)
         if self.emu.is_connected and registry.definitions:
             defs_payload = [
-                {"name": d.name, "address": d.address, "size": d.size}
+                ConditionSpec(name=d.name, address=d.address, size=d.size)
                 for d in registry.definitions
             ]
             await self.emu.send_command(SetConditionsCmd(definitions=defs_payload))

@@ -5,7 +5,7 @@ from typing import Iterator
 import pytest
 
 from spinlab.condition_registry import ConditionRegistry
-from spinlab.protocol import LevelEntranceEvent
+from spinlab.protocol import ConditionSpec, LevelEntranceEvent
 from spinlab.retroarch.poller import Poller, PollerDeps
 from spinlab.retroarch.snapshot import MemorySnapshot
 
@@ -43,7 +43,7 @@ async def test_poller_populates_event_conditions_from_registry():
     """When conditions_registry is set, emitted events have populated conditions."""
     reg = ConditionRegistry()
     reg.replace_with_read_specs([
-        {"name": "powerup", "address": 0x19, "size": 1},
+        ConditionSpec(name="powerup", address=0x19, size=1),
     ])
     snapshots = iter([
         _snap(level_num=5),

@@ -89,9 +89,9 @@ class TestInstallConditionRegistry:
         assert len(cond_cmds) == 1
         payload = cond_cmds[0].definitions
         assert len(payload) == 1
-        assert payload[0]["name"] == "powerup"
-        assert payload[0]["address"] == 0x19
-        assert payload[0]["size"] == 1
+        assert payload[0].name == "powerup"
+        assert payload[0].address == 0x19
+        assert payload[0].size == 1
 
     async def test_install_condition_registry_no_send_when_empty(
         self, db, emu, tmp_path, monkeypatch,

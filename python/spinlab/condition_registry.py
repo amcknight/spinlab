@@ -14,9 +14,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Protocol
+from typing import TYPE_CHECKING, Iterable, Protocol
 
 import yaml
+
+if TYPE_CHECKING:
+    from spinlab.protocol import ConditionSpec
 
 # Default death penalty: time added per death to account for death animation
 # + respawn in a standard SMW retry (~3.2 s measured from SMW NTSC timing).
@@ -112,22 +115,22 @@ class ConditionRegistry:
     def in_scope(self, level: int) -> list[ConditionDef]:
         return [d for d in self.definitions if d.scope.covers(level)]
 
-    def replace_with_read_specs(self, specs: list[dict]) -> None:
+    def replace_with_read_specs(self, specs: list["ConditionSpec"]) -> None:
         """Replace ``definitions`` with read-only specs from ``SetConditionsCmd``.
 
-        Each spec dict must have keys ``name`` (str), ``address`` (int),
-        ``size`` (int in SUPPORTED_READ_SIZES). type/values/scope take their
-        defaults — fine because only ``read_all`` touches definitions built
-        this way; capture-side ``decode`` always uses YAML-loaded registries.
+        Each ConditionSpec carries name/address/size; type/values/scope on the
+        resulting ConditionDef take their defaults — fine because only
+        ``read_all`` touches definitions built this way; capture-side ``decode``
+        always uses YAML-loaded registries.
         """
         for s in specs:
-            if s["size"] not in SUPPORTED_READ_SIZES:
+            if s.size not in SUPPORTED_READ_SIZES:
                 raise ValueError(
-                    f"unsupported condition size {s['size']} for {s['name']!r}; "
+                    f"unsupported condition size {s.size} for {s.name!r}; "
                     f"only {SUPPORTED_READ_SIZES} supported"
                 )
         self.definitions = [
-            ConditionDef(name=s["name"], address=s["address"], size=s["size"])
+            ConditionDef(name=s.name, address=s.address, size=s.size)
             for s in specs
         ]
 

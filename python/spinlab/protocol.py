@@ -175,9 +175,23 @@ class ColdFillLoadCmd:
     state_path: str = ""
     segment_id: str = ""
 
+@dataclass(frozen=True)
+class ConditionSpec:
+    """A condition definition sent from SessionManager to the backend.
+
+    The backend's poller uses this to issue NCI READ_CORE_RAM requests when
+    stamping events with current memory-condition values. Only name + address
+    + size are needed at read time; the type/values/scope used for capture-side
+    decoding stay with the YAML-loaded ConditionDef in condition_registry.py.
+    """
+    name: str
+    address: int
+    size: int  # bytes; only 1 or 2 are supported by read_all
+
+
 @dataclass
 class SetConditionsCmd:
-    definitions: list[dict] = field(default_factory=list)
+    definitions: list[ConditionSpec] = field(default_factory=list)
 
 @dataclass
 class PracticeLoadCmd:
