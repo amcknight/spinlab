@@ -46,3 +46,49 @@ def test_speed_run_teardown_logs_when_backend_disconnects(caplog):
     assert any("speed_run teardown" in m for m in messages), (
         f"expected a 'speed_run teardown' log line; got: {messages!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# M11 — orchestrator tick error includes timing state
+# ---------------------------------------------------------------------------
+
+def test_tick_loop_logs_state_on_error(caplog):
+    """When a tick raises, the log must include practice_armed / speed_run_armed."""
+    from spinlab.retroarch.orchestrator import RetroArchOrchestrator
+
+    class _Boom:
+        is_armed = True
+        def tick(self) -> None:
+            raise RuntimeError("kaboom")
+
+    class _Quiet:
+        is_armed = False
+        def tick(self) -> None:
+            pass
+
+    orch = RetroArchOrchestrator.__new__(RetroArchOrchestrator)  # bypass __init__
+    orch._practice_timing = _Boom()
+    orch._speed_run_timing = _Quiet()
+    orch._running = True
+
+    import spinlab.retroarch.orchestrator as orch_mod
+
+    async def _stop_after(_delay: float) -> None:
+        orch._running = False
+
+    real_sleep = orch_mod.asyncio.sleep
+    orch_mod.asyncio.sleep = _stop_after  # type: ignore[assignment]
+    try:
+        caplog.set_level(logging.ERROR, logger="spinlab.retroarch.orchestrator")
+        asyncio.run(orch._tick_loop())
+    finally:
+        orch_mod.asyncio.sleep = real_sleep  # type: ignore[assignment]
+
+    records = [
+        r for r in caplog.records
+        if r.name == "spinlab.retroarch.orchestrator" and "tick error" in r.getMessage()
+    ]
+    assert records, "expected a tick error log line"
+    msg = records[0].getMessage()
+    assert "practice_armed=True" in msg, msg
+    assert "speed_run_armed=False" in msg, msg

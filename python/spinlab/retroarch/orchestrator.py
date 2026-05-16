@@ -15,6 +15,7 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
+from spinlab import log
 from spinlab.condition_registry import ConditionRegistry
 from spinlab.protocol import (
     ColdFillLoadCmd,
@@ -301,8 +302,13 @@ class RetroArchOrchestrator:
             try:
                 self._practice_timing.tick()
                 self._speed_run_timing.tick()
-            except Exception:
-                logger.exception("RetroArchOrchestrator: tick error")
+            except Exception as exc:
+                log.error(
+                    logger, "RetroArchOrchestrator: tick error",
+                    exc=exc,
+                    practice_armed=self._practice_timing.is_armed,
+                    speed_run_armed=self._speed_run_timing.is_armed,
+                )
             await asyncio.sleep(TICK_INTERVAL_SEC)
 
 
