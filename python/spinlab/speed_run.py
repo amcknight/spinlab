@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Callable
 
+from spinlab import log
+
 from .db.segments import SegmentRow
 from .models import Attempt, AttemptSource
 from .protocol import (
@@ -267,6 +269,9 @@ class SpeedRunSession:
         finally:
             try:
                 await self.emu.send_command(SpeedRunStopCmd())
-            except (ConnectionError, OSError):
-                pass
+            except (ConnectionError, OSError) as exc:
+                log.info(
+                    logger, "speed_run teardown after backend disconnect",
+                    exc=exc,
+                )
             self.stop()
