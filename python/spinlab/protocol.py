@@ -7,7 +7,7 @@ is by dataclass type — there is no JSON wire format at this seam.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, TypedDict
 
 SPEED_UNCAPPED = 0  # passed to ReplayCmd.speed; RA interprets 0 as uncapped
 
@@ -207,12 +207,17 @@ class PracticeLoadCmd:
 class PracticeStopCmd:
     pass
 
+class SpeedRunCheckpoint(TypedDict):
+    ordinal: int
+    state_path: str
+
+
 @dataclass
 class SpeedRunLoadCmd:
     id: str = ""
     state_path: str = ""
     description: str = ""
-    checkpoints: list = field(default_factory=list)
+    checkpoints: list[SpeedRunCheckpoint] = field(default_factory=list)
     expected_time_ms: int | None = None
     auto_advance_delay_ms: int = 1000
     # Length of the post-death blackout before the cold save state is reloaded.

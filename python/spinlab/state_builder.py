@@ -156,10 +156,9 @@ class StateBuilder:
         base["session"]["saved_total_ms"] = saved_total
         base["session"]["saved_clean_ms"] = saved_clean
         if ps.current_segment_id and session.game_id:
-            segments = self.db.get_all_segments_with_model(session.game_id)
-            seg_map = {s["id"]: s for s in segments}
-            if ps.current_segment_id in seg_map:
-                current_seg: dict = dict(seg_map[ps.current_segment_id])
+            seg_row = self.db.get_segment_row(ps.current_segment_id)
+            if seg_row is not None:
+                current_seg: dict = dict(seg_row)
                 current_seg["attempt_count"] = self.db.get_segment_attempt_count(
                     ps.current_segment_id, ps.session_id
                 )

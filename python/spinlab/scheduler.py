@@ -158,41 +158,57 @@ class Scheduler:
         all_attempts_with_new = all_attempts + [new_attempt]
 
         for est in [get_estimator(n) for n in list_estimators()]:
-            params = self._load_estimator_params(est.name)
-            row = self.db.load_model_state(segment_id, est.name)
+            try:
+                self._process_attempt_for_estimator(
+                    est, segment_id, new_attempt, all_attempts_with_new,
+                    completed=completed, time_ms=time_ms,
+                )
+            except Exception:
+                logger.exception(
+                    "process_attempt failed for segment=%s estimator=%s",
+                    segment_id, est.name,
+                )
 
-            if row and row["state_json"]:
-                state = EstimatorState.deserialize(est.name, row["state_json"])
-                # Bare state from a death-first attempt: no completed observations
-                # have been folded in yet, so process_attempt would update from
-                # the dataclass defaults (Kalman's mu=0, etc.) and produce a
-                # nonsense estimate.  Route through init_state with population
-                # priors and carry the prior failed-attempt count forward.
-                if state.n_completed == 0 and completed and time_ms is not None:
-                    prior_n_attempts = state.n_attempts
-                    priors = est.get_priors(self.db, self.game_id)
-                    state = est.init_state(new_attempt, priors, params=params)
-                    state.n_attempts += prior_n_attempts
-                else:
-                    state = est.process_attempt(state, new_attempt, all_attempts, params=params)
+    def _process_attempt_for_estimator(
+        self, est: "Estimator", segment_id: str,
+        new_attempt: AttemptRecord, all_attempts_with_new: list[AttemptRecord],
+        *, completed: bool, time_ms: int,
+    ) -> None:
+        params = self._load_estimator_params(est.name)
+        row = self.db.load_model_state(segment_id, est.name)
+
+        if row and row["state_json"]:
+            state = EstimatorState.deserialize(est.name, row["state_json"])
+            # Bare state from a death-first attempt: no completed observations
+            # have been folded in yet, so process_attempt would update from
+            # the dataclass defaults (Kalman's mu=0, etc.) and produce a
+            # nonsense estimate.  Route through init_state with population
+            # priors and carry the prior failed-attempt count forward.
+            if state.n_completed == 0 and completed and time_ms is not None:
+                prior_n_attempts = state.n_attempts
+                priors = est.get_priors(self.db, self.game_id)
+                state = est.init_state(new_attempt, priors, params=params)
+                state.n_attempts += prior_n_attempts
             else:
-                if completed and time_ms is not None:
-                    priors = est.get_priors(self.db, self.game_id)
-                    state = est.init_state(new_attempt, priors, params=params)
-                else:
-                    state = est.rebuild_state([new_attempt], params=params)
-                    output = est.model_output(state, all_attempts_with_new, params=params)
-                    self.db.save_model_state(
-                        segment_id, est.name,
-                        json.dumps(state.to_dict()), json.dumps(output.to_dict()),
-                    )
-                    continue
+                state = est.process_attempt(state, new_attempt, all_attempts_with_new, params=params)
+        else:
+            if completed and time_ms is not None:
+                priors = est.get_priors(self.db, self.game_id)
+                state = est.init_state(new_attempt, priors, params=params)
+            else:
+                state = est.rebuild_state([new_attempt], params=params)
+                output = est.model_output(state, all_attempts_with_new, params=params)
+                self.db.save_model_state(
+                    segment_id, est.name,
+                    json.dumps(state.to_dict()), json.dumps(output.to_dict()),
+                )
+                return
 
-            output = est.model_output(state, all_attempts_with_new, params=params)
-            self.db.save_model_state(
-                segment_id, est.name,
-                json.dumps(state.to_dict()), json.dumps(output.to_dict()),
-            )
+        output = est.model_output(state, all_attempts_with_new, params=params)
+        self.db.save_model_state(
+            segment_id, est.name,
+            json.dumps(state.to_dict()), json.dumps(output.to_dict()),
+        )
 
     def get_all_model_states(self) -> list[SegmentWithModel]:
         return SegmentWithModel.load_all(self.db, self.game_id, self.estimator.name)
@@ -229,10 +245,16 @@ class Scheduler:
                 continue
             all_attempts = _attempts_from_rows(attempt_rows)
             for est in [get_estimator(n) for n in list_estimators()]:
-                params = self._load_estimator_params(est.name)
-                state = est.rebuild_state(all_attempts, params=params)
-                output = est.model_output(state, all_attempts, params=params)
-                self.db.save_model_state(
-                    segment_id, est.name,
-                    json.dumps(state.to_dict()), json.dumps(output.to_dict()),
-                )
+                try:
+                    params = self._load_estimator_params(est.name)
+                    state = est.rebuild_state(all_attempts, params=params)
+                    output = est.model_output(state, all_attempts, params=params)
+                    self.db.save_model_state(
+                        segment_id, est.name,
+                        json.dumps(state.to_dict()), json.dumps(output.to_dict()),
+                    )
+                except Exception:
+                    logger.exception(
+                        "rebuild_all_states failed for segment=%s estimator=%s",
+                        segment_id, est.name,
+                    )

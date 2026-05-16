@@ -7,7 +7,7 @@ import pytest
 from tests.conftest import make_seg_with_state
 
 from spinlab.db import Database
-from spinlab.models import Attempt, AttemptSource, Segment, SegmentCommand, Waypoint
+from spinlab.models import Attempt, AttemptSource, Segment, Waypoint
 from spinlab.practice import PracticeSession
 from spinlab.protocol import AttemptResultEvent, PracticeLoadCmd
 from spinlab.scheduler import Scheduler
@@ -234,15 +234,11 @@ def test_process_result_does_not_double_count_attempts(practice_db):
     emu.is_connected = True
     ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
 
-    cmd = SegmentCommand(
-        id=seg_id, state_path="x", description="x",
-        end_type="goal", expected_time_ms=None,
+    ps._process_result(
+        AttemptResultEvent(segment_id=seg_id, completed=True, time_ms=10000),
     )
     ps._process_result(
-        AttemptResultEvent(segment_id=seg_id, completed=True, time_ms=10000), cmd,
-    )
-    ps._process_result(
-        AttemptResultEvent(segment_id=seg_id, completed=True, time_ms=20000), cmd,
+        AttemptResultEvent(segment_id=seg_id, completed=True, time_ms=20000),
     )
 
     # rolling_mean's expected_ms is the mean of completed times. With two

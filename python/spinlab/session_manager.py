@@ -446,7 +446,7 @@ class SessionManager:
         ps = PracticeSession(
             emu=self.emu, db=self.db, game_id=self.require_game(),
             death_penalty_ms=self.capture.condition_registry.death_penalty_ms,
-            on_attempt=lambda _: asyncio.ensure_future(self._notify_sse()),
+            on_attempt=lambda _: asyncio.create_task(self._notify_sse()),
         )
         self.practice_session = ps
         self.practice_task = asyncio.create_task(ps.run_loop())
@@ -462,7 +462,7 @@ class SessionManager:
                 logger.error("practice task crashed", exc_info=exc)
         if self.mode == Mode.PRACTICE:
             self.mode = Mode.IDLE
-            asyncio.ensure_future(self._notify_sse())
+            asyncio.create_task(self._notify_sse())
 
     async def stop_practice(self) -> ActionResult:
         if self.practice_session and self.practice_session.is_running:
@@ -495,7 +495,7 @@ class SessionManager:
         try:
             sr = SpeedRunSession(
                 emu=self.emu, db=self.db, game_id=self.require_game(),
-                on_event=lambda _: asyncio.ensure_future(self._notify_sse()),
+                on_event=lambda _: asyncio.create_task(self._notify_sse()),
             )
         except ValueError:
             raise MissingSaveStatesError()
@@ -514,7 +514,7 @@ class SessionManager:
                 logger.error("speed_run task crashed", exc_info=exc)
         if self.mode == Mode.SPEED_RUN:
             self.mode = Mode.IDLE
-            asyncio.ensure_future(self._notify_sse())
+            asyncio.create_task(self._notify_sse())
 
     async def stop_speed_run(self) -> ActionResult:
         if self.speed_run_session and self.speed_run_session.is_running:

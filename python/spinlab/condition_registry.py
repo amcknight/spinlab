@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Iterable, Protocol
 import yaml
 
 if TYPE_CHECKING:
+    from spinlab.models import ConditionMap
     from spinlab.protocol import ConditionSpec
 
 # Default death penalty: time added per death to account for death animation
@@ -162,13 +163,13 @@ class ConditionRegistry:
                 out[d.name] = data[0] | (data[1] << 8)
         return out
 
-    def decode(self, raw: dict[str, int], level: int) -> dict[str, str | bool]:
+    def decode(self, raw: dict[str, int], level: int) -> "ConditionMap":
         """Decode raw memory values into logical conditions, filtering to in-scope.
 
         Returns enum conditions as their string label (from ConditionDef.values)
         and bool conditions as Python bools. Unknown ``type`` values raise.
         """
-        result: dict[str, str | bool] = {}
+        result: ConditionMap = {}
         for d in self.in_scope(level):
             if d.name not in raw:
                 continue

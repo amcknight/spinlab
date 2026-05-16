@@ -237,12 +237,12 @@ class PracticeSession:
                 continue
 
         if self._result_data is not None:
-            self._process_result(self._result_data, cmd)
+            self._process_result(self._result_data)
 
         self.current_segment_id = None
         return True
 
-    def _process_result(self, result: AttemptResultEvent, cmd: SegmentCommand) -> None:
+    def _process_result(self, result: AttemptResultEvent) -> None:
         attempt = Attempt(
             segment_id=result.segment_id,
             session_id=self.session_id,

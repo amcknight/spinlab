@@ -40,6 +40,10 @@ def transition_mode(current: Mode, target: Mode) -> Mode:
     return target
 
 
+# Decoded condition values: enum conditions as str labels, bool conditions as bool.
+ConditionMap = dict[str, str | bool]
+
+
 class EndpointType(StrEnum):
     ENTRANCE = "entrance"
     CHECKPOINT = "checkpoint"
@@ -113,7 +117,7 @@ class Waypoint:
 
     @staticmethod
     def make(game_id: str, level_number: int, endpoint_type: "EndpointType",
-             ordinal: int, conditions: dict) -> "Waypoint":
+             ordinal: int, conditions: ConditionMap) -> "Waypoint":
         canonical = json.dumps(conditions, sort_keys=True, separators=(", ", ": "))
         h = hashlib.sha256(
             f"{game_id}:{level_number}:{endpoint_type}.{ordinal}:{canonical}".encode()

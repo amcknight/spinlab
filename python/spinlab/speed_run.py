@@ -14,6 +14,7 @@ from spinlab import log
 from .db.segments import SegmentRow
 from .models import Attempt, AttemptSource
 from .protocol import (
+    SpeedRunCheckpoint,
     SpeedRunCheckpointEvent,
     SpeedRunCompleteEvent,
     SpeedRunDeathEvent,
@@ -40,7 +41,7 @@ class LevelPlan:
     description: str
     entrance_state_path: str
     segments: list[SegmentRow] = field(default_factory=list)
-    checkpoints: list[dict] = field(default_factory=list)
+    checkpoints: list[SpeedRunCheckpoint] = field(default_factory=list)
 
 
 class SpeedRunSession:
@@ -131,10 +132,10 @@ class SpeedRunSession:
                 raise ValueError(
                     f"Missing save state for segment {seg['id']} ({desc})"
                 )
-            checkpoints.append({
-                "ordinal": seg["start_ordinal"],
-                "state_path": cp_state,
-            })
+            checkpoints.append(SpeedRunCheckpoint(
+                ordinal=seg["start_ordinal"],
+                state_path=cp_state,
+            ))
 
         description = entrance_seg.get("description") or f"Level {entrance_seg['level_number']}"
 

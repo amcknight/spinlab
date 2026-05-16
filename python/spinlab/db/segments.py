@@ -77,6 +77,28 @@ class SegmentsMixin:
             (now, segment_id),
         )
 
+    def get_segment_row(self, segment_id: str) -> SegmentRow | None:
+        """Get a single segment row with its start-waypoint save state path."""
+        cur = self.conn.execute(
+            """SELECT s.id, s.game_id, s.level_number, s.start_type, s.start_ordinal,
+                       s.end_type, s.end_ordinal, s.description,
+                       s.active, s.ordinal, s.is_primary,
+                       s.start_waypoint_id, s.end_waypoint_id,
+                       (SELECT wss.state_path FROM waypoint_save_states wss
+                        WHERE wss.waypoint_id = s.start_waypoint_id
+                          AND wss.variant_type = (CASE
+                            WHEN s.start_type = 'entrance' THEN 'cold' ELSE 'hot' END)
+                        LIMIT 1) AS state_path
+                FROM segments s
+                WHERE s.id = ?""",
+            (segment_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        actual_cols = [desc[0] for desc in cur.description]
+        return dict(zip(actual_cols, row))  # type: ignore[return-value]
+
     def get_all_segments_with_model(self, game_id: str, *,
                                     primary_only: bool = True) -> list[SegmentRow]:
         """Get all active segments with their start-waypoint save state path.

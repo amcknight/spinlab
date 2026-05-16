@@ -42,7 +42,7 @@ class _BaseResponse(BaseModel):
 # models.py — they ARE dataclasses (asdict/fields/to_dict still work) AND
 # Pydantic schema sources, so FastAPI generates OpenAPI definitions from the
 # same class the estimator pipeline constructs and state_builder serializes.
-from spinlab.models import EndpointType, Estimate, ModelOutput, Mode, Status
+from spinlab.models import ConditionMap, EndpointType, Estimate, ModelOutput, Mode, Status
 
 CaptureRunStatus = Literal["draft", "saved"]
 CaptureRunKind = Literal["live", "replay"]
@@ -238,8 +238,8 @@ class ApiSegment(_BaseResponse):
     is_primary: bool
     start_waypoint_id: str | None = None
     end_waypoint_id: str | None = None
-    start_conditions: dict[str, str | bool] = {}
-    end_conditions: dict[str, str | bool] = {}
+    start_conditions: ConditionMap = {}
+    end_conditions: ConditionMap = {}
 
 
 class SegmentsResponse(_BaseResponse):
