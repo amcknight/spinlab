@@ -7,7 +7,7 @@ test_key_exit / test_orb_exit (see
 docs/superpowers/plans/2026-05-14-transition-state-leak-followup.md).
 
 Usage:
-    python scripts/make_fresh_boot_state.py --rom-key default
+    python scripts/make_fresh_boot_state.py --rom-key vanilla_smw
     python scripts/make_fresh_boot_state.py --rom-key love_yourself
     python scripts/make_fresh_boot_state.py --all
 """

@@ -106,10 +106,6 @@ def _wait_for_idle_with_progress(
     )
 
 
-@pytest.mark.skipif(
-    not FIXTURE_REPLAY.exists(),
-    reason=f"Movie fixture not recorded: {FIXTURE_REPLAY}",
-)
 class TestReplayFixture:
     """Replay the one-level Love Yourself recording through RetroArch and verify capture.
 

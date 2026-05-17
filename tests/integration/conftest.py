@@ -16,10 +16,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import shutil
 import socket
-import subprocess
 import tempfile
 import threading
 from pathlib import Path
@@ -179,35 +177,6 @@ def _free_udp_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
-
-
-def _hard_kill(proc: subprocess.Popen) -> None:
-    """Best-effort kill for subprocess processes.
-
-    On Windows, ``Popen.terminate()`` and ``Popen.kill()`` both call
-    ``TerminateProcess()`` — there is no real escalation between them.  Use
-    ``taskkill /F /T`` so the whole tree dies and we don't leak children.
-    Every wait gets a timeout so a wedged process can't hang the pytest
-    finalizer.
-    """
-    if proc.poll() is not None:
-        return
-    if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    else:
-        proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            pass
 
 
 # -- Seeded-game fixture for frontend contract smoke tests -------------------
