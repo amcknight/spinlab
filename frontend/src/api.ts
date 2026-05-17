@@ -3,6 +3,16 @@ import type { AppState } from "./types";
 const TOAST_TIMEOUT_MS = 8000;
 const FALLBACK_POLL_MS = 5000;
 
+export function formatClientError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 function showToast(msg: string): void {
@@ -62,8 +72,8 @@ export function connectSSE(onMessage: (data: AppState) => void): EventSource {
     try {
       const data: AppState = JSON.parse(e.data);
       onMessage(data);
-    } catch (_) {
-      // malformed SSE payload
+    } catch (err) {
+      console.warn("SSE: malformed payload, dropping:", formatClientError(err));
     }
   };
   es.onerror = () => {

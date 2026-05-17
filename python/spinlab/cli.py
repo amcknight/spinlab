@@ -154,8 +154,6 @@ def main(args: list[str] | None = None) -> None:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("stats", help="Show practice statistics (coming soon)")
-
     p_dash = sub.add_parser("dashboard", help="Start the web dashboard")
     p_dash.add_argument(
         "--config", default="config.yaml", help="Path to config.yaml"
@@ -177,11 +175,7 @@ def main(args: list[str] | None = None) -> None:
 
     parsed = parser.parse_args(args)
 
-    if parsed.command == "stats":
-        print("Stats coming in a future step.")
-        sys.exit(0)
-
-    elif parsed.command == "dashboard":
+    if parsed.command == "dashboard":
         try:
             _run_dashboard(parsed)
         except SystemExit:

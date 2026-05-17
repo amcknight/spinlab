@@ -4,14 +4,6 @@ import pytest
 from spinlab.cli import _write_ports_file, main
 
 
-def test_stats_subcommand_prints_stub(capsys):
-    with pytest.raises(SystemExit) as exc:
-        main(["stats"])
-    assert exc.value.code == 0
-    captured = capsys.readouterr()
-    assert "Stats coming in a future step" in captured.out
-
-
 def test_unknown_subcommand_exits_nonzero():
     with pytest.raises(SystemExit) as exc:
         main(["notacommand"])

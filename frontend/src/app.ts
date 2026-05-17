@@ -1,4 +1,4 @@
-import { connectSSE, fetchJSON } from "./api";
+import { connectSSE, fetchJSON, formatClientError } from "./api";
 import { initHeader, updateHeader } from "./header";
 import {
   updatePracticeCard,
@@ -63,7 +63,7 @@ async function fetchAndRenderSegments(): Promise<void> {
     }
     renderSegmentsView(container, segs);
   } catch (err) {
-    container.textContent = String(err);
+    container.textContent = `Failed to load segments: ${formatClientError(err)}`;
   }
 }
 

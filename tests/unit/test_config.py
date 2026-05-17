@@ -51,24 +51,6 @@ class TestAppConfig:
             AppConfig.from_yaml(config_file)
 
 
-def test_invalidate_combo_default(tmp_path: Path):
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("data: { dir: ./data }\n")
-    conf = AppConfig.from_yaml(cfg)
-    assert conf.practice.invalidate_combo == ["L", "Select"]
-
-
-def test_invalidate_combo_custom(tmp_path: Path):
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text(
-        "data: { dir: ./data }\n"
-        "practice:\n"
-        "  invalidate_combo: [R, Start]\n"
-    )
-    conf = AppConfig.from_yaml(cfg)
-    assert conf.practice.invalidate_combo == ["R", "Start"]
-
-
 def test_ra_movie_dir_parsed_from_yaml(tmp_path):
     cfg_yaml = tmp_path / "config.yaml"
     cfg_yaml.write_text(

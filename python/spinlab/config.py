@@ -1,7 +1,7 @@
 """Typed configuration — parsed once at startup from YAML."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -26,17 +26,6 @@ class EmulatorConfig:
     # e.g. "Snes9x" for snes9x_libretro.dll — not derivable from the DLL stem automatically
 
 
-# SNES controller buttons reserved for the in-emulator invalidation combo.
-# L+Select chosen to avoid collision with in-game controls (Start/Select combos
-# are common in SNES games; L is typically unused during normal gameplay).
-DEFAULT_INVALIDATE_COMBO = ["L", "Select"]
-
-
-@dataclass
-class PracticeConfig:
-    invalidate_combo: list[str] = field(default_factory=lambda: list(DEFAULT_INVALIDATE_COMBO))
-
-
 @dataclass
 class AppConfig:
     network: NetworkConfig
@@ -44,7 +33,6 @@ class AppConfig:
     data_dir: Path
     rom_dir: Path | None
     category: str = "any%"
-    practice: PracticeConfig = field(default_factory=PracticeConfig)
 
     @classmethod
     def from_yaml(cls, path: Path) -> "AppConfig":
@@ -62,11 +50,6 @@ class AppConfig:
         spinlab_state_dir = emu.get("spinlab_state_dir")
         ra_movie_dir = emu.get("ra_movie_dir")
         ra_core_subdir = emu.get("ra_core_subdir")
-
-        practice_raw = raw.get("practice", {})
-        practice_cfg = PracticeConfig(
-            invalidate_combo=list(practice_raw.get("invalidate_combo", DEFAULT_INVALIDATE_COMBO)),
-        )
 
         return cls(
             network=NetworkConfig(
@@ -86,5 +69,4 @@ class AppConfig:
             data_dir=Path(raw["data"]["dir"]),
             rom_dir=Path(rom_dir_str) if rom_dir_str else None,
             category=raw.get("game", {}).get("category", "any%"),
-            practice=practice_cfg,
         )

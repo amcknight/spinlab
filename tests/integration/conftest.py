@@ -231,7 +231,7 @@ async def fake_dashboard_server():
     """
     from tests.conftest import FakeEmuBackend
 
-    from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeConfig
+    from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
     from spinlab.dashboard import create_app
     from spinlab.db import Database
 
@@ -253,7 +253,6 @@ async def fake_dashboard_server():
         ),
         data_dir=tmp_path,
         rom_dir=None,
-        practice=PracticeConfig(),
     )
 
     app = create_app(db=db, config=config)
@@ -484,7 +483,7 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
     Yields (base_url, db, tmp_path) — tmp_path is the data dir where the
     test should stage its fixture files.
     """
-    from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeConfig
+    from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
     from spinlab.dashboard import create_app
     from spinlab.db import Database
 
@@ -526,7 +525,6 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
         ),
         data_dir=tmp_path,
         rom_dir=rom_dir,
-        practice=PracticeConfig(),
     )
 
     app = create_app(db=db, config=config)

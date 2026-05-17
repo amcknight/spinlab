@@ -515,7 +515,7 @@ class TestPracticeLifecycle:
         sm.practice_session = fake_ps
 
         async def hung_loop():
-            await asyncio.sleep(10)
+            await asyncio.sleep(1)
 
         sm.practice_task = asyncio.create_task(hung_loop())
 
