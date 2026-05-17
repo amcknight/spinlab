@@ -20,6 +20,8 @@ import shutil
 import socket
 import tempfile
 import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -239,19 +241,8 @@ async def fake_dashboard_server():
     thread.start()
 
     base_url = f"http://127.0.0.1:{dashboard_port}"
-    last_error: Exception | None = None
-    for _ in range(40):
-        try:
-            resp = http_requests.get(f"{base_url}/api/state", timeout=1)
-            if resp.status_code == 200:
-                break
-            last_error = RuntimeError(f"status {resp.status_code}")
-        except http_requests.ConnectionError as exc:
-            last_error = exc
-        except Exception as exc:
-            last_error = exc
-        await asyncio.sleep(0.25)
-    else:
+    last_error = _wait_for_dashboard_state(base_url, check=_status_200)
+    if last_error is not None:
         pytest.fail(_format_dashboard_startup_failure(
             port=dashboard_port,
             attempts=40,
@@ -506,38 +497,26 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
 
     base_url = f"http://127.0.0.1:{dashboard_port}"
 
-    import time as _time
-
     # Wait for uvicorn to come up.
-    for _ in range(40):
-        try:
-            resp = http_requests.get(f"{base_url}/api/state", timeout=1)
-            if resp.status_code == 200:
-                break
-        except http_requests.ConnectionError:
-            pass
-        _time.sleep(0.25)
-    else:
+    if _wait_for_dashboard_state(base_url, check=_status_200) is not None:
         _teardown_replay_dashboard(server=server, thread=thread, db=db, tmp=tmp)
         pytest.fail("replay_ra_dashboard: uvicorn did not start within 10 seconds")
 
     # Wait for the orchestrator to connect to RA and receive rom_info so the
     # dashboard has a game_id (required before /api/replay/start will resolve).
-    last_state_error: Exception | None = None
-    for _ in range(40):
-        try:
-            resp = http_requests.get(f"{base_url}/api/state", timeout=2)
-            state = resp.json()
-            if state.get("emu_connected") and state.get("game_id"):
-                break
-            last_state_error = RuntimeError(
-                f"emu_connected={state.get('emu_connected')!r} "
-                f"game_id={state.get('game_id')!r}"
-            )
-        except Exception as exc:
-            last_state_error = exc
-        _time.sleep(0.25)
-    else:
+    def _orchestrator_ready(resp: http_requests.Response) -> tuple[bool, Exception | None]:
+        state = resp.json()
+        if state.get("emu_connected") and state.get("game_id"):
+            return True, None
+        return False, RuntimeError(
+            f"emu_connected={state.get('emu_connected')!r} "
+            f"game_id={state.get('game_id')!r}"
+        )
+
+    last_state_error = _wait_for_dashboard_state(
+        base_url, check=_orchestrator_ready, timeout_s=2.0
+    )
+    if last_state_error is not None:
         _teardown_replay_dashboard(server=server, thread=thread, db=db, tmp=tmp)
         pytest.fail(_format_dashboard_startup_failure(
             port=dashboard_port,
@@ -555,7 +534,7 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
         status = harness.client.get_status()
         if status.state == "PAUSED":
             harness.client.pause_toggle()
-            _time.sleep(0.3)  # allow RA to settle into PLAYING before the test POSTs replay/start
+            time.sleep(0.3)  # allow RA to settle into PLAYING before the test POSTs replay/start
     except Exception as exc:
         # Tear down what we built before failing — preserves the no-yield
         # invariant for downstream cleanup hooks.
@@ -647,6 +626,46 @@ def _format_dashboard_startup_failure(
         f"{subject} did not start on port {port} within "
         f"{elapsed:.1f}s ({attempts} × {interval_s}s). Last error: {err_str}"
     )
+
+
+def _wait_for_dashboard_state(
+    base_url: str,
+    *,
+    check: Callable[[http_requests.Response], tuple[bool, Exception | None]],
+    attempts: int = 40,
+    interval_s: float = 0.25,
+    timeout_s: float = 1.0,
+) -> Exception | None:
+    """Poll ``{base_url}/api/state`` until ``check(resp)`` returns ``(True, _)``.
+
+    Returns ``None`` on success or the last captured Exception on timeout.
+    Caller decides how to surface the failure (typically ``pytest.fail`` with a
+    formatted message from ``_format_dashboard_startup_failure``).
+
+    Uses blocking ``time.sleep`` for use across sync and async fixtures alike:
+    the dashboard's background event_loop runs in a separate uvicorn thread,
+    and the fixture's own asyncio loop is single-tenant during setup, so the
+    block doesn't starve anything.
+    """
+    last_error: Exception | None = None
+    for _ in range(attempts):
+        try:
+            resp = http_requests.get(f"{base_url}/api/state", timeout=timeout_s)
+            ok, err = check(resp)
+            if ok:
+                return None
+            last_error = err
+        except Exception as exc:
+            last_error = exc
+        time.sleep(interval_s)
+    return last_error
+
+
+def _status_200(resp: http_requests.Response) -> tuple[bool, Exception | None]:
+    """Default dashboard-ready check: HTTP 200 from /api/state."""
+    if resp.status_code == 200:
+        return True, None
+    return False, RuntimeError(f"status {resp.status_code}")
 
 
 def _teardown_replay_dashboard(*, server, thread, db, tmp) -> None:
