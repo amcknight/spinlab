@@ -67,7 +67,7 @@ FAKE_GAME_NAME = "FakeGame"
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
-async def fake_dashboard_server():
+async def fake_dashboard_server(tmp_path_factory):
     """Start a FastAPI dashboard with a FakeEmuBackend — no live emulator required.
 
     Mirrors the real ``dashboard_server`` fixture but swaps ``session.emu`` for
@@ -81,62 +81,11 @@ async def fake_dashboard_server():
 
     Yields (base_url, db, session).
     """
-    from tests.conftest import FakeEmuBackend
+    from tests.integration._dashboard_harness import DashboardHarness
 
-    from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
-    from spinlab.dashboard import create_app
-    from spinlab.db import Database
-
-    tmp = tempfile.mkdtemp(prefix="spinlab_fake_")
-    tmp_path = Path(tmp)
-
-    db = Database(str(tmp_path / "spinlab.db"))
-    dashboard_port = _free_port()
-    # Port is unused — pick a free one so the real event_loop's connect()
-    # attempts fail with connection-refused rather than colliding with a
-    # running service.
-    fake_tcp_port = _free_port()
-
-    config = AppConfig(
-        network=NetworkConfig(host="127.0.0.1", port=fake_tcp_port, dashboard_port=dashboard_port),
-        emulator=EmulatorConfig(
-            savestate_dir=tmp_path / "ra",
-            spinlab_state_dir=tmp_path / "sl",
-        ),
-        data_dir=tmp_path,
-        rom_dir=None,
-    )
-
-    app = create_app(db=db, config=config)
-    # Swap the backend for the fake *before* starting uvicorn so the lifespan-started
-    # event_loop's real-backend retries don't matter: state reads session.emu.
-    fake_emu = FakeEmuBackend(connected=True)
-    app.state.session.emu = fake_emu
-    app.state.session.capture.emu = fake_emu
-    app.state.session.cold_fill.emu = fake_emu
-
-    uvi_config = uvicorn.Config(app, host="127.0.0.1", port=dashboard_port, log_level="warning")
-    server = uvicorn.Server(uvi_config)
-
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-
-    base_url = f"http://127.0.0.1:{dashboard_port}"
-    last_error = _wait_for_dashboard_state(base_url, check=_status_200)
-    if last_error is not None:
-        pytest.fail(format_dashboard_startup_failure(
-            port=dashboard_port,
-            attempts=40,
-            interval_s=0.25,
-            last_error=last_error,
-        ))
-
-    yield base_url, db, app.state.session
-
-    server.should_exit = True
-    thread.join(timeout=5)
-    db.close()
-    shutil.rmtree(tmp, ignore_errors=True)
+    tmp_root = tmp_path_factory.mktemp("fake_dashboard")
+    with DashboardHarness.fake(tmp_path_root=tmp_root) as ctx:
+        yield ctx.base_url, ctx.db, ctx.session
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
