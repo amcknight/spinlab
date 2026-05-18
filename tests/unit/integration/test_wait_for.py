@@ -1,10 +1,6 @@
 """Tests for the typed wait_for polling helper used by integration fixtures."""
 from __future__ import annotations
 
-import time
-
-import pytest
-
 from tests.integration._wait_for import WaitOutcome, wait_for
 
 

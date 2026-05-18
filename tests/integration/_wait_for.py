@@ -56,7 +56,7 @@ def wait_for(
     why the predicate was unsatisfied so the timeout message can be specific
     instead of "Last state: <dump>". `reason` is ignored when `ok=True`.
 
-    If `fetch()` raises, the exception's `type(__name__): str(exc)` becomes
+    If `fetch()` raises, the exception's `f"{type(exc).__name__}: {exc}"` becomes
     the next `last_reason` and polling continues until the deadline.
     """
     start = time.monotonic()
