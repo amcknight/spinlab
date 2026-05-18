@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 import requests
+from tests.integration._wait_for import wait_for
 from tests.integration.conftest import LOVE_YOURSELF_GAME_ID
 
 pytestmark = pytest.mark.emulator
@@ -37,19 +38,30 @@ def _api(base_url: str, method: str, path: str, **kwargs):
 
 def _wait_for_replay_mode(base_url: str, timeout: float = 15.0) -> dict:
     """Wait until mode is 'replay' AND replay_started has set a nonzero frame total."""
-    deadline = time.monotonic() + timeout
-    state: dict = {}
-    while time.monotonic() < deadline:
-        resp = _api(base_url, "get", "/api/state")
-        state = resp.json()
+
+    def _fetch():
+        return _api(base_url, "get", "/api/state").json()
+
+    def _predicate(state):
+        mode = state.get("mode")
+        if mode != "replay":
+            return False, f"mode={mode!r} (waiting for 'replay')"
         replay = state.get("replay")
-        if state.get("mode") == "replay" and replay and replay.get("total", 0) > 0:
-            return state
-        time.sleep(POLL_INTERVAL_S)
-    pytest.fail(
-        f"Mode never reached 'replay' (with nonzero frame total) within {timeout}s. "
-        f"Last state: {state}"
+        if not replay or not replay.get("total", 0) > 0:
+            total = replay.get("total") if replay else None
+            return False, f"mode='replay' but replay.total={total!r} (waiting for nonzero)"
+        return True, ""
+
+    outcome = wait_for(
+        name="replay_mode_with_frame_total",
+        fetch=_fetch,
+        predicate=_predicate,
+        timeout_s=timeout,
+        interval_s=POLL_INTERVAL_S,
     )
+    if not outcome.succeeded:
+        pytest.fail(outcome.format_message())
+    return _fetch()
 
 
 def _wait_for_idle_with_progress(
