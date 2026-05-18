@@ -14,7 +14,6 @@ Diagnostics:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import shutil
 import socket
@@ -28,6 +27,14 @@ import pytest
 import pytest_asyncio
 import requests as http_requests
 import uvicorn
+from tests.integration._diagnostics import (
+    collect_diagnostics,
+    collect_launch_failure_diagnostics,
+    format_dashboard_startup_failure,
+    format_pause_toggle_failure,
+    install_log_handler,
+    ring,
+)
 from tests.integration._rom_paths import (
     CLEAN_SMW_ROM_NAME,  # noqa: F401 — re-exported for downstream consumers
     INTEGRATION_STATES_DIR,  # noqa: F401 — re-exported for downstream consumers
@@ -43,6 +50,8 @@ from tests.integration._rom_paths import (
 )
 from tests.integration.poke_parser import parse_poke_file
 from tests.integration.ra_harness import RAHarness, RAHarnessLaunchError
+
+install_log_handler()
 
 SCENARIO_DIR = Path(__file__).resolve().parent / "scenarios"
 
@@ -131,7 +140,7 @@ async def fake_dashboard_server():
     base_url = f"http://127.0.0.1:{dashboard_port}"
     last_error = _wait_for_dashboard_state(base_url, check=_status_200)
     if last_error is not None:
-        pytest.fail(_format_dashboard_startup_failure(
+        pytest.fail(format_dashboard_startup_failure(
             port=dashboard_port,
             attempts=40,
             interval_s=0.25,
@@ -406,7 +415,7 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
     )
     if last_state_error is not None:
         _teardown_replay_dashboard(server=server, thread=thread, db=db, tmp=tmp)
-        pytest.fail(_format_dashboard_startup_failure(
+        pytest.fail(format_dashboard_startup_failure(
             port=dashboard_port,
             attempts=40,
             interval_s=0.25,
@@ -427,7 +436,7 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
         # Tear down what we built before failing — preserves the no-yield
         # invariant for downstream cleanup hooks.
         _teardown_replay_dashboard(server=server, thread=thread, db=db, tmp=tmp)
-        pytest.fail(_format_pause_toggle_failure(harness, exc))
+        pytest.fail(format_pause_toggle_failure(harness, exc))
 
     yield base_url, db, tmp_path
 
@@ -438,82 +447,9 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
 # Diagnostic dump on integration test failure
 # ---------------------------------------------------------------------------
 
-# Collect event log lines from the spinlab logger during the entire session.
-# The handler is installed once at import time; the ring buffer is read by
-# the failure hook to include recent events in the pytest report.
-
-_EVENT_LOG_CAPACITY = 200
-
-
-class _RingHandler(logging.Handler):
-    """Fixed-capacity ring buffer logging handler."""
-
-    def __init__(self, capacity: int = _EVENT_LOG_CAPACITY):
-        super().__init__()
-        self._buf: list[str] = []
-        self._capacity = capacity
-
-    def emit(self, record: logging.LogRecord) -> None:
-        line = self.format(record)
-        self._buf.append(line)
-        if len(self._buf) > self._capacity:
-            self._buf = self._buf[-self._capacity:]
-
-    def recent(self, n: int = 30) -> list[str]:
-        return self._buf[-n:]
-
-    def clear(self) -> None:
-        self._buf = []
-
-
-_ring = _RingHandler()
-_ring.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
-logging.getLogger("spinlab").addHandler(_ring)
-
-
-def _format_pause_toggle_failure(harness, exc: Exception) -> str:
-    """Format a pause_toggle failure message for the replay fixture path.
-
-    Pulls pid/port off the harness defensively (older test doubles may not
-    have them) and includes the original exception type + message.
-    """
-    try:
-        pid = harness.proc.pid
-    except Exception:
-        pid = "<unknown>"
-    try:
-        port = harness.client.port
-    except Exception:
-        port = "<unknown>"
-    return (
-        f"replay_ra_dashboard: pause_toggle on harness "
-        f"(pid={pid}, port={port}) failed with {type(exc).__name__}: {exc}"
-    )
-
-
-def _format_dashboard_startup_failure(
-    *,
-    port: int,
-    attempts: int,
-    interval_s: float,
-    last_error: Exception | None,
-    subject: str = "Fake dashboard server",
-) -> str:
-    """Format a dashboard startup timeout message.
-
-    Used by both retry loops that wait for a dashboard/orchestrator to reach a
-    ready state. Names the bound port, the elapsed wall time, and the most
-    recent error observed so the operator can tell port-occupied apart from
-    a panicked dashboard.
-    """
-    elapsed = attempts * interval_s
-    err_str = (
-        f"{type(last_error).__name__}: {last_error}" if last_error else "no error captured"
-    )
-    return (
-        f"{subject} did not start on port {port} within "
-        f"{elapsed:.1f}s ({attempts} × {interval_s}s). Last error: {err_str}"
-    )
+# Diagnostic capture machinery lives in _diagnostics.py. The ring handler is
+# installed once at module load via install_log_handler() (called above in the
+# imports block). The pytest hooks below delegate to the module functions.
 
 
 def _wait_for_dashboard_state(
@@ -528,7 +464,7 @@ def _wait_for_dashboard_state(
 
     Returns ``None`` on success or the last captured Exception on timeout.
     Caller decides how to surface the failure (typically ``pytest.fail`` with a
-    formatted message from ``_format_dashboard_startup_failure``).
+    formatted message from ``format_dashboard_startup_failure``).
 
     Uses blocking ``time.sleep`` for use across sync and async fixtures alike:
     the dashboard's background event_loop runs in a separate uvicorn thread,
@@ -566,154 +502,13 @@ def _teardown_replay_dashboard(*, server, thread, db, tmp) -> None:
     shutil.rmtree(tmp, ignore_errors=True)
 
 
-# How many lines to tail from each diagnostic source. 30 is plenty to capture the
-# RA boot sequence (~10 lines) plus any "core failed to load" + crash spew that
-# follows, without burying the pytest report under thousands of frame-tick lines.
-_HARNESS_LOG_TAIL_LINES = 30
-_RING_TAIL_LINES = 30
-
-
-def _collect_diagnostics(item: pytest.Item) -> str:
-    """Best-effort snapshot of integration test state at failure time.
-
-    Walks ``item.funcargs`` and:
-      - For tuples shaped ``(str_url, Database, ...)``, emits an /api/state +
-        DB-counts block (matches the dashboard-fixture shape).
-      - For objects exposing ``.proc`` (a Popen) and ``.client`` (NCIClient),
-        emits a harness block with pid / port / proc.poll() and the last
-        ``_HARNESS_LOG_TAIL_LINES`` of the per-launch retroarch.log if available.
-
-    Always tails the in-process spinlab log ring buffer at the end.
-    """
-    parts: list[str] = []
-
-    for fixture_name, fixture_val in item.funcargs.items():
-        # ---- Dashboard-shaped: (base_url, db, _) ----
-        if (
-            isinstance(fixture_val, tuple)
-            and len(fixture_val) >= 2
-            and isinstance(fixture_val[0], str)
-            and fixture_val[0].startswith("http")
-        ):
-            base_url = fixture_val[0]
-            db = fixture_val[1]
-            parts.append(f"  fixture: {fixture_name}")
-            try:
-                state = http_requests.get(f"{base_url}/api/state", timeout=2).json()
-                parts.append(f"  /api/state: {json.dumps(state, indent=2)}")
-            except Exception as exc:
-                parts.append(f"  /api/state: <unavailable: {exc}>")
-            try:
-                seg_count = db.conn.execute(
-                    "SELECT COUNT(*) FROM segments WHERE active = 1"
-                ).fetchone()[0]
-                ref_count = db.conn.execute(
-                    "SELECT COUNT(*) FROM capture_runs"
-                ).fetchone()[0]
-                draft_count = db.conn.execute(
-                    "SELECT COUNT(*) FROM capture_runs WHERE draft = 1"
-                ).fetchone()[0]
-                parts.append(
-                    f"  DB: {seg_count} active segments, "
-                    f"{ref_count} capture_runs ({draft_count} drafts)"
-                )
-            except Exception as exc:
-                parts.append(f"  DB: <unavailable: {exc}>")
-            continue
-
-        # ---- Harness-shaped: duck-types on .proc + .client ----
-        if hasattr(fixture_val, "proc") and hasattr(fixture_val, "client"):
-            try:
-                proc_status = fixture_val.proc.poll()
-            except Exception as exc:
-                proc_status = f"<poll failed: {exc}>"
-            try:
-                port = fixture_val.client.port
-            except Exception:
-                port = "<unknown>"
-            try:
-                pid = fixture_val.proc.pid
-            except Exception:
-                pid = "<unknown>"
-            parts.append(
-                f"  harness: {fixture_name} pid={pid} port={port} proc.poll()={proc_status}"
-            )
-            log_path = getattr(fixture_val, "log_path", None)
-            if log_path is not None:
-                try:
-                    if log_path.exists():
-                        text = log_path.read_text(errors="replace")
-                        tail = text.splitlines()[-_HARNESS_LOG_TAIL_LINES:]
-                        if tail:
-                            parts.append(f"  retroarch.log tail ({len(tail)} lines):")
-                            for line in tail:
-                                parts.append(f"    {line}")
-                except Exception as exc:
-                    parts.append(f"  retroarch.log: <unavailable: {exc}>")
-
-    # --- Recent event log (always include if anything in the ring) ---
-    recent = _ring.recent(_RING_TAIL_LINES)
-    if recent:
-        parts.append(f"  Recent spinlab log ({len(recent)} lines):")
-        for line in recent:
-            parts.append(f"    {line}")
-
-    if not parts:
-        return ""
-    return "\n--- SpinLab Integration Diagnostics ---\n" + "\n".join(parts)
-
-
-def _collect_launch_failure_diagnostics(exc: RAHarnessLaunchError) -> str:
-    """Best-effort snapshot when RAHarness.launch fails during fixture setup.
-
-    Reads the structured fields off the typed exception (stage, pid, port,
-    startup_duration_s) and tails the preserved retroarch.log if its
-    ``log_path`` still exists on disk. Always tails the spinlab logger ring
-    buffer at the end so the report has parity with the call-phase block.
-
-    The setup-phase hook path can't walk ``item.funcargs`` because the failing
-    fixture never finished constructing — we only have the exception. The
-    structured fields make that recoverable without parsing the message
-    string.
-    """
-    parts: list[str] = [
-        f"  RAHarnessLaunchError:"
-        f" stage={exc.stage!r}"
-        f" pid={exc.pid}"
-        f" port={exc.port}"
-        f" startup_duration_s={exc.startup_duration_s}",
-    ]
-    log_path = exc.log_path
-    if log_path is not None:
-        try:
-            if log_path.exists():
-                text = log_path.read_text(errors="replace")
-                tail = text.splitlines()[-_HARNESS_LOG_TAIL_LINES:]
-                if tail:
-                    parts.append(
-                        f"  retroarch.log tail ({len(tail)} lines) from {log_path}:"
-                    )
-                    for line in tail:
-                        parts.append(f"    {line}")
-        except Exception as inner:
-            parts.append(f"  retroarch.log: <unavailable: {inner}>")
-
-    recent = _ring.recent(_RING_TAIL_LINES)
-    if recent:
-        parts.append(f"  Recent spinlab log ({len(recent)} lines):")
-        for line in recent:
-            parts.append(f"    {line}")
-
-    return "\n--- SpinLab Launch-Failure Diagnostics ---\n" + "\n".join(parts)
-
-
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     """Append diagnostic state to the report on integration test failure.
 
     Two paths:
       - ``report.when == "call"`` + test body failed: walks ``item.funcargs``
-        via ``_collect_diagnostics`` for dashboard and harness state.
+        via ``collect_diagnostics`` for dashboard and harness state.
       - ``report.when == "setup"`` + the failing exception is
         ``RAHarnessLaunchError``: renders the typed exception's structured
         fields and tails the preserved retroarch.log. The factory never made
@@ -731,7 +526,7 @@ def pytest_runtest_makereport(item, call):
         return
 
     if report.when == "call":
-        diag = _collect_diagnostics(item)
+        diag = collect_diagnostics(item)
         if diag:
             # `longreprtext` is a read-only property in current pytest, so the
             # diagnostic block has to ride along on `sections` instead.  pytest
@@ -742,7 +537,7 @@ def pytest_runtest_makereport(item, call):
     if report.when == "setup" and call.excinfo is not None:
         exc = call.excinfo.value
         if isinstance(exc, RAHarnessLaunchError):
-            diag = _collect_launch_failure_diagnostics(exc)
+            diag = collect_launch_failure_diagnostics(exc)
             if diag:
                 report.sections.append(
                     ("SpinLab Launch-Failure Diagnostics", diag)
@@ -755,5 +550,5 @@ def pytest_runtest_setup(item):
     so the failure diagnostic only shows logs from the current test, not stale
     lines bled in from earlier tests in the session-scoped harness."""
     if "integration" in str(item.fspath):
-        _ring.clear()
+        ring.clear()
     yield
