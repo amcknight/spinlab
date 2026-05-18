@@ -39,7 +39,7 @@ class RingHandler(logging.Handler):
         if len(self._buf) > self._capacity:
             self._buf = self._buf[-self._capacity:]
 
-    def recent(self, n: int = 30) -> list[str]:
+    def recent(self, n: int = RING_TAIL_LINES) -> list[str]:
         return self._buf[-n:]
 
     def clear(self) -> None:
