@@ -182,10 +182,20 @@ def run_scenario(ra_harness_love_yourself):
         if not scenario_path.exists():
             pytest.fail(f"Scenario file not found: {scenario_path}")
         scenario = parse_poke_file(str(scenario_path))
-        return await asyncio.wait_for(
-            asyncio.to_thread(ra_harness_love_yourself.engine.run_scenario, scenario),
-            timeout=timeout,
-        )
+        start = time.monotonic()
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    ra_harness_love_yourself.engine.run_scenario, scenario
+                ),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            elapsed = time.monotonic() - start
+            pytest.fail(
+                f"run_scenario({scenario_name!r}) timed out after "
+                f"{elapsed:.1f}s (limit {timeout:.1f}s)"
+            )
 
     return _run
 
