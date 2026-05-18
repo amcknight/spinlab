@@ -33,6 +33,11 @@ logger = logging.getLogger(__name__)
 # Maximum seconds to wait for the next event before checking is_running / is_connected.
 EVENT_WAIT_TIMEOUT_S = 1.0
 
+# Number of consecutive empty waits (~seconds) after which we log an "still idle"
+# progress line. Tuned to ~30 s so the log isn't spammy but a hung level surfaces
+# within a single Strafe-window when debugging.
+IDLE_PROGRESS_LOG_EVERY = 30
+
 
 @dataclass
 class LevelPlan:
@@ -204,13 +209,22 @@ class SpeedRunSession:
         # and after every death; False once a checkpoint is passed cleanly.
         cold_since = True
         current_sub_index = 0
+        idle_waits = 0
 
         while self.is_running and self.emu.is_connected:
             try:
                 event = await asyncio.wait_for(
                     self._event_queue.get(), timeout=EVENT_WAIT_TIMEOUT_S
                 )
+                idle_waits = 0
             except asyncio.TimeoutError:
+                idle_waits += 1
+                if idle_waits % IDLE_PROGRESS_LOG_EVERY == 0:
+                    logger.info(
+                        "speed_run: still idle level=%d/%d sub=%d idle_s=%d",
+                        self.current_level_index + 1, len(self.levels),
+                        current_sub_index, idle_waits,
+                    )
                 continue
 
             if isinstance(event, SpeedRunCheckpointEvent):
