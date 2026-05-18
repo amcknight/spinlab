@@ -14,7 +14,6 @@ Diagnostics:
 from __future__ import annotations
 
 import asyncio
-import socket
 import tempfile
 import time
 from pathlib import Path
@@ -22,6 +21,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 import requests as http_requests
+from tests.integration._dashboard_harness import _free_port
 from tests.integration._diagnostics import (
     collect_diagnostics,
     collect_launch_failure_diagnostics,
@@ -48,13 +48,6 @@ install_log_handler()
 SCENARIO_DIR = Path(__file__).resolve().parent / "scenarios"
 
 pytestmark = pytest.mark.emulator
-
-
-def _free_port() -> int:
-    """Find a free TCP port."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 # -- Seeded-game fixture for frontend contract smoke tests -------------------
@@ -365,3 +358,16 @@ def pytest_runtest_setup(item):
     if "integration" in str(item.fspath):
         ring.clear()
     yield
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Clean up `spinlab_ra_failed_*` tmpdirs left behind by RAHarness launch
+    failures. `_cleanup_launch` creates one of these per failed launch so the
+    preserved RA log survives the original tmp_dir's rmtree and the diagnostic
+    hook can tail it; nothing else owns them after the session ends.
+    """
+    import shutil as _shutil
+
+    failed_root = Path(tempfile.gettempdir())
+    for orphan in failed_root.glob("spinlab_ra_failed_*"):
+        _shutil.rmtree(orphan, ignore_errors=True)

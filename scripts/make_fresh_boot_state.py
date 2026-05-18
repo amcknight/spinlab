@@ -1,6 +1,6 @@
 """Generate a "fresh boot" savestate for a ROM in tests/integration/states/.
 
-Run once per ROM in tests/integration/conftest.py:ROM_REGISTRY. The resulting
+Run once per ROM in tests/integration/_rom_paths.py:ROM_REGISTRY. The resulting
 .state file is committed to the repo and loaded by RAPokeEngine before each
 scenario, replacing the session-scoped ROM CPU/SPC state leak that flakes
 test_key_exit / test_orb_exit (see
@@ -25,10 +25,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "python"))
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from tests.integration.conftest import (  # noqa: E402
+from tests.integration._harness_factory import _free_udp_port  # noqa: E402
+from tests.integration._rom_paths import (  # noqa: E402
     ROM_REGISTRY,
-    _free_udp_port,
-    _resolve_ra_paths,
+    resolve_ra_paths,
 )
 from tests.integration.ra_harness import RAHarness  # noqa: E402
 
@@ -57,7 +57,7 @@ def make_fresh_boot_state(rom_key: str) -> Path:
 
     Returns the path the savestate was written to under STATES_DIR.
     """
-    retroarch_exe, ra_core_path, rom_path = _resolve_ra_paths(rom_key)
+    retroarch_exe, ra_core_path, rom_path = resolve_ra_paths(rom_key)
 
     # Per-launch temp dir for the savestate so we don't pollute the user's
     # actual savestate directory.
@@ -132,7 +132,7 @@ def main() -> int:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--rom-key",
-        help="Single rom_key from ROM_REGISTRY (e.g. 'default', 'love_yourself').",
+        help="Single rom_key from ROM_REGISTRY (e.g. 'vanilla_smw', 'love_yourself').",
     )
     group.add_argument(
         "--all",
