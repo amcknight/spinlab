@@ -4,8 +4,6 @@ Uses a real Database so the controller's raw SQL queries
 (start_waypoint_id lookup, segments_missing_cold) hit real rows
 instead of mock cursor chains.
 """
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
 from spinlab.capture import ColdFillController
@@ -16,14 +14,9 @@ from spinlab.protocol import ColdFillLoadCmd, SpawnEvent
 
 
 @pytest.fixture
-def emu():
-    emu = MagicMock()
-    emu.is_connected = True
-    emu.send = AsyncMock()
-    emu.send_command = AsyncMock()
-    emu.save_state = AsyncMock()
-    emu.load_state = AsyncMock()
-    return emu
+def emu(mock_emu):
+    """Alias `emu` to conftest's `mock_emu` — preserves param name in this file."""
+    return mock_emu
 
 
 @pytest.fixture

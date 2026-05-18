@@ -119,7 +119,12 @@ def make_incomplete(
     )
 
 
-def make_capture_session(db, run_id, ordinal=1, session_id=None):
+def make_capture_session(
+    db: "Database",
+    run_id: str,
+    ordinal: int = 1,
+    session_id: str | None = None,
+) -> str:
     import uuid
     sid = session_id or f"sess_{uuid.uuid4().hex[:8]}"
     db.create_capture_session(sid, run_id, ordinal)

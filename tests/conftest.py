@@ -6,7 +6,7 @@ import pytest
 
 from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
 from spinlab.db import Database
-from spinlab.estimators import get_estimator, list_estimators
+from spinlab.estimators import Estimator, get_estimator, list_estimators
 from spinlab.models import Segment, Waypoint, WaypointSaveState
 
 
@@ -74,13 +74,13 @@ def mock_db():
 
 
 @pytest.fixture(params=list_estimators())
-def estimator_name(request):
+def estimator_name(request) -> str:
     """Parametrized fixture that yields each registered estimator name."""
     return request.param
 
 
 @pytest.fixture
-def estimator(estimator_name):
+def estimator(estimator_name: str) -> Estimator:
     """Instantiated estimator from parametrized name."""
     return get_estimator(estimator_name)
 
@@ -97,7 +97,7 @@ class FakeEmuBackend:
     """
     def __init__(self, connected: bool = True) -> None:
         self.is_connected: bool = connected
-        self.sent_commands: list = []
+        self.sent_commands: list[object] = []
         self.save_state_calls: list[str] = []
         self.load_state_calls: list[str] = []
         self.on_disconnect = None
@@ -109,7 +109,7 @@ class FakeEmuBackend:
     async def disconnect(self) -> None:
         self.is_connected = False
 
-    async def send_command(self, cmd) -> None:
+    async def send_command(self, cmd: object) -> None:
         if not self.is_connected:
             raise ConnectionError("Not connected")
         self.sent_commands.append(cmd)
@@ -134,8 +134,15 @@ def fake_emu():
     return FakeEmuBackend(connected=True)
 
 
-def make_seg_with_state(db, game_id, level, start_type, end_type,
-                        state_path, ordinal=1):
+def make_seg_with_state(
+    db: Database,
+    game_id: str,
+    level: int,
+    start_type,
+    end_type,
+    state_path: Path,
+    ordinal: int = 1,
+) -> Segment:
     """Create waypoints + segment + save state; return segment.
 
     Picks the conventional variant for the start_type (cold for entrance,
