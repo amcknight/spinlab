@@ -14,7 +14,6 @@ Diagnostics:
 from __future__ import annotations
 
 import asyncio
-import logging
 import shutil
 import socket
 import tempfile
@@ -35,21 +34,19 @@ from tests.integration._diagnostics import (
     install_log_handler,
     ring,
 )
+from tests.integration._harness_factory import harness_factory_impl
 from tests.integration._rom_paths import (
     CLEAN_SMW_ROM_NAME,  # noqa: F401 — re-exported for downstream consumers
     INTEGRATION_STATES_DIR,  # noqa: F401 — re-exported for downstream consumers
     LOVE_YOURSELF_GAME_ID,  # noqa: F401 — re-exported; used by test_replay_fixture
     LOVE_YOURSELF_ROM_NAME,  # noqa: F401 — re-exported for downstream consumers
     PROJECT_ROOT,  # noqa: F401 — re-exported for downstream consumers
-    ROM_REGISTRY,
     TOOTHPASTE_ROM_NAME,  # noqa: F401 — re-exported for downstream consumers
     load_config,
-    resolve_ra_paths,
     resolve_rom_path,
-    state_path_for,
 )
 from tests.integration.poke_parser import parse_poke_file
-from tests.integration.ra_harness import RAHarness, RAHarnessLaunchError
+from tests.integration.ra_harness import RAHarnessLaunchError
 
 install_log_handler()
 
@@ -61,19 +58,6 @@ pytestmark = pytest.mark.emulator
 def _free_port() -> int:
     """Find a free TCP port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _free_udp_port() -> int:
-    """Find a free UDP port.
-
-    Small TOCTOU window between the bind here releasing and RetroArch binding
-    to the same port — acceptable because the harness's NCI ping retries cover
-    transient failures, and the loopback UDP port space is otherwise quiet on
-    a test host.
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
@@ -183,69 +167,6 @@ async def fake_game_loaded(fake_dashboard_server):
 # ---------------------------------------------------------------------------
 
 
-class _HarnessFactory:
-    """Session-scoped cache mapping rom_key -> RAHarness.
-
-    Separated from the pytest fixture so unit tests can drive the cache and
-    teardown logic without a real fixture lifecycle.
-    """
-
-    def __init__(self) -> None:
-        self._cache: dict[tuple[str, bool], RAHarness] = {}
-
-    def __call__(self, rom_key: str, use_fresh_state: bool = True) -> RAHarness:
-        """Return (or create + cache) a harness for ``rom_key``.
-
-        ``use_fresh_state=True`` (the default) wires a per-launch isolated
-        savestate_directory with the fresh-boot state from
-        tests/integration/states/ pre-staged at FRESH_BOOT_STATE_SLOT, and
-        causes RAPokeEngine to LOAD_STATE_SLOT it before each scenario.
-        Required by the poke-transition tests to keep SPC700/CPU state from
-        leaking between scenarios.
-
-        ``use_fresh_state=False`` is for fixtures whose RA process must talk
-        to the user's actual savestate_directory — currently just the replay
-        fixture (its .replay file lives in the user's savestate dir).
-        """
-        cache_key = (rom_key, use_fresh_state)
-        if cache_key in self._cache:
-            return self._cache[cache_key]
-        retroarch_exe, ra_core_path, rom_path = resolve_ra_paths(rom_key)
-        fresh_state_path = state_path_for(ROM_REGISTRY[rom_key]) if use_fresh_state else None
-        try:
-            harness = RAHarness.launch(
-                rom_path=rom_path,
-                core_path=ra_core_path,
-                retroarch_exe=retroarch_exe,
-                nci_port=_free_udp_port(),
-                fresh_state_path=fresh_state_path,
-            )
-        except RAHarnessLaunchError as exc:
-            # CLAUDE.md: launch failure is a FAILURE, not a skip. RAHarnessLaunchError
-            # subclasses RuntimeError so the hard-fail rule still holds; re-raise the
-            # typed exception so the diagnostic hook can read its structured fields
-            # (pid, port, stage, log_path). Annotate args with rom_key so the test
-            # report still names the harness that failed.
-            exc.args = (f"ra_harness launch failed for rom_key={rom_key!r}: {exc.args[0]}",)
-            raise
-        self._cache[cache_key] = harness
-        return harness
-
-    def teardown_all(self) -> None:
-        while self._cache:
-            cache_key, harness = self._cache.popitem()
-            try:
-                harness.teardown()
-            except Exception:
-                # Best-effort: surface in the log, don't mask the original test failure.
-                logging.getLogger(__name__).exception("ra_harness teardown failed for %r", cache_key)
-
-
-def _harness_factory_impl() -> _HarnessFactory:
-    """Factory constructor surface used by both the pytest fixture and unit tests."""
-    return _HarnessFactory()
-
-
 @pytest.fixture(scope="session")
 def ra_harness_factory():
     """Session-scoped factory: factory(rom_key) -> RAHarness, cached per rom_key.
@@ -253,7 +174,7 @@ def ra_harness_factory():
     Hard-fails (RuntimeError) on any missing infrastructure — no pytest.skip.
     See ROM_REGISTRY for the available rom_keys.
     """
-    factory = _harness_factory_impl()
+    factory = harness_factory_impl()
     yield factory
     factory.teardown_all()
 

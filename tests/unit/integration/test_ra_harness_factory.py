@@ -117,7 +117,7 @@ def test_resolve_ra_paths_raises_when_retroarch_exe_missing_on_disk(tmp_path):
 def test_factory_caches_per_key(tmp_path):
     """factory(key) returns same instance on subsequent calls; factory(key1) and
     factory(key2) return DIFFERENT instances even if their ROMs happen to match."""
-    from tests.integration.conftest import _harness_factory_impl
+    from tests.integration._harness_factory import harness_factory_impl
     from tests.integration.ra_harness import RAHarness
 
     h_vanilla = MagicMock(spec=RAHarness)
@@ -125,16 +125,16 @@ def test_factory_caches_per_key(tmp_path):
     launched = [h_vanilla, h_love]
 
     with patch(
-        "tests.integration.conftest.RAHarness.launch",
+        "tests.integration._harness_factory.RAHarness.launch",
         side_effect=lambda **kw: launched.pop(0),
     ), patch(
-        "tests.integration.conftest.resolve_ra_paths",
+        "tests.integration._harness_factory.resolve_ra_paths",
         return_value=(Path("exe"), Path("core"), Path("rom")),
     ), patch(
-        "tests.integration.conftest._free_udp_port",
+        "tests.integration._harness_factory._free_udp_port",
         side_effect=[55001, 55002],
     ):
-        factory_impl = _harness_factory_impl()
+        factory_impl = harness_factory_impl()
         a1 = factory_impl("vanilla_smw")
         a2 = factory_impl("vanilla_smw")
         b = factory_impl("love_yourself")
@@ -148,20 +148,20 @@ def test_factory_raises_runtime_error_on_launch_failure(tmp_path):
     it as RAHarnessLaunchError (a RuntimeError subclass — so CLAUDE.md's
     'hard-fail not skip' rule still holds — but with the typed exception's
     structured fields preserved for the diagnostic hook)."""
-    from tests.integration.conftest import _harness_factory_impl
+    from tests.integration._harness_factory import harness_factory_impl
     from tests.integration.ra_harness import RAHarnessLaunchError
 
     with patch(
-        "tests.integration.conftest.RAHarness.launch",
+        "tests.integration._harness_factory.RAHarness.launch",
         side_effect=RAHarnessLaunchError("simulated deep-freeze", stage="nci_ping"),
     ), patch(
-        "tests.integration.conftest.resolve_ra_paths",
+        "tests.integration._harness_factory.resolve_ra_paths",
         return_value=(Path("exe"), Path("core"), Path("rom")),
     ), patch(
-        "tests.integration.conftest._free_udp_port",
+        "tests.integration._harness_factory._free_udp_port",
         return_value=55001,
     ):
-        factory_impl = _harness_factory_impl()
+        factory_impl = harness_factory_impl()
         with pytest.raises(RuntimeError, match="ra_harness launch failed.*simulated deep-freeze"):
             factory_impl("vanilla_smw")
 
@@ -169,7 +169,7 @@ def test_factory_raises_runtime_error_on_launch_failure(tmp_path):
 def test_factory_propagates_ra_harness_launch_error_with_typed_fields(monkeypatch):
     """Factory must not swallow RAHarnessLaunchError as bare RuntimeError —
     the typed class and its structured fields are needed by the diagnostic hook."""
-    from tests.integration.conftest import _HarnessFactory
+    from tests.integration._harness_factory import HarnessFactory
     from tests.integration.ra_harness import RAHarnessLaunchError
 
     def fake_launch(**kwargs):
@@ -178,21 +178,21 @@ def test_factory_propagates_ra_harness_launch_error_with_typed_fields(monkeypatc
         )
 
     monkeypatch.setattr(
-        "tests.integration.conftest.resolve_ra_paths",
+        "tests.integration._harness_factory.resolve_ra_paths",
         lambda rom_key: (Path("ra.exe"), Path("core.dll"), Path("rom.smc")),
     )
     monkeypatch.setattr(
-        "tests.integration.conftest.state_path_for",
+        "tests.integration._harness_factory.state_path_for",
         lambda rom_basename: None,
     )
     monkeypatch.setattr(
-        "tests.integration.conftest._free_udp_port", lambda: 55355,
+        "tests.integration._harness_factory._free_udp_port", lambda: 55355,
     )
     monkeypatch.setattr(
-        "tests.integration.conftest.RAHarness.launch", staticmethod(fake_launch),
+        "tests.integration._harness_factory.RAHarness.launch", staticmethod(fake_launch),
     )
 
-    factory = _HarnessFactory()
+    factory = HarnessFactory()
     with pytest.raises(RAHarnessLaunchError) as excinfo:
         factory("love_yourself", use_fresh_state=False)
     # Typed exception, not bare RuntimeError:
@@ -208,13 +208,13 @@ def test_factory_propagates_ra_harness_launch_error_with_typed_fields(monkeypatc
 
 def test_factory_propagates_resolver_runtime_errors(tmp_path):
     """If _resolve_ra_paths raises RuntimeError, factory must NOT swallow it."""
-    from tests.integration.conftest import _harness_factory_impl
+    from tests.integration._harness_factory import harness_factory_impl
 
     with patch(
-        "tests.integration.conftest.resolve_ra_paths",
+        "tests.integration._harness_factory.resolve_ra_paths",
         side_effect=RuntimeError("rom.dir not configured in config.yaml"),
     ):
-        factory_impl = _harness_factory_impl()
+        factory_impl = harness_factory_impl()
         with pytest.raises(RuntimeError, match="rom.dir not configured"):
             factory_impl("vanilla_smw")
 
@@ -222,7 +222,7 @@ def test_factory_propagates_resolver_runtime_errors(tmp_path):
 def test_factory_teardown_calls_each_harness(tmp_path):
     """Factory must teardown every cached harness exactly once when the
     fixture's `yield` returns."""
-    from tests.integration.conftest import _harness_factory_impl
+    from tests.integration._harness_factory import harness_factory_impl
     from tests.integration.ra_harness import RAHarness
 
     h_a = MagicMock(spec=RAHarness)
@@ -230,16 +230,16 @@ def test_factory_teardown_calls_each_harness(tmp_path):
     launched = [h_a, h_b]
 
     with patch(
-        "tests.integration.conftest.RAHarness.launch",
+        "tests.integration._harness_factory.RAHarness.launch",
         side_effect=lambda **kw: launched.pop(0),
     ), patch(
-        "tests.integration.conftest.resolve_ra_paths",
+        "tests.integration._harness_factory.resolve_ra_paths",
         return_value=(Path("exe"), Path("core"), Path("rom")),
     ), patch(
-        "tests.integration.conftest._free_udp_port",
+        "tests.integration._harness_factory._free_udp_port",
         side_effect=[55001, 55002],
     ):
-        factory_impl = _harness_factory_impl()
+        factory_impl = harness_factory_impl()
         factory_impl("vanilla_smw")
         factory_impl("love_yourself")
         factory_impl.teardown_all()
