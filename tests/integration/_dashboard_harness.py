@@ -159,6 +159,15 @@ class DashboardHarness(AbstractContextManager):
             self._server.should_exit = True
         if self._thread is not None:
             self._thread.join(timeout=5)
+            if self._thread.is_alive():
+                # uvicorn didn't drain — surface so the next test's "address
+                # in use" failure isn't a mystery. daemon=True keeps the
+                # thread from blocking process exit, so warn rather than raise.
+                import warnings
+                warnings.warn(
+                    "DashboardHarness: uvicorn thread did not stop within 5s",
+                    stacklevel=2,
+                )
         if self._db is not None:
             self._db.close()
         shutil.rmtree(self._tmp_path, ignore_errors=True)
