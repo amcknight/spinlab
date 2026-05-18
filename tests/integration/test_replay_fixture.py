@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 import requests
+from tests.integration._wait_for import wait_for
 from tests.integration.conftest import LOVE_YOURSELF_GAME_ID
 
 pytestmark = pytest.mark.emulator
@@ -37,7 +38,6 @@ def _api(base_url: str, method: str, path: str, **kwargs):
 
 def _wait_for_replay_mode(base_url: str, timeout: float = 15.0) -> dict:
     """Wait until mode is 'replay' AND replay_started has set a nonzero frame total."""
-    from tests.integration._wait_for import wait_for
 
     def _fetch():
         return _api(base_url, "get", "/api/state").json()

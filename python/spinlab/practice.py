@@ -238,6 +238,14 @@ class PracticeSession:
 
         if self._result_data is not None:
             self._process_result(self._result_data)
+        else:
+            log.info(
+                logger, "practice: attempt loop exited without result",
+                segment_id=cmd.id,
+                is_running=self.is_running,
+                emu_connected=self.emu.is_connected,
+                load_timeouts=load_timeouts,
+            )
 
         self.current_segment_id = None
         return True
