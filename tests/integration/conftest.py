@@ -14,22 +14,17 @@ Diagnostics:
 from __future__ import annotations
 
 import asyncio
-import shutil
 import socket
 import tempfile
-import threading
 import time
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 import requests as http_requests
-import uvicorn
 from tests.integration._diagnostics import (
     collect_diagnostics,
     collect_launch_failure_diagnostics,
-    format_dashboard_startup_failure,
     format_pause_toggle_failure,
     install_log_handler,
     ring,
@@ -196,12 +191,13 @@ def run_scenario(ra_harness_love_yourself):
 
 
 @pytest.fixture(scope="session")
-def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
+def replay_ra_dashboard(ra_harness_love_yourself_no_reset, tmp_path_factory):
     """Start a dashboard pointed at the Love Yourself RA session for replay tests.
 
     Mirrors ``replay_dashboard`` but uses the RA backend (build_orchestrator)
-    instead of the legacy Mesen+TCP backend.  The RA process is already up (ra_harness_love_yourself);
-    this fixture wires the dashboard to it via NCI at the configured port.
+    instead of the legacy Mesen+TCP backend. The RA process is already up
+    (ra_harness_love_yourself); this fixture wires the dashboard to it via
+    NCI at the configured port.
 
     Phase E PLAY_REPLAY requires RA to be in PLAYING (not PAUSED) state.
     The harness leaves RA paused; we unpause it here so the orchestrator's
@@ -210,14 +206,11 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
     Yields (base_url, db, tmp_path) — tmp_path is the data dir where the
     test should stage its fixture files.
     """
-    from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
-    from spinlab.dashboard import create_app
-    from spinlab.db import Database
+    from tests.integration._dashboard_harness import DashboardHarness
 
     config_raw = load_config()
     emu_raw = config_raw.get("emulator", {})
 
-    # Resolve savestate_dir from config — required by build_orchestrator.
     savestate_dir_str = emu_raw.get("savestate_dir")
     ra_core_subdir = emu_raw.get("ra_core_subdir") or "Snes9x"
 
@@ -225,24 +218,20 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
         pytest.skip("replay_ra_dashboard: emulator.savestate_dir not configured")
 
     savestate_dir = Path(savestate_dir_str)
-
-    tmp = tempfile.mkdtemp(prefix="spinlab_ra_replay_")
-    tmp_path = Path(tmp)
+    tmp_root = tmp_path_factory.mktemp("spinlab_ra_replay")
+    tmp_path = Path(tempfile.mkdtemp(prefix="spinlab_ra_replay_", dir=tmp_root))
     spinlab_state_dir = tmp_path / "spinlab_states"
     spinlab_state_dir.mkdir(parents=True, exist_ok=True)
 
-    db = Database(str(tmp_path / "spinlab.db"))
     dashboard_port = _free_port()
-
     rom_dir = resolve_rom_path("love_yourself").parent
 
+    from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
     config = AppConfig(
         network=NetworkConfig(
             host="127.0.0.1",
             port=15482,  # unused — RA backend uses NCI, not TCP
             dashboard_port=dashboard_port,
-            # Talk to the harness's RA, not whatever the user's config.yaml
-            # advertises. The harness picks a free port per session.
             nci_port=ra_harness_love_yourself_no_reset.client.port,
         ),
         emulator=EmulatorConfig(
@@ -254,63 +243,57 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
         rom_dir=rom_dir,
     )
 
-    app = create_app(db=db, config=config)
-
-    uvi_config = uvicorn.Config(app, host="127.0.0.1", port=dashboard_port, log_level="warning")
-    server = uvicorn.Server(uvi_config)
-
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-
-    base_url = f"http://127.0.0.1:{dashboard_port}"
-
-    # Wait for uvicorn to come up.
-    if _wait_for_dashboard_state(base_url, check=_status_200) is not None:
-        _teardown_replay_dashboard(server=server, thread=thread, db=db, tmp=tmp)
-        pytest.fail("replay_ra_dashboard: uvicorn did not start within 10 seconds")
-
-    # Wait for the orchestrator to connect to RA and receive rom_info so the
-    # dashboard has a game_id (required before /api/replay/start will resolve).
-    def _orchestrator_ready(resp: http_requests.Response) -> tuple[bool, Exception | None]:
-        state = resp.json()
-        if state.get("emu_connected") and state.get("game_id"):
-            return True, None
-        return False, RuntimeError(
-            f"emu_connected={state.get('emu_connected')!r} "
-            f"game_id={state.get('game_id')!r}"
-        )
-
-    last_state_error = _wait_for_dashboard_state(
-        base_url, check=_orchestrator_ready, timeout_s=2.0
+    harness_cm = DashboardHarness(
+        config=config, fake_emu=False, tmp_path=tmp_path,
     )
-    if last_state_error is not None:
-        _teardown_replay_dashboard(server=server, thread=thread, db=db, tmp=tmp)
-        pytest.fail(format_dashboard_startup_failure(
-            port=dashboard_port,
-            attempts=40,
-            interval_s=0.25,
-            last_error=last_state_error,
-            subject="replay_ra_dashboard orchestrator connection",
-        ))
-
-    # PLAY_REPLAY requires RA to be in PLAYING state. The harness left RA paused;
-    # unpause it now so the orchestrator's _on_replay → MoviePlayer.play_replay()
-    # actually starts playback. Use the harness's NCI client directly.
-    harness = ra_harness_love_yourself_no_reset
     try:
-        status = harness.client.get_status()
-        if status.state == "PAUSED":
-            harness.client.pause_toggle()
-            time.sleep(0.3)  # allow RA to settle into PLAYING before the test POSTs replay/start
-    except Exception as exc:
-        # Tear down what we built before failing — preserves the no-yield
-        # invariant for downstream cleanup hooks.
-        _teardown_replay_dashboard(server=server, thread=thread, db=db, tmp=tmp)
-        pytest.fail(format_pause_toggle_failure(harness, exc))
+        ctx = harness_cm.__enter__()
+    except RuntimeError as exc:
+        # DashboardHarness raises with the WaitOutcome.format_message() text;
+        # surface it as a pytest.fail so the report shape matches the old path.
+        pytest.fail(str(exc))
 
-    yield base_url, db, tmp_path
+    try:
+        # Wait for the orchestrator to connect to RA and receive rom_info so the
+        # dashboard has a game_id (required before /api/replay/start will resolve).
+        from tests.integration._wait_for import wait_for
 
-    _teardown_replay_dashboard(server=server, thread=thread, db=db, tmp=tmp)
+        def _fetch_state():
+            return http_requests.get(
+                f"{ctx.base_url}/api/state", timeout=1.0,
+            ).json()
+
+        def _orchestrator_ready(state):
+            if state.get("emu_connected") and state.get("game_id"):
+                return True, ""
+            return False, (
+                f"emu_connected={state.get('emu_connected')!r} "
+                f"game_id={state.get('game_id')!r}"
+            )
+
+        outcome = wait_for(
+            name="orchestrator_ready",
+            fetch=_fetch_state,
+            predicate=_orchestrator_ready,
+            timeout_s=10.0,
+            interval_s=0.25,
+        )
+        if not outcome.succeeded:
+            pytest.fail(outcome.format_message())
+
+        # PLAY_REPLAY requires RA in PLAYING state. The harness left it paused.
+        harness = ra_harness_love_yourself_no_reset
+        try:
+            status = harness.client.get_status()
+            if status.state == "PAUSED":
+                harness.client.pause_toggle()
+                time.sleep(0.3)  # let RA settle into PLAYING before tests POST replay/start
+        except Exception as exc:
+            pytest.fail(format_pause_toggle_failure(harness, exc))
+
+        yield ctx.base_url, ctx.db, ctx.tmp_path
+    finally:
+        harness_cm.__exit__(None, None, None)
 
 
 # ---------------------------------------------------------------------------
@@ -320,56 +303,6 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset):
 # Diagnostic capture machinery lives in _diagnostics.py. The ring handler is
 # installed once at module load via install_log_handler() (called above in the
 # imports block). The pytest hooks below delegate to the module functions.
-
-
-def _wait_for_dashboard_state(
-    base_url: str,
-    *,
-    check: Callable[[http_requests.Response], tuple[bool, Exception | None]],
-    attempts: int = 40,
-    interval_s: float = 0.25,
-    timeout_s: float = 1.0,
-) -> Exception | None:
-    """Poll ``{base_url}/api/state`` until ``check(resp)`` returns ``(True, _)``.
-
-    Returns ``None`` on success or the last captured Exception on timeout.
-    Caller decides how to surface the failure (typically ``pytest.fail`` with a
-    formatted message from ``format_dashboard_startup_failure``).
-
-    Uses blocking ``time.sleep`` for use across sync and async fixtures alike:
-    the dashboard's background event_loop runs in a separate uvicorn thread,
-    and the fixture's own asyncio loop is single-tenant during setup, so the
-    block doesn't starve anything.
-    """
-    last_error: Exception | None = None
-    for _ in range(attempts):
-        try:
-            resp = http_requests.get(f"{base_url}/api/state", timeout=timeout_s)
-            ok, err = check(resp)
-            if ok:
-                return None
-            last_error = err
-        except Exception as exc:
-            last_error = exc
-        time.sleep(interval_s)
-    return last_error
-
-
-def _status_200(resp: http_requests.Response) -> tuple[bool, Exception | None]:
-    """Default dashboard-ready check: HTTP 200 from /api/state."""
-    if resp.status_code == 200:
-        return True, None
-    return False, RuntimeError(f"status {resp.status_code}")
-
-
-def _teardown_replay_dashboard(*, server, thread, db, tmp) -> None:
-    """Tear down the uvicorn server, DB connection, and tmp dir created by
-    replay_ra_dashboard. Used by all bail-out paths and the happy-path cleanup.
-    """
-    server.should_exit = True
-    thread.join(timeout=5)
-    db.close()
-    shutil.rmtree(tmp, ignore_errors=True)
 
 
 @pytest.hookimpl(hookwrapper=True)
