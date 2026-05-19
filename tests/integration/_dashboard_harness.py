@@ -15,6 +15,7 @@ import threading
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import requests as http_requests
 import uvicorn
@@ -22,6 +23,9 @@ from tests.integration._wait_for import wait_for
 
 from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
 from spinlab.db import Database
+
+if TYPE_CHECKING:
+    from spinlab.session_manager import SessionManager
 
 
 def _free_port() -> int:
@@ -37,7 +41,7 @@ class DashboardContext:
 
     base_url: str
     db: Database
-    session: object  # SessionManager — typed as object to avoid an import cycle
+    session: SessionManager
     tmp_path: Path
 
 
