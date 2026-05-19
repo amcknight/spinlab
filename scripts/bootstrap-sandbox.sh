@@ -45,8 +45,8 @@ echo "[bootstrap] creating venv at $VENV"
 rm -rf "$VENV"
 uv venv "$VENV" --python "$PYVER"
 
-echo "[bootstrap] installing spinlab + [dev] extras (editable)"
-uv pip install --python "$VENV/bin/python" -e "${REPO_ROOT}[dev]"
+echo "[bootstrap] installing spinlab + [dev,fits] extras (editable)"
+uv pip install --python "$VENV/bin/python" -e "${REPO_ROOT}[dev,fits]"
 
 echo "[bootstrap] sanity check: import spinlab, run pytest --version"
 "$VENV/bin/python" -c "import spinlab; print('spinlab ok')"
