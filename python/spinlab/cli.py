@@ -173,6 +173,11 @@ def main(args: list[str] | None = None) -> None:
     p_db_reset = db_sub.add_parser("reset", help="Delete and recreate the database")
     p_db_reset.add_argument("--config", default="config.yaml", help="Path to config.yaml")
 
+    # Register the segments-v07 manual EB pool refit. Lives in its own
+    # module so the JAX import stays lazy until `spinlab fit-pool` runs.
+    from spinlab import cli_fit_pool
+    cli_fit_pool.add_subparser(sub)
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "dashboard":
@@ -218,6 +223,11 @@ def main(args: list[str] | None = None) -> None:
                     wal.unlink()
             Database(str(db_path))
             print(f"Database reset: {db_path}")
+
+    elif parsed.command == "fit-pool":
+        from spinlab import cli_fit_pool
+
+        sys.exit(cli_fit_pool.run(parsed))
 
 
 if __name__ == "__main__":
