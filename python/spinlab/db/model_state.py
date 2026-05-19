@@ -96,20 +96,32 @@ class ModelStateMixin:
         return result
 
     def compute_golds(self, game_id: str) -> dict[str, GoldRow]:
-        """Compute gold times for all active segments in a game."""
-        cur = self.conn.execute(
-            """SELECT a.segment_id,
-                      MIN(CASE WHEN a.completed = 1 THEN a.time_ms END) AS gold_ms,
-                      MIN(CASE WHEN a.completed = 1 THEN a.clean_tail_ms END) AS clean_gold_ms
-               FROM attempts a
-               JOIN segments s ON a.segment_id = s.id
-               WHERE s.game_id = ? AND s.active = 1
-               GROUP BY a.segment_id""",
-            (game_id,),
-        )
+        """Compute gold (best) total + clean times for all active segments.
+
+        Post-Phase-0 the ``attempts`` table is event-level, so we can't take
+        ``MIN(time_ms)`` in SQL — the episode total is ``sum(event time_ms) +
+        deaths*penalty``. We delegate to ``get_all_attempts_by_segment`` which
+        runs the same episode roll-up the estimators use, and pick the min
+        per segment in Python. Scale (50 segments × hundreds of attempts) is
+        cheap enough that the trip through Python is not worth optimizing.
+        """
+        # Inline import to avoid a cycle: AttemptsMixin is composed into the
+        # Database class alongside this mixin and pulls in the model layer.
+        attempts_by_seg = self.get_all_attempts_by_segment(game_id)  # type: ignore[attr-defined]
         result: dict[str, GoldRow] = {}
-        for row in cur.fetchall():
-            result[row[0]] = {"gold_ms": row[1], "clean_gold_ms": row[2]}
+        for seg_id, rows in attempts_by_seg.items():
+            gold_ms: int | None = None
+            clean_gold_ms: int | None = None
+            for row in rows:
+                if not row["completed"]:
+                    continue
+                t = row["time_ms"]
+                if t is not None and (gold_ms is None or t < gold_ms):
+                    gold_ms = t
+                c = row["clean_tail_ms"]
+                if c is not None and (clean_gold_ms is None or c < clean_gold_ms):
+                    clean_gold_ms = c
+            result[seg_id] = {"gold_ms": gold_ms, "clean_gold_ms": clean_gold_ms}
         return result
 
     def save_allocator_config(self, key: str, value: str) -> None:

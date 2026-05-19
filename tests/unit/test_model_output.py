@@ -128,4 +128,9 @@ class TestDBMultiModel:
         db.log_attempt(attempt)
         rows = db.get_segment_attempts("s1")
         assert rows[0]["deaths"] == 0
-        assert rows[0]["clean_tail_ms"] is None
+        # Post-Phase-0: clean_tail_ms reflects the wall-clock of the final
+        # 'survived' event. With no deaths it equals time_ms by construction
+        # (the closing event IS the entire episode). Scheduler.process_attempt
+        # already coerced None→time_ms in this case, so estimator behavior
+        # is unchanged.
+        assert rows[0]["clean_tail_ms"] == 12000

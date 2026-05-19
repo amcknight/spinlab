@@ -219,11 +219,12 @@ class TestHardDelete:
             "INSERT INTO model_state (segment_id, estimator, state_json, updated_at) "
             f"VALUES ('{seg_id}', 'kalman', '{{}}', '2026-01-01')"
         )
-        # Add an attempt row
+        # Add an attempt event row (Phase 0 event-level shape).
         tmp_db.create_session("sess1", "g1")
         tmp_db.conn.execute(
-            "INSERT INTO attempts (segment_id, session_id, completed, time_ms, created_at) "
-            f"VALUES ('{seg_id}', 'sess1', 1, 5000, '2026-01-01')"
+            "INSERT INTO attempts "
+            "(segment_id, session_id, episode_id, outcome, time_ms, source, created_at) "
+            f"VALUES ('{seg_id}', 'sess1', 'ep1', 'survived', 5000, 'practice', '2026-01-01')"
         )
         tmp_db.conn.commit()
 
