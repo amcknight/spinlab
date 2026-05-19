@@ -1,6 +1,5 @@
 """Tests for the hand-rolled migration runner."""
 import sqlite3
-from pathlib import Path
 
 import pytest
 

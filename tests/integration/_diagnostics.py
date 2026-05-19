@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import requests as http_requests
 
@@ -59,11 +59,20 @@ def install_log_handler() -> None:
     Called by `tests/integration/conftest.py` at module load. Idempotent —
     repeat calls are no-ops, so importing the module from unit tests
     doesn't double-register.
+
+    Sets the spinlab logger to INFO so `.info()` calls (e.g. the
+    replay-fixture poll trajectory at `spinlab.replay_fixture_diag`) reach
+    the ring. Without this the spinlab logger inherits the root logger's
+    default WARNING level and INFO trajectories are dropped before the
+    ring even sees them — which is how a 120-second replay timeout in
+    flake forensics shows up with one log line instead of ~200.
     """
     global _installed
     if _installed:
         return
-    logging.getLogger("spinlab").addHandler(ring)
+    spinlab_logger = logging.getLogger("spinlab")
+    spinlab_logger.addHandler(ring)
+    spinlab_logger.setLevel(logging.INFO)
     _installed = True
 
 
@@ -124,7 +133,12 @@ def collect_diagnostics(item: "pytest.Item") -> str:
     """
     parts: list[str] = []
 
-    for fixture_name, fixture_val in item.funcargs.items():
+    # `Item.funcargs` is a pytest-internal runtime attribute populated by
+    # the fixture machinery — not exposed on the static `Item` type, so
+    # pyright can't see it. `getattr` keeps the read narrow without a
+    # blanket type-ignore.
+    funcargs: dict[str, Any] = getattr(item, "funcargs", {})
+    for fixture_name, fixture_val in funcargs.items():
         # ---- Dashboard-shaped: (base_url, db, _) ----
         if (
             isinstance(fixture_val, tuple)
@@ -148,7 +162,7 @@ def collect_diagnostics(item: "pytest.Item") -> str:
                     "SELECT COUNT(*) FROM capture_runs"
                 ).fetchone()[0]
                 draft_count = db.conn.execute(
-                    "SELECT COUNT(*) FROM capture_runs WHERE draft = 1"
+                    "SELECT COUNT(*) FROM capture_runs WHERE status = 'draft'"
                 ).fetchone()[0]
                 parts.append(
                     f"  DB: {seg_count} active segments, "
@@ -160,16 +174,19 @@ def collect_diagnostics(item: "pytest.Item") -> str:
 
         # ---- Harness-shaped: duck-types on .proc + .client ----
         if hasattr(fixture_val, "proc") and hasattr(fixture_val, "client"):
+            # Duck-typed access — `fixture_val` is typed as `object | tuple`
+            # from the dashboard branch above; `hasattr` doesn't narrow.
+            harness = cast(Any, fixture_val)
             try:
-                proc_status = fixture_val.proc.poll()
+                proc_status = harness.proc.poll()
             except Exception as exc:
                 proc_status = f"<poll failed: {exc}>"
             try:
-                port = fixture_val.client.port
+                port = harness.client.port
             except Exception:
                 port = "<unknown>"
             try:
-                pid = fixture_val.proc.pid
+                pid = harness.proc.pid
             except Exception:
                 pid = "<unknown>"
             parts.append(

@@ -12,7 +12,7 @@ import pytest
 
 
 def test_resolve_rom_path_returns_path_when_rom_present(tmp_path):
-    from tests.integration._rom_paths import resolve_rom_path, ROM_REGISTRY
+    from tests.integration._rom_paths import ROM_REGISTRY, resolve_rom_path
 
     rom_dir = tmp_path / "roms"
     rom_dir.mkdir()
@@ -55,11 +55,14 @@ def test_resolve_rom_path_raises_on_missing_rom_dir_in_config():
 
 
 def test_resolve_ra_paths_returns_triple(tmp_path):
-    from tests.integration._rom_paths import resolve_ra_paths, ROM_REGISTRY
+    from tests.integration._rom_paths import ROM_REGISTRY, resolve_ra_paths
 
-    exe = tmp_path / "retroarch.exe"; exe.write_bytes(b"")
-    core = tmp_path / "core.dll"; core.write_bytes(b"")
-    rom_dir = tmp_path / "roms"; rom_dir.mkdir()
+    exe = tmp_path / "retroarch.exe"
+    exe.write_bytes(b"")
+    core = tmp_path / "core.dll"
+    core.write_bytes(b"")
+    rom_dir = tmp_path / "roms"
+    rom_dir.mkdir()
     vanilla_rom_name = ROM_REGISTRY["vanilla_smw"]
     (rom_dir / vanilla_rom_name).write_bytes(b"")
 
@@ -76,9 +79,10 @@ def test_resolve_ra_paths_returns_triple(tmp_path):
 
 
 def test_resolve_ra_paths_raises_on_missing_retroarch_path(tmp_path):
-    from tests.integration._rom_paths import resolve_ra_paths, ROM_REGISTRY
+    from tests.integration._rom_paths import ROM_REGISTRY, resolve_ra_paths
 
-    rom_dir = tmp_path / "roms"; rom_dir.mkdir()
+    rom_dir = tmp_path / "roms"
+    rom_dir.mkdir()
     (rom_dir / ROM_REGISTRY["vanilla_smw"]).write_bytes(b"")
     fake_config = {"emulator": {}, "rom": {"dir": str(rom_dir)}}
     with patch("tests.integration._rom_paths.load_config", return_value=fake_config):
@@ -87,10 +91,12 @@ def test_resolve_ra_paths_raises_on_missing_retroarch_path(tmp_path):
 
 
 def test_resolve_ra_paths_raises_on_missing_ra_core_path(tmp_path):
-    from tests.integration._rom_paths import resolve_ra_paths, ROM_REGISTRY
+    from tests.integration._rom_paths import ROM_REGISTRY, resolve_ra_paths
 
-    exe = tmp_path / "retroarch.exe"; exe.write_bytes(b"")
-    rom_dir = tmp_path / "roms"; rom_dir.mkdir()
+    exe = tmp_path / "retroarch.exe"
+    exe.write_bytes(b"")
+    rom_dir = tmp_path / "roms"
+    rom_dir.mkdir()
     (rom_dir / ROM_REGISTRY["vanilla_smw"]).write_bytes(b"")
     fake_config = {"emulator": {"retroarch_path": str(exe)}, "rom": {"dir": str(rom_dir)}}
     with patch("tests.integration._rom_paths.load_config", return_value=fake_config):
@@ -99,11 +105,13 @@ def test_resolve_ra_paths_raises_on_missing_ra_core_path(tmp_path):
 
 
 def test_resolve_ra_paths_raises_when_retroarch_exe_missing_on_disk(tmp_path):
-    from tests.integration._rom_paths import resolve_ra_paths, ROM_REGISTRY
+    from tests.integration._rom_paths import ROM_REGISTRY, resolve_ra_paths
 
     nonexistent_exe = tmp_path / "does_not_exist" / "retroarch.exe"
-    core = tmp_path / "core.dll"; core.write_bytes(b"")
-    rom_dir = tmp_path / "roms"; rom_dir.mkdir()
+    core = tmp_path / "core.dll"
+    core.write_bytes(b"")
+    rom_dir = tmp_path / "roms"
+    rom_dir.mkdir()
     (rom_dir / ROM_REGISTRY["vanilla_smw"]).write_bytes(b"")
     fake_config = {
         "emulator": {"retroarch_path": str(nonexistent_exe), "ra_core_path": str(core)},

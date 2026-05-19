@@ -4,7 +4,6 @@ import socket
 import pytest
 
 from spinlab.retroarch import (
-    NCIError,
     NCIProtocolError,
     NCITimeout,
     StatusInfo,

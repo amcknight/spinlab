@@ -24,10 +24,10 @@ from .protocol import (
     AttemptInvalidatedEvent,
     AttemptResultEvent,
     CheckpointEvent,
+    ConditionSpec,
     DeathEvent,
     GameContextEvent,
     LevelEntranceEvent,
-    ConditionSpec,
     LevelExitEvent,
     ReplayErrorEvent,
     ReplayFinishedEvent,
@@ -228,7 +228,24 @@ class SessionManager:
         filename = event.filename
         if not self.rom_dir or not filename:
             return
+        # RA's GET_STATUS reports the ROM basename without extension
+        # (e.g. "Love Yourself", not "Love Yourself.smc"), so a literal
+        # `rom_dir / filename` lookup misses. Probe common SNES ROM
+        # extensions before falling back to the filename-derived ID —
+        # without this, the per-game ConditionRegistry is never loaded
+        # (`games/<crc>/conditions.yaml` doesn't exist under the
+        # `file_<name>` fallback key), the poller emits no transition
+        # events, and segment capture silently produces zero rows. This
+        # was the root cause of the 2026-05-18 `test_replay_produces_
+        # segments` intermittent failure where mode=replay but
+        # sections_captured=0 for the full 120s timeout.
         rom_path = self.rom_dir / filename
+        if not rom_path.exists():
+            for ext in (".smc", ".sfc", ".fig", ".swc"):
+                candidate = self.rom_dir / f"{filename}{ext}"
+                if candidate.exists():
+                    rom_path = candidate
+                    break
         if rom_path.exists():
             from spinlab.romid import game_name_from_filename, rom_checksum
             checksum = rom_checksum(rom_path)

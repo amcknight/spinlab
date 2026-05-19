@@ -47,10 +47,17 @@ QUIT_GRACE_S = 2.0
 
 # PAUSE_TOGGLE → status check race. Under load (e.g. multiple concurrent RA
 # processes — currently up to 3 in the emulator suite: vanilla_smw,
-# love_yourself, love_yourself_no_reset), RA may take >1s to apply the
-# toggle before GET_STATUS reports PAUSED. Retry the verify generously
-# instead of failing on the first miss. 10 × 0.3s = 3s total budget.
-PAUSE_VERIFY_RETRIES = 10
+# love_yourself, love_yourself_no_reset), RA may take many seconds to
+# apply the toggle before GET_STATUS reports PAUSED. The history:
+#   - 10 × 0.3s (3s): ~21% flake on full-suite runs (2026-05-18)
+#   - 30 × 0.3s (9s): still flakes; one observed failure at retry 26
+#     with startup_duration_s=9.54 (2026-05-18 stress run, Mode 1)
+# 60 × 0.3s (18s) is enough headroom that further failures imply a
+# genuine wedge (not slow toggle), which is a different fix (kill +
+# relaunch). The warning emitted at attempt >= 10 every 5 attempts
+# surfaces the stall trajectory into the ring tail so post-mortem can
+# distinguish "slow but converging" from "wedged".
+PAUSE_VERIFY_RETRIES = 60
 PAUSE_VERIFY_INTERVAL_S = 0.3
 
 # When the harness is given a fresh_state_path, the state file is copied into
@@ -303,7 +310,7 @@ class RAHarness:
             # PLAYING (sending while PAUSED would un-pause).
             after_state: str | None = "PLAYING"
             last_exc: Exception | None = None
-            for _ in range(PAUSE_VERIFY_RETRIES):
+            for attempt in range(PAUSE_VERIFY_RETRIES):
                 if after_state == "PLAYING":
                     try:
                         client.pause_toggle()
@@ -321,6 +328,16 @@ class RAHarness:
                 after_state = after.state
                 if after_state == "PAUSED":
                     break
+                # Surface slow toggles into the ring tail so the diagnostic
+                # block shows the trajectory if we eventually time out.
+                # Quiet for the first 10 attempts (the steady-state budget),
+                # then log every 5 so the ring shows how long the stall ran.
+                if attempt >= 10 and attempt % 5 == 0:
+                    logger.warning(
+                        "ra_harness: pause_verify still %s after %d/%d "
+                        "attempts on port %d",
+                        after_state, attempt + 1, PAUSE_VERIFY_RETRIES, port,
+                    )
             else:
                 startup_duration = time.monotonic() - launch_started_at
                 preserved_log = cls._cleanup_launch(proc, log_handle, tmp_dir, log_path)

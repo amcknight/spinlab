@@ -7,14 +7,12 @@ cleanup (Task 3, Bundle 2).
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 from spinlab.retroarch.movie_io import RAMovieIO
 from spinlab.retroarch.nci import NCIClient
-
 
 # ---------------------------------------------------------------------------
 # Stub NCI

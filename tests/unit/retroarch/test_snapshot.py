@@ -1,6 +1,6 @@
 """Tests for MemorySnapshot — the per-frame view of SMW state."""
 from spinlab.retroarch.nci import NCIClient
-from spinlab.retroarch.snapshot import MemorySnapshot, read_snapshot
+from spinlab.retroarch.snapshot import read_snapshot
 
 
 def test_read_snapshot_maps_each_address_to_its_field(fake_nci_server):
