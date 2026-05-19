@@ -23,6 +23,7 @@ episode-shaped table stored.
 import sqlite3
 import uuid
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import TypedDict
 
 from ..models import (
@@ -83,7 +84,7 @@ RECENT_ATTEMPTS_DB_LIMIT = 5
 
 
 def _roll_up_episode(
-    events: list[sqlite3.Row | dict],
+    events: Sequence[sqlite3.Row | dict],
     death_penalty_ms: int,
 ) -> dict:
     """Convert a chronological event list for one episode into an episode dict.

@@ -328,13 +328,15 @@ class SessionManager:
         Fires before the closing ``AttemptResultEvent`` for each died/survived
         event. The session stamps in session_id + source + chosen_allocator
         and writes one row through ``db.log_event_attempt``.
+
+        Speed-run mode is intentionally not wired: SpeedRunTiming's per-
+        sub-segment semantics don't map 1:1 onto a single armed attempt,
+        and the existing ``SpeedRunSession._record_attempt`` path already
+        produces deaths=0 episode rows that the legacy shim splits cleanly.
+        Phase 1 (v07 wiring) will revisit speed-run event emission.
         """
         if self.mode == Mode.PRACTICE and self.practice_session:
             self.practice_session.receive_event_attempt(event)
-        elif self.mode == Mode.SPEED_RUN and self.speed_run_session:
-            # Speed-run sessions also write event-level attempts so the v07
-            # model gets the same per-event granularity from both modes.
-            self.speed_run_session.receive_event_attempt(event)
 
     async def _handle_replay_started(self, event: ReplayStartedEvent) -> None:
         self.capture.handle_replay_started(event)
