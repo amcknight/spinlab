@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import math
 import time
+import uuid
 from collections.abc import Callable
 from enum import Enum
 
@@ -31,6 +32,7 @@ from spinlab.protocol import (
     AttemptResultEvent,
     CheckpointEvent,
     DeathEvent,
+    EventAttemptEmission,
     LevelExitEvent,
     SpeedRunCheckpointEvent,
     SpeedRunCompleteEvent,
@@ -84,12 +86,23 @@ class PracticeTiming:
         self._deaths: int = 0
         self._last_death_ms: int = 0
 
+        # Per-event emission tracking.
+        # episode_id groups events from a single armed attempt; minted in
+        # arm() and carried verbatim into every EventAttemptEmission fired
+        # before the next arm().
+        # last_event_ms is the wall-clock time of the previous event (or
+        # start_ms before the first event) so event time_ms is just the
+        # delta — no penalty math, that's the legacy adapter's job.
+        self._episode_id: str = ""
+        self._last_event_ms: int = 0
+
         # Result-phase fields.
         self._elapsed_ms: int = 0
         self._completed: bool = False
         self._result_start_ms: int = 0
 
         self._on_attempt_result: Callable[[AttemptResultEvent], None] | None = None
+        self._on_event_attempt: Callable[[EventAttemptEmission], None] | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -107,6 +120,7 @@ class PracticeTiming:
         death_penalty_ms: int,
         auto_advance_delay_ms: int,
         on_attempt_result: Callable[[AttemptResultEvent], None],
+        on_event_attempt: Callable[[EventAttemptEmission], None] | None = None,
     ) -> None:
         """Start (or restart) an attempt. Resets all prior state without emitting."""
         self._reset()
@@ -115,7 +129,10 @@ class PracticeTiming:
         self._death_penalty_ms = death_penalty_ms
         self._auto_advance_delay_ms = auto_advance_delay_ms
         self._on_attempt_result = on_attempt_result
+        self._on_event_attempt = on_event_attempt
         self._start_ms = self._now()
+        self._episode_id = uuid.uuid4().hex
+        self._last_event_ms = self._start_ms
         self._state = _PracticeState.PLAYING
 
     def observe_event(self, event: object) -> None:
@@ -129,20 +146,30 @@ class PracticeTiming:
 
         if isinstance(event, DeathEvent):
             # Deaths never auto-fail — accumulate penalty counter only.
+            now = self._now()
             self._deaths += 1
-            self._last_death_ms = self._now()
+            self._last_death_ms = now
+            self._emit_event_attempt("died", now)
             return
 
         if self._end_type == "checkpoint":
             # Checkpoint end-type: only a checkpoint event triggers completion;
             # level_exit events are ignored entirely.
             if isinstance(event, CheckpointEvent):
+                self._emit_event_attempt("survived", self._now())
                 self._enter_result(completed=True)
         else:
             # Goal / exit end-type: level_exit drives completion.
             # goal == "abort" → failed; any other goal → completed.
             if isinstance(event, LevelExitEvent):
-                self._enter_result(completed=(event.goal != "abort"))
+                completed = event.goal != "abort"
+                if completed:
+                    # Aborts get no event row — they record a DeathEvent earlier
+                    # (the abort follows a death) or simply end without one (a
+                    # disarm-style stop). Either way the episode has no
+                    # 'survived' close.
+                    self._emit_event_attempt("survived", self._now())
+                self._enter_result(completed=completed)
 
     def tick(self, now_ms: int | None = None) -> bool:
         """Advance the auto-advance timer. Returns True exactly once when the
@@ -162,6 +189,27 @@ class PracticeTiming:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _emit_event_attempt(self, outcome: str, now_ms: int) -> None:
+        """Fire ``on_event_attempt`` for one died/survived event.
+
+        ``time_ms`` is the wall-clock delta since the previous event in this
+        episode (or since arm() for the first one) — no penalty math, just
+        raw elapsed. The legacy adapter folds the per-death penalty back in
+        when rolling events up; v07 wants the clean number.
+        """
+        cb = self._on_event_attempt
+        if cb is None:
+            return
+        time_ms = now_ms - self._last_event_ms
+        self._last_event_ms = now_ms
+        cb(EventAttemptEmission(
+            segment_id=self._segment_id,
+            episode_id=self._episode_id,
+            outcome=outcome,  # type: ignore[arg-type]
+            time_ms=time_ms,
+            timestamp_ms=now_ms,
+        ))
 
     def _enter_result(self, *, completed: bool) -> None:
         now = self._now()
@@ -207,10 +255,13 @@ class PracticeTiming:
         self._start_ms = 0
         self._deaths = 0
         self._last_death_ms = 0
+        self._episode_id = ""
+        self._last_event_ms = 0
         self._elapsed_ms = 0
         self._completed = False
         self._result_start_ms = 0
         self._on_attempt_result = None
+        self._on_event_attempt = None
 
 
 # ---------------------------------------------------------------------------

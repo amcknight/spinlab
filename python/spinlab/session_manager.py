@@ -25,6 +25,7 @@ from .protocol import (
     AttemptResultEvent,
     CheckpointEvent,
     DeathEvent,
+    EventAttemptEmission,
     GameContextEvent,
     LevelEntranceEvent,
     ConditionSpec,
@@ -105,6 +106,7 @@ class SessionManager:
             SpawnEvent: self._handle_spawn,
             LevelExitEvent: self._handle_level_exit,
             AttemptResultEvent: self._handle_attempt_result,
+            EventAttemptEmission: self._handle_event_attempt_emission,
             ReplayStartedEvent: self._handle_replay_started,
             ReplayFinishedEvent: self._handle_replay_finished,
             ReplayErrorEvent: self._handle_replay_error,
@@ -319,6 +321,20 @@ class SessionManager:
         if self.practice_session:
             self.practice_session.receive_result(event)
         await self._notify_sse()
+
+    async def _handle_event_attempt_emission(self, event: EventAttemptEmission) -> None:
+        """Persist a per-event row mid-attempt.
+
+        Fires before the closing ``AttemptResultEvent`` for each died/survived
+        event. The session stamps in session_id + source + chosen_allocator
+        and writes one row through ``db.log_event_attempt``.
+        """
+        if self.mode == Mode.PRACTICE and self.practice_session:
+            self.practice_session.receive_event_attempt(event)
+        elif self.mode == Mode.SPEED_RUN and self.speed_run_session:
+            # Speed-run sessions also write event-level attempts so the v07
+            # model gets the same per-event granularity from both modes.
+            self.speed_run_session.receive_event_attempt(event)
 
     async def _handle_replay_started(self, event: ReplayStartedEvent) -> None:
         self.capture.handle_replay_started(event)

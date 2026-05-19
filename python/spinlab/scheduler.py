@@ -115,65 +115,96 @@ class Scheduler:
         return next((s for s in practicable if s.segment_id == segment_id), None)
 
     def record_attempt(self, attempt: Attempt) -> None:
-        """Canonical entry point for a finished practice/replay attempt.
+        """Legacy entry point for episode-shaped attempt writers (tests, the
+        reference-capture finalizer).
 
-        Runs every registered estimator on the attempt and then persists the
-        attempt row. Order matters: ``process_attempt`` expects the new attempt
-        is NOT yet in the attempts table so it can append it itself; logging
-        first would make estimators see it twice (see the regression covered
-        by ``tests/unit/test_practice.py::test_process_result_does_not_double_count_attempts``).
-
-        Not strictly atomic — the underlying DB methods auto-commit per call —
-        but the only failure mode of practical concern (``log_attempt`` raising
-        after model state was updated) is rare and self-heals on the next
-        ``rebuild_all_states`` since attempts are the source of truth.
+        Persists the attempt via the event-level shim (``log_attempt`` →
+        synthesized event rows) and then updates estimator state from the
+        just-persisted episode. Production practice and speed-run code no
+        longer goes through here — they write per-event rows directly via
+        ``PracticeSession.receive_event_attempt`` and end-of-episode
+        triggers ``update_state_after_episode``.
         """
-        self.process_attempt(
-            attempt.segment_id,
-            time_ms=attempt.time_ms or 0,
-            completed=attempt.completed,
-            deaths=attempt.deaths,
-            clean_tail_ms=attempt.clean_tail_ms,
-        )
         self.db.log_attempt(attempt)
+        self.update_state_after_episode(attempt.segment_id)
 
     def process_attempt(
         self, segment_id: str, time_ms: int, completed: bool,
         deaths: int = 0, clean_tail_ms: int | None = None,
+        session_id: str | None = None,
     ) -> None:
-        # If completed with no deaths and no explicit clean_tail_ms, clean_tail = total time
-        effective_clean_tail = clean_tail_ms
-        if completed and deaths == 0 and clean_tail_ms is None:
-            effective_clean_tail = time_ms
-        new_attempt = AttemptRecord(
-            time_ms=time_ms if completed else None,
-            completed=completed, deaths=deaths,
-            clean_tail_ms=effective_clean_tail if completed else None,
-            created_at="",
-        )
+        """Back-compat shim — builds an Attempt and calls record_attempt.
 
+        Pre-Phase-0 this was the canonical "update model only" entry point
+        and required the caller to invoke ``db.log_attempt`` separately.
+        After Phase 0 the DB is the source of truth (events round-trip into
+        episodes via the adapter), so the model can no longer be updated
+        without the row first being persisted — combining the two operations
+        here matches the new model-after-persistence ordering.
+
+        The signature stays positional for the dozens of existing call sites
+        in tests, but ``session_id`` becomes required when no draft capture
+        run exists (which is the case for ad-hoc tests that don't set up a
+        capture_run). The helper auto-creates a session row if missing.
+        """
+        if session_id is None:
+            session_id = "_default_test_session"
+        # Idempotent: tests reuse this session across attempts.
+        try:
+            self.db.create_session(session_id, self.game_id)
+        except Exception:
+            pass  # session already exists
+        attempt = Attempt(
+            segment_id=segment_id,
+            session_id=session_id,
+            completed=completed,
+            time_ms=time_ms if completed else None,
+            deaths=deaths,
+            clean_tail_ms=clean_tail_ms,
+        )
+        self.record_attempt(attempt)
+
+    def update_state_after_episode(self, segment_id: str) -> None:
+        """Run every estimator over the latest persisted episode for ``segment_id``.
+
+        Reads the rolled-up episode list from the event-level table, picks
+        the most recently closed episode as the "new" attempt, and feeds it
+        through each estimator's incremental update path.
+
+        Callers must guarantee that the new episode is fully persisted
+        before invoking this (the legacy adapter rolls events up, so partial
+        episodes — a death but no terminator — show up as
+        ``completed=False`` rows). Practice mode achieves that ordering via
+        the ``EventAttemptEmission → AttemptResultEvent`` event sequence.
+        """
         attempt_rows = self.db.get_segment_attempts(segment_id)
         all_attempts = _attempts_from_rows(attempt_rows)
-        # Include the new attempt in the list passed to model_output
-        all_attempts_with_new = all_attempts + [new_attempt]
-
+        if not all_attempts:
+            return
+        new_attempt = all_attempts[-1]
         for est in [get_estimator(n) for n in list_estimators()]:
             try:
                 self._process_attempt_for_estimator(
-                    est, segment_id, new_attempt, all_attempts_with_new,
-                    completed=completed, time_ms=time_ms,
+                    est, segment_id, new_attempt, all_attempts,
+                    completed=new_attempt.completed,
+                    time_ms=new_attempt.time_ms or 0,
                 )
             except Exception:
                 logger.exception(
-                    "process_attempt failed for segment=%s estimator=%s",
+                    "update_state_after_episode failed for segment=%s estimator=%s",
                     segment_id, est.name,
                 )
 
     def _process_attempt_for_estimator(
         self, est: "Estimator", segment_id: str,
-        new_attempt: AttemptRecord, all_attempts_with_new: list[AttemptRecord],
+        new_attempt: AttemptRecord, all_attempts: list[AttemptRecord],
         *, completed: bool, time_ms: int,
     ) -> None:
+        # ``all_attempts`` is the post-persistence snapshot from
+        # ``get_segment_attempts`` — it already contains ``new_attempt`` as
+        # its last entry. The pre-Phase-0 code appended ``new_attempt`` to
+        # an N-1 list; after Phase 0 the row is in the DB before this is
+        # called, so no append is needed.
         params = self._load_estimator_params(est.name)
         row = self.db.load_model_state(segment_id, est.name)
 
@@ -190,21 +221,21 @@ class Scheduler:
                 state = est.init_state(new_attempt, priors, params=params)
                 state.n_attempts += prior_n_attempts
             else:
-                state = est.process_attempt(state, new_attempt, all_attempts_with_new, params=params)
+                state = est.process_attempt(state, new_attempt, all_attempts, params=params)
         else:
             if completed and time_ms is not None:
                 priors = est.get_priors(self.db, self.game_id)
                 state = est.init_state(new_attempt, priors, params=params)
             else:
                 state = est.rebuild_state([new_attempt], params=params)
-                output = est.model_output(state, all_attempts_with_new, params=params)
+                output = est.model_output(state, all_attempts, params=params)
                 self.db.save_model_state(
                     segment_id, est.name,
                     json.dumps(state.to_dict()), json.dumps(output.to_dict()),
                 )
                 return
 
-        output = est.model_output(state, all_attempts_with_new, params=params)
+        output = est.model_output(state, all_attempts, params=params)
         self.db.save_model_state(
             segment_id, est.name,
             json.dumps(state.to_dict()), json.dumps(output.to_dict()),
