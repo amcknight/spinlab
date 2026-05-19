@@ -132,6 +132,62 @@ async def test_stop_playback_idempotent(mc, events):
 
 
 @pytest.mark.asyncio
+async def test_start_playback_calls_on_replay_started_before_play_movie(
+    movie_io, raclient, events,
+):
+    """The on_replay_started hook (used to fire `detector.mark_replay_entrance`)
+    must run BEFORE play_movie awaits. play_movie sends PLAY_REPLAY then waits
+    ~150ms verifying WRAM advanced; during that window the poller (60Hz
+    concurrent asyncio task) already sees the post-load level_start=1 state
+    and the detector's natural rising-edge check misses if prev=1, curr=1.
+    Setting the flag before play_movie closes the race.
+    """
+    order: list[str] = []
+    def _on_replay_started() -> None:
+        order.append("hook")
+
+    orig_play_movie = movie_io.play_movie
+    async def _instrumented_play(path):
+        order.append("play_movie")
+        return await orig_play_movie(path)
+    movie_io.play_movie = _instrumented_play
+
+    def _capture_event(ev) -> None:
+        order.append(type(ev).__name__)
+        events.append(ev)
+
+    mc = MovieController(
+        movie_io=movie_io, raclient=raclient,
+        enable=True, on_event=_capture_event,
+        on_replay_started=_on_replay_started,
+    )
+    await mc.start_playback(Path("/x.replay"), speed=1)
+    assert order == ["hook", "play_movie", "ReplayStartedEvent"]
+
+
+@pytest.mark.asyncio
+async def test_start_playback_hook_fires_even_on_movie_error(
+    movie_io, raclient, events,
+):
+    """The hook is intentionally fired pre-play, so it still runs when
+    play_movie raises. Leaving the flag set is safe (idempotent for any
+    subsequent legitimate level entrance — the natural rising edge and the
+    forced flag combine into a single event)."""
+    called: list[None] = []
+    movie_io.fail_play_movie = True
+    movie_io.play_movie_error_message = "verify failed"
+    mc = MovieController(
+        movie_io=movie_io, raclient=raclient,
+        enable=True, on_event=events.append,
+        on_replay_started=lambda: called.append(None),
+    )
+    await mc.start_playback(Path("/x.replay"), speed=1)
+    # Hook fired once, before play_movie's verify-fail caused the early return.
+    assert len(called) == 1
+    assert any(isinstance(e, ReplayErrorEvent) for e in events)
+
+
+@pytest.mark.asyncio
 async def test_stop_recording_nonfatal_on_movie_record_error(movie_io, raclient, events):
     """stop_recording must swallow MovieRecordError (which extends MovieIOError,
     not RAClientError after the Task 1 refactor)."""

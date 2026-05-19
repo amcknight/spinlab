@@ -50,11 +50,18 @@ class MovieController:
         raclient: RAClient,
         enable: bool,
         on_event: Callable[[MovieEvent], None],
+        on_replay_started: Callable[[], None] | None = None,
     ) -> None:
         self._movie_io = movie_io
         self._raclient = raclient
         self._enable = enable
         self._on_event = on_event
+        # Called after `play_movie` succeeds, before the ReplayStartedEvent
+        # is emitted. Lets the orchestrator forward the signal into the
+        # poller's detector so it can synthesize the entrance edge that
+        # PLAY_REPLAY's savestate load otherwise bypasses. See
+        # `detector.mark_replay_entrance` for the why.
+        self._on_replay_started: Callable[[], None] = on_replay_started or (lambda: None)
         self._active_recording: MovieRecording | None = None
         self._active_playback: MoviePlayback | None = None
         self._fast_forwarding: bool = False
@@ -112,6 +119,20 @@ class MovieController:
         if not self._enable:
             logger.warning("MovieController: start_playback rejected — movies disabled")
             raise BackendNotImplementedError()
+
+        # Prime the detector BEFORE play_movie awaits. play_movie sends
+        # PLAY_REPLAY (which loads the replay's savestate inside RA) and then
+        # waits ~150ms verifying WRAM advanced. The poller is a concurrent
+        # asyncio task running at 60Hz; during that 150ms window the poller
+        # can already see the post-load level_start=1 state. If the flag
+        # isn't set yet, the detector's natural rising-edge check fails on
+        # prev=1, curr=1 (the pre-replay snapshot can have level_start=1 from
+        # the SMW title demo) and the entrance is missed forever in a
+        # one-level replay. Setting the flag pre-play closes the race.
+        # Idempotent if play_movie fails — the flag is a no-op until
+        # level_start goes active, and the next legitimate level entrance
+        # consumes it as a single combined event.
+        self._on_replay_started()
 
         try:
             self._active_playback = await self._movie_io.play_movie(path)

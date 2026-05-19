@@ -108,6 +108,7 @@ def build_orchestrator(config) -> RetroArchOrchestrator:
         raclient=raclient,
         enable=movie_dir is not None,
         on_event=lambda ev: None,  # rebound by orch.__init__
+        on_replay_started=poller.mark_replay_entrance,
     )
     orch = RetroArchOrchestrator(
         raclient=raclient,

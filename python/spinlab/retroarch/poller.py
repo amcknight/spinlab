@@ -112,6 +112,13 @@ class Poller:
         """
         self._cold_fill.activate(segment_id)
 
+    def mark_replay_entrance(self) -> None:
+        """Forward to the embedded detector. Called by MovieController when
+        PLAY_REPLAY succeeds so the detector synthesizes the entrance edge
+        that the replay's savestate load would otherwise bypass.
+        """
+        self._detector.mark_replay_entrance()
+
     async def run(self) -> None:
         while not self._stopped:
             try:

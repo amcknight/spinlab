@@ -114,3 +114,25 @@ Implementation steps:
   - `_diagnostics.py` DB query had wrong column (`draft = 1` instead of `status = 'draft'`); replaced.
   - `install_log_handler` now sets `spinlab` logger to INFO so the replay-poll trajectory (`spinlab.replay_fixture_diag.info(...)`) lands in the ring; previously the ring was full of WARN+ noise only.
   - `pause_verify` loop emits warnings at attempts ≥ 10 every 5 retries so the ring shows the stall trajectory in the failure diagnostic.
+- 2026-05-18 partial Mode 2 fix landed (`detector.mark_replay_entrance` + MovieController hook). Did not measurably move full-suite flake rate (1/15 → 1/15) — but stress data is contaminated by Mode 3 (see below) and may be confounded.
+
+## Mode 3 — RA process crash mid-session (NEW, separate failure)
+
+Surfaced 2026-05-18 stress + diagnostic runs. Distinct from Mode 2:
+
+- Diagnostic shows `harness: ra_harness_love_yourself pid=<N> port=<P> proc.poll()=3221225477`.
+- `3221225477 == 0xC0000005`, Windows ACCESS_VIOLATION.
+- Effect: every subsequent test using that session-scoped harness fails (8-11 cascading failures in a single pytest run).
+- Surfaced via `NCITimeout: no reply within 0.5s for 'READ_CORE_RAM ...'` and `NCIProtocolError: reply has no data bytes: 'LOAD_STATE_SLOT 9998'`.
+- Pre-crash log shows: cold_fill spawn detect → save_state → cold_fill complete → mode transition idle → `press key=RESET taps=2 gap_ms=300` → CRASH.
+- The malformed `LOAD_STATE_SLOT 9998` reply suggests RA crashed mid-NCI-reply.
+
+**Likely trigger:** the `cold_fill` flow calls `client.press(RAHotkey.RESET, taps=2)` then `LOAD_STATE_SLOT` against the harness's per-launch isolated savestate directory. The combination (RESET hotkey followed by LOAD_STATE) may be hitting an RA bug. Toothpaste-style SRAM deep-freeze was the prior class of failure here; this looks like a new variant in the RESET → LOAD_STATE sequencing.
+
+**Out of scope for the Mode 2 fix.** Tracked separately. Possible avenues:
+- Add a settle/quiesce period between RESET and LOAD_STATE.
+- Catch + log RA crash signature in the harness (poll proc on every NCI failure) so the test report names "RA crashed" clearly instead of "NCI timeout."
+- Investigate whether the vendored `C:/RetroArch-Win64-fixed/` has a known fix for this; if not, file upstream.
+- Until addressed, the integration suite has a baseline RA-crash flake rate of ~5-10% that is not in the dashboard code's control.
+
+**Implication for measuring Mode 2 fixes:** Full-suite stress numbers are contaminated by Mode 3 at the same order of magnitude. To validate a Mode 2 fix, run the replay-fixture test in isolation (`pytest tests/integration/test_replay_fixture.py`) where Mode 3's harness-cascade can't fire — Mode 3 needs the multi-RA-process scenario of the full suite to manifest.

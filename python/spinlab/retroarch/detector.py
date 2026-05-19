@@ -47,6 +47,9 @@ class TransitionDetector:
         self._level_start_frame = 0
         self._frame_counter = 0
         self._exit_this_frame = False
+        # See `mark_replay_entrance`. Cleared the first frame after it's set
+        # where `curr.level_start == LEVEL_START_ACTIVE`.
+        self._force_next_entrance = False
 
     def reset(self) -> None:
         """Clear all state (for new segment / mode change / state-load)."""
@@ -55,6 +58,7 @@ class TransitionDetector:
         self._cp_acquired = False
         self._level_start_frame = 0
         self._exit_this_frame = False
+        self._force_next_entrance = False
 
     def resync_after_state_load(self, snapshot: MemorySnapshot) -> None:
         """Replace prev wholesale after a save state load and clear flags.
@@ -74,6 +78,26 @@ class TransitionDetector:
         self._cp_acquired = False
         self._exit_this_frame = False
         self._prev = snapshot
+
+    def mark_replay_entrance(self) -> None:
+        """Force `LevelEntranceEvent` on the next frame where level_start=1.
+
+        Replay playback (BSV_REPLAY / PLAY_REPLAY) bypasses raclient.load_state
+        and so doesn't bump the poller's `state_version`. That means
+        `_prev` keeps whatever the pre-replay frame had — and if RA happened
+        to be paused on a title-demo frame where level_start was already 1,
+        the natural `prev=0 -> curr=1` rising-edge check at line 125 misses
+        the entrance. In the only-one-level Love Yourself fixture there is
+        no second 0→1 edge, so the missed entrance never re-fires; segments
+        stay at 0 and the replay-fixture test times out (~7% flake rate
+        before this hook landed; see
+        docs/superpowers/plans/2026-05-18-mode2-replay-entrance-detection.md).
+
+        Caller (MovieController.start_playback) invokes this AFTER play_movie
+        succeeds. The next `step()` where curr.level_start == LEVEL_START_ACTIVE
+        synthesizes the entrance and clears the flag.
+        """
+        self._force_next_entrance = True
 
     def step(self, curr: MemorySnapshot, timestamp_ms: int) -> list[_EmittedEvent]:
         """Advance one frame; return list of transition events fired (often empty)."""
@@ -121,7 +145,7 @@ class TransitionDetector:
                 )
             )
 
-        # 4. Entrance: level_start 0->1 OR fast retry.
+        # 4. Entrance: level_start 0->1 OR fast retry OR replay-start force.
         edge_spawn = curr.level_start == LEVEL_START_ACTIVE and prev.level_start == 0
         fast_retry = (
             self._state.died_flag
@@ -129,7 +153,21 @@ class TransitionDetector:
             and curr.player_anim != PLAYER_ANIM_DEAD
             and prev.player_anim == PLAYER_ANIM_DEAD
         )
-        if (edge_spawn or fast_retry) and not self._exit_this_frame:
+        # Replay start: synthesize a rising-edge entrance the first frame
+        # we see level_start active. See `mark_replay_entrance`.
+        forced_entrance = (
+            self._force_next_entrance and curr.level_start == LEVEL_START_ACTIVE
+        )
+        if forced_entrance:
+            self._force_next_entrance = False
+        if (edge_spawn or fast_retry or forced_entrance) and not self._exit_this_frame:
+            # Forced entrance always means "fresh level entry" regardless of
+            # whatever died_flag the pre-replay snapshots left behind. A
+            # replay starts from its embedded savestate; carrying over a
+            # stale death flag would route us into the Respawn branch and
+            # emit SpawnEvent instead of LevelEntranceEvent.
+            if forced_entrance:
+                self._state.died_flag = False
             if self._state.died_flag:
                 # Respawn after death.
                 was_cp = self._cp_acquired
