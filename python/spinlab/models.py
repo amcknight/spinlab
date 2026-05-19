@@ -141,7 +141,13 @@ class WaypointSaveState:
 
 @dataclass
 class Attempt:
-    """An attempt of a segment.
+    """An episode-shaped attempt of a segment.
+
+    After the segments-v07 Phase 0 refactor, the on-disk ``attempts`` table is
+    event-level (one row per died/survived event). This dataclass retains the
+    episode shape as a *convenience input* for test factories and the legacy
+    ``Database.log_attempt`` shim, which splits it into N+1 event rows on
+    insert and reconstructs it on read via ``Database.get_segment_attempts``.
 
     Exactly one of ``session_id`` or ``capture_run_id`` is set, enforced by a
     DB CHECK constraint. Practice and speed-run attempts use ``session_id``
@@ -165,6 +171,52 @@ class Attempt:
         if (self.session_id is None) == (self.capture_run_id is None):
             raise ValueError(
                 "Attempt requires exactly one of session_id or capture_run_id"
+            )
+
+
+# Penalty added to the OLD episode-shaped time_ms per death (3.2s, matching the
+# PracticeSession default in practice.py). The legacy adapter uses this to
+# rebuild episode-total time_ms from raw per-event wall-clock values, so the
+# value MUST stay in lockstep with PracticeSession.death_penalty_ms until the
+# v07 model takes over and penalties move out of the estimator pipeline.
+DEFAULT_DEATH_PENALTY_MS = 3200
+
+
+class AttemptOutcome(StrEnum):
+    DIED = "died"
+    SURVIVED = "survived"
+
+
+@dataclass(frozen=True)
+class EventAttempt:
+    """A single died-or-survived event within an episode.
+
+    Wire shape for the post-Phase-0 ``attempts`` table. One row per Death or
+    LevelExit/Checkpoint event. Episodes group consecutive events by
+    ``episode_id`` (minted at ``PracticeTiming.arm`` time and carried through
+    every event of that armed attempt). The legacy adapter reconstructs an
+    ``Attempt`` from a sorted run of these rows.
+
+    ``time_ms`` is the *raw* wall-clock elapsed since the preceding event in
+    the episode (or since arm() for the first event). No death-penalty math —
+    the penalty lives in the adapter so the v07 segments model gets the clean
+    number directly.
+    """
+    segment_id: str
+    episode_id: str
+    outcome: AttemptOutcome
+    time_ms: int
+    session_id: str | None = None
+    capture_run_id: str | None = None
+    source: AttemptSource = AttemptSource.PRACTICE
+    chosen_allocator: str | None = None
+    invalidated: bool = False
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        if (self.session_id is None) == (self.capture_run_id is None):
+            raise ValueError(
+                "EventAttempt requires exactly one of session_id or capture_run_id"
             )
 
 

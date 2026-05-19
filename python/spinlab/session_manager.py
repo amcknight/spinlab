@@ -26,6 +26,7 @@ from .protocol import (
     CheckpointEvent,
     ConditionSpec,
     DeathEvent,
+    EventAttemptEmission,
     GameContextEvent,
     LevelEntranceEvent,
     LevelExitEvent,
@@ -105,6 +106,7 @@ class SessionManager:
             SpawnEvent: self._handle_spawn,
             LevelExitEvent: self._handle_level_exit,
             AttemptResultEvent: self._handle_attempt_result,
+            EventAttemptEmission: self._handle_event_attempt_emission,
             ReplayStartedEvent: self._handle_replay_started,
             ReplayFinishedEvent: self._handle_replay_finished,
             ReplayErrorEvent: self._handle_replay_error,
@@ -336,6 +338,22 @@ class SessionManager:
         if self.practice_session:
             self.practice_session.receive_result(event)
         await self._notify_sse()
+
+    async def _handle_event_attempt_emission(self, event: EventAttemptEmission) -> None:
+        """Persist a per-event row mid-attempt.
+
+        Fires before the closing ``AttemptResultEvent`` for each died/survived
+        event. The session stamps in session_id + source + chosen_allocator
+        and writes one row through ``db.log_event_attempt``.
+
+        Speed-run mode is intentionally not wired: SpeedRunTiming's per-
+        sub-segment semantics don't map 1:1 onto a single armed attempt,
+        and the existing ``SpeedRunSession._record_attempt`` path already
+        produces deaths=0 episode rows that the legacy shim splits cleanly.
+        Phase 1 (v07 wiring) will revisit speed-run event emission.
+        """
+        if self.mode == Mode.PRACTICE and self.practice_session:
+            self.practice_session.receive_event_attempt(event)
 
     async def _handle_replay_started(self, event: ReplayStartedEvent) -> None:
         self.capture.handle_replay_started(event)

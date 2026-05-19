@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "captured_on_branch": "main (pre-event-level-refactor)",
+  "scenarios": [
+    {
+      "name": "five_clean_attempts",
+      "death_penalty_ms": 3200,
+      "episodes_old_shape": [
+        {
+          "completed": true,
+          "time_ms": 30000,
+          "deaths": 0,
+          "clean_tail_ms": 30000,
+          "created_at": "2026-05-18T00:00:00+00:00"
+        },
+        {
+          "completed": true,
+          "time_ms": 28000,
+          "deaths": 0,
+          "clean_tail_ms": 28000,
+          "created_at": "2026-05-18T00:00:30+00:00"
+        },
+        {
+          "completed": true,
+          "time_ms": 26500,
+          "deaths": 0,
+          "clean_tail_ms": 26500,
+          "created_at": "2026-05-18T00:01:00+00:00"
+        },
+        {
+          "completed": true,
+          "time_ms": 25500,
+          "deaths": 0,
+          "clean_tail_ms": 25500,
+          "created_at": "2026-05-18T00:01:30+00:00"
+        },
+        {
+          "completed": true,
+          "time_ms": 25000,
+          "deaths": 0,
+          "clean_tail_ms": 25000,
+          "created_at": "2026-05-18T00:02:00+00:00"
+        }
+      ],
+      "events_new_shape": [
+        {
+          "episode_id": "epA1",
+          "outcome": "survived",
+          "time_ms": 30000,
+          "created_at": "2026-05-18T00:00:00+00:00"
+        },
+        {
+          "episode_id": "epA2",
+          "outcome": "survived",
+          "time_ms": 28000,
+          "created_at": "2026-05-18T00:00:30+00:00"
+        },
+        {
+          "episode_id": "epA3",
+          "outcome": "survived",
+          "time_ms": 26500,
+          "created_at": "2026-05-18T00:01:00+00:00"
+        },
+        {
+          "episode_id": "epA4",
+          "outcome": "survived",
+          "time_ms": 25500,
+          "created_at": "2026-05-18T00:01:30+00:00"
+        },
+        {
+          "episode_id": "epA5",
+          "outcome": "survived",
+          "time_ms": 25000,
+          "created_at": "2026-05-18T00:02:00+00:00"
+        }
+      ],
+      "golden_outputs": {
+        "kalman": {
+          "total": {
+            "expected_ms": 25262.9154895621,
+            "ms_per_attempt": 446.40249032677843,
+            "floor_ms": null
+          },
+          "clean": {
+            "expected_ms": 25262.9154895621,
+            "ms_per_attempt": 446.40249032677843,
+            "floor_ms": null
+          }
+        },
+        "exp_decay": {
+          "total": {
+            "expected_ms": 26500.0,
+            "ms_per_attempt": 0.0,
+            "floor_ms": 25000.0
+          },
+          "clean": {
+            "expected_ms": 26500.0,
+            "ms_per_attempt": 0.0,
+            "floor_ms": 25000.0
+          }
+        },
+        "rolling_mean": {
+          "total": {
+            "expected_ms": 27000.0,
+            "ms_per_attempt": 1666.666666666666,
+            "floor_ms": 25000.0
+          },
+          "clean": {
+            "expected_ms": 27000.0,
+            "ms_per_attempt": 1666.666666666666,
+            "floor_ms": 25000.0
+          }
+        }
+      }
+    },
+    {
+      "name": "mixed_deaths_and_aborts",
+      "death_penalty_ms": 3200,
+      "episodes_old_shape": [
+        {
+          "completed": true,
+          "time_ms": 30000,
+          "deaths": 0,
+          "clean_tail_ms": 30000,
+          "created_at": "2026-05-18T00:10:00+00:00"
+        },
+        {
+          "completed": true,
+          "time_ms": 41400,
+          "deaths": 2,
+          "clean_tail_ms": 20000,
+          "created_at": "2026-05-18T00:10:30+00:00"
+        },
+        {
+          "completed": true,
+          "time_ms": 31200,
+          "deaths": 1,
+          "clean_tail_ms": 22000,
+          "created_at": "2026-05-18T00:11:00+00:00"
+        },
+        {
+          "completed": false,
+          "time_ms": null,
+          "deaths": 1,
+          "clean_tail_ms": null,
+          "created_at": "2026-05-18T00:11:30+00:00"
+        },
+        {
+          "completed": true,
+          "time_ms": 27000,
+          "deaths": 0,
+          "clean_tail_ms": 27000,
+          "created_at": "2026-05-18T00:12:00+00:00"
+        }
+      ],
+      "events_new_shape": [
+        {
+          "episode_id": "epB1",
+          "outcome": "survived",
+          "time_ms": 30000,
+          "created_at": "2026-05-18T00:10:00+00:00"
+        },
+        {
+          "episode_id": "epB2",
+          "outcome": "died",
+          "time_ms": 8000,
+          "created_at": "2026-05-18T00:10:30+00:00"
+        },
+        {
+          "episode_id": "epB2",
+          "outcome": "died",
+          "time_ms": 7000,
+          "created_at": "2026-05-18T00:10:38+00:00"
+        },
+        {
+          "episode_id": "epB2",
+          "outcome": "survived",
+          "time_ms": 20000,
+          "created_at": "2026-05-18T00:10:58+00:00"
+        },
+        {
+          "episode_id": "epB3",
+          "outcome": "died",
+          "time_ms": 6000,
+          "created_at": "2026-05-18T00:11:00+00:00"
+        },
+        {
+          "episode_id": "epB3",
+          "outcome": "survived",
+          "time_ms": 22000,
+          "created_at": "2026-05-18T00:11:06+00:00"
+        },
+        {
+          "episode_id": "epB4",
+          "outcome": "died",
+          "time_ms": 4000,
+          "created_at": "2026-05-18T00:11:30+00:00"
+        },
+        {
+          "episode_id": "epB5",
+          "outcome": "survived",
+          "time_ms": 27000,
+          "created_at": "2026-05-18T00:12:00+00:00"
+        }
+      ],
+      "golden_outputs": {
+        "kalman": {
+          "total": {
+            "expected_ms": 32508.461233946633,
+            "ms_per_attempt": 217.88584671008587,
+            "floor_ms": null
+          },
+          "clean": {
+            "expected_ms": 24685.81981450282,
+            "ms_per_attempt": 108.84336676353573,
+            "floor_ms": null
+          }
+        },
+        "exp_decay": {
+          "total": {
+            "expected_ms": 28264.82783612639,
+            "ms_per_attempt": 1484.7698210933559,
+            "floor_ms": 1.1928004414667008e-06
+          },
+          "clean": {
+            "expected_ms": 23000.000349106973,
+            "ms_per_attempt": 0.0,
+            "floor_ms": 23000.000349106973
+          }
+        },
+        "rolling_mean": {
+          "total": {
+            "expected_ms": 32400.0,
+            "ms_per_attempt": 3300.0,
+            "floor_ms": 27000.0
+          },
+          "clean": {
+            "expected_ms": 24750.0,
+            "ms_per_attempt": 250.0,
+            "floor_ms": 20000.0
+          }
+        }
+      }
+    }
+  ]
+}

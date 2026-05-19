@@ -96,11 +96,16 @@ async def test_happy_path_commits_all_five_mutations(
     assert run_id is not None
     assert sess_id is not None
 
+    # Reference attempts traditionally come from clean runs (deaths=0). The
+    # synthetic deaths=2 case here would, in the new event-level shape,
+    # require time_ms >= deaths*penalty + clean_tail_ms for a clean
+    # round-trip. Use realistic values: 2 deaths * 3.2s + 800ms clean +
+    # 2.8s of pre-death wall-clock = 10000ms.
     db.conn.execute(
         "INSERT INTO recorded_segment_times "
         "(capture_session_id, segment_id, time_ms, deaths, clean_tail_ms, recorded_at) "
         "VALUES (?, ?, ?, ?, ?, datetime('now'))",
-        (sess_id, "seg1", 1234, 2, 800),
+        (sess_id, "seg1", 10000, 2, 800),
     )
     db.conn.commit()
 
@@ -127,12 +132,17 @@ async def test_happy_path_commits_all_five_mutations(
     assert cap[1] == "Finalized Name"
     assert cap[2] == 1, "run should be activated"
 
-    att = db.conn.execute(
-        "SELECT segment_id, time_ms, deaths, source FROM attempts "
-        "WHERE capture_run_id = ?", (run_id,),
+    # After Phase 0 the on-disk `attempts` table is event-level; read back
+    # the episode-shaped row through the legacy adapter.
+    attempts = db.get_segment_attempts("seg1")
+    assert len(attempts) == 1
+    assert attempts[0]["completed"] == 1
+    assert attempts[0]["time_ms"] == 10000
+    assert attempts[0]["deaths"] == 2
+    assert attempts[0]["clean_tail_ms"] == 800
+    # `source` is per-event; pull it from any raw row for this run.
+    src = db.conn.execute(
+        "SELECT source FROM attempts WHERE capture_run_id = ? LIMIT 1",
+        (run_id,),
     ).fetchone()
-    assert att is not None
-    assert att[0] == "seg1"
-    assert att[1] == 1234
-    assert att[2] == 2
-    assert att[3] == "reference"
+    assert src[0] == "reference"

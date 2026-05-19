@@ -87,6 +87,20 @@ class AttemptResultEvent:
     deaths: int = 0
     clean_tail_ms: int | None = None
 
+
+# Emitted by PracticeTiming / SpeedRunTiming once per died/survived event
+# during an armed attempt. The orchestrator (PracticeSession,
+# SpeedRunSession) is responsible for stamping in session_id / source /
+# chosen_allocator and writing the storage-shaped EventAttempt to the DB.
+# See models.EventAttempt for the storage record.
+@dataclass(frozen=True)
+class EventAttemptEmission:
+    segment_id: str = ""
+    episode_id: str = ""
+    outcome: Literal["died", "survived"] = "died"
+    time_ms: int = 0
+    timestamp_ms: int = 0
+
 @dataclass(frozen=True)
 class ReplayStartedEvent:
     path: str = ""

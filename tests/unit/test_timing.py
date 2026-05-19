@@ -3,6 +3,7 @@ from spinlab.protocol import (
     AttemptResultEvent,
     CheckpointEvent,
     DeathEvent,
+    EventAttemptEmission,
     LevelExitEvent,
     SpeedRunCheckpointEvent,
     SpeedRunCompleteEvent,
@@ -419,3 +420,136 @@ def test_speed_run_unarmed_observes_do_nothing():
     sr.tick(now_ms=1000)
     assert received == []
     assert sr.is_armed is False
+
+
+# -- PracticeTiming per-event emission (Phase 0) --------------------------
+
+def test_practice_emits_event_attempts_for_two_deaths_then_clear():
+    """Phase 0 test 2: feed 2 deaths + 1 clear; expect 3 EventAttemptEmissions
+    with the right outcomes, deltas, and shared episode_id."""
+    clock = _Clock()
+    received_events: list[EventAttemptEmission] = []
+    received_results: list[AttemptResultEvent] = []
+    pt = PracticeTiming(now_ms=clock)
+    clock.now = 100
+    pt.arm(
+        segment_id="seg-2deaths",
+        end_type="goal",
+        death_penalty_ms=3200,
+        auto_advance_delay_ms=500,
+        on_attempt_result=received_results.append,
+        on_event_attempt=received_events.append,
+    )
+    # First death at +1500ms after arm.
+    clock.now = 1600
+    pt.observe_event(DeathEvent())
+    # Second death at +2500ms after the first.
+    clock.now = 4100
+    pt.observe_event(DeathEvent())
+    # Survived at +3000ms after the second death.
+    clock.now = 7100
+    pt.observe_event(LevelExitEvent(level=5, goal="normal"))
+
+    assert len(received_events) == 3
+    assert [e.outcome for e in received_events] == ["died", "died", "survived"]
+    assert [e.time_ms for e in received_events] == [1500, 2500, 3000]
+    # Shared episode_id across the three events of one armed attempt.
+    assert len({e.episode_id for e in received_events}) == 1
+    assert all(e.segment_id == "seg-2deaths" for e in received_events)
+    # First event's time_ms is the delta from arm() (start_ms), not 0.
+    assert received_events[0].timestamp_ms == 1600
+
+
+def test_practice_no_event_attempt_callback_is_fine():
+    """The new callback is optional — existing call sites that only pass
+    on_attempt_result keep working without modification."""
+    clock = _Clock()
+    received: list[AttemptResultEvent] = []
+    pt = PracticeTiming(now_ms=clock)
+    clock.now = 0
+    pt.arm(
+        segment_id="seg",
+        end_type="goal",
+        death_penalty_ms=3200,
+        auto_advance_delay_ms=100,
+        on_attempt_result=received.append,
+    )
+    clock.now = 5000
+    pt.observe_event(DeathEvent())
+    clock.now = 8000
+    pt.observe_event(LevelExitEvent(level=1, goal="normal"))
+    clock.now = 8200
+    pt.tick()
+    assert len(received) == 1
+
+
+def test_practice_abort_emits_no_survived_event():
+    """LevelExit(abort) closes the episode without a 'survived' row — the
+    legacy adapter rolls up the death-only events into completed=False."""
+    clock = _Clock()
+    events: list[EventAttemptEmission] = []
+    pt = PracticeTiming(now_ms=clock)
+    clock.now = 0
+    pt.arm(
+        segment_id="seg-abort",
+        end_type="goal",
+        death_penalty_ms=3200,
+        auto_advance_delay_ms=100,
+        on_attempt_result=lambda _: None,
+        on_event_attempt=events.append,
+    )
+    clock.now = 2000
+    pt.observe_event(DeathEvent())
+    clock.now = 5000
+    pt.observe_event(LevelExitEvent(level=1, goal="abort"))
+    # Only the death event should have been emitted.
+    assert len(events) == 1
+    assert events[0].outcome == "died"
+
+
+def test_practice_checkpoint_endtype_emits_survived_on_checkpoint():
+    """End-type 'checkpoint' fires a 'survived' EventAttemptEmission on a
+    CheckpointEvent (not LevelExit)."""
+    clock = _Clock()
+    events: list[EventAttemptEmission] = []
+    pt = PracticeTiming(now_ms=clock)
+    clock.now = 0
+    pt.arm(
+        segment_id="seg-cp",
+        end_type="checkpoint",
+        death_penalty_ms=3200,
+        auto_advance_delay_ms=100,
+        on_attempt_result=lambda _: None,
+        on_event_attempt=events.append,
+    )
+    clock.now = 4500
+    pt.observe_event(CheckpointEvent(level_num=1, cp_ordinal=1))
+    assert len(events) == 1
+    assert events[0].outcome == "survived"
+    assert events[0].time_ms == 4500
+
+
+def test_practice_new_arm_mints_new_episode_id():
+    """Each arm() starts a fresh episode — no leakage of episode_id across
+    attempts. (PracticeSession reuses one PracticeTiming across arms.)"""
+    clock = _Clock()
+    events: list[EventAttemptEmission] = []
+    pt = PracticeTiming(now_ms=clock)
+    pt.arm(
+        segment_id="s", end_type="goal", death_penalty_ms=3200,
+        auto_advance_delay_ms=10,
+        on_attempt_result=lambda _: None, on_event_attempt=events.append,
+    )
+    clock.now = 1000
+    pt.observe_event(LevelExitEvent(level=1, goal="normal"))
+    clock.now = 1100
+    pt.tick()
+    pt.arm(
+        segment_id="s", end_type="goal", death_penalty_ms=3200,
+        auto_advance_delay_ms=10,
+        on_attempt_result=lambda _: None, on_event_attempt=events.append,
+    )
+    clock.now = 2500
+    pt.observe_event(LevelExitEvent(level=1, goal="normal"))
+    assert len(events) == 2
+    assert events[0].episode_id != events[1].episode_id

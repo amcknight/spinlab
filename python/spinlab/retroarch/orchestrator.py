@@ -231,6 +231,7 @@ class RetroArchOrchestrator:
             death_penalty_ms=cmd.death_penalty_ms,
             auto_advance_delay_ms=cmd.auto_advance_delay_ms,
             on_attempt_result=self._enqueue,
+            on_event_attempt=self._enqueue,
         )
 
     async def _on_practice_stop(self, cmd: PracticeStopCmd) -> None:

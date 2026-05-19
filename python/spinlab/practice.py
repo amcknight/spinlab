@@ -11,8 +11,19 @@ from typing import TYPE_CHECKING, Callable
 from spinlab import log
 
 from .allocators import SegmentWithModel
-from .models import Attempt, AttemptSource, SegmentCommand
-from .protocol import AttemptResultEvent, PracticeLoadCmd, PracticeStopCmd
+from .models import (
+    Attempt,
+    AttemptOutcome,
+    AttemptSource,
+    EventAttempt,
+    SegmentCommand,
+)
+from .protocol import (
+    AttemptResultEvent,
+    EventAttemptEmission,
+    PracticeLoadCmd,
+    PracticeStopCmd,
+)
 from .scheduler import Scheduler
 
 if TYPE_CHECKING:
@@ -62,6 +73,14 @@ class PracticeSession:
         self._result_event = asyncio.Event()
         self._result_data: AttemptResultEvent | None = None
         self._last_allocator: str | None = None
+
+        # Track which episode_id we've persisted events for in this attempt.
+        # Set by receive_event_attempt; cleared at the start of each run_one
+        # cycle and read by _process_result to decide whether the events
+        # path already wrote the row (production) or we need the shim
+        # fallback (tests that deliver AttemptResultEvent without prior
+        # EventAttemptEmissions).
+        self._current_episode_id: str | None = None
 
         # Segment IDs whose state_path has been observed missing during this
         # session. _snapshot_expected_times silently skips such segments, which
@@ -146,6 +165,32 @@ class PracticeSession:
         self._current_state_path = None
         self._result_data = event
         self._result_event.set()
+
+    def receive_event_attempt(self, event: EventAttemptEmission) -> None:
+        """Persist one died/survived event row mid-attempt.
+
+        Episode-level model updates still happen at ``receive_result`` time
+        through ``scheduler.update_state_after_episode`` — this method only
+        writes the raw event row. The Phase 1 segments-model adapter will
+        consume these rows for live per-event fits; for now they shadow
+        the legacy adapter's roll-up so the existing estimators stay
+        numerically identical.
+        """
+        outcome = (
+            AttemptOutcome.DIED if event.outcome == "died"
+            else AttemptOutcome.SURVIVED
+        )
+        record = EventAttempt(
+            segment_id=event.segment_id,
+            episode_id=event.episode_id,
+            outcome=outcome,
+            time_ms=event.time_ms,
+            session_id=self.session_id,
+            source=AttemptSource.PRACTICE,
+            chosen_allocator=self._last_allocator,
+        )
+        self.db.log_event_attempt(record)
+        self._current_episode_id = event.episode_id
 
     async def handle_death(self) -> None:
         """Reload the segment's start state so the player retries from the
@@ -261,7 +306,20 @@ class PracticeSession:
             source=AttemptSource.PRACTICE,
             chosen_allocator=self._last_allocator,
         )
-        self.scheduler.record_attempt(attempt)
+        # Production path: events were persisted as they arrived via
+        # receive_event_attempt — we know because _current_episode_id was
+        # set. Just update estimator state from the now-persisted episode.
+        #
+        # Test fallback path: when a caller delivers an AttemptResultEvent
+        # without prior EventAttemptEmissions (unit tests that mock the
+        # event pipeline), _current_episode_id is None — go through
+        # record_attempt which uses the log_attempt shim to synthesize
+        # event rows AND update model state in one call.
+        if self._current_episode_id is None:
+            self.scheduler.record_attempt(attempt)
+        else:
+            self.scheduler.update_state_after_episode(result.segment_id)
+        self._current_episode_id = None
         self.segments_attempted += 1
         if result.completed:
             self.segments_completed += 1
