@@ -308,6 +308,35 @@ def replay_ra_dashboard(ra_harness_love_yourself_no_reset, tmp_path_factory):
 # imports block). The pytest hooks below delegate to the module functions.
 
 
+def _convert_auto_skipped_emulator_to_failure(item, call, report):
+    """Per CLAUDE.md: an emulator test reporting SKIPPED without an explicit
+    ``@pytest.mark.skipif`` is a failure, not a skip. Fixture launch failures,
+    missing config, env-var misses must surface loudly so the next session
+    doesn't inherit the silent-skip habit.
+    """
+    if not report.skipped:
+        return
+    if report.when not in ("setup", "call"):
+        return
+    if not any(m.name == "emulator" for m in item.iter_markers()):
+        return
+    if any(m.name == "skipif" for m in item.iter_markers()):
+        return
+
+    skip_reason = "<unknown>"
+    if call.excinfo is not None:
+        skip_reason = str(call.excinfo.value)
+    report.outcome = "failed"
+    report.longrepr = (
+        "LOUD-FAIL: emulator test reported SKIPPED without "
+        "@pytest.mark.skipif.\n"
+        f"  Skip reason: {skip_reason}\n"
+        "  Per CLAUDE.md ('skips count as failures'), this is a failure. "
+        "Either fix the environment so the test runs, or add "
+        "@pytest.mark.skipif with a reason already accepted."
+    )
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     """Append diagnostic state to the report on integration test failure.
@@ -321,10 +350,14 @@ def pytest_runtest_makereport(item, call):
         it into ``funcargs`` so there's nothing to walk; the exception is the
         only source of truth.
 
+    Also converts auto-skipped emulator tests into failures
+    (see ``_convert_auto_skipped_emulator_to_failure``).
+
     Other setup-phase failures fall through to pytest's normal reporting.
     """
     outcome = yield
     report = outcome.get_result()
+    _convert_auto_skipped_emulator_to_failure(item, call, report)
     if not report.failed:
         return
     # Only for tests in the integration directory

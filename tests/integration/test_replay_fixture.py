@@ -29,6 +29,13 @@ FIXTURE_META = FIXTURE_DIR / "one_level.json"
 # without masking real hangs.
 REPLAY_TIMEOUT_S = 120
 
+# FAST_FORWARD on replay completes the 2273-frame movie in ~3s on a modern
+# host. Native-rate playback (FF silently disabled — config drift, runahead
+# corruption, RA upstream regression) would take ~38s. A 30s cap detects the
+# regression while leaving headroom for slow CI hosts. Tighten if real-world
+# runs land consistently in the single digits.
+FAST_FORWARD_REGRESSION_CAP_S = 30.0
+
 POLL_INTERVAL_S = 0.5
 
 
@@ -191,6 +198,12 @@ class TestReplayFixture:
         # host (vs ~38s at native 60fps).
         assert elapsed_s < REPLAY_TIMEOUT_S, (
             f"Replay took {elapsed_s:.1f}s — expected under {REPLAY_TIMEOUT_S}s"
+        )
+        assert elapsed_s < FAST_FORWARD_REGRESSION_CAP_S, (
+            f"Replay took {elapsed_s:.1f}s — expected well under "
+            f"{FAST_FORWARD_REGRESSION_CAP_S}s with FAST_FORWARD enabled. "
+            f"Native-rate playback of this fixture is ~38s; if elapsed "
+            f"approaches that, FAST_FORWARD is likely silently disabled."
         )
 
         # Finalize the paused replay run as a new reference.
