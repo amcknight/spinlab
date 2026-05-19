@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import subprocess
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -22,6 +23,66 @@ EMU_CONNECT_TIMEOUT_S = 2
 EMU_RETRY_DELAY_S = 2
 EMU_EVENT_TIMEOUT_S = 1.0
 SSE_KEEPALIVE_S = 30
+
+
+def _prewarm_segments_model() -> None:
+    """JIT-compile the JAX kernels for the v07 segments model.
+
+    Without prewarm, the first refit per process pays a ~200-400ms JIT
+    cost per attempt-bucket size; with prewarm, ~15ms steady-state.
+    Total prewarm cost is ~10s; we eat it in a daemon thread (see
+    ``_run_startup_hooks``) so the dashboard responds before it
+    finishes.
+
+    Catches ImportError specifically so a dev environment without the
+    ``[fits]`` extra (jax/numpyro/jaxopt) boots cleanly — only the
+    silent fit pipeline is silently disabled. Other exceptions are
+    logged at exception level and swallowed so a prewarm bug never
+    kills the thread (or the dashboard process).
+    """
+    try:
+        from spinlab.segments_model import prewarm_buckets
+    except ImportError:
+        logger.info(
+            "segments_model not installed ([fits] extra); skipping JAX prewarm."
+        )
+        return
+    logger.info("segments-v07 JAX prewarm started in background thread")
+    try:
+        prewarm_buckets()
+    except Exception:
+        logger.exception("segments-v07 JAX prewarm failed")
+        return
+    logger.info("segments-v07 JAX prewarm complete")
+
+
+def _prewarm_thread_target() -> None:
+    """Thread entry point: invoke _prewarm_segments_model with defense-in-depth.
+
+    ``_prewarm_segments_model`` already catches ImportError and logs
+    other exceptions, but tests / future refactors may swap that
+    function out. Belt-and-suspenders: never let an exception escape
+    the thread (uncaught thread exceptions become noisy warnings in
+    tests and unhandled errors in production).
+    """
+    try:
+        _prewarm_segments_model()
+    except Exception:
+        logger.exception("segments-v07 prewarm thread crashed")
+
+
+def _run_startup_hooks() -> None:
+    """Single sync entry point for dashboard startup-time background work.
+
+    Extracted so unit tests can drive the hook without spinning up a
+    FastAPI app + event loop. Production wires this into the lifespan
+    context manager below.
+    """
+    threading.Thread(
+        target=_prewarm_thread_target,
+        name="segments-v07-prewarm",
+        daemon=True,
+    ).start()
 
 
 async def event_loop(session: SessionManager, emu: EmuBackend) -> None:
@@ -65,6 +126,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        _run_startup_hooks()
         task = asyncio.create_task(event_loop(session, emu))
         yield
         task.cancel()
