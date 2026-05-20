@@ -178,6 +178,12 @@ def main(args: list[str] | None = None) -> None:
     from spinlab import cli_fit_pool
     cli_fit_pool.add_subparser(sub)
 
+    # Register the segments-v07 fit inspector (Phase 2a). Read-only over
+    # segment_fits; intentionally does not import segments_model so it
+    # stays usable without the [fits] extra.
+    from spinlab import cli_fit
+    cli_fit.add_subparser(sub)
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "dashboard":
@@ -228,6 +234,13 @@ def main(args: list[str] | None = None) -> None:
         from spinlab import cli_fit_pool
 
         sys.exit(cli_fit_pool.run(parsed))
+
+    elif parsed.command == "fit":
+        from spinlab import cli_fit
+        if parsed.fit_command == "show":
+            sys.exit(cli_fit.run_show(parsed))
+        elif parsed.fit_command == "list":
+            sys.exit(cli_fit.run_list(parsed))
 
 
 if __name__ == "__main__":
