@@ -23,6 +23,22 @@ if TYPE_CHECKING:
     from spinlab.estimators import Estimator
 
 
+# Optional segments-v07 silent fit pipeline. The [fits] extra brings
+# JAX/NumPyro; without them the import fails and the scheduler skips the
+# fit path entirely. This is patched in tests via
+# monkeypatch.setattr(scheduler, "_refit_segment", None).
+try:
+    from spinlab.segments_model import refit_segment as _refit_segment
+except ImportError:  # pragma: no cover — only fires without [fits]
+    _refit_segment = None  # type: ignore[assignment]
+
+# Minimum number of attempt events before we bother trying a fit. The
+# prototype's fit_segment can handle n=1 but produces wide-bands /
+# unconverged envelopes that aren't useful and just burn CPU. Matches
+# the V1_ESSENCE low_n threshold for "fit results not yet meaningful."
+_MIN_EVENTS_FOR_FIT = 5
+
+
 def _attempts_from_rows(rows: list[AttemptRow]) -> list[AttemptRecord]:
     return [
         AttemptRecord(
@@ -195,6 +211,12 @@ class Scheduler:
                     segment_id, est.name,
                 )
 
+        # Silent V07 fit. Off the request path but inline (~15ms p50
+        # per V1_ESSENCE, well within an end-of-episode budget). Skips
+        # cleanly when [fits] isn't installed or the segment has too
+        # few events to fit meaningfully.
+        self._maybe_refit_segment(segment_id)
+
     def _process_attempt_for_estimator(
         self, est: "Estimator", segment_id: str,
         new_attempt: AttemptRecord, all_attempts: list[AttemptRecord],
@@ -289,3 +311,35 @@ class Scheduler:
                         "rebuild_all_states failed for segment=%s estimator=%s",
                         segment_id, est.name,
                     )
+
+    def _maybe_refit_segment(self, segment_id: str) -> None:
+        """Run a streaming v07 refit for ``segment_id`` and persist the payload.
+
+        Reads event-level rows directly (bypassing the episode roll-up)
+        because the prototype consumes the raw (outcome, time_ms)
+        sequence. Uses the most recent segment_fits row as the warm
+        start; falls back to a cold fit on the first call.
+        """
+        if _refit_segment is None:
+            return
+        events = self.db.get_segment_event_rows(segment_id)
+        if len(events) < _MIN_EVENTS_FOR_FIT:
+            return
+        attempts = [
+            {"outcome": e["outcome"], "time_ms": int(e["time_ms"])}
+            for e in events
+            if not int(e["invalidated"])
+        ]
+        if len(attempts) < _MIN_EVENTS_FOR_FIT:
+            return
+        prev = self.db.load_latest_segment_fit(segment_id, "segment_fit")
+        try:
+            payload = _refit_segment(
+                attempts, segment_id=segment_id, prev_result=prev,
+            )
+        except Exception:
+            logger.exception(
+                "segments-v07 refit failed for segment=%s", segment_id,
+            )
+            return
+        self.db.save_segment_fit(segment_id, "segment_fit", payload)

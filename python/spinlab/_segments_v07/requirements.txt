@@ -1,0 +1,8 @@
+# Tested on Python 3.14.5; numpy 2.4 / scipy 1.17 wheels require >=3.11.
+numpy==2.4.5
+scipy==1.17.1
+jax==0.10.0
+jaxlib==0.10.0
+jaxopt==0.8.5
+numpyro==0.21.0
+pytest==9.0.3

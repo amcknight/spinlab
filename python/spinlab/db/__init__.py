@@ -10,6 +10,7 @@ from .capture_sessions import CaptureSessionsMixin
 from .core import DatabaseCore
 from .model_state import ModelStateMixin
 from .recorded_segment_times import RecordedSegmentTimesMixin
+from .segment_fits import SegmentFitsMixin
 from .segments import SegmentsMixin
 from .sessions import SessionsMixin
 from .waypoints import WaypointsMixin
@@ -24,6 +25,7 @@ class Database(
     CaptureRunsMixin,
     CaptureSessionsMixin,
     RecordedSegmentTimesMixin,
+    SegmentFitsMixin,
     DatabaseCore,
 ):
     """Unified database interface composed from domain-specific mixins."""

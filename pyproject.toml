@@ -16,6 +16,16 @@ dependencies = ["pyyaml>=6,<7", "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "numpy>
 # to install successfully but `pytest -m "not (emulator or slow or frontend)"`
 # fails with ModuleNotFoundError at collection time.
 dev = ["pytest", "pytest-asyncio", "pytest-cov", "httpx", "requests", "playwright>=1.58", "pytest-playwright>=0.7"]
+fits = [
+    # Pin to the versions the prototype's validation harness was
+    # frozen against (segments_experiment/requirements.txt). Newer
+    # jaxlib versions can drift numerics enough to break the pinned
+    # ~5 sig-fig JSON tolerances.
+    "jax==0.10.0",
+    "jaxlib==0.10.0",
+    "jaxopt==0.8.5",
+    "numpyro==0.21.0",
+]
 
 [project.scripts]
 spinlab = "spinlab.cli:main"
