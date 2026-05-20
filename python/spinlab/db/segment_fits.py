@@ -128,7 +128,7 @@ class SegmentFitsMixin:
               sf.wall_time_ms AS wall_time_ms,
               sf.fitted_at AS fitted_at,
               sf.payload_json AS payload_json,
-              MAX(sf.id) AS _latest_id
+              MAX(sf.id)
             FROM segment_fits sf
             JOIN segments s ON s.id = sf.segment_id
             WHERE s.game_id = ? AND sf.kind = ?
