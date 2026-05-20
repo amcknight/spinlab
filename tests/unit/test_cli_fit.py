@@ -152,6 +152,19 @@ def test_fit_show_history_prints_one_line_per_recent_fit(tmp_path):
     assert all("n=" in ln for ln in lines)
 
 
+def test_fit_show_history_rejects_zero_and_negative(tmp_path):
+    """--history must be a positive integer; argparse rejects 0 and negative
+    so we don't silently return all fits (SQLite LIMIT -1 = unlimited)."""
+    from spinlab import cli_fit
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command")
+    cli_fit.add_subparser(sub)
+    with pytest.raises(SystemExit):
+        parser.parse_args(["fit", "show", "s1", "--history", "0"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["fit", "show", "s1", "--history", "-5"])
+
+
 def test_fit_list_renders_one_row_per_segment_with_fits(tmp_path):
     cfg_path = _seed_db(tmp_path)
     code, out = _run(

@@ -35,6 +35,22 @@ _LIST_HEADER = "\t".join(
 )
 
 
+def _positive_int(s: str) -> int:
+    """argparse type validator: int >= 1 only.
+
+    SQLite treats ``LIMIT -1`` as "no limit", so a negative ``--history``
+    would silently dump every fit ever recorded for the segment. Rejecting
+    zero and negatives at the argparse layer keeps the CLI honest per
+    CLAUDE.md's no-silent-fallbacks rule.
+    """
+    n = int(s)
+    if n < 1:
+        raise argparse.ArgumentTypeError(
+            f"must be a positive integer (got {n})"
+        )
+    return n
+
+
 def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     """Register the `spinlab fit` parent subcommand and its children."""
     p_fit = subparsers.add_parser(
@@ -55,7 +71,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
         help="Which fit kind to load (default: segment_fit).",
     )
     p_show.add_argument(
-        "--history", type=int, default=None, metavar="N",
+        "--history", type=_positive_int, default=None, metavar="N",
         help="Print one-line summaries for the most recent N fits "
              "instead of pretty-printing the latest.",
     )
