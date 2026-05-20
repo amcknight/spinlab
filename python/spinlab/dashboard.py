@@ -43,8 +43,14 @@ def _prewarm_segments_model() -> None:
     try:
         from spinlab.segments_model import prewarm_buckets
     except ImportError:
-        logger.info(
-            "segments_model not installed ([fits] extra); skipping JAX prewarm."
+        # Warning, not info: a missing [fits] extra silently disables the
+        # whole v07 silent-fit pipeline. The user otherwise gets an empty
+        # `segment_fits` table indistinguishable from "no segment hit n>=5
+        # yet" — by the time they notice, they've already lost a session.
+        logger.warning(
+            "segments-v07 silent fit pipeline disabled — "
+            "[fits] extra not installed. To enable: "
+            "pip install -e '.[fits]'"
         )
         return
     logger.info("segments-v07 JAX prewarm started in background thread")

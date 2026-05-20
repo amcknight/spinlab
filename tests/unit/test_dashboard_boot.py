@@ -40,8 +40,14 @@ def test_prewarm_failure_does_not_crash_boot(monkeypatch):
 
 
 def test_prewarm_segments_model_handles_missing_extra(monkeypatch, caplog):
-    """When [fits] isn't installed, _prewarm_segments_model logs at INFO
-    and returns cleanly — no exception."""
+    """When [fits] isn't installed, _prewarm_segments_model logs a WARNING
+    with an actionable install hint and returns cleanly.
+
+    Warning (not info) because the user otherwise has no signal that the
+    silent fit pipeline is disabled — a green dashboard with empty
+    `segment_fits` looks identical whether [fits] is missing or the user
+    simply hasn't accumulated n>=5 attempts yet.
+    """
     from spinlab import dashboard
 
     # Force the in-function `from spinlab.segments_model import prewarm_buckets`
@@ -51,14 +57,15 @@ def test_prewarm_segments_model_handles_missing_extra(monkeypatch, caplog):
     import sys
     monkeypatch.setitem(sys.modules, "spinlab.segments_model", None)
 
-    with caplog.at_level("INFO", logger=dashboard.__name__):
+    with caplog.at_level("WARNING", logger=dashboard.__name__):
         dashboard._prewarm_segments_model()
 
-    # No exception escaped; an info-level log was emitted explaining why
-    # prewarm was skipped.
-    assert any(
-        "skipping JAX prewarm" in rec.message or "not installed" in rec.message
-        for rec in caplog.records
+    # No exception escaped; a warning-level log mentioning the [fits] extra
+    # install hint was emitted.
+    matching = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert matching, f"expected WARNING log, got {[(r.levelname, r.message) for r in caplog.records]}"
+    assert any("[fits]" in r.message and "pip install" in r.message for r in matching), (
+        f"expected install hint, got messages: {[r.message for r in matching]}"
     )
 
 
