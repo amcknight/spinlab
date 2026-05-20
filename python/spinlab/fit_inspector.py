@@ -60,25 +60,26 @@ def format_fit_payload(
                    (skipped for pool_fit and unconverged envelopes)
       5. Caveats — bullet list of stable caveat keys
     """
-    kind = payload.get("kind", "segment_fit")
+    kind = payload["kind"]
     lines: list[str] = []
 
-    # Header.
+    # Header. segment_id is the one mandatory-but-nullable field
+    # (pool envelopes carry None); render as <pool> for the human.
     sid = payload.get("segment_id") or "<pool>"
     lines.append(f"=== {sid}")
     lines.append(f"  kind: {kind}")
-    lines.append(f"  n_attempts: {payload.get('n_attempts', 0)}")
-    lines.append(f"  model: {payload.get('model', '?')}")
-    lines.append(f"  wall_time_s: {float(payload.get('wall_time_s', 0)):.3f}")
+    lines.append(f"  n_attempts: {payload['n_attempts']}")
+    lines.append(f"  model: {payload['model']}")
+    lines.append(f"  wall_time_s: {float(payload['wall_time_s']):.3f}")
     if fitted_at:
         lines.append(f"  fitted_at: {fitted_at}")
 
     # Status.
-    status = payload.get("status", {})
+    status = payload["status"]
     lines.append("")
     lines.append("Status")
     for key in ("converged", "band_source", "laplace_pd", "ppc_tension", "fittable"):
-        val = status.get(key)
+        val = status[key]
         if isinstance(val, bool):
             shown = "yes" if val else "no"
         elif val is None:
@@ -135,7 +136,7 @@ def format_fit_payload(
     # Caveats.
     lines.append("")
     lines.append("Caveats")
-    caveats = payload.get("caveats", [])
+    caveats = payload["caveats"]
     if not caveats:
         lines.append("  (none)")
     else:
@@ -178,14 +179,14 @@ def format_history_line(payload: dict[str, Any], fitted_at: str) -> str:
 
     Format:  `<fitted_at>  n=<N>  fittable=<Y/N>  M50=<ms>  band=<source>`
     """
-    status = payload.get("status", {})
+    status = payload["status"]
     derived = payload.get("result", {}).get("derived") or {}
     mc = derived.get("M_clear") or {}
     m50 = mc.get("median_ms")
     m50_s = str(int(m50)) if m50 is not None else "-"
-    band = status.get("band_source") or "-"
+    band = status["band_source"]
     return (
-        f"{fitted_at}  n={payload.get('n_attempts', '?')}  "
-        f"fittable={_yn(status.get('fittable'))}  "
+        f"{fitted_at}  n={payload['n_attempts']}  "
+        f"fittable={_yn(status['fittable'])}  "
         f"M50={m50_s}  band={band}"
     )
