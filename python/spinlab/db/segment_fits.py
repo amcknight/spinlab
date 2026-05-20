@@ -102,7 +102,6 @@ class SegmentFitsMixin:
         Each yielded dict has:
           - segment_id (str)
           - level_number (int from segments.level_number)
-          - active (int: 0|1)
           - kind, n_attempts, band_source, fittable, ppc_tension,
             wall_time_ms, fitted_at (projected columns)
           - payload (dict, parsed from payload_json) so the caller can
@@ -119,7 +118,6 @@ class SegmentFitsMixin:
             SELECT
               sf.segment_id AS segment_id,
               s.level_number AS level_number,
-              s.active AS active,
               sf.kind AS kind,
               sf.n_attempts AS n_attempts,
               sf.band_source AS band_source,
@@ -141,7 +139,6 @@ class SegmentFitsMixin:
             yield {
                 "segment_id": row["segment_id"],
                 "level_number": row["level_number"],
-                "active": row["active"],
                 "kind": row["kind"],
                 "n_attempts": row["n_attempts"],
                 "band_source": row["band_source"],
