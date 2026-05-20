@@ -1,8 +1,6 @@
 """Round-trip tests for the segment_fits table + Database helpers."""
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from spinlab.db import Database

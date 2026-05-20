@@ -6,7 +6,9 @@ subprocess, no JAX. Each test is one rendering rule.
 from __future__ import annotations
 
 from spinlab.fit_inspector import (
-    format_fit_payload, format_fit_summary_row, format_history_line,
+    format_fit_payload,
+    format_fit_summary_row,
+    format_history_line,
 )
 
 

@@ -1,6 +1,8 @@
 ---
 date: 2026-05-19
-status: drafted
+status: shipped
+shipped_at: 2026-05-19
+shipped_commits: 9fd1205..3692750
 focus: "Phase 2a of segments-v07 integration — CLI inspector (`spinlab fit show`, `spinlab fit list`) over the segment_fits rows that Phase 1 already writes. Text-only; no HTML renderer yet."
 spec: docs/superpowers/specs/2026-05-18-segments-v07-integration-design.md
 predecessors:
