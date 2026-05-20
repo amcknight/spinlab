@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 
 from spinlab.fit_inspector import (
     format_fit_payload,
@@ -100,12 +99,26 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
         help="Output a JSON array of summary objects.",
     )
 
+    # Sibling commands attach themselves to the same `fit` parent.
+    # Keeps the user-facing surface (`spinlab fit <sub>`) flat while
+    # letting each subcommand own its module (and tests) independently.
+    from spinlab import cli_fit_inventory, cli_fit_rebuild
+    cli_fit_inventory.add_to_fit_subparsers(fit_sub)
+    cli_fit_rebuild.add_to_fit_subparsers(fit_sub)
+
 
 def _open_db(config_path: str):
-    """Resolve config + open the SQLite DB the dashboard uses."""
+    """Resolve config + open the SQLite DB the dashboard uses.
+
+    ``config_path`` runs through ``resolve_config_path`` so the default
+    ``config.yaml`` finds the project config from any subdir of the repo
+    (matches the ergonomic of running ``git`` commands from anywhere).
+    """
+    from spinlab.cli_common import resolve_config_path
     from spinlab.config import AppConfig
     from spinlab.db import Database
-    cfg = AppConfig.from_yaml(Path(config_path))
+    resolved = resolve_config_path(config_path)
+    cfg = AppConfig.from_yaml(resolved)
     return Database(cfg.data_dir / "spinlab.db")
 
 

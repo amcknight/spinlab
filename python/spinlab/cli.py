@@ -241,6 +241,12 @@ def main(args: list[str] | None = None) -> None:
             sys.exit(cli_fit.run_show(parsed))
         elif parsed.fit_command == "list":
             sys.exit(cli_fit.run_list(parsed))
+        elif parsed.fit_command == "inventory":
+            from spinlab import cli_fit_inventory
+            sys.exit(cli_fit_inventory.run(parsed))
+        elif parsed.fit_command == "rebuild":
+            from spinlab import cli_fit_rebuild
+            sys.exit(cli_fit_rebuild.run(parsed))
 
 
 if __name__ == "__main__":

@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +60,11 @@ def run(parsed: argparse.Namespace) -> int:
         )
         return 2
 
+    from spinlab.cli_common import resolve_config_path
     from spinlab.config import AppConfig
     from spinlab.db import Database
 
-    cfg = AppConfig.from_yaml(Path(parsed.config))
+    cfg = AppConfig.from_yaml(resolve_config_path(parsed.config))
     db_path = cfg.data_dir / "spinlab.db"
     db = Database(db_path)
 
