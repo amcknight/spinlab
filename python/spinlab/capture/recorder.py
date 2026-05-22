@@ -263,11 +263,19 @@ class SegmentRecorder:
         # `timestamp_ms` must be strictly greater than `_last_event_ms` to be
         # durable. None or a non-monotonic value (zero from a default-constructed
         # DeathEvent, or any regression) means "no usable clock" and the event
-        # is dropped silently — `_deaths_in_segment` and `self.died` are NOT
-        # touched so the flush-time log line stays consistent with what was
-        # actually written. In production the detector always stamps a real
-        # monotonic frame clock, so this guard is a test-fixture safety net.
-        if timestamp_ms is None or timestamp_ms <= self._last_event_ms:
+        # is dropped — `_deaths_in_segment` stays at its prior value so the
+        # flush-time log line matches what was actually written. (Note:
+        # `self.died` may be True from an upstream set in ReferenceController;
+        # it is a controller-side flag, not under this method's contract.)
+        # In production the detector always stamps a real monotonic frame
+        # clock, so this guard is a test-fixture safety net.
+        if timestamp_ms is None:
+            return
+        if timestamp_ms <= self._last_event_ms:
+            logger.warning(
+                "recorder: dropped non-monotonic death event timestamp_ms=%d last_event_ms=%d",
+                timestamp_ms, self._last_event_ms,
+            )
             return
         self.died = True
         self._deaths_in_segment += 1

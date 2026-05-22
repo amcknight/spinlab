@@ -11,7 +11,6 @@ from spinlab.capture import ReferenceController
 from spinlab.db import Database
 from spinlab.errors import DraftPendingError, SessionDeleteAfterFinalizeError
 from spinlab.models import Mode, Status
-from spinlab.protocol import LevelEntranceEvent, LevelExitEvent
 
 
 @pytest.fixture
@@ -68,42 +67,19 @@ async def test_save_and_finish_from_paused_after_stop_finalizes(started_session,
 # --- Single-session save_and_finish path ---
 
 @pytest.mark.asyncio
-async def test_save_and_finish_promotes_and_keeps_recorded_event_rows(started_session, db):
-    """A reference segment recorded through the recorder leaves event rows
-    in `attempts`. Save & Finish promotes the draft; the event rows are
-    untouched by finalize."""
+async def test_save_and_finish_promotes_and_finalizes(started_session, db):
+    """Post-refactor: save_and_finish_run promotes the draft and ends the session.
+    Attempt rows were already written by SegmentRecorder at segment close;
+    finalize does NOT touch attempts."""
     run_id = started_session.recorder.capture_run_id
-    # Drive one clean segment through the recorder.
-    started_session.recorder.handle_entrance(
-        LevelEntranceEvent(level=1, timestamp_ms=0, state_path="/s.mss"),
-    )
-    started_session.recorder.handle_exit(
-        LevelExitEvent(level=1, goal="normal", timestamp_ms=1500), "smw",
-    )
-
-    # One survived event in attempts for this run, with raw wall-clock
-    # delta from entrance (t=0) to exit (t=1500).
-    event_row = db.conn.execute(
-        "SELECT outcome, time_ms FROM attempts WHERE capture_run_id = ?", (run_id,),
-    ).fetchone()
-    assert event_row is not None, "recorder did not write an event row"
-    assert event_row[0] == "survived"
-    assert event_row[1] == 1500
 
     result = await started_session.save_and_finish_run(Mode.REFERENCE, name="My Run")
+
     assert result.status == Status.OK
     assert result.new_mode == Mode.IDLE
     row = db.conn.execute("SELECT status, name FROM capture_runs WHERE id = ?", (run_id,)).fetchone()
     assert row[0] == "saved"
     assert row[1] == "My Run"
-
-    # Event row still there post-finalize — finalize does not touch attempts.
-    event_row_after = db.conn.execute(
-        "SELECT outcome, time_ms FROM attempts WHERE capture_run_id = ?", (run_id,),
-    ).fetchone()
-    assert event_row_after is not None
-    assert event_row_after[0] == "survived"
-    assert event_row_after[1] == 1500
 
 
 # --- Multi-session: stop then resume ---
@@ -202,26 +178,33 @@ async def test_disconnect_pauses_run(started_session, db):
 
 @pytest.mark.asyncio
 async def test_save_and_finish_is_atomic_rolls_back_on_failure(started_session, db, monkeypatch):
-    """save_and_finish_run rolls back if any mutation in the atomic block raises.
+    """save_and_finish_run is atomic: if any mutation fails, all roll back.
 
-    Choice of fault: monkeypatch db.conn so the activation step (UPDATE
-    capture_runs SET active=1) raises. All prior mutations — end_capture_session,
-    promote_draft — must roll back. The run remains draft and the session is
-    not ended.
+    Post-2026-05 finalize contains three mutations: end_capture_session,
+    promote_draft, set_active_capture_run. We inject a fault on the last
+    mutation (SET active = 1) and verify draft status and session end_at
+    are both rolled back.
     """
     run_id = started_session.recorder.capture_run_id
     sess_id = started_session.recorder.current_capture_session_id
+
     real_conn = db.conn
 
     class FailingConn:
         def execute(self, sql, *args, **kwargs):
-            if "SET active = 1" in sql or "SET active=1" in sql:
-                raise RuntimeError("injected failure mid-transaction")
+            if "SET active = 1" in sql:
+                raise RuntimeError("injected failure on set_active")
             return real_conn.execute(sql, *args, **kwargs)
-        def commit(self): return real_conn.commit()
-        def rollback(self): return real_conn.rollback()
+
+        def commit(self):
+            return real_conn.commit()
+
+        def rollback(self):
+            return real_conn.rollback()
+
         @property
-        def in_transaction(self): return real_conn.in_transaction
+        def in_transaction(self):
+            return real_conn.in_transaction
 
     monkeypatch.setattr(db, "conn", FailingConn())
 
@@ -230,12 +213,15 @@ async def test_save_and_finish_is_atomic_rolls_back_on_failure(started_session, 
 
     monkeypatch.undo()
 
+    # Run must still be draft (promotion was rolled back)
     row = db.conn.execute("SELECT status FROM capture_runs WHERE id = ?", (run_id,)).fetchone()
     assert row is not None and row[0] == "draft", "run must remain draft after rollback"
+
+    # Session end must be rolled back too
     sess_row = db.conn.execute(
         "SELECT ended_at FROM capture_sessions WHERE id = ?", (sess_id,),
     ).fetchone()
-    assert sess_row[0] is None, "session-end must be rolled back"
+    assert sess_row[0] is None, "session end_at must be rolled back"
 
 
 def test_recovery_logs_warning_when_discarding_stranded_drafts(db, caplog):
@@ -370,7 +356,7 @@ def test_finalize_rebuilds_scheduler_even_when_zero_segments(db):
     asyncio.run(ctl.finalize_run(name="Empty Run", scheduler=sched))
 
     assert sched.rebuild_calls == 1, (
-        "scheduler must rebuild after set_active_capture_run, even with zero event rows"
+        "scheduler must rebuild after set_active_capture_run, even with zero seeded attempts"
     )
 
 
@@ -424,6 +410,25 @@ def test_delete_active_capture_session_raises_session_in_use(db):
 
     with pytest.raises(SessionInUseError):
         asyncio.run(ctl.delete_capture_session("active_sess"))
+
+
+# --- Helpers ---
+
+def _make_minimal_segment(db, run_id, sess_id, seg_id):
+    """Insert a minimal valid segment row for FK referential integrity."""
+    from spinlab.models import EndpointType, Segment, Waypoint
+    wp_a = Waypoint.make("smw", 1, EndpointType.ENTRANCE, 0, {})
+    wp_b = Waypoint.make("smw", 1, EndpointType.GOAL, 0, {})
+    db.upsert_waypoint(wp_a)
+    db.upsert_waypoint(wp_b)
+    seg = Segment(
+        id=seg_id, game_id="smw", level_number=1,
+        start_type=EndpointType.ENTRANCE, start_ordinal=0,
+        end_type=EndpointType.GOAL, end_ordinal=0,
+        start_waypoint_id=wp_a.id, end_waypoint_id=wp_b.id,
+        capture_run_id=run_id, capture_session_id=sess_id,
+    )
+    db.upsert_segment(seg)
 
 
 
