@@ -94,6 +94,50 @@ def test_segments_with_model_includes_state_path(db, segment):
     assert rows[0]["end_type"] == "checkpoint"
 
 
+def test_get_all_segments_with_model_prefers_cold_over_hot_for_checkpoint_segment(db):
+    """Checkpoint-started segments must load their `cold` save state when
+    both `cold` and `hot` exist for the start waypoint. The hot variant is
+    a reference-run mid-stride snapshot; the cold variant is the
+    deterministic post-respawn state cold-fill captures. Practice needs
+    cold for repeatable starts — see project_cold_state_unused_bug memory."""
+    seg, wp_start, _ = _make_seg(db, "g1", 58, "checkpoint", 1, "goal", 0)
+    db.add_save_state(WaypointSaveState(wp_start.id, "hot", "/hot.mss"))
+    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/cold.mss"))
+    rows = db.get_all_segments_with_model("g1")
+    assert len(rows) == 1
+    assert rows[0]["state_path"] == "/cold.mss"
+
+
+def test_get_all_segments_with_model_falls_back_to_hot_when_no_cold(db):
+    """Checkpoint-started segments fall back to `hot` when no `cold` row
+    exists yet. This is the state during a reference run before cold-fill
+    has captured the post-respawn state."""
+    seg, wp_start, _ = _make_seg(db, "g1", 58, "checkpoint", 1, "goal", 0)
+    db.add_save_state(WaypointSaveState(wp_start.id, "hot", "/hot.mss"))
+    rows = db.get_all_segments_with_model("g1")
+    assert len(rows) == 1
+    assert rows[0]["state_path"] == "/hot.mss"
+
+
+def test_get_segment_row_prefers_cold_over_hot_for_checkpoint_segment(db):
+    """Same precedence as get_all_segments_with_model — single-segment lookup."""
+    seg, wp_start, _ = _make_seg(db, "g1", 58, "checkpoint", 1, "goal", 0)
+    db.add_save_state(WaypointSaveState(wp_start.id, "hot", "/hot.mss"))
+    db.add_save_state(WaypointSaveState(wp_start.id, "cold", "/cold.mss"))
+    row = db.get_segment_row(seg.id)
+    assert row is not None
+    assert row["state_path"] == "/cold.mss"
+
+
+def test_get_segment_row_falls_back_to_hot_when_no_cold(db):
+    """Same fallback as get_all_segments_with_model — single-segment lookup."""
+    seg, wp_start, _ = _make_seg(db, "g1", 58, "checkpoint", 1, "goal", 0)
+    db.add_save_state(WaypointSaveState(wp_start.id, "hot", "/hot.mss"))
+    row = db.get_segment_row(seg.id)
+    assert row is not None
+    assert row["state_path"] == "/hot.mss"
+
+
 def test_segments_missing_cold(db):
     """Get segments whose start waypoint has hot but not cold save state."""
     db.create_capture_run("run1", "g1", "run 1")

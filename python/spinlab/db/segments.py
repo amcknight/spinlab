@@ -78,7 +78,13 @@ class SegmentsMixin:
         )
 
     def get_segment_row(self, segment_id: str) -> SegmentRow | None:
-        """Get a single segment row with its start-waypoint save state path."""
+        """Get a single segment row with its start-waypoint save state path.
+
+        Variant precedence: prefer `cold` over `hot`. Cold is the deterministic
+        post-respawn state (captured by cold-fill); hot is the mid-stride
+        reference-run snapshot. Practice needs cold for repeatable starts; hot
+        is only the fallback until cold-fill captures the cold variant.
+        """
         cur = self.conn.execute(
             """SELECT s.id, s.game_id, s.level_number, s.start_type, s.start_ordinal,
                        s.end_type, s.end_ordinal, s.description,
@@ -86,8 +92,11 @@ class SegmentsMixin:
                        s.start_waypoint_id, s.end_waypoint_id,
                        (SELECT wss.state_path FROM waypoint_save_states wss
                         WHERE wss.waypoint_id = s.start_waypoint_id
-                          AND wss.variant_type = (CASE
-                            WHEN s.start_type = 'entrance' THEN 'cold' ELSE 'hot' END)
+                        ORDER BY CASE wss.variant_type
+                                   WHEN 'cold' THEN 0
+                                   WHEN 'hot'  THEN 1
+                                   ELSE 2
+                                 END
                         LIMIT 1) AS state_path
                 FROM segments s
                 WHERE s.id = ?""",
@@ -103,8 +112,11 @@ class SegmentsMixin:
                                     primary_only: bool = True) -> list[SegmentRow]:
         """Get all active segments with their start-waypoint save state path.
 
-        The default variant resolves from start_type: entrance segments load
-        their 'cold' save state (pre-respawn), checkpoint segments load 'hot'.
+        Variant precedence: prefer `cold` over `hot` for every segment. Cold
+        is the deterministic post-respawn state (captured by cold-fill for
+        checkpoint segments, captured at entrance time for entrance segments);
+        hot is the mid-stride reference-run snapshot, used only as a fallback
+        until cold-fill captures the cold variant.
 
         Args:
             game_id: game to query
@@ -120,8 +132,11 @@ class SegmentsMixin:
                        s.start_waypoint_id, s.end_waypoint_id,
                        (SELECT wss.state_path FROM waypoint_save_states wss
                         WHERE wss.waypoint_id = s.start_waypoint_id
-                          AND wss.variant_type = (CASE
-                            WHEN s.start_type = 'entrance' THEN 'cold' ELSE 'hot' END)
+                        ORDER BY CASE wss.variant_type
+                                   WHEN 'cold' THEN 0
+                                   WHEN 'hot'  THEN 1
+                                   ELSE 2
+                                 END
                         LIMIT 1) AS state_path
                 FROM segments s
                 WHERE s.game_id = ? AND s.active = 1 {primary_clause}
