@@ -9,7 +9,6 @@ from .capture_runs import CaptureRunsMixin
 from .capture_sessions import CaptureSessionsMixin
 from .core import DatabaseCore
 from .model_state import ModelStateMixin
-from .recorded_segment_times import RecordedSegmentTimesMixin
 from .segment_fits import SegmentFitsMixin
 from .segments import SegmentsMixin
 from .sessions import SessionsMixin
@@ -24,7 +23,6 @@ class Database(
     ModelStateMixin,
     CaptureRunsMixin,
     CaptureSessionsMixin,
-    RecordedSegmentTimesMixin,
     SegmentFitsMixin,
     DatabaseCore,
 ):

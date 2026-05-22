@@ -26,8 +26,7 @@ Quick reference for domain terms used across specs, architecture docs, and code.
 - **Capture run** (`capture_runs` row) — one reference recording (live or replay). `draft=1` until finalized; `active=1` for the currently selected reference per game. Spans 1..N capture sessions.
 - **Capture session** (`capture_sessions` row) — one continuous recording window inside a capture run. Has its own `.spinrec` file and an `ordinal` within the run. Stopping a reference ends the session and leaves the run paused; resuming opens a new session.
 - **Paused run** — a `draft=1` capture run with no active session. State lives in memory as `ReferenceController.paused_run_id`. Survives restart via `recover_paused_capture_run`.
-- **Recorded segment time** (`recorded_segment_times` row) — per-segment timing buffered during a capture session. Drained into seed `attempts` at finalize.
-- **Seed attempt** — an `attempts` row with `source='reference'` created from a `recorded_segment_times` row at finalize. Its `parent_id` is the `capture_run_id`.
+- **Reference attempt** — an `attempts` row with `source='reference'` written by `SegmentRecorder` at segment close. One row per died/survived event; all rows for a segment share an `episode_id` and have `capture_run_id` as their parent. Written atomically with the segment upsert — no separate drain step at finalize.
 
 ## Time Series
 

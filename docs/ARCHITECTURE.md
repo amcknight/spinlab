@@ -50,7 +50,7 @@ Vite (5173)  ──proxies /api──▶  FastAPI (15483)  ◀──NCI/UDP─�
 
 **ReferenceController (`capture/reference.py`)** — multi-session reference-run lifecycle. States: IDLE → RECORDING → PAUSED → IDLE. `paused_run_id` and `recorder.capture_run_id` are a mutually exclusive pair, mutated only through `_enter_recording` / `_enter_paused` / `_enter_idle`, which assert the invariant after each transition. Also drives replay-as-capture (replay a saved `.replay` and re-emit segment captures). Recovery on game switch: `recover_paused_run` rehydrates any orphaned `draft=1` live run.
 
-**SegmentRecorder (`capture/recorder.py`)** — pairs incoming transition events into segments and writes them to the DB along with `recorded_segment_times` rows.
+**SegmentRecorder (`capture/recorder.py`)** — pairs incoming transition events into segments. Deaths and the closing survived event are buffered in memory; at `_close_segment` the full event list is flushed into `attempts` atomically with the segment upsert — one row per died/survived event, all keyed to the just-computed `segment_id`.
 
 **ColdFillController (`capture/cold_fill.py`)** — batched cold-variant capture. Walks a queue of segments missing cold states; for each, loads the hot CP state, waits for death-then-respawn via `ColdFillSpawnDetector`, captures the post-respawn frame.
 
@@ -74,7 +74,7 @@ Vite (5173)  ──proxies /api──▶  FastAPI (15483)  ◀──NCI/UDP─�
 4. Poller reads WRAM at 60 Hz; `TransitionDetector` emits typed events.
 5. On each event (entrance, checkpoint, exit) `SegmentRecorder` pairs events into segments and calls `RAClient.save_state` via the backend — writes a `.state` file to a SpinLab-keyed path under `spinlab_state_dir`.
 6. User clicks **Save & Finish** → `POST /api/reference/save_and_finish`.
-7. `ReferenceController` drains `recorded_segment_times` into seed `attempts`, promotes the draft to `saved`/`active`, rebuilds estimator state.
+7. `ReferenceController` calls `atomic_save_and_finish_run`: ends the capture session, promotes the draft to `saved`/`active` in one transaction. Attempt rows were already written per-segment as they closed — no drain step at finalize.
 
 ## Data Flow: Practice Attempt
 
@@ -108,11 +108,11 @@ A partial unique index (`idx_one_live_draft_per_game`) prevents two live drafts 
 
 SQLite (`{data.dir}/spinlab.db`). WAL mode, foreign keys on. Schema is declared in numbered migration files under `python/spinlab/db/migrations/`; the runner in that package's `__init__.py` applies any unapplied file at `Database()` construction and records the result in `schema_migrations`.
 
-Core tables: `games`, `waypoints`, `segments`, `waypoint_save_states`, `attempts`, `capture_runs`, `capture_sessions`, `recorded_segment_times`, `model_state`, `sessions`, `allocator_config`, `schema_migrations`.
+Core tables: `games`, `waypoints`, `segments`, `waypoint_save_states`, `attempts`, `capture_runs`, `capture_sessions`, `model_state`, `sessions`, `allocator_config`, `schema_migrations`.
 
 Schema-change workflow: create a new `NNNN_name.sql` file. Never edit an existing migration — that's how environments diverge.
 
-Transactional model: the SQLite connection runs in autocommit mode. Single-statement mixin methods commit on the spot; multi-statement work composes via `with db.transaction():`. The context manager uses `BEGIN IMMEDIATE` at the top level and `SAVEPOINT` when nested, so methods that wrap their own body in `self.transaction()` (e.g. `drain_recorded_segment_times_for_run`) still join an outer caller transaction cleanly. See `db/core.py` module docstring for the full rationale.
+Transactional model: the SQLite connection runs in autocommit mode. Single-statement mixin methods commit on the spot; multi-statement work composes via `with db.transaction():`. The context manager uses `BEGIN IMMEDIATE` at the top level and `SAVEPOINT` when nested, so methods that wrap their own body in `self.transaction()` (e.g. `hard_delete_capture_run` in `db/capture_runs.py`) still join an outer caller transaction cleanly — and top-level callers like `atomic_save_and_finish_run` in `capture/finalizer.py` use `db.transaction()` directly. See `db/core.py` module docstring for the full rationale.
 
 ## Scheduler: Estimator + Allocator Pipeline
 

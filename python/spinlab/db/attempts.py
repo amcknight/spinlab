@@ -105,7 +105,14 @@ def _roll_up_episode(
     # original episode lacked a meaningful time. Treat an all-zero incomplete
     # episode as time_ms=None to preserve the legacy "no recorded time" signal.
     if completed:
-        # Penalty rebuilds the legacy episode total: raw wall-clock + 3.2s per death.
+        # Penalty rebuilds the legacy episode total: raw wall-clock + 3.2s
+        # per death. Both reference and practice events now carry raw
+        # wall-clock deltas at write time, so this roll-up adds the
+        # 3.2s/death penalty back uniformly. Pre-2026-05 reference rows
+        # had the penalty subtracted at write time (the old seed shim's
+        # synthesis), so pre/post-refactor totals for the same reference
+        # data differ by 3.2s × deaths — comparisons across that boundary
+        # need to account for it.
         time_ms: int | None = raw_sum + death_penalty_ms * deaths
         clean_tail_ms: int | None = last["time_ms"]
     elif raw_sum > 0:
