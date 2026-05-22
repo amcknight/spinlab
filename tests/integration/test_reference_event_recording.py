@@ -8,7 +8,6 @@ This is the end-to-end gate for the segments-v07 reference-event-level
 refactor. Pure Python — no live emulator, no network I/O.
 """
 import pytest
-from tests.conftest import FakeEmuBackend
 
 from spinlab.capture import ReferenceController
 from spinlab.db import Database
@@ -20,6 +19,7 @@ from spinlab.protocol import (
     LevelExitEvent,
     SpawnEvent,
 )
+from tests.conftest import FakeEmuBackend
 
 # Override the module-wide emulator mark from tests/integration/conftest.py.
 pytestmark = []
@@ -64,6 +64,10 @@ async def test_reference_run_with_deaths_writes_event_rows(db, tmp_path):
     # monotonic timestamp; the controller forwards it to the recorder which
     # buffers a died event with delta time_ms = 2000-1000 = 1000.
     ctl.handle_death(DeathEvent(timestamp_ms=2000))
+    # Spawn updates the recorder's _last_spawn_ms but does NOT advance
+    # _last_event_ms — that only moves on died/survived events. So the
+    # following survived delta is checkpoint-t=4500 minus death-t=2000 = 2500,
+    # not checkpoint-t=4500 minus spawn-t=3000 = 1500.
     ctl.handle_spawn(SpawnEvent(
         level_num=1, state_path=None, is_cold_cp=False, cp_ordinal=None,
         timestamp_ms=3000,
@@ -97,7 +101,10 @@ async def test_reference_run_with_deaths_writes_event_rows(db, tmp_path):
     #                            2 died + 1 survived for seg2).
     assert len(rows) == 5, f"expected 5 events, got {len(rows)}: {[dict(r) for r in rows]}"
     seg_ids = {r["segment_id"] for r in rows}
-    assert len(seg_ids) == 2, f"expected 2 distinct segments, got {seg_ids}"
+    assert len(seg_ids) == 2, (
+        f"expected 2 distinct segments, got {len(seg_ids)}: "
+        f"{[(sid, [r['outcome'] for r in rows if r['segment_id'] == sid]) for sid in seg_ids]}"
+    )
 
     # Group by segment_id and check shape per segment.
     by_seg: dict[str, list[dict]] = {}
@@ -113,7 +120,14 @@ async def test_reference_run_with_deaths_writes_event_rows(db, tmp_path):
     assert len(set(ep_ids)) == 2, "episode_ids must differ across segments"
 
     # Verify per-segment outcomes and time deltas. Identify segments by the
-    # number of events (seg1 has 2, seg2 has 3).
+    # number of events (seg1 has 2, seg2 has 3) — the guard below makes that
+    # disambiguation explicit so a future refactor making the counts equal
+    # fails loudly instead of silently picking the wrong segment.
+    counts = sorted(len(es) for es in by_seg.values())
+    assert counts == [2, 3], (
+        f"expected segment event counts [2, 3], got {counts} — "
+        f"segment identification by count is ambiguous if both are equal"
+    )
     seg1_events = next(es for es in by_seg.values() if len(es) == 2)
     seg2_events = next(es for es in by_seg.values() if len(es) == 3)
 
