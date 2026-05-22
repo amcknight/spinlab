@@ -3,7 +3,7 @@
 Simulates: dashboard process dies mid-recording. On restart with same DB:
 - Orphaned session marked end_reason=crashed
 - Run remains draft=1
-- Segments and attempts rows preserved (written at segment-close by recorder)
+- Closed segment's event rows in attempts preserved
 - Resume creates a new session ordinal+1
 
 No live emulator, no real network I/O, no Playwright — pure Python
@@ -14,6 +14,7 @@ import pytest
 from spinlab.capture import ReferenceController
 from spinlab.db import Database
 from spinlab.models import Mode
+from spinlab.protocol import LevelEntranceEvent, LevelExitEvent
 from tests.conftest import FakeEmuBackend
 
 # This test does not need a live emulator — override the module-wide emulator mark set
@@ -36,40 +37,28 @@ def db(db_path):
 
 @pytest.mark.asyncio
 async def test_dashboard_crash_mid_session_recovers(db, db_path, tmp_path):
-    """Dashboard crash mid-recording: orphaned session marked 'crashed',
-    run stays draft, attempts already written by recorder survive, and
-    resume opens a new session.
-
-    Post-2026-05: attempts are written per-segment at close time, so
-    a crash mid-segment only loses the in-flight buffered events for
-    that segment — completed segments are durable. This test verifies
-    the lifecycle (session crash-tagging, run recovery, resume creates
-    new session) without relying on the dropped recorded_segment_times table.
-    """
-    from spinlab.protocol import LevelEntranceEvent, LevelExitEvent
-
-    # --- Pre-crash: start a run, capture one complete segment, die mid-next-segment ---
+    """Crash mid-recording: a closed segment's event rows survive on
+    disk; on restart the paused run is recovered and resume creates a
+    new session ordinal+1."""
+    # --- Pre-crash: start a run, close one segment via the recorder, die
+    #     without graceful shutdown. The closed segment's event row must
+    #     land in `attempts` (durable because _close_segment commits).
     emu = FakeEmuBackend(connected=True)
     controller = ReferenceController(db, emu)
     await controller.start_reference(Mode.IDLE, "smw", tmp_path, run_name="Long Run")
     run_id = controller.recorder.capture_run_id
     sess_id_1 = controller.recorder.current_capture_session_id
 
-    # Record one complete segment (attempts written at exit time)
-    await controller.handle_entrance(LevelEntranceEvent(
-        level=1, timestamp_ms=1000, state_path=None, conditions={},
-    ))
-    controller.handle_exit(LevelExitEvent(
-        level=1, goal="normal", timestamp_ms=5000, conditions={},
-    ), game_id="smw")
+    await controller.handle_entrance(
+        LevelEntranceEvent(level=1, timestamp_ms=0, state_path=None),
+    )
+    controller.handle_exit(
+        LevelExitEvent(level=1, goal="normal", timestamp_ms=1000),
+        game_id="smw",
+    )
 
-    # Verify attempt row was written before "crash"
-    attempt_count_before = db.conn.execute(
-        "SELECT COUNT(*) FROM attempts WHERE capture_run_id = ?", (run_id,)
-    ).fetchone()[0]
-    assert attempt_count_before == 1, "recorder should have written attempt at segment close"
-
-    # Simulate crash: drop the controller and DB references without ending the session
+    # Simulate crash: drop the controller and DB references without ending
+    # the session or finalizing the run.
     del controller
     db.close()
 
@@ -84,11 +73,12 @@ async def test_dashboard_crash_mid_session_recovers(db, db_path, tmp_path):
     assert len(sessions) == 1
     assert sessions[0]["end_reason"] == "crashed"
 
-    # Durable attempt row survived the crash
-    attempt_count_after = db2.conn.execute(
-        "SELECT COUNT(*) FROM attempts WHERE capture_run_id = ?", (run_id,)
-    ).fetchone()[0]
-    assert attempt_count_after == 1, "attempt written before crash must survive"
+    # The closed segment's event row survived the crash.
+    events = db2.conn.execute(
+        "SELECT outcome, time_ms FROM attempts WHERE capture_run_id = ?",
+        (run_id,),
+    ).fetchall()
+    assert [(r[0], r[1]) for r in events] == [("survived", 1000)]
 
     # --- Resume creates session 2 ---
     await controller2.resume_reference(Mode.IDLE, "smw", tmp_path)
