@@ -84,8 +84,6 @@ def test_delete_capture_session_removes_row(db):
     assert db.get_capture_session("sess_1") is None
 
 
-
-
 def test_recover_paused_capture_run_finds_most_recent_draft(db):
     # Three draft runs for same game; recover picks most recent and removes all older ones
     import time

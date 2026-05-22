@@ -165,7 +165,7 @@ class CaptureRunsMixin:
                 self.conn.execute(
                     "DELETE FROM segments WHERE capture_run_id = ?", (run_id,),
                 )
-            # capture_sessions and recorded_segment_times CASCADE from capture_runs
+            # capture_sessions CASCADE from capture_runs
             self.conn.execute("DELETE FROM capture_runs WHERE id = ?", (run_id,))
 
     def get_segments_by_reference(self, capture_run_id: str) -> list[ReferenceSegmentRow]:

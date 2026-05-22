@@ -41,38 +41,6 @@ def mock_emu():
     return emu
 
 
-@pytest.fixture
-def mock_db():
-    """Mock Database with all methods stubbed."""
-    db = MagicMock()
-    db.upsert_game = MagicMock()
-    db.create_session = MagicMock()
-    db.end_session = MagicMock()
-    db.create_capture_run = MagicMock()
-    db.set_active_capture_run = MagicMock()
-    db.get_recent_attempts = MagicMock(return_value=[])
-    db.get_all_segments_with_model = MagicMock(return_value=[])
-    db.load_model_state = MagicMock(return_value=None)
-    db.load_allocator_config = MagicMock(return_value=None)
-    db.upsert_segment = MagicMock()
-    db.add_variant = MagicMock()
-    db.get_active_segments = MagicMock(return_value=[])
-    db.promote_draft = MagicMock()
-    db.hard_delete_capture_run = MagicMock()
-    db.segments_missing_cold = MagicMock(return_value=[])
-    db.drain_recorded_segment_times_for_run = MagicMock(return_value=[])
-    db.list_capture_sessions_for_run = MagicMock(return_value=[])
-    db.recover_paused_capture_run = MagicMock(return_value=None)
-    db.end_capture_session = MagicMock()
-    db.create_capture_session = MagicMock()
-    db.max_session_ordinal_for_run = MagicMock(return_value=0)
-    # conn mock for raw SQL queries (e.g. get_paused_state, finalize checks)
-    row_mock = MagicMock()
-    row_mock.__getitem__ = MagicMock(return_value=1)  # default: draft=1
-    db.conn.execute.return_value.fetchone.return_value = row_mock
-    return db
-
-
 @pytest.fixture(params=list_estimators())
 def estimator_name(request) -> str:
     """Parametrized fixture that yields each registered estimator name."""
