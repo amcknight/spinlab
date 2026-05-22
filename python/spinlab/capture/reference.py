@@ -494,7 +494,7 @@ class ReferenceController:
 
     def handle_death(self, event: DeathEvent) -> None:
         self.recorder.died = True
-        self.recorder.handle_death(timestamp_ms=None)
+        self.recorder.handle_death(timestamp_ms=event.timestamp_ms)
 
     def handle_spawn(self, event: SpawnEvent, game_id: str) -> None:
         logger.info("capture: spawn level=%s state_path=%s",

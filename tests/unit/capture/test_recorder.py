@@ -169,7 +169,7 @@ async def test_handle_spawn_event_does_not_emit_event_row(db, registry):
     await ctl.handle_entrance(LevelEntranceEvent(
         level=1, state_path=None, timestamp_ms=1000, conditions={},
     ))
-    ctl.handle_death(DeathEvent())
+    ctl.handle_death(DeathEvent(timestamp_ms=2000))
     ctl.handle_spawn(SpawnEvent(
         level_num=1, state_path=None,
         is_cold_cp=False, cp_ordinal=None,
@@ -182,3 +182,6 @@ async def test_handle_spawn_event_does_not_emit_event_row(db, registry):
     events = _events_for_run(db, "run1")
     # 2 events: died + survived. The spawn is NOT a row in attempts.
     assert [e["outcome"] for e in events] == ["died", "survived"]
+    # Died at t=2000 (delta from entrance at t=1000) = 1000ms.
+    # Survived at t=5000 (delta from death at t=2000) = 3000ms.
+    assert [e["time_ms"] for e in events] == [1000, 3000]

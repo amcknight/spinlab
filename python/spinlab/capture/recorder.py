@@ -261,17 +261,17 @@ class SegmentRecorder:
         # Buffer the died event with raw wall-clock delta since the previous
         # event (or segment-start, for the first death). The penalty math
         # lives in the legacy roll-up adapter, not at write time.
-        # When timestamp_ms is None (e.g. called from ReferenceController
-        # without a clock source), use time_ms=0 — the event still occurred,
-        # we just lack a precise delta.
-        delta = (timestamp_ms - self._last_event_ms) if timestamp_ms is not None else 0
+        # timestamp_ms is set by the detector and propagated through the
+        # capture event flow; None means "no clock source" and the event
+        # is not durable — caller is responsible for providing a timestamp.
+        if timestamp_ms is None:
+            return
         self._pending_events.append(_PendingEvent(
             outcome=AttemptOutcome.DIED,
-            time_ms=delta,
+            time_ms=timestamp_ms - self._last_event_ms,
             created_at=datetime.now(UTC),
         ))
-        if timestamp_ms is not None:
-            self._last_event_ms = timestamp_ms
+        self._last_event_ms = timestamp_ms
 
     def handle_spawn_timing(self, timestamp_ms: int | None = None) -> None:
         if timestamp_ms is not None:
