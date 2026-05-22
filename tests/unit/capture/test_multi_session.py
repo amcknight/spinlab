@@ -364,7 +364,7 @@ def test_finalize_rebuilds_scheduler_even_when_zero_segments(db):
     asyncio.run(ctl.finalize_run(name="Empty Run", scheduler=sched))
 
     assert sched.rebuild_calls == 1, (
-        "scheduler must rebuild after set_active_capture_run, even with zero seeded attempts"
+        "scheduler must rebuild after set_active_capture_run, even with zero event rows"
     )
 
 

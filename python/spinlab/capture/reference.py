@@ -49,6 +49,7 @@ from ..protocol import (
     ReplayStopCmd,
     SpawnEvent,
 )
+from .finalizer import atomic_save_and_finish_run
 from .recorder import SegmentRecorder
 
 if TYPE_CHECKING:
@@ -275,11 +276,18 @@ class ReferenceController:
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
 
     async def finalize_run(self, name: str, scheduler: "Scheduler | None" = None) -> ActionResult:
+        """Atomic finalize of the paused run: promote draft + activate.
+
+        Same atomic guarantee as ``save_and_finish_run`` for the
+        already-recording entry point — both routes flow through
+        ``atomic_save_and_finish_run``. Passes ``session_id=None``
+        because the paused-run path has no active session to end
+        (the session was ended when the user clicked Stop).
+        """
         if not self.paused_run_id:
             raise NoPausedRunError()
         run_id = self.paused_run_id
-        self.db.promote_draft(run_id, name)
-        self.db.set_active_capture_run(run_id)
+        atomic_save_and_finish_run(self.db, run_id, None, name)
         # Always rebuild after activation: set_active_capture_run changed
         # which reference the scheduler should reason about, regardless of
         # whether any new event rows landed during this finalize.
@@ -317,7 +325,6 @@ class ReferenceController:
         if not run_id:
             raise NoPausedRunError()
 
-        from .finalizer import atomic_save_and_finish_run
         atomic_save_and_finish_run(self.db, run_id, sess_id, name)
 
         if scheduler:
