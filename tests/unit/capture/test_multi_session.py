@@ -11,6 +11,7 @@ from spinlab.capture import ReferenceController
 from spinlab.db import Database
 from spinlab.errors import DraftPendingError, SessionDeleteAfterFinalizeError
 from spinlab.models import Mode, Status
+from spinlab.protocol import LevelEntranceEvent, LevelExitEvent
 
 
 @pytest.fixture
@@ -71,7 +72,6 @@ async def test_save_and_finish_promotes_and_keeps_recorded_event_rows(started_se
     """A reference segment recorded through the recorder leaves event rows
     in `attempts`. Save & Finish promotes the draft; the event rows are
     untouched by finalize."""
-    from spinlab.protocol import LevelEntranceEvent, LevelExitEvent
     run_id = started_session.recorder.capture_run_id
     # Drive one clean segment through the recorder.
     started_session.recorder.handle_entrance(
@@ -81,11 +81,14 @@ async def test_save_and_finish_promotes_and_keeps_recorded_event_rows(started_se
         LevelExitEvent(level=1, goal="normal", timestamp_ms=1500), "smw",
     )
 
-    # One survived event in attempts for this run, with raw wall-clock.
-    event_count = db.conn.execute(
-        "SELECT COUNT(*) FROM attempts WHERE capture_run_id = ?", (run_id,),
-    ).fetchone()[0]
-    assert event_count == 1
+    # One survived event in attempts for this run, with raw wall-clock
+    # delta from entrance (t=0) to exit (t=1500).
+    event_row = db.conn.execute(
+        "SELECT outcome, time_ms FROM attempts WHERE capture_run_id = ?", (run_id,),
+    ).fetchone()
+    assert event_row is not None, "recorder did not write an event row"
+    assert event_row[0] == "survived"
+    assert event_row[1] == 1500
 
     result = await started_session.save_and_finish_run(Mode.REFERENCE, name="My Run")
     assert result.status == Status.OK
@@ -95,10 +98,12 @@ async def test_save_and_finish_promotes_and_keeps_recorded_event_rows(started_se
     assert row[1] == "My Run"
 
     # Event row still there post-finalize — finalize does not touch attempts.
-    event_count_after = db.conn.execute(
-        "SELECT COUNT(*) FROM attempts WHERE capture_run_id = ?", (run_id,),
-    ).fetchone()[0]
-    assert event_count_after == 1
+    event_row_after = db.conn.execute(
+        "SELECT outcome, time_ms FROM attempts WHERE capture_run_id = ?", (run_id,),
+    ).fetchone()
+    assert event_row_after is not None
+    assert event_row_after[0] == "survived"
+    assert event_row_after[1] == 1500
 
 
 # --- Multi-session: stop then resume ---
@@ -419,25 +424,6 @@ def test_delete_active_capture_session_raises_session_in_use(db):
 
     with pytest.raises(SessionInUseError):
         asyncio.run(ctl.delete_capture_session("active_sess"))
-
-
-# --- Helpers ---
-
-def _make_minimal_segment(db, run_id, sess_id, seg_id):
-    """Insert a minimal valid segment row for FK referential integrity."""
-    from spinlab.models import EndpointType, Segment, Waypoint
-    wp_a = Waypoint.make("smw", 1, EndpointType.ENTRANCE, 0, {})
-    wp_b = Waypoint.make("smw", 1, EndpointType.GOAL, 0, {})
-    db.upsert_waypoint(wp_a)
-    db.upsert_waypoint(wp_b)
-    seg = Segment(
-        id=seg_id, game_id="smw", level_number=1,
-        start_type=EndpointType.ENTRANCE, start_ordinal=0,
-        end_type=EndpointType.GOAL, end_ordinal=0,
-        start_waypoint_id=wp_a.id, end_waypoint_id=wp_b.id,
-        capture_run_id=run_id, capture_session_id=sess_id,
-    )
-    db.upsert_segment(seg)
 
 
 
