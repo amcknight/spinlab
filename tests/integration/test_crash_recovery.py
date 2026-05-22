@@ -10,11 +10,12 @@ No live emulator, no real network I/O, no Playwright — pure Python
 integration of ReferenceController against a real on-disk SQLite file.
 """
 import pytest
-from tests.conftest import FakeEmuBackend
 
 from spinlab.capture import ReferenceController
 from spinlab.db import Database
 from spinlab.models import Mode
+from spinlab.protocol import LevelEntranceEvent, LevelExitEvent
+from tests.conftest import FakeEmuBackend
 
 # This test does not need a live emulator — override the module-wide emulator mark set
 # by tests/integration/conftest.py so it runs in the default fast suite.
@@ -39,8 +40,6 @@ async def test_dashboard_crash_mid_session_recovers(db, db_path, tmp_path):
     """Crash mid-recording: a closed segment's event rows survive on
     disk; on restart the paused run is recovered and resume creates a
     new session ordinal+1."""
-    from spinlab.protocol import LevelEntranceEvent, LevelExitEvent
-
     # --- Pre-crash: start a run, close one segment via the recorder, die
     #     without graceful shutdown. The closed segment's event row must
     #     land in `attempts` (durable because _close_segment commits).
@@ -50,11 +49,12 @@ async def test_dashboard_crash_mid_session_recovers(db, db_path, tmp_path):
     run_id = controller.recorder.capture_run_id
     sess_id_1 = controller.recorder.current_capture_session_id
 
-    controller.recorder.handle_entrance(
+    await controller.handle_entrance(
         LevelEntranceEvent(level=1, timestamp_ms=0, state_path=None),
     )
-    controller.recorder.handle_exit(
-        LevelExitEvent(level=1, goal="normal", timestamp_ms=1000), "smw",
+    controller.handle_exit(
+        LevelExitEvent(level=1, goal="normal", timestamp_ms=1000),
+        game_id="smw",
     )
 
     # Simulate crash: drop the controller and DB references without ending
