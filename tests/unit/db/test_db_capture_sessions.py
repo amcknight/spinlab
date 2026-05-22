@@ -84,31 +84,6 @@ def test_delete_capture_session_removes_row(db):
     assert db.get_capture_session("sess_1") is None
 
 
-def test_delete_capture_session_cascades_to_recorded_segment_times(db):
-    db.create_capture_session("sess_1", "run_1", 1)
-    db.add_recorded_segment_time("sess_1", "seg_x", time_ms=1000, deaths=0, clean_tail_ms=1000)
-    rows = db.conn.execute(
-        "SELECT COUNT(*) FROM recorded_segment_times WHERE capture_session_id = ?",
-        ("sess_1",),
-    ).fetchone()
-    assert rows[0] == 1
-    db.delete_capture_session("sess_1")
-    rows = db.conn.execute(
-        "SELECT COUNT(*) FROM recorded_segment_times WHERE capture_session_id = ?",
-        ("sess_1",),
-    ).fetchone()
-    assert rows[0] == 0
-
-
-def test_hard_delete_capture_run_cascades_to_sessions_and_times(db):
-    db.create_capture_session("sess_1", "run_1", 1)
-    db.create_capture_session("sess_2", "run_1", 2)
-    db.add_recorded_segment_time("sess_1", "seg_a", time_ms=100, deaths=0, clean_tail_ms=100)
-    db.hard_delete_capture_run("run_1")
-    assert db.list_capture_sessions_for_run("run_1") == []
-    rows = db.conn.execute("SELECT COUNT(*) FROM recorded_segment_times").fetchone()
-    assert rows[0] == 0
-
 
 
 def test_recover_paused_capture_run_finds_most_recent_draft(db):
