@@ -3,7 +3,7 @@
 Simulates: dashboard process dies mid-recording. On restart with same DB:
 - Orphaned session marked end_reason=crashed
 - Run remains draft=1
-- Segments and recorded_segment_times preserved
+- Closed segment's event rows in attempts preserved
 - Resume creates a new session ordinal+1
 
 No live emulator, no real network I/O, no Playwright — pure Python
@@ -36,15 +36,29 @@ def db(db_path):
 
 @pytest.mark.asyncio
 async def test_dashboard_crash_mid_session_recovers(db, db_path, tmp_path):
-    # --- Pre-crash: start a run, capture some timing, die without graceful shutdown ---
+    """Crash mid-recording: a closed segment's event rows survive on
+    disk; on restart the paused run is recovered and resume creates a
+    new session ordinal+1."""
+    from spinlab.protocol import LevelEntranceEvent, LevelExitEvent
+
+    # --- Pre-crash: start a run, close one segment via the recorder, die
+    #     without graceful shutdown. The closed segment's event row must
+    #     land in `attempts` (durable because _close_segment commits).
     emu = FakeEmuBackend(connected=True)
     controller = ReferenceController(db, emu)
     await controller.start_reference(Mode.IDLE, "smw", tmp_path, run_name="Long Run")
     run_id = controller.recorder.capture_run_id
     sess_id_1 = controller.recorder.current_capture_session_id
-    db.add_recorded_segment_time(sess_id_1, "seg_a", time_ms=1000, deaths=0, clean_tail_ms=1000)
 
-    # Simulate crash: drop the controller and DB references without ending the session
+    controller.recorder.handle_entrance(
+        LevelEntranceEvent(level=1, timestamp_ms=0, state_path=None),
+    )
+    controller.recorder.handle_exit(
+        LevelExitEvent(level=1, goal="normal", timestamp_ms=1000), "smw",
+    )
+
+    # Simulate crash: drop the controller and DB references without ending
+    # the session or finalizing the run.
     del controller
     db.close()
 
@@ -58,11 +72,13 @@ async def test_dashboard_crash_mid_session_recovers(db, db_path, tmp_path):
     sessions = db2.list_capture_sessions_for_run(run_id)
     assert len(sessions) == 1
     assert sessions[0]["end_reason"] == "crashed"
-    times = db2.conn.execute(
-        "SELECT segment_id, time_ms FROM recorded_segment_times "
-        "WHERE capture_session_id = ?", (sess_id_1,),
+
+    # The closed segment's event row survived the crash.
+    events = db2.conn.execute(
+        "SELECT outcome, time_ms FROM attempts WHERE capture_run_id = ?",
+        (run_id,),
     ).fetchall()
-    assert [(r[0], r[1]) for r in times] == [("seg_a", 1000)]
+    assert [(r[0], r[1]) for r in events] == [("survived", 1000)]
 
     # --- Resume creates session 2 ---
     await controller2.resume_reference(Mode.IDLE, "smw", tmp_path)
