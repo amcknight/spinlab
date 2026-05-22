@@ -48,10 +48,7 @@ async def test_save_and_finish_from_paused_after_stop_finalizes(started_session,
     """Regression: clicking Save & Finish AFTER Stop should finalize the
     paused run, not silently 409. The dashboard's primary save button stays
     visible after Stop and users expect it to work either way."""
-    sess_id = started_session.recorder.current_capture_session_id
     run_id = started_session.recorder.capture_run_id
-    db.add_recorded_segment_time(sess_id, "seg_a", time_ms=2000, deaths=0, clean_tail_ms=2000)
-    _make_minimal_segment(db, run_id, sess_id, "seg_a")
 
     # Stop first (mode goes REFERENCE → IDLE, run becomes paused).
     await started_session.stop_reference(Mode.REFERENCE)
@@ -70,28 +67,38 @@ async def test_save_and_finish_from_paused_after_stop_finalizes(started_session,
 # --- Single-session save_and_finish path ---
 
 @pytest.mark.asyncio
-async def test_save_and_finish_seeds_attempts_and_finalizes(started_session, db):
-    sess_id = started_session.recorder.current_capture_session_id
+async def test_save_and_finish_promotes_and_keeps_recorded_event_rows(started_session, db):
+    """A reference segment recorded through the recorder leaves event rows
+    in `attempts`. Save & Finish promotes the draft; the event rows are
+    untouched by finalize."""
+    from spinlab.protocol import LevelEntranceEvent, LevelExitEvent
     run_id = started_session.recorder.capture_run_id
-    db.add_recorded_segment_time(sess_id, "seg_x", time_ms=1500, deaths=0, clean_tail_ms=1500)
-    _make_minimal_segment(db, run_id, sess_id, "seg_x")
+    # Drive one clean segment through the recorder.
+    started_session.recorder.handle_entrance(
+        LevelEntranceEvent(level=1, timestamp_ms=0, state_path="/s.mss"),
+    )
+    started_session.recorder.handle_exit(
+        LevelExitEvent(level=1, goal="normal", timestamp_ms=1500), "smw",
+    )
+
+    # One survived event in attempts for this run, with raw wall-clock.
+    event_count = db.conn.execute(
+        "SELECT COUNT(*) FROM attempts WHERE capture_run_id = ?", (run_id,),
+    ).fetchone()[0]
+    assert event_count == 1
 
     result = await started_session.save_and_finish_run(Mode.REFERENCE, name="My Run")
-
     assert result.status == Status.OK
     assert result.new_mode == Mode.IDLE
     row = db.conn.execute("SELECT status, name FROM capture_runs WHERE id = ?", (run_id,)).fetchone()
     assert row[0] == "saved"
     assert row[1] == "My Run"
-    attempts = db.conn.execute(
-        "SELECT segment_id, time_ms FROM attempts WHERE segment_id = 'seg_x'"
-    ).fetchall()
-    assert [(r[0], r[1]) for r in attempts] == [("seg_x", 1500)]
-    rows = db.conn.execute(
-        "SELECT COUNT(*) FROM recorded_segment_times "
-        "WHERE capture_session_id = ?", (sess_id,)
-    ).fetchone()
-    assert rows[0] == 0
+
+    # Event row still there post-finalize — finalize does not touch attempts.
+    event_count_after = db.conn.execute(
+        "SELECT COUNT(*) FROM attempts WHERE capture_run_id = ?", (run_id,),
+    ).fetchone()[0]
+    assert event_count_after == 1
 
 
 # --- Multi-session: stop then resume ---
@@ -130,8 +137,6 @@ async def test_resume_creates_new_session_under_same_run(started_session, db, tm
 @pytest.mark.asyncio
 async def test_discard_run_hard_deletes_everything(started_session, db):
     run_id = started_session.recorder.capture_run_id
-    sess_id = started_session.recorder.current_capture_session_id
-    db.add_recorded_segment_time(sess_id, "seg_x", time_ms=100, deaths=0, clean_tail_ms=100)
     await started_session.stop_reference(Mode.REFERENCE)
 
     result = await started_session.discard_run()
@@ -191,45 +196,41 @@ async def test_disconnect_pauses_run(started_session, db):
 # --- Atomicity of save_and_finish_run ---
 
 @pytest.mark.asyncio
-async def test_save_and_finish_is_atomic_rolls_back_on_failure(started_session, db):
-    """save_and_finish_run rolls back if attempt seeding raises a DB error.
+async def test_save_and_finish_is_atomic_rolls_back_on_failure(started_session, db, monkeypatch):
+    """save_and_finish_run rolls back if any mutation in the atomic block raises.
 
-    We inject a fault by adding a timing row that references a non-existent
-    segment_id. With PRAGMA foreign_keys=ON, the INSERT INTO attempts for that
-    row raises IntegrityError. The run must remain draft=1 and no attempts or
-    timing-row deletes must survive.
-
-    Choosing option B (explicit BEGIN IMMEDIATE with raw SQL) means all
-    mutations — drain, promote, set_active, seed — happen in one transaction.
-    A partial failure must leave the DB as if nothing happened.
+    Choice of fault: monkeypatch db.conn so the activation step (UPDATE
+    capture_runs SET active=1) raises. All prior mutations — end_capture_session,
+    promote_draft — must roll back. The run remains draft and the session is
+    not ended.
     """
-    import sqlite3
-
-    sess_id = started_session.recorder.current_capture_session_id
     run_id = started_session.recorder.capture_run_id
-    # One valid segment + one timing row pointing at a non-existent segment
-    db.add_recorded_segment_time(sess_id, "seg_a", time_ms=1000, deaths=0, clean_tail_ms=1000)
-    _make_minimal_segment(db, run_id, sess_id, "seg_a")
-    # This timing row references "seg_ghost" which has no segments row → FK error
-    db.add_recorded_segment_time(sess_id, "seg_ghost", time_ms=2000, deaths=0, clean_tail_ms=2000)
+    sess_id = started_session.recorder.current_capture_session_id
+    real_conn = db.conn
 
-    with pytest.raises(sqlite3.IntegrityError):
+    class FailingConn:
+        def execute(self, sql, *args, **kwargs):
+            if "SET active = 1" in sql or "SET active=1" in sql:
+                raise RuntimeError("injected failure mid-transaction")
+            return real_conn.execute(sql, *args, **kwargs)
+        def commit(self): return real_conn.commit()
+        def rollback(self): return real_conn.rollback()
+        @property
+        def in_transaction(self): return real_conn.in_transaction
+
+    monkeypatch.setattr(db, "conn", FailingConn())
+
+    with pytest.raises(RuntimeError, match="injected failure"):
         await started_session.save_and_finish_run(Mode.REFERENCE, name="Should Roll Back")
 
-    # Run must still be draft (promotion was rolled back)
+    monkeypatch.undo()
+
     row = db.conn.execute("SELECT status FROM capture_runs WHERE id = ?", (run_id,)).fetchone()
     assert row is not None and row[0] == "draft", "run must remain draft after rollback"
-    # No attempts persisted
-    attempt_count = db.conn.execute(
-        "SELECT COUNT(*) FROM attempts WHERE capture_run_id = ?", (run_id,)
-    ).fetchone()[0]
-    assert attempt_count == 0, "no attempts should survive a rolled-back transaction"
-    # Timing rows must NOT have been deleted (drain was rolled back too)
-    timing_count = db.conn.execute(
-        "SELECT COUNT(*) FROM recorded_segment_times WHERE capture_session_id = ?",
-        (sess_id,),
-    ).fetchone()[0]
-    assert timing_count == 2, "timing rows must be intact after rollback"
+    sess_row = db.conn.execute(
+        "SELECT ended_at FROM capture_sessions WHERE id = ?", (sess_id,),
+    ).fetchone()
+    assert sess_row[0] is None, "session-end must be rolled back"
 
 
 def test_recovery_logs_warning_when_discarding_stranded_drafts(db, caplog):
