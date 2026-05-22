@@ -6,15 +6,15 @@ State model:
 - PAUSED: a draft=1 capture_run exists but no active session
 
 Stop is non-destructive: it ends the current session and leaves the run paused.
-Resume creates a new session under the existing paused run. Finalize drains
-recorded_segment_times into attempts and sets draft=0.
+Resume creates a new session under the existing paused run. Finalize promotes
+the draft to saved and activates; event rows are already in attempts from the
+recorder writing them as each segment closed.
 """
 from __future__ import annotations
 
 import logging
 import uuid
 from datetime import UTC, datetime
-from datetime import datetime as _dt
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -33,8 +33,6 @@ from ..errors import (
 )
 from ..models import (
     ActionResult,
-    Attempt,
-    AttemptSource,
     Mode,
     Status,
 )
@@ -54,41 +52,11 @@ from ..protocol import (
 from .recorder import SegmentRecorder
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from ..db import Database
-    from ..db.recorded_segment_times import RecordedSegmentTimeRow
     from ..emu_backend import EmuBackend
     from ..scheduler import Scheduler
 
 logger = logging.getLogger(__name__)
-
-
-def _seed_reference_attempts(
-    db: "Database", capture_run_id: str, timing_rows: "Sequence[RecordedSegmentTimeRow]",
-) -> int:
-    """Insert seed attempts from drained recorded_segment_times rows. Returns count."""
-    if not timing_rows:
-        return 0
-    now = _dt.now(UTC)
-    count = 0
-    for row in timing_rows:
-        attempt = Attempt(
-            segment_id=row["segment_id"],
-            capture_run_id=capture_run_id,
-            completed=True,
-            time_ms=row["time_ms"],
-            deaths=row["deaths"],
-            clean_tail_ms=row["clean_tail_ms"],
-            source=AttemptSource.REFERENCE,
-            created_at=now,
-        )
-        db.log_attempt(attempt)
-        count += 1
-        logger.info("seed: segment=%s time=%dms deaths=%d clean_tail=%dms",
-                     row["segment_id"], row["time_ms"], row["deaths"],
-                     row["clean_tail_ms"])
-    return count
 
 
 class ReferenceController:
@@ -310,18 +278,15 @@ class ReferenceController:
         if not self.paused_run_id:
             raise NoPausedRunError()
         run_id = self.paused_run_id
-        timing_rows = self.db.drain_recorded_segment_times_for_run(run_id)
         self.db.promote_draft(run_id, name)
         self.db.set_active_capture_run(run_id)
-        seeded = _seed_reference_attempts(self.db, run_id, timing_rows)
-        # Always rebuild after activation: set_active_capture_run changed which
-        # reference the scheduler should be reasoning about, regardless of whether
-        # this finalize added new attempts.
+        # Always rebuild after activation: set_active_capture_run changed
+        # which reference the scheduler should reason about, regardless of
+        # whether any new event rows landed during this finalize.
         if scheduler:
             scheduler.rebuild_all_states()
         self._enter_idle()
-        logger.info("reference: finalized run=%s as %r (seeded %d attempts)",
-                     run_id, name, seeded)
+        logger.info("reference: finalized run=%s as %r", run_id, name)
         return ActionResult(status=Status.OK)
 
     async def save_and_finish_run(
@@ -336,17 +301,10 @@ class ReferenceController:
             finalize_run so the dashboard's primary "Save & Finish Run"
             button works regardless of whether the user clicked Stop first.
 
-        Inlines mutations on ``db.conn`` inside an explicit ``BEGIN IMMEDIATE``
-        because the mixin methods each call ``conn.commit()`` internally —
-        calling them inside an outer transaction would commit partial work and
-        break atomicity. Either every step (end session → drain timing rows →
-        promote draft → set active → seed attempts) succeeds, or rollback
-        leaves every row exactly as it was. The stop command is sent before the
-        transaction since it is non-transactional; recorder state is cleared
-        only on successful commit via ``_enter_idle``.
+        Event rows for captured segments were already written by the recorder
+        as each segment closed. Finalize just ends the session, promotes the
+        draft, and activates.
         """
-        # Already-stopped case: just promote the draft. finalize_run handles
-        # the lighter version (no recorder/session state to wind down).
         if mode == Mode.IDLE and self.paused_run_id:
             return await self.finalize_run(name, scheduler=scheduler)
         if mode != Mode.REFERENCE:
@@ -354,26 +312,18 @@ class ReferenceController:
         if self.emu.is_connected:
             await self.emu.send_command(ReferenceStopCmd())
 
-        # Snapshot recorder state for the atomic block; do NOT clear it yet —
-        # if the transaction rolls back we want the recorder still pointing at
-        # the live session so the user can retry.
         sess_id = self.recorder.current_capture_session_id
         run_id = self.recorder.capture_run_id
         if not run_id:
             raise NoPausedRunError()
 
         from .finalizer import atomic_save_and_finish_run
-        seeded = atomic_save_and_finish_run(self.db, run_id, sess_id, name)
+        atomic_save_and_finish_run(self.db, run_id, sess_id, name)
 
         if scheduler:
             scheduler.rebuild_all_states()
         self._enter_idle()
-        for attempt in seeded:
-            logger.info("seed: segment=%s time=%dms deaths=%d clean_tail=%dms",
-                         attempt.segment_id, attempt.time_ms, attempt.deaths,
-                         attempt.clean_tail_ms)
-        logger.info("reference: save_and_finish run=%s as %r (seeded %d attempts)",
-                     run_id, name, len(seeded))
+        logger.info("reference: save_and_finish run=%s as %r", run_id, name)
         return ActionResult(status=Status.OK, new_mode=Mode.IDLE)
 
     async def discard_run(self) -> ActionResult:
