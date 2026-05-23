@@ -77,8 +77,8 @@ class StateBuilder:
         if mode == Mode.PRACTICE and session.practice_session:
             self._build_practice_state(base, session, sched)
 
-        if mode == Mode.SPEED_RUN and session.speed_run_session:
-            self._build_speed_run_state(base, session)
+        if mode == Mode.HYPER_PLAY and session.hyper_play_session:
+            self._build_hyper_play_state(base, session)
 
         if mode in (Mode.REFERENCE, Mode.REPLAY):
             base["capture_run_id"] = active_run_id
@@ -103,9 +103,9 @@ class StateBuilder:
         )
         return base
 
-    def _build_speed_run_state(self, base: dict, session: "SessionManager") -> None:
-        """Populate speed-run-specific fields into state dict."""
-        sr = session.speed_run_session
+    def _build_hyper_play_state(self, base: dict, session: "SessionManager") -> None:
+        """Populate hyper-play-specific fields into state dict."""
+        sr = session.hyper_play_session
         assert sr is not None  # caller checks before calling
         base["session"] = {
             "id": sr.session_id,

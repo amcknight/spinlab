@@ -501,11 +501,9 @@ class TestPracticeLifecycle:
         assert result.status == Status.STOPPED
         assert sm.mode == Mode.IDLE
 
-    async def test_stop_practice_cancels_hung_task(self, db, emu, monkeypatch):
-        """When practice task doesn't exit on is_running=False, stop should cancel
-        after the timeout elapses."""
-        monkeypatch.setattr(session_manager_module, "PRACTICE_STOP_TIMEOUT_S", 0.1)
-
+    async def test_stop_practice_returns_immediately_with_hung_task(self, db, emu):
+        """stop_practice must return promptly even if the task is slow to exit.
+        We set is_running=False and return without awaiting the task."""
         sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.mode = Mode.PRACTICE
@@ -515,7 +513,7 @@ class TestPracticeLifecycle:
         sm.practice_session = fake_ps
 
         async def hung_loop():
-            await asyncio.sleep(1)
+            await asyncio.sleep(60)
 
         sm.practice_task = asyncio.create_task(hung_loop())
 
@@ -523,29 +521,32 @@ class TestPracticeLifecycle:
 
         assert result.status == Status.STOPPED
         assert sm.mode == Mode.IDLE
-        assert sm.practice_task.cancelled() or sm.practice_task.done()
+        assert fake_ps.is_running is False
+        # task is still running in background — that's intentional
+        assert not sm.practice_task.done()
+        sm.practice_task.cancel()
 
 
-class TestSpeedRunLifecycle:
-    """Tests for start_speed_run, stop_speed_run, and _on_speed_run_done."""
+class TestHyperPlayLifecycle:
+    """Tests for start_hyper_play, stop_hyper_play, and _on_hyper_play_done."""
 
     async def test_start_blocked_by_draft(self, db, emu):
         sm = make_sm(db, emu)
         sm.game_id = "game1"
         sm.capture.paused_run_id = "fake_paused_run"
         with pytest.raises(DraftPendingError):
-            await sm.start_speed_run()
+            await sm.start_hyper_play()
 
     async def test_start_blocked_by_not_connected(self, db, emu):
         sm = make_sm(db, emu)
         sm.game_id = "game1"
         emu.is_connected = False
         with pytest.raises(NotConnectedError):
-            await sm.start_speed_run()
+            await sm.start_hyper_play()
 
     async def test_start_missing_save_states(self, db, emu, tmp_path):
-        """SpeedRunSession.__init__ raises ValueError when a segment
-        has no save_state path on disk; start_speed_run translates that to
+        """HyperPlaySession.__init__ raises ValueError when a segment
+        has no save_state path on disk; start_hyper_play translates that to
         MissingSaveStatesError."""
         from tests.conftest import make_seg_with_state
         # Real segment + waypoint, but the hot save state path points at a
@@ -557,17 +558,17 @@ class TestSpeedRunLifecycle:
         sm = make_sm(db, emu)
         sm.game_id = "game1"
         with pytest.raises(MissingSaveStatesError):
-            await sm.start_speed_run()
+            await sm.start_hyper_play()
 
     async def test_stop_when_not_running(self, db, emu):
         sm = make_sm(db, emu)
         with pytest.raises(NotRunningError):
-            await sm.stop_speed_run()
+            await sm.stop_hyper_play()
 
     async def test_stop_clears_stale_mode(self, db, emu):
         sm = make_sm(db, emu)
-        sm.mode = Mode.SPEED_RUN
-        result = await sm.stop_speed_run()
+        sm.mode = Mode.HYPER_PLAY
+        result = await sm.stop_hyper_play()
         assert result.status == Status.STOPPED
         assert sm.mode == Mode.IDLE
 
@@ -581,11 +582,11 @@ class TestDisconnectAndShutdown:
         sm.on_disconnect()
         assert fake_ps.is_running is False
 
-    def test_on_disconnect_stops_speed_run(self, db, emu):
+    def test_on_disconnect_stops_hyper_play(self, db, emu):
         sm = make_sm(db, emu)
         fake_sr = MagicMock()
         fake_sr.is_running = True
-        sm.speed_run_session = fake_sr
+        sm.hyper_play_session = fake_sr
         sm.on_disconnect()
         assert fake_sr.is_running is False
 

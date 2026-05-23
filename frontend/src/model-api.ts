@@ -29,12 +29,12 @@ export async function postPracticeStop(): Promise<void> {
   await postJSON("/api/practice/stop");
 }
 
-export async function postSpeedrunStart(): Promise<void> {
-  await postJSON("/api/speedrun/start");
+export async function postHyperPlayStart(): Promise<void> {
+  await postJSON("/api/hyperplay/start");
 }
 
-export async function postSpeedrunStop(): Promise<void> {
-  await postJSON("/api/speedrun/stop");
+export async function postHyperPlayStop(): Promise<void> {
+  await postJSON("/api/hyperplay/stop");
 }
 
 // Uses raw fetch + silent .catch() to preserve original semantics: network

@@ -21,7 +21,12 @@
       "Skill(superpowers:finishing-a-development-branch)",
       "Skill(superpowers:finishing-a-development-branch:*)",
       "Skill(superpowers:dispatching-parallel-agents)",
-      "Skill(superpowers:dispatching-parallel-agents:*)"
+      "Skill(superpowers:dispatching-parallel-agents:*)",
+      "Bash(curl -s http://localhost:8000/api/state)",
+      "PowerShell(\\(Get-Item data\\\\spinlab.log\\).LastWriteTime; Get-Date)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\thedo\\git\\spinlab\\data"
     ]
   },
   "enabledPlugins": {

@@ -1,4 +1,4 @@
-"""Tests for Speed Run mode enum and transitions."""
+"""Tests for Hyper Play mode enum and transitions."""
 import asyncio
 from unittest.mock import AsyncMock
 
@@ -14,29 +14,29 @@ from spinlab.models import (
     transition_mode,
 )
 from spinlab.protocol import (
-    SpeedRunCheckpointEvent,
-    SpeedRunCompleteEvent,
-    SpeedRunDeathEvent,
-    SpeedRunLoadCmd,
+    HyperPlayCheckpointEvent,
+    HyperPlayCompleteEvent,
+    HyperPlayDeathEvent,
+    HyperPlayLoadCmd,
 )
 from spinlab.session_manager import SessionManager
 
 
-def test_speed_run_mode_exists():
-    assert Mode.SPEED_RUN.value == "speed_run"
+def test_hyper_play_mode_exists():
+    assert Mode.HYPER_PLAY.value == "hyper_play"
 
 
-def test_idle_to_speed_run_legal():
-    assert transition_mode(Mode.IDLE, Mode.SPEED_RUN) == Mode.SPEED_RUN
+def test_idle_to_hyper_play_legal():
+    assert transition_mode(Mode.IDLE, Mode.HYPER_PLAY) == Mode.HYPER_PLAY
 
 
-def test_speed_run_to_idle_legal():
-    assert transition_mode(Mode.SPEED_RUN, Mode.IDLE) == Mode.IDLE
+def test_hyper_play_to_idle_legal():
+    assert transition_mode(Mode.HYPER_PLAY, Mode.IDLE) == Mode.IDLE
 
 
-def test_speed_run_to_practice_illegal():
+def test_hyper_play_to_practice_illegal():
     with pytest.raises(ValueError):
-        transition_mode(Mode.SPEED_RUN, Mode.PRACTICE)
+        transition_mode(Mode.HYPER_PLAY, Mode.PRACTICE)
 
 
 def _make_waypoint_and_state(db, game_id, level, ep_type, ordinal, state_path, conditions=None):
@@ -120,12 +120,12 @@ def sr_db(tmp_path):
     return db
 
 
-def test_speed_run_builds_level_sequence(sr_db):
-    """SpeedRunSession should group segments into levels ordered by ordinal."""
+def test_hyper_play_builds_level_sequence(sr_db):
+    """HyperPlaySession should group segments into levels ordered by ordinal."""
     emu = AsyncMock()
     emu.is_connected = True
-    from spinlab.speed_run import SpeedRunSession
-    sr = SpeedRunSession(emu=emu, db=sr_db, game_id="g")
+    from spinlab.hyper_play import HyperPlaySession
+    sr = HyperPlaySession(emu=emu, db=sr_db, game_id="g")
     levels = sr.levels
 
     assert len(levels) == 2
@@ -134,8 +134,8 @@ def test_speed_run_builds_level_sequence(sr_db):
     assert len(levels[0].checkpoints) == 1
 
 
-def test_speed_run_refuses_missing_state(tmp_path):
-    """SpeedRunSession should raise if any segment has no save state."""
+def test_hyper_play_refuses_missing_state(tmp_path):
+    """HyperPlaySession should raise if any segment has no save state."""
     db = Database(tmp_path / "sr.db")
     db.upsert_game("g", "Game", "any%")
 
@@ -155,22 +155,24 @@ def test_speed_run_refuses_missing_state(tmp_path):
 
     emu = AsyncMock()
     emu.is_connected = True
-    from spinlab.speed_run import SpeedRunSession
+    from spinlab.hyper_play import HyperPlaySession
     with pytest.raises(ValueError, match="Missing save state"):
-        SpeedRunSession(emu=emu, db=db, game_id="g")
+        HyperPlaySession(emu=emu, db=db, game_id="g")
+
+
 @pytest.mark.asyncio
-async def test_speed_run_sends_level_load(sr_db):
-    """First run_one should send speed_run_load for level 1."""
+async def test_hyper_play_sends_level_load(sr_db):
+    """First run_one should send HyperPlayLoadCmd for level 1."""
     emu = AsyncMock()
     emu.is_connected = True
 
-    from spinlab.speed_run import SpeedRunSession
-    sr = SpeedRunSession(emu=emu, db=sr_db, game_id="g")
+    from spinlab.hyper_play import HyperPlaySession
+    sr = HyperPlaySession(emu=emu, db=sr_db, game_id="g")
     sr.is_running = True
 
     async def deliver():
         await asyncio.sleep(0.05)
-        sr.receive_complete(SpeedRunCompleteEvent(
+        sr.receive_complete(HyperPlayCompleteEvent(
             elapsed_ms=30000,
             split_ms=30000,
         ))
@@ -181,28 +183,30 @@ async def test_speed_run_sends_level_load(sr_db):
     assert result is True
     emu.send_command.assert_called_once()
     cmd = emu.send_command.call_args[0][0]
-    assert isinstance(cmd, SpeedRunLoadCmd)
+    assert isinstance(cmd, HyperPlayLoadCmd)
     assert len(cmd.checkpoints) == 1
     assert cmd.checkpoints[0]["ordinal"] == 1
+
+
 @pytest.mark.asyncio
-async def test_speed_run_cold_recording_on_checkpoint(sr_db):
+async def test_hyper_play_cold_recording_on_checkpoint(sr_db):
     """Checkpoint hit after cold start should record an attempt."""
     emu = AsyncMock()
     emu.is_connected = True
 
-    from spinlab.speed_run import SpeedRunSession
-    sr = SpeedRunSession(emu=emu, db=sr_db, game_id="g")
+    from spinlab.hyper_play import HyperPlaySession
+    sr = HyperPlaySession(emu=emu, db=sr_db, game_id="g")
     sr.is_running = True
 
     async def deliver():
         await asyncio.sleep(0.05)
-        sr.receive_checkpoint(SpeedRunCheckpointEvent(
+        sr.receive_checkpoint(HyperPlayCheckpointEvent(
             ordinal=1,
             elapsed_ms=12000,
             split_ms=12000,
         ))
         await asyncio.sleep(0.05)
-        sr.receive_complete(SpeedRunCompleteEvent(
+        sr.receive_complete(HyperPlayCompleteEvent(
             elapsed_ms=30000,
             split_ms=18000,
         ))
@@ -218,30 +222,32 @@ async def test_speed_run_cold_recording_on_checkpoint(sr_db):
 
     attempts2 = sr_db.get_segment_attempts(seg_ids[1])
     assert len(attempts2) == 0
+
+
 @pytest.mark.asyncio
-async def test_speed_run_death_makes_next_segment_cold(sr_db):
+async def test_hyper_play_death_makes_next_segment_cold(sr_db):
     """Death should mark next sub-segment as cold for recording."""
     emu = AsyncMock()
     emu.is_connected = True
 
-    from spinlab.speed_run import SpeedRunSession
-    sr = SpeedRunSession(emu=emu, db=sr_db, game_id="g")
+    from spinlab.hyper_play import HyperPlaySession
+    sr = HyperPlaySession(emu=emu, db=sr_db, game_id="g")
     sr.is_running = True
 
     async def deliver():
         await asyncio.sleep(0.02)
-        sr.receive_checkpoint(SpeedRunCheckpointEvent(
+        sr.receive_checkpoint(HyperPlayCheckpointEvent(
             ordinal=1,
             elapsed_ms=12000,
             split_ms=12000,
         ))
         await asyncio.sleep(0.02)
-        sr.receive_death(SpeedRunDeathEvent(
+        sr.receive_death(HyperPlayDeathEvent(
             elapsed_ms=18000,
             split_ms=6000,
         ))
         await asyncio.sleep(0.02)
-        sr.receive_complete(SpeedRunCompleteEvent(
+        sr.receive_complete(HyperPlayCompleteEvent(
             elapsed_ms=40000,
             split_ms=15000,
         ))
@@ -254,26 +260,28 @@ async def test_speed_run_death_makes_next_segment_cold(sr_db):
     attempts = sr_db.get_segment_attempts(seg_ids[1])
     assert len(attempts) == 1
     assert attempts[0]["time_ms"] == 15000
+
+
 @pytest.mark.asyncio
-async def test_speed_run_stops_after_last_level(sr_db):
+async def test_hyper_play_stops_after_last_level(sr_db):
     """Session should return False after last level completes."""
     emu = AsyncMock()
     emu.is_connected = True
 
-    from spinlab.speed_run import SpeedRunSession
-    sr = SpeedRunSession(emu=emu, db=sr_db, game_id="g")
+    from spinlab.hyper_play import HyperPlaySession
+    sr = HyperPlaySession(emu=emu, db=sr_db, game_id="g")
     sr.is_running = True
 
     async def deliver_l1():
         await asyncio.sleep(0.02)
-        sr.receive_complete(SpeedRunCompleteEvent(elapsed_ms=30000, split_ms=30000))
+        sr.receive_complete(HyperPlayCompleteEvent(elapsed_ms=30000, split_ms=30000))
     asyncio.create_task(deliver_l1())
     result1 = await sr.run_one()
     assert result1 is True
 
     async def deliver_l2():
         await asyncio.sleep(0.02)
-        sr.receive_complete(SpeedRunCompleteEvent(elapsed_ms=20000, split_ms=20000))
+        sr.receive_complete(HyperPlayCompleteEvent(elapsed_ms=20000, split_ms=20000))
     asyncio.create_task(deliver_l2())
     result2 = await sr.run_one()
     assert result2 is True
@@ -296,27 +304,27 @@ def session_mgr(sr_db, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_session_manager_start_speed_run(session_mgr):
-    result = await session_mgr.start_speed_run()
+async def test_session_manager_start_hyper_play(session_mgr):
+    result = await session_mgr.start_hyper_play()
     assert result.status == Status.STARTED
-    assert session_mgr.mode == Mode.SPEED_RUN
-    assert session_mgr.speed_run_session is not None
+    assert session_mgr.mode == Mode.HYPER_PLAY
+    assert session_mgr.hyper_play_session is not None
 
 
 @pytest.mark.asyncio
-async def test_session_manager_stop_speed_run(session_mgr):
-    await session_mgr.start_speed_run()
-    result = await session_mgr.stop_speed_run()
+async def test_session_manager_stop_hyper_play(session_mgr):
+    await session_mgr.start_hyper_play()
+    result = await session_mgr.stop_hyper_play()
     assert result.status == Status.STOPPED
     assert session_mgr.mode == Mode.IDLE
 
 
 @pytest.mark.asyncio
-async def test_speed_run_routes_checkpoint_event(session_mgr):
-    await session_mgr.start_speed_run()
-    await session_mgr.route_event(SpeedRunCheckpointEvent(
+async def test_hyper_play_routes_checkpoint_event(session_mgr):
+    await session_mgr.start_hyper_play()
+    await session_mgr.route_event(HyperPlayCheckpointEvent(
         ordinal=1,
         elapsed_ms=12000,
         split_ms=12000,
     ))
-    assert session_mgr.mode == Mode.SPEED_RUN
+    assert session_mgr.mode == Mode.HYPER_PLAY

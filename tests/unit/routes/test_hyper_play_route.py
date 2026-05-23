@@ -1,4 +1,4 @@
-"""Tests for /api/speedrun start/stop routes."""
+"""Tests for /api/hyperplay start/stop routes."""
 from unittest.mock import AsyncMock
 
 import pytest
@@ -28,33 +28,33 @@ def client(db):
     return TestClient(app)
 
 
-class TestSpeedRunStart:
+class TestHyperPlayStart:
     def test_start_not_connected_returns_503(self, client):
-        """POST /api/speedrun/start requires backend connection."""
-        resp = client.post("/api/speedrun/start")
+        """POST /api/hyperplay/start requires backend connection."""
+        resp = client.post("/api/hyperplay/start")
         assert resp.status_code == 503
         assert resp.json()["detail"] == "not_connected"
 
     def test_start_success(self, client):
-        client.app.state.session.start_speed_run = AsyncMock(
+        client.app.state.session.start_hyper_play = AsyncMock(
             return_value=ActionResult(status=Status.STARTED)
         )
-        resp = client.post("/api/speedrun/start")
+        resp = client.post("/api/hyperplay/start")
         assert resp.status_code == 200
         assert resp.json()["status"] == "started"
 
 
-class TestSpeedRunStop:
+class TestHyperPlayStop:
     def test_stop_not_running_returns_409(self, client):
-        """POST /api/speedrun/stop returns 409 when no speed run is active."""
-        resp = client.post("/api/speedrun/stop")
+        """POST /api/hyperplay/stop returns 409 when no hyper play is active."""
+        resp = client.post("/api/hyperplay/stop")
         assert resp.status_code == 409
         assert resp.json()["detail"] == "not_running"
 
     def test_stop_success(self, client):
-        client.app.state.session.stop_speed_run = AsyncMock(
+        client.app.state.session.stop_hyper_play = AsyncMock(
             return_value=ActionResult(status=Status.STOPPED)
         )
-        resp = client.post("/api/speedrun/stop")
+        resp = client.post("/api/hyperplay/stop")
         assert resp.status_code == 200
         assert resp.json()["status"] == "stopped"

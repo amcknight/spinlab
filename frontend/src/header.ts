@@ -3,19 +3,28 @@ import { segmentName } from "./format";
 import type { AppState } from "./types";
 
 let allRoms: string[] = [];
+let recentlyPlayed: string[] = [];
+let recentlyAdded: string[] = [];
 let popoverOpen = false;
+let currentMode: string = "idle";
 
 export async function loadRomList(): Promise<void> {
-  const data = await fetchJSON<{ roms: string[] }>("/api/roms");
+  const data = await fetchJSON<{
+    roms: string[];
+    recently_played?: string[];
+    recently_added?: string[];
+  }>("/api/roms");
   if (data?.roms) allRoms = data.roms;
+  if (data?.recently_played) recentlyPlayed = data.recently_played;
+  if (data?.recently_added) recentlyAdded = data.recently_added;
 }
 
 export function updateHeader(data: AppState): void {
+  currentMode = data.mode ?? "idle";
+
   const gameEl = document.getElementById("game-name")!;
   gameEl.textContent =
     data.emu_connected && data.game_name ? data.game_name : "No game";
-
-  if (data.game_name) localStorage.setItem("spinlab_game_name", data.game_name);
 
   const chip = document.getElementById("mode-chip")!;
   const label = document.getElementById("mode-label")!;
@@ -39,10 +48,10 @@ export function updateHeader(data: AppState): void {
     const seg = data.current_segment;
     label.textContent = "Practicing" + (seg ? " — " + segmentName(seg) : "");
     stopBtn.style.display = "";
-  } else if (data.mode === "speed_run") {
+  } else if (data.mode === "hyper_play") {
     chip.classList.add("practicing");
     const seg = data.current_segment;
-    label.textContent = "Speed Run" + (seg ? " — " + segmentName(seg) : "");
+    label.textContent = "Hyper Play" + (seg ? " — " + segmentName(seg) : "");
     stopBtn.style.display = "";
   } else if (data.mode === "replay") {
     chip.classList.add("replaying");
@@ -70,9 +79,6 @@ export function initHeader(): void {
   const selectorBtn = document.getElementById("game-selector")!;
   const popover = document.getElementById("game-popover") as HTMLElement;
   const filter = document.getElementById("rom-filter") as HTMLInputElement;
-
-  const lastGame = localStorage.getItem("spinlab_game_name");
-  if (lastGame) document.getElementById("game-name")!.textContent = lastGame;
 
   selectorBtn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -108,39 +114,72 @@ export function initHeader(): void {
     }
   });
 
-  document.getElementById("mode-stop")!.addEventListener("click", async () => {
-    const chip = document.getElementById("mode-chip")!;
-    if (chip.classList.contains("recording"))
-      await postJSON("/api/reference/stop");
-    else if (chip.classList.contains("practicing")) {
-      await postJSON("/api/practice/stop");
-      await postJSON("/api/speedrun/stop");
-    } else if (chip.classList.contains("replaying"))
-      await postJSON("/api/replay/stop");
+  const stopBtn = document.getElementById("mode-stop") as HTMLButtonElement;
+  stopBtn.addEventListener("click", async () => {
+    stopBtn.disabled = true;
+    try {
+      if (currentMode === "reference") await postJSON("/api/reference/stop");
+      else if (currentMode === "practice") await postJSON("/api/practice/stop");
+      else if (currentMode === "hyper_play") await postJSON("/api/hyperplay/stop");
+      else if (currentMode === "replay") await postJSON("/api/replay/stop");
+    } finally {
+      stopBtn.disabled = false;
+    }
   });
+}
+
+function makeLaunchItem(rom: string): HTMLLIElement {
+  const li = document.createElement("li");
+  li.textContent = rom.replace(/\.(sfc|smc|fig|swc)$/i, "");
+  li.addEventListener("click", async () => {
+    const res = await postJSON<{ status?: string; message?: string }>(
+      "/api/emulator/launch",
+      { rom },
+    );
+    if (res?.status === "error") {
+      alert(res.message);
+      return;
+    }
+    popoverOpen = false;
+    (document.getElementById("game-popover") as HTMLElement).style.display =
+      "none";
+  });
+  return li;
+}
+
+function makeSectionHeader(text: string): HTMLLIElement {
+  const li = document.createElement("li");
+  li.textContent = text;
+  li.className = "rom-section-header";
+  return li;
 }
 
 function renderRoms(filterText: string): void {
   const ul = document.getElementById("rom-list")!;
   ul.innerHTML = "";
   const lf = filterText.toLowerCase();
-  const matches = allRoms.filter((r) => r.toLowerCase().includes(lf));
-  matches.forEach((rom) => {
-    const li = document.createElement("li");
-    li.textContent = rom.replace(/\.(sfc|smc|fig|swc)$/i, "");
-    li.addEventListener("click", async () => {
-      const res = await postJSON<{ status?: string; message?: string }>(
-        "/api/emulator/launch",
-        { rom },
-      );
-      if (res?.status === "error") {
-        alert(res.message);
-        return;
-      }
-      popoverOpen = false;
-      (document.getElementById("game-popover") as HTMLElement).style.display =
-        "none";
-    });
-    ul.appendChild(li);
-  });
+
+  if (lf) {
+    // Filtering active: just show matching ROMs alphabetically.
+    allRoms
+      .filter((r) => r.toLowerCase().includes(lf))
+      .forEach((rom) => ul.appendChild(makeLaunchItem(rom)));
+    return;
+  }
+
+  // No filter: show recent sections then full alphabetical list.
+  if (recentlyPlayed.length > 0) {
+    ul.appendChild(makeSectionHeader("Recently Played"));
+    recentlyPlayed.forEach((rom) => ul.appendChild(makeLaunchItem(rom)));
+  }
+  if (recentlyAdded.length > 0) {
+    ul.appendChild(makeSectionHeader("Recently Added"));
+    recentlyAdded.forEach((rom) => ul.appendChild(makeLaunchItem(rom)));
+  }
+  if (recentlyPlayed.length > 0 || recentlyAdded.length > 0) {
+    const sep = document.createElement("li");
+    sep.className = "rom-separator";
+    ul.appendChild(sep);
+  }
+  allRoms.forEach((rom) => ul.appendChild(makeLaunchItem(rom)));
 }

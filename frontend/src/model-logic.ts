@@ -23,7 +23,7 @@ export function canStartPractice(state: AppState): boolean {
   return state.emu_connected && state.game_id !== null && state.mode === "idle";
 }
 
-/** Determine whether speed run controls should allow starting. */
-export function canStartSpeedRun(state: AppState): boolean {
+/** Determine whether hyper play controls should allow starting. */
+export function canStartHyperPlay(state: AppState): boolean {
   return state.emu_connected && state.game_id !== null && state.mode === "idle";
 }

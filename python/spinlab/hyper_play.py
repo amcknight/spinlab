@@ -1,4 +1,4 @@
-"""Speed Run session — sequential full-game playthrough with cold recording."""
+"""Hyper Play session — sequential full-game playthrough with cold recording."""
 from __future__ import annotations
 
 import asyncio
@@ -14,15 +14,15 @@ from spinlab import log
 from .db.segments import SegmentRow
 from .models import Attempt, AttemptSource
 from .protocol import (
-    SpeedRunCheckpoint,
-    SpeedRunCheckpointEvent,
-    SpeedRunCompleteEvent,
-    SpeedRunDeathEvent,
-    SpeedRunLoadCmd,
-    SpeedRunStopCmd,
+    HyperPlayCheckpoint,
+    HyperPlayCheckpointEvent,
+    HyperPlayCompleteEvent,
+    HyperPlayDeathEvent,
+    HyperPlayLoadCmd,
+    HyperPlayStopCmd,
 )
 
-SpeedRunEvent = SpeedRunCheckpointEvent | SpeedRunDeathEvent | SpeedRunCompleteEvent
+HyperPlayEvent = HyperPlayCheckpointEvent | HyperPlayDeathEvent | HyperPlayCompleteEvent
 
 if TYPE_CHECKING:
     from .db import Database
@@ -46,11 +46,11 @@ class LevelPlan:
     description: str
     entrance_state_path: str
     segments: list[SegmentRow] = field(default_factory=list)
-    checkpoints: list[SpeedRunCheckpoint] = field(default_factory=list)
+    checkpoints: list[HyperPlayCheckpoint] = field(default_factory=list)
 
 
-class SpeedRunSession:
-    """Manages a speed run: plays levels sequentially, records cold attempts."""
+class HyperPlaySession:
+    """Manages a hyper play run: plays levels sequentially, records cold attempts."""
 
     def __init__(
         self,
@@ -82,7 +82,7 @@ class SpeedRunSession:
         self.segments_recorded = 0
 
         self.levels = self._build_levels()
-        self._event_queue: asyncio.Queue[SpeedRunEvent] = asyncio.Queue()
+        self._event_queue: asyncio.Queue[HyperPlayEvent] = asyncio.Queue()
         # Attempts FK to sessions(id); the row must exist before any attempt is logged.
         self.db.create_session(self.session_id, self.game_id)
 
@@ -137,7 +137,7 @@ class SpeedRunSession:
                 raise ValueError(
                     f"Missing save state for segment {seg['id']} ({desc})"
                 )
-            checkpoints.append(SpeedRunCheckpoint(
+            checkpoints.append(HyperPlayCheckpoint(
                 ordinal=seg["start_ordinal"],
                 state_path=cp_state,
             ))
@@ -156,7 +156,7 @@ class SpeedRunSession:
         self.is_running = True
         self.current_level_index = 0
         logger.info(
-            "speed_run: started session=%s levels=%d",
+            "hyper_play: started session=%s levels=%d",
             self.session_id[:8], len(self.levels),
         )
 
@@ -166,20 +166,20 @@ class SpeedRunSession:
             self.session_id, self.segments_recorded, self.levels_completed,
         )
         logger.info(
-            "speed_run: stopped session=%s levels_completed=%d recorded=%d",
+            "hyper_play: stopped session=%s levels_completed=%d recorded=%d",
             self.session_id[:8], self.levels_completed, self.segments_recorded,
         )
 
-    def receive_checkpoint(self, event: SpeedRunCheckpointEvent) -> None:
-        """Called by SessionManager when a speed_run_checkpoint event arrives."""
+    def receive_checkpoint(self, event: HyperPlayCheckpointEvent) -> None:
+        """Called by SessionManager when a hyper_play_checkpoint event arrives."""
         self._event_queue.put_nowait(event)
 
-    def receive_death(self, event: SpeedRunDeathEvent) -> None:
-        """Called by SessionManager when a speed_run_death event arrives."""
+    def receive_death(self, event: HyperPlayDeathEvent) -> None:
+        """Called by SessionManager when a hyper_play_death event arrives."""
         self._event_queue.put_nowait(event)
 
-    def receive_complete(self, event: SpeedRunCompleteEvent) -> None:
-        """Called by SessionManager when a speed_run_complete event arrives."""
+    def receive_complete(self, event: HyperPlayCompleteEvent) -> None:
+        """Called by SessionManager when a hyper_play_complete event arrives."""
         self._event_queue.put_nowait(event)
 
     async def run_one(self) -> bool:
@@ -189,7 +189,7 @@ class SpeedRunSession:
 
         level = self.levels[self.current_level_index]
 
-        cmd = SpeedRunLoadCmd(
+        cmd = HyperPlayLoadCmd(
             id=level.segments[0]["id"],
             state_path=level.entrance_state_path,
             description=level.description,
@@ -199,7 +199,7 @@ class SpeedRunSession:
         )
 
         logger.info(
-            "speed_run: loading level %d/%d — %s",
+            "hyper_play: loading level %d/%d — %s",
             self.current_level_index + 1, len(self.levels), level.description,
         )
         await self.emu.send_command(cmd)
@@ -221,13 +221,13 @@ class SpeedRunSession:
                 idle_waits += 1
                 if idle_waits % IDLE_PROGRESS_LOG_EVERY == 0:
                     logger.info(
-                        "speed_run: still idle level=%d/%d sub=%d idle_s=%d",
+                        "hyper_play: still idle level=%d/%d sub=%d idle_s=%d",
                         self.current_level_index + 1, len(self.levels),
                         current_sub_index, idle_waits,
                     )
                 continue
 
-            if isinstance(event, SpeedRunCheckpointEvent):
+            if isinstance(event, HyperPlayCheckpointEvent):
                 if cold_since and current_sub_index < len(level.segments):
                     self._record_attempt(
                         level.segments[current_sub_index],
@@ -237,10 +237,10 @@ class SpeedRunSession:
                 current_sub_index += 1
                 cold_since = False
 
-            elif isinstance(event, SpeedRunDeathEvent):
+            elif isinstance(event, HyperPlayDeathEvent):
                 cold_since = True
 
-            elif isinstance(event, SpeedRunCompleteEvent):
+            elif isinstance(event, HyperPlayCompleteEvent):
                 if cold_since and current_sub_index < len(level.segments):
                     self._record_attempt(
                         level.segments[current_sub_index],
@@ -265,17 +265,17 @@ class SpeedRunSession:
             time_ms=time_ms if completed else None,
             deaths=0,
             clean_tail_ms=time_ms if completed else None,
-            source=AttemptSource.SPEED_RUN,
+            source=AttemptSource.HYPER_PLAY,
         )
         self.db.log_attempt(attempt)
         self.segments_recorded += 1
         logger.info(
-            "speed_run: recorded cold attempt segment=%s time=%dms",
+            "hyper_play: recorded cold attempt segment=%s time=%dms",
             seg["id"], time_ms,
         )
 
     async def run_loop(self) -> None:
-        """Run the full speed run until stopped or all levels done."""
+        """Run the full hyper play run until stopped or all levels done."""
         self.start()
         try:
             while self.is_running and self.emu.is_connected:
@@ -283,10 +283,10 @@ class SpeedRunSession:
                     break
         finally:
             try:
-                await self.emu.send_command(SpeedRunStopCmd())
+                await self.emu.send_command(HyperPlayStopCmd())
             except (ConnectionError, OSError) as exc:
                 log.info(
-                    logger, "speed_run teardown after backend disconnect",
+                    logger, "hyper_play teardown after backend disconnect",
                     exc=exc,
                 )
             self.stop()

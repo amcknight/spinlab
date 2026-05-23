@@ -23,7 +23,8 @@ from spinlab.api_schemas import (
 from spinlab.config import AppConfig
 from spinlab.dashboard import SSE_KEEPALIVE_S
 from spinlab.db import Database
-from spinlab.models import Mode
+from spinlab.errors import NotConnectedError, NotRunningError
+from spinlab.models import Mode, Status
 from spinlab.session_manager import SessionManager
 
 from ._deps import get_config, get_db, get_session
@@ -64,9 +65,24 @@ def api_sessions(session: SessionManager = Depends(get_session), db: Database = 
     return {"sessions": sessions}
 
 
+@router.post("/cold-fill/start", response_model=OkResponse)
+async def start_cold_fill(session: SessionManager = Depends(get_session)):
+    if not session.game_id:
+        raise HTTPException(status_code=400, detail="No game loaded")
+    if session.mode != Mode.IDLE:
+        raise HTTPException(status_code=409, detail=f"Cannot start cold fill: mode is {session.mode.value}")
+    try:
+        result = await session.cold_fill.start(session.game_id)
+    except NotConnectedError:
+        raise HTTPException(status_code=503, detail="Emulator not connected")
+    if result.new_mode == Mode.COLD_FILL:
+        session.mode = Mode.COLD_FILL
+    await session._notify_sse()
+    return {"status": "ok" if result.status != Status.NO_GAPS else "no_gaps"}
+
+
 @router.post("/reset", response_model=OkResponse)
 async def reset_data(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
-    from spinlab.errors import NotRunningError
     try:
         await session.stop_practice()
     except NotRunningError:
@@ -82,18 +98,49 @@ async def reset_data(session: SessionManager = Depends(get_session), db: Databas
     return {"status": "ok"}
 
 
+_SNES_EXTS = {".sfc", ".smc", ".fig", ".swc"}
+_RECENTLY_PLAYED_LIMIT = 3
+_RECENTLY_ADDED_LIMIT = 2
+
+
 @router.get("/roms", response_model=RomsResponse)
-def list_roms(config: AppConfig = Depends(get_config)):
+def list_roms(
+    config: AppConfig = Depends(get_config),
+    db: Database = Depends(get_db),
+):
     rom_dir = config.rom_dir
     if not rom_dir or not rom_dir.is_dir():
         label = str(rom_dir) if rom_dir else ""
         return {"roms": [], "error": f"ROM directory not found: {label}"}
-    exts = {".sfc", ".smc", ".fig", ".swc"}
-    roms = sorted(
-        [p.name for p in rom_dir.iterdir() if p.suffix.lower() in exts],
-        key=str.lower,
-    )
-    return {"roms": roms}
+
+    rom_paths = [p for p in rom_dir.iterdir() if p.suffix.lower() in _SNES_EXTS]
+    roms = sorted([p.name for p in rom_paths], key=str.lower)
+
+    # Map stem (no extension, lowercase) → actual filename for matching.
+    stem_to_rom = {p.stem.lower(): p.name for p in rom_paths}
+
+    # Recently played: game names from DB → resolved to matching ROM filenames.
+    played_names = db.get_recently_played_games(limit=_RECENTLY_PLAYED_LIMIT)
+    recently_played = [
+        stem_to_rom[name.lower()]
+        for name in played_names
+        if name.lower() in stem_to_rom
+    ]
+
+    # Recently added: ROM files sorted by creation time (Windows st_ctime),
+    # excluding any already in recently_played so the two lists don't overlap.
+    played_set = set(recently_played)
+    by_ctime = sorted(rom_paths, key=lambda p: p.stat().st_ctime, reverse=True)
+    recently_added = [
+        p.name for p in by_ctime
+        if p.name not in played_set
+    ][:_RECENTLY_ADDED_LIMIT]
+
+    return {
+        "roms": roms,
+        "recently_played": recently_played,
+        "recently_added": recently_added,
+    }
 
 
 def _retroarch_already_running(nci_port: int) -> bool:

@@ -398,6 +398,8 @@ class SessionsResponse(_BaseResponse):
 
 class RomsResponse(_BaseResponse):
     roms: list[str]
+    recently_played: list[str] = []
+    recently_added: list[str] = []
     error: str | None = None
 
 

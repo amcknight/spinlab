@@ -30,6 +30,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PERIOD_SEC = 1.0 / 60.0  # one frame at 60 Hz
 
+# After this many consecutive read failures (~1 second at 60 Hz), force a
+# socket reconnect. Prevents the BlockingIOError[WinError 10035] loop where
+# _read_failing suppresses log spam but the socket never recovers.
+_READ_RECONNECT_FAILURE_THRESHOLD = 60
+
 
 @dataclass
 class PollerDeps:
@@ -67,6 +72,7 @@ class Poller:
         # log; these flags collapse a persistent fault into one entry + one
         # "recovered" entry per fault episode.
         self._read_failing: bool = False
+        self._read_fail_count: int = 0
         self._conditions_failing: bool = False
         self._detector_failing: bool = False
         self._cold_fill_failing: bool = False
@@ -124,14 +130,23 @@ class Poller:
             try:
                 snap = self._deps.read_snapshot(self._deps.client)
             except Exception as exc:
+                self._read_fail_count += 1
                 if not self._read_failing:
                     log.warn(logger, "poller read failed", exc=exc)
                     self._read_failing = True
+                if self._read_fail_count >= _READ_RECONNECT_FAILURE_THRESHOLD:
+                    log.warn(
+                        logger, "poller read stuck; reconnecting NCI socket",
+                        fail_count=self._read_fail_count,
+                    )
+                    self._deps.client.close()
+                    self._read_fail_count = 0
                 await asyncio.sleep(self._period)
                 continue
             if self._read_failing:
                 log.info(logger, "poller read recovered")
                 self._read_failing = False
+            self._read_fail_count = 0
 
             self.poll_count += 1
             ts = int(time.perf_counter() * 1000 - self._start_ms)

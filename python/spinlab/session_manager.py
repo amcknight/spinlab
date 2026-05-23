@@ -37,9 +37,9 @@ from .protocol import (
     RomInfoEvent,
     SetConditionsCmd,
     SpawnEvent,
-    SpeedRunCheckpointEvent,
-    SpeedRunCompleteEvent,
-    SpeedRunDeathEvent,
+    HyperPlayCheckpointEvent,
+    HyperPlayCompleteEvent,
+    HyperPlayDeathEvent,
 )
 from .sse import SSEBroadcaster
 from .state_builder import StateBuilder
@@ -50,8 +50,6 @@ if TYPE_CHECKING:
     from .emu_backend import EmuBackend
 
 logger = logging.getLogger(__name__)
-
-PRACTICE_STOP_TIMEOUT_S = 5
 
 
 class SessionManager:
@@ -87,8 +85,8 @@ class SessionManager:
         self._scheduler_lock = threading.Lock()
         self.practice_session = None  # PracticeSession | None
         self.practice_task: asyncio.Task | None = None
-        self.speed_run_session = None  # SpeedRunSession | None
-        self.speed_run_task: asyncio.Task | None = None
+        self.hyper_play_session = None  # HyperPlaySession | None
+        self.hyper_play_task: asyncio.Task | None = None
 
         self.capture = ReferenceController(db, emu)
         self.cold_fill = ColdFillController(db, emu)
@@ -111,9 +109,9 @@ class SessionManager:
             ReplayFinishedEvent: self._handle_replay_finished,
             ReplayErrorEvent: self._handle_replay_error,
             AttemptInvalidatedEvent: self._handle_attempt_invalidated,
-            SpeedRunCheckpointEvent: self._handle_speed_run_checkpoint,
-            SpeedRunDeathEvent: self._handle_speed_run_death,
-            SpeedRunCompleteEvent: self._handle_speed_run_complete,
+            HyperPlayCheckpointEvent: self._handle_hyper_play_checkpoint,
+            HyperPlayDeathEvent: self._handle_hyper_play_death,
+            HyperPlayCompleteEvent: self._handle_hyper_play_complete,
         }
 
     @property
@@ -145,11 +143,11 @@ class SessionManager:
 
     @property
     def current_session_id(self) -> str | None:
-        """Session ID for the active practice or speed run, if any."""
+        """Session ID for the active practice or hyper play run, if any."""
         if self.mode == Mode.PRACTICE and self.practice_session:
             return self.practice_session.session_id
-        if self.mode == Mode.SPEED_RUN and self.speed_run_session:
-            return self.speed_run_session.session_id
+        if self.mode == Mode.HYPER_PLAY and self.hyper_play_session:
+            return self.hyper_play_session.session_id
         return None
 
 
@@ -299,6 +297,11 @@ class SessionManager:
             return
         if self.mode == Mode.PRACTICE and self.practice_session:
             await self.practice_session.handle_death()
+            return
+        logger.info(
+            "death event unhandled: mode=%s practice_session=%s",
+            self.mode.value, bool(self.practice_session),
+        )
 
     async def _handle_spawn(self, event: SpawnEvent) -> None:
         if self.mode == Mode.COLD_FILL:
@@ -346,11 +349,11 @@ class SessionManager:
         event. The session stamps in session_id + source + chosen_allocator
         and writes one row through ``db.log_event_attempt``.
 
-        Speed-run mode is intentionally not wired: SpeedRunTiming's per-
+        Hyper Play mode is intentionally not wired: HyperPlayTiming's per-
         sub-segment semantics don't map 1:1 onto a single armed attempt,
-        and the existing ``SpeedRunSession._record_attempt`` path already
+        and the existing ``HyperPlaySession._record_attempt`` path already
         produces deaths=0 episode rows that the legacy shim splits cleanly.
-        Phase 1 (v07 wiring) will revisit speed-run event emission.
+        Phase 1 (v07 wiring) will revisit hyper-play event emission.
         """
         if self.mode == Mode.PRACTICE and self.practice_session:
             self.practice_session.receive_event_attempt(event)
@@ -502,11 +505,9 @@ class SessionManager:
     async def stop_practice(self) -> ActionResult:
         if self.practice_session and self.practice_session.is_running:
             self.practice_session.is_running = False
-            if self.practice_task:
-                try:
-                    await asyncio.wait_for(self.practice_task, timeout=PRACTICE_STOP_TIMEOUT_S)
-                except asyncio.TimeoutError:
-                    self.practice_task.cancel()
+            # Don't await the task — run_loop cleans up (disarm, end_session) in
+            # its finally block within one SEGMENT_LOAD_TIMEOUT_S cycle (~1s).
+            # Awaiting it was the source of the UI lag.
             self.mode = Mode.IDLE
             await self._notify_sse()
             return ActionResult(status=Status.STOPPED)
@@ -516,80 +517,76 @@ class SessionManager:
         raise NotRunningError()
 
 
-    async def start_speed_run(self) -> ActionResult:
+    async def start_hyper_play(self) -> ActionResult:
         if self.capture.has_paused_run:
             raise DraftPendingError()
-        if self.speed_run_session and self.speed_run_session.is_running:
+        if self.hyper_play_session and self.hyper_play_session.is_running:
             raise AlreadyRunningError()
         if not self.emu.is_connected:
             raise NotConnectedError()
         if self.mode == Mode.REFERENCE:
             self._clear_ref_and_idle()
 
-        from .speed_run import SpeedRunSession
+        from .hyper_play import HyperPlaySession
         try:
-            sr = SpeedRunSession(
+            sr = HyperPlaySession(
                 emu=self.emu, db=self.db, game_id=self.require_game(),
                 on_event=lambda _: asyncio.create_task(self._notify_sse()),
             )
         except ValueError:
             raise MissingSaveStatesError()
 
-        self.speed_run_session = sr
-        self.speed_run_task = asyncio.create_task(sr.run_loop())
-        self.speed_run_task.add_done_callback(self._on_speed_run_done)
-        self.mode = Mode.SPEED_RUN
+        self.hyper_play_session = sr
+        self.hyper_play_task = asyncio.create_task(sr.run_loop())
+        self.hyper_play_task.add_done_callback(self._on_hyper_play_done)
+        self.mode = Mode.HYPER_PLAY
         await self._notify_sse()
         return ActionResult(status=Status.STARTED, session_id=sr.session_id)
 
-    def _on_speed_run_done(self, task: asyncio.Task) -> None:
+    def _on_hyper_play_done(self, task: asyncio.Task) -> None:
         if not task.cancelled():
             exc = task.exception()
             if exc is not None:
-                logger.error("speed_run task crashed", exc_info=exc)
-        if self.mode == Mode.SPEED_RUN:
+                logger.error("hyper_play task crashed", exc_info=exc)
+        if self.mode == Mode.HYPER_PLAY:
             self.mode = Mode.IDLE
             asyncio.create_task(self._notify_sse())
 
-    async def stop_speed_run(self) -> ActionResult:
-        if self.speed_run_session and self.speed_run_session.is_running:
-            self.speed_run_session.is_running = False
-            if self.speed_run_task:
-                try:
-                    await asyncio.wait_for(self.speed_run_task, timeout=PRACTICE_STOP_TIMEOUT_S)
-                except asyncio.TimeoutError:
-                    self.speed_run_task.cancel()
+    async def stop_hyper_play(self) -> ActionResult:
+        if self.hyper_play_session and self.hyper_play_session.is_running:
+            self.hyper_play_session.is_running = False
+            # Don't await the task — same rationale as stop_practice.
             self.mode = Mode.IDLE
             await self._notify_sse()
             return ActionResult(status=Status.STOPPED)
-        if self.mode == Mode.SPEED_RUN:
+        if self.mode == Mode.HYPER_PLAY:
             self.mode = Mode.IDLE
             return ActionResult(status=Status.STOPPED)
         raise NotRunningError()
 
-    async def _handle_speed_run_checkpoint(self, event: SpeedRunCheckpointEvent) -> None:
-        if self.mode != Mode.SPEED_RUN or not self.speed_run_session:
+    async def _handle_hyper_play_checkpoint(self, event: HyperPlayCheckpointEvent) -> None:
+        if self.mode != Mode.HYPER_PLAY or not self.hyper_play_session:
             return
-        self.speed_run_session.receive_checkpoint(event)
+        self.hyper_play_session.receive_checkpoint(event)
         await self._notify_sse()
 
-    async def _handle_speed_run_death(self, event: SpeedRunDeathEvent) -> None:
-        if self.mode != Mode.SPEED_RUN or not self.speed_run_session:
+    async def _handle_hyper_play_death(self, event: HyperPlayDeathEvent) -> None:
+        if self.mode != Mode.HYPER_PLAY or not self.hyper_play_session:
             return
-        self.speed_run_session.receive_death(event)
+        self.hyper_play_session.receive_death(event)
         await self._notify_sse()
 
-    async def _handle_speed_run_complete(self, event: SpeedRunCompleteEvent) -> None:
-        if self.mode != Mode.SPEED_RUN or not self.speed_run_session:
+    async def _handle_hyper_play_complete(self, event: HyperPlayCompleteEvent) -> None:
+        if self.mode != Mode.HYPER_PLAY or not self.hyper_play_session:
             return
-        self.speed_run_session.receive_complete(event)
+        self.hyper_play_session.receive_complete(event)
         await self._notify_sse()
 
     def on_disconnect(self) -> None:
         if self.practice_session and self.practice_session.is_running:
             self.practice_session.is_running = False
-        if self.speed_run_session and self.speed_run_session.is_running:
-            self.speed_run_session.is_running = False
+        if self.hyper_play_session and self.hyper_play_session.is_running:
+            self.hyper_play_session.is_running = False
         self.cold_fill.clear()
         self.capture.handle_disconnect()
         self._clear_ref_and_idle()
@@ -601,7 +598,7 @@ class SessionManager:
         except NotRunningError:
             pass
         try:
-            await self.stop_speed_run()
+            await self.stop_hyper_play()
         except NotRunningError:
             pass
         if self.mode == Mode.REFERENCE:

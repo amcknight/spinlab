@@ -125,6 +125,24 @@ header {
   background: var(--card);
   color: var(--accent);
 }
+.popover li.rom-section-header {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted, #888);
+  padding: 8px 10px 3px;
+  cursor: default;
+  pointer-events: none;
+}
+.popover li.rom-separator {
+  height: 1px;
+  background: var(--card);
+  padding: 0;
+  margin: 4px 0;
+  cursor: default;
+  pointer-events: none;
+}
 
 /* Mode chip */
 .mode-chip {

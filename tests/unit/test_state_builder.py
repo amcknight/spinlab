@@ -7,7 +7,7 @@ attributes, so tests break if the SM interface changes.
 
 from spinlab.models import Mode
 from spinlab.session_manager import SessionManager
-from spinlab.speed_run import SpeedRunSession
+from spinlab.hyper_play import HyperPlaySession
 
 
 def _make_sm(db, emu):
@@ -29,25 +29,25 @@ class TestIdleBaseCase:
         assert state["estimator"] is None
 
 
-class TestSpeedRunBranch:
-    def test_speed_run_populates_current_level(self, practice_db, mock_emu):
+class TestHyperPlayBranch:
+    def test_hyper_play_populates_current_level(self, practice_db, mock_emu):
         sm = _make_sm(practice_db, mock_emu)
         sm.game_id = "g"
         sm.game_name = "Game"
 
-        sr = SpeedRunSession(emu=mock_emu, db=practice_db, game_id="g")
+        sr = HyperPlaySession(emu=mock_emu, db=practice_db, game_id="g")
         sr.segments_recorded = 3
         sr.levels_completed = 2
-        sm.speed_run_session = sr
-        sm.mode = Mode.SPEED_RUN
+        sm.hyper_play_session = sr
+        sm.mode = Mode.HYPER_PLAY
 
         state = sm.get_state()
 
-        assert state["mode"] == "speed_run"
+        assert state["mode"] == "hyper_play"
         assert state["session"]["id"] == sr.session_id
         assert state["session"]["segments_attempted"] == 3
         assert state["session"]["segments_completed"] == 2
-        # Real SpeedRunSession built its levels from DB — verify current level
+        # Real HyperPlaySession built its levels from DB — verify current level
         assert state["current_segment"]["level_number"] == 1
         assert state["current_segment"]["state_path"] is not None
 

@@ -26,10 +26,10 @@ from typing import Any
 _FIT_FLOOR_N = 5
 
 # All AttemptSource enum values. The inventory renders one row per
-# source so a zero-count source is visible (e.g. "speed_run: 0
-# events" tells Andrew the speedrun wiring isn't producing data,
+# source so a zero-count source is visible (e.g. "hyper_play: 0
+# events" tells Andrew the hyper play wiring isn't producing data,
 # which is exactly the kind of silent gap inventory exists to surface).
-_KNOWN_SOURCES = ("practice", "speed_run", "reference", "replay")
+_KNOWN_SOURCES = ("practice", "hyper_play", "reference", "replay")
 
 
 def add_to_fit_subparsers(fit_sub: argparse._SubParsersAction) -> None:

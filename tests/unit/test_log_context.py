@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 # ---------------------------------------------------------------------------
-# M10 — speed_run teardown
+# M10 — hyper_play teardown
 # ---------------------------------------------------------------------------
 
 
@@ -17,7 +17,7 @@ class _DisconnectedEmu:
 
     is_connected starts True so run_loop's outer ``while`` enters once;
     the inner run_one path returns False (empty levels), and the finally
-    block then attempts ``send_command(SpeedRunStopCmd())`` which raises.
+    block then attempts ``send_command(HyperPlayStopCmd())`` which raises.
     """
 
     def __init__(self) -> None:
@@ -27,25 +27,25 @@ class _DisconnectedEmu:
         raise ConnectionError("backend gone")
 
 
-def test_speed_run_teardown_logs_when_backend_disconnects(caplog):
-    """speed_run.run_loop's finally must log, not silently pass, on backend-gone."""
-    from spinlab.speed_run import SpeedRunSession
+def test_hyper_play_teardown_logs_when_backend_disconnects(caplog):
+    """hyper_play.run_loop's finally must log, not silently pass, on backend-gone."""
+    from spinlab.hyper_play import HyperPlaySession
 
     emu = _DisconnectedEmu()
-    # SpeedRunSession.__init__ calls db.get_all_segments_with_model (we want [] so
+    # HyperPlaySession.__init__ calls db.get_all_segments_with_model (we want [] so
     # levels stays empty and run_one returns False immediately) and
     # db.create_session.  stop() calls db.end_session.  All other attrs are unused.
     db = MagicMock()
     db.get_all_segments_with_model.return_value = []
 
-    session = SpeedRunSession(emu=emu, db=db, game_id="g")  # type: ignore[arg-type]
+    session = HyperPlaySession(emu=emu, db=db, game_id="g")  # type: ignore[arg-type]
 
-    caplog.set_level(logging.INFO, logger="spinlab.speed_run")
+    caplog.set_level(logging.INFO, logger="spinlab.hyper_play")
     asyncio.run(session.run_loop())
 
-    messages = [r.getMessage() for r in caplog.records if r.name == "spinlab.speed_run"]
-    assert any("speed_run teardown" in m for m in messages), (
-        f"expected a 'speed_run teardown' log line; got: {messages!r}"
+    messages = [r.getMessage() for r in caplog.records if r.name == "spinlab.hyper_play"]
+    assert any("hyper_play teardown" in m for m in messages), (
+        f"expected a 'hyper_play teardown' log line; got: {messages!r}"
     )
 
 
@@ -54,7 +54,7 @@ def test_speed_run_teardown_logs_when_backend_disconnects(caplog):
 # ---------------------------------------------------------------------------
 
 def test_tick_loop_logs_state_on_error(caplog):
-    """When a tick raises, the log must include practice_armed / speed_run_armed."""
+    """When a tick raises, the log must include practice_armed / hyper_play_armed."""
     from spinlab.retroarch.orchestrator import RetroArchOrchestrator
 
     class _Boom:
@@ -69,7 +69,7 @@ def test_tick_loop_logs_state_on_error(caplog):
 
     orch = RetroArchOrchestrator.__new__(RetroArchOrchestrator)  # bypass __init__
     orch._practice_timing = _Boom()
-    orch._speed_run_timing = _Quiet()
+    orch._hyper_play_timing = _Quiet()
     orch._running = True
 
     import spinlab.retroarch.orchestrator as orch_mod
@@ -92,7 +92,7 @@ def test_tick_loop_logs_state_on_error(caplog):
     assert records, "expected a tick error log line"
     msg = records[0].getMessage()
     assert "practice_armed=True" in msg, msg
-    assert "speed_run_armed=False" in msg, msg
+    assert "hyper_play_armed=False" in msg, msg
 
 
 # ---------------------------------------------------------------------------

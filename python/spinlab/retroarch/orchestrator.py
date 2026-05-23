@@ -29,8 +29,8 @@ from spinlab.protocol import (
     ResetCmd,
     RomInfoEvent,
     SetConditionsCmd,
-    SpeedRunLoadCmd,
-    SpeedRunStopCmd,
+    HyperPlayLoadCmd,
+    HyperPlayStopCmd,
 )
 from spinlab.retroarch.movies import MovieController
 from spinlab.retroarch.raclient import (
@@ -38,7 +38,7 @@ from spinlab.retroarch.raclient import (
     RAClient,
 )
 from spinlab.state_paths import StatePathResolver
-from spinlab.timing import PracticeTiming, SpeedRunTiming
+from spinlab.timing import HyperPlayTiming, PracticeTiming
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class RetroArchOrchestrator:
         poller,
         conditions: ConditionRegistry,
         practice_timing: PracticeTiming,
-        speed_run_timing: SpeedRunTiming,
+        hyper_play_timing: HyperPlayTiming,
         state_paths: StatePathResolver,
         movies: MovieController,
     ) -> None:
@@ -70,7 +70,7 @@ class RetroArchOrchestrator:
         self._poller = poller
         self._conditions = conditions
         self._practice_timing = practice_timing
-        self._speed_run_timing = speed_run_timing
+        self._hyper_play_timing = hyper_play_timing
         self._state_paths = state_paths
         self._movies = movies
 
@@ -97,8 +97,8 @@ class RetroArchOrchestrator:
         self._dispatch: dict[type, Callable] = {
             PracticeLoadCmd: self._on_practice_load,
             PracticeStopCmd: self._on_practice_stop,
-            SpeedRunLoadCmd: self._on_speed_run_load,
-            SpeedRunStopCmd: self._on_speed_run_stop,
+            HyperPlayLoadCmd: self._on_hyper_play_load,
+            HyperPlayStopCmd: self._on_hyper_play_stop,
             ColdFillLoadCmd: self._on_cold_fill_load,
             FillGapLoadCmd: self._on_fill_gap_load,
             ResetCmd: self._on_reset,
@@ -237,9 +237,9 @@ class RetroArchOrchestrator:
     async def _on_practice_stop(self, cmd: PracticeStopCmd) -> None:
         self._practice_timing.disarm()
 
-    async def _on_speed_run_load(self, cmd: SpeedRunLoadCmd) -> None:
+    async def _on_hyper_play_load(self, cmd: HyperPlayLoadCmd) -> None:
         await self.load_state(cmd.state_path)
-        self._speed_run_timing.arm(
+        self._hyper_play_timing.arm(
             segment_id=cmd.id,
             checkpoints=list(cmd.checkpoints),
             auto_advance_delay_ms=cmd.auto_advance_delay_ms,
@@ -247,8 +247,8 @@ class RetroArchOrchestrator:
             on_event=self._enqueue,
         )
 
-    async def _on_speed_run_stop(self, cmd: SpeedRunStopCmd) -> None:
-        self._speed_run_timing.disarm()
+    async def _on_hyper_play_stop(self, cmd: HyperPlayStopCmd) -> None:
+        self._hyper_play_timing.disarm()
 
     async def _on_cold_fill_load(self, cmd: ColdFillLoadCmd) -> None:
         await self.load_state(cmd.state_path)
@@ -287,8 +287,8 @@ class RetroArchOrchestrator:
         """Sync callback for the poller's on_event. Feed timing modules + enqueue."""
         if self._practice_timing is not None:
             self._practice_timing.observe_event(ev)
-        if self._speed_run_timing is not None:
-            self._speed_run_timing.observe_event(ev)
+        if self._hyper_play_timing is not None:
+            self._hyper_play_timing.observe_event(ev)
         self.events.put_nowait(ev)
 
     def _enqueue(self, ev: object) -> None:
@@ -302,13 +302,13 @@ class RetroArchOrchestrator:
         while self._running:
             try:
                 self._practice_timing.tick()
-                self._speed_run_timing.tick()
+                self._hyper_play_timing.tick()
             except Exception as exc:
                 log.error(
                     logger, "RetroArchOrchestrator: tick error",
                     exc=exc,
                     practice_armed=self._practice_timing.is_armed,
-                    speed_run_armed=self._speed_run_timing.is_armed,
+                    hyper_play_armed=self._hyper_play_timing.is_armed,
                 )
             await asyncio.sleep(TICK_INTERVAL_SEC)
 

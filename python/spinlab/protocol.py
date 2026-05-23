@@ -88,9 +88,9 @@ class AttemptResultEvent:
     clean_tail_ms: int | None = None
 
 
-# Emitted by PracticeTiming / SpeedRunTiming once per died/survived event
+# Emitted by PracticeTiming / HyperPlayTiming once per died/survived event
 # during an armed attempt. The orchestrator (PracticeSession,
-# SpeedRunSession) is responsible for stamping in session_id / source /
+# HyperPlaySession) is responsible for stamping in session_id / source /
 # chosen_allocator and writing the storage-shaped EventAttempt to the DB.
 # See models.EventAttempt for the storage record.
 @dataclass(frozen=True)
@@ -119,18 +119,18 @@ class AttemptInvalidatedEvent:
     pass
 
 @dataclass(frozen=True)
-class SpeedRunCheckpointEvent:
+class HyperPlayCheckpointEvent:
     ordinal: int = 0
     elapsed_ms: int = 0
     split_ms: int = 0
 
 @dataclass(frozen=True)
-class SpeedRunDeathEvent:
+class HyperPlayDeathEvent:
     elapsed_ms: int = 0
     split_ms: int = 0
 
 @dataclass(frozen=True)
-class SpeedRunCompleteEvent:
+class HyperPlayCompleteEvent:
     elapsed_ms: int = 0
     split_ms: int = 0
 
@@ -221,25 +221,25 @@ class PracticeLoadCmd:
 class PracticeStopCmd:
     pass
 
-class SpeedRunCheckpoint(TypedDict):
+class HyperPlayCheckpoint(TypedDict):
     ordinal: int
     state_path: str
 
 
 @dataclass
-class SpeedRunLoadCmd:
+class HyperPlayLoadCmd:
     id: str = ""
     state_path: str = ""
     description: str = ""
-    checkpoints: list[SpeedRunCheckpoint] = field(default_factory=list)
+    checkpoints: list[HyperPlayCheckpoint] = field(default_factory=list)
     expected_time_ms: int | None = None
     auto_advance_delay_ms: int = 1000
     # Length of the post-death blackout before the cold save state is reloaded.
-    # See SpeedRunSession.death_delay_ms for rationale.
+    # See HyperPlaySession.death_delay_ms for rationale.
     death_delay_ms: int = 1500
 
 @dataclass
-class SpeedRunStopCmd:
+class HyperPlayStopCmd:
     pass
 
 @dataclass

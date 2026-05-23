@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import threading
 from types import TracebackType
 from typing import Self
 
@@ -38,6 +39,11 @@ class NCIClient:
         self.port = port
         self.timeout = timeout
         self._sock: socket.socket | None = None
+        # Protects the socket against concurrent access from the async poller
+        # (event loop thread) and asyncio.to_thread load calls (thread pool).
+        # Without this, _drain_socket's setblocking(False) races with the
+        # poller's recvfrom, producing BlockingIOError [WinError 10035].
+        self._lock = threading.Lock()
 
     def _get_socket(self) -> socket.socket:
         """Get or create the persistent UDP socket, lazily bound on first use.
@@ -56,22 +62,23 @@ class NCIClient:
 
         Raises NCITimeout if no reply arrives within self.timeout seconds.
         """
-        sock = self._get_socket()
-        try:
-            sock.sendto(command.encode("ascii"), (self.host, self.port))
-            data, _ = sock.recvfrom(RECV_BUFFER_BYTES)
-        except (socket.timeout, ConnectionResetError) as exc:
-            # socket.timeout: no reply arrived within self.timeout.
-            # ConnectionResetError: Windows surfaces "ICMP port unreachable"
-            # responses to UDP sends as 10054 on the next recvfrom. Treat both
-            # as "no useful reply" and surface as NCITimeout.
-            #
-            # Drain any late reply that may arrive while we're handling this
-            # timeout — otherwise it would be picked up by the next _send call
-            # and silently misattributed to a different command.
-            self._drain_socket(sock)
-            raise NCITimeout(f"no reply within {self.timeout}s for {command!r}") from exc
-        return data.decode("ascii", errors="replace").strip()
+        with self._lock:
+            sock = self._get_socket()
+            try:
+                sock.sendto(command.encode("ascii"), (self.host, self.port))
+                data, _ = sock.recvfrom(RECV_BUFFER_BYTES)
+            except (socket.timeout, ConnectionResetError) as exc:
+                # socket.timeout: no reply arrived within self.timeout.
+                # ConnectionResetError: Windows surfaces "ICMP port unreachable"
+                # responses to UDP sends as 10054 on the next recvfrom. Treat both
+                # as "no useful reply" and surface as NCITimeout.
+                #
+                # Drain any late reply that may arrive while we're handling this
+                # timeout — otherwise it would be picked up by the next _send call
+                # and silently misattributed to a different command.
+                self._drain_socket(sock)
+                raise NCITimeout(f"no reply within {self.timeout}s for {command!r}") from exc
+            return data.decode("ascii", errors="replace").strip()
 
     def _drain_socket(self, sock: socket.socket) -> None:
         """Discard any datagrams sitting in the receive buffer.
@@ -98,8 +105,9 @@ class NCIClient:
         """Send command and don't wait for any reply. For fire-and-forget commands
         like SAVE_STATE that simulate a hotkey press and return nothing.
         """
-        sock = self._get_socket()
-        sock.sendto(command.encode("ascii"), (self.host, self.port))
+        with self._lock:
+            sock = self._get_socket()
+            sock.sendto(command.encode("ascii"), (self.host, self.port))
 
     def version(self) -> str:
         """Return RetroArch's reported version string (e.g. "1.22.2")."""
@@ -194,20 +202,21 @@ class NCIClient:
         producing ``NCIProtocolError: reply has no data bytes`` on the next
         ``read_ram``. Drain explicitly after sending.
         """
-        sock = self._get_socket()
-        sock.sendto(f"LOAD_STATE_SLOT {slot}".encode("ascii"), (self.host, self.port))
-        # Brief wait so RA has a chance to enqueue the reply before we drain.
-        # If RA never replies on some build, the drain is a no-op.
-        try:
-            sock.settimeout(0.2)
+        with self._lock:
+            sock = self._get_socket()
+            sock.sendto(f"LOAD_STATE_SLOT {slot}".encode("ascii"), (self.host, self.port))
+            # Brief wait so RA has a chance to enqueue the reply before we drain.
+            # If RA never replies on some build, the drain is a no-op.
             try:
-                sock.recvfrom(RECV_BUFFER_BYTES)
-            except (TimeoutError, OSError):
-                pass
-        finally:
-            sock.settimeout(self.timeout)
-        # Discard any additional datagrams (defence-in-depth).
-        self._drain_socket(sock)
+                sock.settimeout(0.2)
+                try:
+                    sock.recvfrom(RECV_BUFFER_BYTES)
+                except (TimeoutError, OSError):
+                    pass
+            finally:
+                sock.settimeout(self.timeout)
+            # Discard any additional datagrams (defence-in-depth).
+            self._drain_socket(sock)
 
     def reset(self) -> None:
         """Hard-reset the emulated console."""
@@ -292,9 +301,10 @@ class NCIClient:
         After close(), the next _send/_send_no_reply will lazily create a
         fresh socket (lazy reconnect).
         """
-        if self._sock is not None:
-            self._sock.close()
-            self._sock = None
+        with self._lock:
+            if self._sock is not None:
+                self._sock.close()
+                self._sock = None
 
     def __enter__(self) -> Self:
         """Context manager entry."""

@@ -103,9 +103,9 @@ def _populated_db(tmp_path: Path) -> tuple[Path, Database]:
         _seed_event(db, "s1", "survived", "practice", episode_id=f"e{i}")
     for i in range(2):
         _seed_event(db, "s1", "died", "practice", episode_id=f"d{i}")
-    # s2 — 2 speed_run events + 1 reference (all survived)
+    # s2 — 2 hyper_play events + 1 reference (all survived)
     for i in range(2):
-        _seed_event(db, "s2", "survived", "speed_run", episode_id=f"sr{i}")
+        _seed_event(db, "s2", "survived", "hyper_play", episode_id=f"sr{i}")
     _seed_event(db, "s2", "survived", "reference")
     db.conn.commit()
     # Fit only on s1 (n>=5).
@@ -142,7 +142,7 @@ def test_inventory_for_one_game_summarizes_counts(tmp_path):
     assert "died" in out
     # Source breakdown
     assert "practice" in out
-    assert "speed_run" in out
+    assert "hyper_play" in out
     assert "reference" in out
 
 
@@ -248,7 +248,7 @@ def test_inventory_json_output_is_valid_object(tmp_path):
     assert g["events"]["by_outcome"]["survived"] == 7
     assert g["events"]["by_outcome"]["died"] == 2
     assert g["events"]["by_source"]["practice"] == 6
-    assert g["events"]["by_source"]["speed_run"] == 2
+    assert g["events"]["by_source"]["hyper_play"] == 2
     assert g["events"]["by_source"]["reference"] == 1
     assert g["fittable"]["count"] == 1
     assert g["fittable"]["segments"][0]["segment_id"] == "s1"

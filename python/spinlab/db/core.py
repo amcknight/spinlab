@@ -85,10 +85,20 @@ class DatabaseCore:
     def upsert_game(self, game_id: str, name: str, category: str) -> None:
         now = datetime.now(UTC).isoformat()
         self.conn.execute(
-            "INSERT INTO games (id, name, category, created_at) VALUES (?, ?, ?, ?)"
-            " ON CONFLICT(id) DO NOTHING",
-            (game_id, name, category, now),
+            "INSERT INTO games (id, name, category, created_at, last_accessed)"
+            " VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT(id) DO UPDATE SET last_accessed = excluded.last_accessed",
+            (game_id, name, category, now, now),
         )
+
+    def get_recently_played_games(self, limit: int = 3) -> list[str]:
+        """Return game names sorted by most-recently accessed, newest first."""
+        rows = self.conn.execute(
+            "SELECT name FROM games WHERE last_accessed IS NOT NULL"
+            " ORDER BY last_accessed DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [row[0] for row in rows]
 
     def reset_all_data(self) -> None:
         """Delete all attempts, sessions, model state, and allocator config."""

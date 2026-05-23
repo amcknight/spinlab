@@ -21,6 +21,7 @@ from spinlab.retroarch.predicates import (
     LEVEL_START_ACTIVE,
     PLAYER_ANIM_DEAD,
     check_checkpoint_hit,
+    detect_finish,
     goal_type,
     is_death_frame,
     is_exit_frame,
@@ -47,6 +48,10 @@ class TransitionDetector:
         self._level_start_frame = 0
         self._frame_counter = 0
         self._exit_this_frame = False
+        # True after detect_finish fires for this level; suppresses the later
+        # is_exit_frame emission so only one LevelExitEvent fires per level.
+        # Cleared on LevelEntranceEvent (new level) and state-load resync.
+        self._finish_emitted = False
         # See `mark_replay_entrance`. Cleared the first frame after it's set
         # where `curr.level_start == LEVEL_START_ACTIVE`.
         self._force_next_entrance = False
@@ -58,6 +63,7 @@ class TransitionDetector:
         self._cp_acquired = False
         self._level_start_frame = 0
         self._exit_this_frame = False
+        self._finish_emitted = False
         self._force_next_entrance = False
 
     def resync_after_state_load(self, snapshot: MemorySnapshot) -> None:
@@ -77,6 +83,7 @@ class TransitionDetector:
         self._state.reset()
         self._cp_acquired = False
         self._exit_this_frame = False
+        self._finish_emitted = False
         self._prev = snapshot
 
     def mark_replay_entrance(self) -> None:
@@ -131,9 +138,30 @@ class TransitionDetector:
         # 3. Exit must come before entrance: on a same-frame exit→entrance,
         #    the entrance check below would otherwise consume the level_start
         #    edge and we'd miss the exit event.
-        self._exit_this_frame = is_exit_frame(prev, curr)
-        if self._exit_this_frame:
-            elapsed = int((self._frame_counter - self._level_start_frame) / FPS * 1000)
+        #
+        #    Prefer detect_finish (goal-tape / orb / key / boss edge) over the
+        #    later is_exit_frame (exit_mode non-zero). detect_finish fires when
+        #    the player actually reaches the goal — several frames before the
+        #    exit animation begins — and is the only signal for game-ending
+        #    boss defeats where exit_mode never fires (credits roll instead).
+        _early_finish = detect_finish(prev, curr) if not self._finish_emitted else None
+        _mode_exit = is_exit_frame(prev, curr)
+        self._exit_this_frame = _early_finish is not None or _mode_exit
+        elapsed = int((self._frame_counter - self._level_start_frame) / FPS * 1000)
+        if _early_finish is not None:
+            self._finish_emitted = True
+            events.append(
+                LevelExitEvent(
+                    timestamp_ms=timestamp_ms,
+                    level=curr.level_num,
+                    room=curr.room_num,
+                    goal=_early_finish,
+                    elapsed_ms=elapsed,
+                    frame=self._frame_counter,
+                )
+            )
+        elif _mode_exit and not self._finish_emitted:
+            # Abort (no fanfare/orb/key/boss) — exit_mode edge is the only signal.
             events.append(
                 LevelExitEvent(
                     timestamp_ms=timestamp_ms,
@@ -186,6 +214,7 @@ class TransitionDetector:
                 # Fresh level entry.
                 self._state.cp_ordinal = 0
                 self._cp_acquired = False
+                self._finish_emitted = False
                 self._state.first_cp_entrance = curr.cp_entrance
                 self._level_start_frame = self._frame_counter
                 events.append(

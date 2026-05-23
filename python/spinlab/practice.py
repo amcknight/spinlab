@@ -200,7 +200,12 @@ class PracticeSession:
         """
         path = self._current_state_path
         if not path:
+            logger.info(
+                "practice: death ignored — not armed (segment=%s)",
+                self.current_segment_id,
+            )
             return
+        logger.info("practice: death → reloading state=%s", path)
         try:
             await self.emu.load_state(path)
         except Exception:

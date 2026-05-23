@@ -14,7 +14,7 @@ from spinlab.retroarch.movies import MovieController
 from spinlab.retroarch.orchestrator import RetroArchOrchestrator
 from spinlab.retroarch.raclient import RAClient
 from spinlab.state_paths import StatePathResolver
-from spinlab.timing import PracticeTiming, SpeedRunTiming
+from spinlab.timing import HyperPlayTiming, PracticeTiming
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ def build_orchestrator(config) -> RetroArchOrchestrator:
 
     conditions = ConditionRegistry()
     practice_timing = PracticeTiming()
-    speed_run_timing = SpeedRunTiming()
+    hyper_play_timing = HyperPlayTiming()
     state_paths = StatePathResolver(spinlab_state_dir)
 
     deps = PollerDeps(
@@ -115,7 +115,7 @@ def build_orchestrator(config) -> RetroArchOrchestrator:
         poller=poller,
         conditions=conditions,
         practice_timing=practice_timing,
-        speed_run_timing=speed_run_timing,
+        hyper_play_timing=hyper_play_timing,
         state_paths=state_paths,
         movies=movies,
     )

@@ -10,7 +10,7 @@ Vite (5173)  ──proxies /api──▶  FastAPI (15483)  ◀──NCI/UDP─�
                                 │  SessionManager      │
                                 │  ReferenceController │
                                 │  PracticeSession     │
-                                │  SpeedRunSession     │
+                                │  HyperPlaySession    │
                                 │  Scheduler           │
                                 │  SQLite DB           │
                                 └──────────────────────┘
@@ -46,7 +46,7 @@ Vite (5173)  ──proxies /api──▶  FastAPI (15483)  ◀──NCI/UDP─�
 
 **EmuBackend (`emu_backend.py`)** — `Protocol` defining the surface the rest of the codebase depends on (`connect`, `disconnect`, `send_command`, `recv_event`, `save_state`, `load_state`). Everything above `RetroArchOrchestrator` is backend-agnostic.
 
-**SessionManager (`session_manager.py`)** — central state owner. One `route_event()` entry dispatches each typed event to one of the controllers (`ReferenceController`, `PracticeSession`, `SpeedRunSession`, `ColdFillController`, `FillGapController`) or to its own internal handlers. Pushes state snapshots to SSE subscribers after each event.
+**SessionManager (`session_manager.py`)** — central state owner. One `route_event()` entry dispatches each typed event to one of the controllers (`ReferenceController`, `PracticeSession`, `HyperPlaySession`, `ColdFillController`, `FillGapController`) or to its own internal handlers. Pushes state snapshots to SSE subscribers after each event.
 
 **ReferenceController (`capture/reference.py`)** — multi-session reference-run lifecycle. States: IDLE → RECORDING → PAUSED → IDLE. `paused_run_id` and `recorder.capture_run_id` are a mutually exclusive pair, mutated only through `_enter_recording` / `_enter_paused` / `_enter_idle`, which assert the invariant after each transition. Also drives replay-as-capture (replay a saved `.replay` and re-emit segment captures). Recovery on game switch: `recover_paused_run` rehydrates any orphaned `draft=1` live run.
 
@@ -58,11 +58,11 @@ Vite (5173)  ──proxies /api──▶  FastAPI (15483)  ◀──NCI/UDP─�
 
 **PracticeSession (`practice.py`)** — async loop: pick segment → load state → wait for `AttemptResultEvent` → log → pick next. Reload-on-death triggers on `Death` or `LevelExit(goal='abort')` while an attempt is in flight (`_current_state_path` is the armed flag).
 
-**SpeedRunSession (`speed_run.py`)** — full-run mode that walks a `LevelPlan` end-to-end, recording per-level attempts against the active reference run.
+**HyperPlaySession (`hyper_play.py`)** — full-run mode that walks a `LevelPlan` end-to-end, recording per-level attempts against the active reference run.
 
 **Scheduler (`scheduler.py`)** — wires estimators and the allocator. All registered estimators run on every attempt; only the active estimator's `ModelOutput` feeds the allocator. The top-level allocator is always a `MixAllocator` built from per-allocator weights persisted in `allocator_config`.
 
-**Dashboard (`dashboard.py`)** — FastAPI app on port 15483. SSE (`/api/events`) is the primary update mechanism; `/api/state` is the polling fallback. Routes are split across `routes/` modules (`reference.py`, `practice.py`, `speed_run.py`, `model.py`, `segments.py`, `attempts.py`, `system.py`).
+**Dashboard (`dashboard.py`)** — FastAPI app on port 15483. SSE (`/api/events`) is the primary update mechanism; `/api/state` is the polling fallback. Routes are split across `routes/` modules (`reference.py`, `practice.py`, `hyper_play.py`, `model.py`, `segments.py`, `attempts.py`, `system.py`).
 
 **Frontend (`frontend/src/`)** — TypeScript + Vite. Built output goes to `python/spinlab/static/` (git-ignored). Types are codegen'd from FastAPI's OpenAPI schema (`scripts/dump_openapi.py` → `frontend/openapi.json` → `frontend/src/api-types.ts`); source of truth is `python/spinlab/api_schemas.py`.
 
@@ -98,7 +98,7 @@ A partial unique index (`idx_one_live_draft_per_game`) prevents two live drafts 
 
 - **Capture session** (`capture_sessions` table) — one continuous recording window inside a multi-session reference run. A `capture_run` has 1..N capture sessions.
 - **Practice session** (`sessions` table) — one practice or speed-run loop instance from start to stop.
-- **`attempts.session_id` / `attempts.capture_run_id`** — typed nullable FKs; exactly one is set per row (`CHECK` constraint). Practice and speed-run attempts use `session_id`; reference-seeded attempts use `capture_run_id`. The `source` enum (`practice` | `speed_run` | `reference` | `replay`) discriminates within each category.
+- **`attempts.session_id` / `attempts.capture_run_id`** — typed nullable FKs; exactly one is set per row (`CHECK` constraint). Practice and speed-run attempts use `session_id`; reference-seeded attempts use `capture_run_id`. The `source` enum (`practice` | `hyper_play` | `reference` | `replay`) discriminates within each category.
 
 ## Replay-as-capture
 

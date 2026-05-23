@@ -19,17 +19,17 @@ class Mode(Enum):
     REPLAY = "replay"
     FILL_GAP = "fill_gap"
     COLD_FILL = "cold_fill"
-    SPEED_RUN = "speed_run"
+    HYPER_PLAY = "hyper_play"
 
 
 _LEGAL_TRANSITIONS: dict[Mode, set[Mode]] = {
-    Mode.IDLE: {Mode.REFERENCE, Mode.PRACTICE, Mode.FILL_GAP, Mode.COLD_FILL, Mode.SPEED_RUN},
+    Mode.IDLE: {Mode.REFERENCE, Mode.PRACTICE, Mode.FILL_GAP, Mode.COLD_FILL, Mode.HYPER_PLAY},
     Mode.REFERENCE: {Mode.IDLE, Mode.REPLAY},
     Mode.PRACTICE: {Mode.IDLE},
     Mode.REPLAY: {Mode.IDLE},
     Mode.FILL_GAP: {Mode.IDLE},
     Mode.COLD_FILL: {Mode.IDLE},
-    Mode.SPEED_RUN: {Mode.IDLE},
+    Mode.HYPER_PLAY: {Mode.IDLE},
 }
 
 
@@ -62,7 +62,7 @@ class AttemptSource(StrEnum):
     PRACTICE = "practice"
     REPLAY = "replay"
     REFERENCE = "reference"
-    SPEED_RUN = "speed_run"
+    HYPER_PLAY = "hyper_play"
 
 
 @dataclass

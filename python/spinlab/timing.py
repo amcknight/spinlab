@@ -1,11 +1,11 @@
-"""Practice and speed-run attempt-timing state machines.
+"""Practice and hyper-play attempt-timing state machines.
 
 Emulator-agnostic: consumes typed protocol events (Death / LevelExit /
 Checkpoint / Spawn) and produces typed result events. The RA backend
 forwards each event to ``observe_event()`` to drive the state machine
 forward. When an attempt completes (or the auto-advance delay elapses),
 the configured callback receives a typed ``AttemptResultEvent``
-(practice) or a ``SpeedRun*Event`` (speed run).
+(practice) or a ``HyperPlay*Event`` (hyper play).
 
 State summary (PracticeTiming):
   IDLE    — not armed; observe_event/tick are no-ops.
@@ -17,7 +17,7 @@ Deaths increment a penalty counter — they do NOT auto-fail an attempt.
 The only failure path is a manual ``disarm()`` or a ``LevelExitEvent``
 whose ``goal`` field equals ``"abort"``.
 
-SpeedRunTiming handles the single-complete-attempt shape: arm → play
+HyperPlayTiming handles the single-complete-attempt shape: arm → play
 (deaths + checkpoints) → complete.
 """
 from __future__ import annotations
@@ -33,10 +33,10 @@ from spinlab.protocol import (
     CheckpointEvent,
     DeathEvent,
     EventAttemptEmission,
+    HyperPlayCheckpointEvent,
+    HyperPlayCompleteEvent,
+    HyperPlayDeathEvent,
     LevelExitEvent,
-    SpeedRunCheckpointEvent,
-    SpeedRunCompleteEvent,
-    SpeedRunDeathEvent,
 )
 
 # ---------------------------------------------------------------------------
@@ -265,20 +265,20 @@ class PracticeTiming:
 
 
 # ---------------------------------------------------------------------------
-# SpeedRunTiming
+# HyperPlayTiming
 # ---------------------------------------------------------------------------
 
-class _SpeedRunState(Enum):
+class _HyperPlayState(Enum):
     IDLE = "idle"
     PLAYING = "playing"
     DYING = "dying"
     RESULT = "result"
 
 
-SpeedRunEmittedEvent = SpeedRunCheckpointEvent | SpeedRunDeathEvent | SpeedRunCompleteEvent
+HyperPlayEmittedEvent = HyperPlayCheckpointEvent | HyperPlayDeathEvent | HyperPlayCompleteEvent
 
 
-class SpeedRunTiming:
+class HyperPlayTiming:
     """State machine for a full speed-run attempt.
 
     Handles: arm → play (deaths emitted immediately; checkpoint splits emitted
@@ -295,12 +295,12 @@ class SpeedRunTiming:
 
     def __init__(self, *, now_ms: Callable[[], int] | None = None) -> None:
         self._now: Callable[[], int] = now_ms or _default_now_ms
-        self._state = _SpeedRunState.IDLE
+        self._state = _HyperPlayState.IDLE
 
         self._segment_id: str = ""
         self._checkpoints: list = []
         self._cp_index: int = 0          # next checkpoint index (0-based)
-        self._on_event: Callable[[SpeedRunEmittedEvent], None] | None = None
+        self._on_event: Callable[[HyperPlayEmittedEvent], None] | None = None
 
         # Timing fields.
         self._start_ms: int = 0
@@ -320,14 +320,14 @@ class SpeedRunTiming:
 
     @property
     def is_armed(self) -> bool:
-        return self._state != _SpeedRunState.IDLE
+        return self._state != _HyperPlayState.IDLE
 
     def arm(
         self,
         *,
         segment_id: str,
         checkpoints: list,
-        on_event: Callable[[SpeedRunEmittedEvent], None] | None = None,
+        on_event: Callable[[HyperPlayEmittedEvent], None] | None = None,
         death_delay_ms: int = 1500,
         auto_advance_delay_ms: int = 1000,
     ) -> None:
@@ -341,11 +341,11 @@ class SpeedRunTiming:
         now = self._now()
         self._start_ms = now
         self._split_ms = now
-        self._state = _SpeedRunState.PLAYING
+        self._state = _HyperPlayState.PLAYING
 
     def observe_event(self, event: object) -> None:
         """Feed an incoming event into the speed-run state machine."""
-        if self._state != _SpeedRunState.PLAYING:
+        if self._state != _HyperPlayState.PLAYING:
             # DYING advances in tick(); IDLE/RESULT ignore events.
             return
 
@@ -353,11 +353,11 @@ class SpeedRunTiming:
             now = self._now()
             elapsed = now - self._start_ms
             split = now - self._split_ms
-            self._dispatch(SpeedRunDeathEvent(
+            self._dispatch(HyperPlayDeathEvent(
                 elapsed_ms=int(math.floor(elapsed)),
                 split_ms=int(math.floor(split)),
             ))
-            self._state = _SpeedRunState.DYING
+            self._state = _HyperPlayState.DYING
             self._death_started_ms = now
 
         elif isinstance(event, CheckpointEvent):
@@ -367,7 +367,7 @@ class SpeedRunTiming:
             if self._cp_index < len(self._checkpoints):
                 cp = self._checkpoints[self._cp_index]
                 ordinal = cp.get("ordinal", self._cp_index + 1) if isinstance(cp, dict) else self._cp_index + 1
-                self._dispatch(SpeedRunCheckpointEvent(
+                self._dispatch(HyperPlayCheckpointEvent(
                     ordinal=ordinal,
                     elapsed_ms=int(math.floor(elapsed)),
                     split_ms=int(math.floor(split)),
@@ -380,24 +380,24 @@ class SpeedRunTiming:
                 self._elapsed_ms = now - self._start_ms
                 self._result_split_ms = int(math.floor(now - self._split_ms))
                 self._result_start_ms = now
-                self._state = _SpeedRunState.RESULT
+                self._state = _HyperPlayState.RESULT
 
     def tick(self, now_ms: int | None = None) -> bool:
         """Advance timers. Returns True when the complete event is emitted."""
         now = now_ms if now_ms is not None else self._now()
 
-        if self._state == _SpeedRunState.DYING:
+        if self._state == _HyperPlayState.DYING:
             if (now - self._death_started_ms) >= self._death_delay_ms:
                 # Blackout elapsed; bump start_ms so dead-time is excluded.
                 blackout = now - self._death_started_ms
                 self._start_ms += blackout
                 self._split_ms = now
-                self._state = _SpeedRunState.PLAYING
+                self._state = _HyperPlayState.PLAYING
             return False
 
-        if self._state == _SpeedRunState.RESULT:
+        if self._state == _HyperPlayState.RESULT:
             if (now - self._result_start_ms) >= self._auto_advance_delay_ms:
-                self._dispatch(SpeedRunCompleteEvent(
+                self._dispatch(HyperPlayCompleteEvent(
                     elapsed_ms=int(math.floor(self._elapsed_ms)),
                     split_ms=self._result_split_ms,
                 ))
@@ -414,12 +414,12 @@ class SpeedRunTiming:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _dispatch(self, event: SpeedRunEmittedEvent) -> None:
+    def _dispatch(self, event: HyperPlayEmittedEvent) -> None:
         if self._on_event is not None:
             self._on_event(event)
 
     def _reset(self) -> None:
-        self._state = _SpeedRunState.IDLE
+        self._state = _HyperPlayState.IDLE
         self._segment_id = ""
         self._checkpoints = []
         self._cp_index = 0

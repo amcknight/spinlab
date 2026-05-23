@@ -32,13 +32,13 @@ from spinlab.protocol import (
     ResetCmd,
     RomInfoEvent,
     SetConditionsCmd,
-    SpeedRunLoadCmd,
-    SpeedRunStopCmd,
+    HyperPlayLoadCmd,
+    HyperPlayStopCmd,
 )
 from spinlab.retroarch.orchestrator import RetroArchOrchestrator
 from spinlab.retroarch.raclient import NotReachableError
 from spinlab.state_paths import StatePathResolver
-from spinlab.timing import PracticeTiming, SpeedRunTiming
+from spinlab.timing import HyperPlayTiming, PracticeTiming
 
 
 def _build_orchestrator(
@@ -64,7 +64,7 @@ def _build_orchestrator(
         poller=poller,
         conditions=conditions,
         practice_timing=PracticeTiming(),
-        speed_run_timing=SpeedRunTiming(),
+        hyper_play_timing=HyperPlayTiming(),
         state_paths=StatePathResolver(tmp_path / "states"),
         movies=movies,
     )
@@ -354,33 +354,33 @@ async def test_replay_stop_is_noop_when_no_active_playback(tmp_path):
 
 
 # ------------------------------------------------------------------
-# Speed run
+# Hyper play
 # ------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_speed_run_load_arms_and_stop_disarms(tmp_path):
+async def test_hyper_play_load_arms_and_stop_disarms(tmp_path):
     orch, raclient, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
-    await orch.send_command(SpeedRunLoadCmd(id="run-1", state_path="/p/sr.state"))
-    assert orch._speed_run_timing.is_armed is True
+    await orch.send_command(HyperPlayLoadCmd(id="run-1", state_path="/p/sr.state"))
+    assert orch._hyper_play_timing.is_armed is True
     assert raclient.load_state_calls == [Path("/p/sr.state")]
-    await orch.send_command(SpeedRunStopCmd())
-    assert orch._speed_run_timing.is_armed is False
+    await orch.send_command(HyperPlayStopCmd())
+    assert orch._hyper_play_timing.is_armed is False
     await orch.disconnect()
 
 
 @pytest.mark.asyncio
-async def test_speed_run_load_forwards_delay_kwargs(tmp_path):
+async def test_hyper_play_load_forwards_delay_kwargs(tmp_path):
     orch, _, _, _, _ = _build_orchestrator(tmp_path)
     await orch.connect()
     await orch.events.get()
-    await orch.send_command(SpeedRunLoadCmd(
+    await orch.send_command(HyperPlayLoadCmd(
         id="run-1", state_path="/p/sr.state",
         death_delay_ms=2000, auto_advance_delay_ms=2500,
     ))
-    assert orch._speed_run_timing._death_delay_ms == 2000
-    assert orch._speed_run_timing._auto_advance_delay_ms == 2500
+    assert orch._hyper_play_timing._death_delay_ms == 2000
+    assert orch._hyper_play_timing._auto_advance_delay_ms == 2500
     await orch.disconnect()
 
 

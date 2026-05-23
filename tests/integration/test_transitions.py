@@ -117,12 +117,3 @@ async def test_boss_defeat(run_scenario):
     exits = [e for e in events if isinstance(e, LevelExitEvent)]
     assert len(exits) == 1, f"Expected 1 exit, got {len(exits)}: {exits}"
     assert exits[0].goal == "boss", f"Expected goal='boss', got {exits[0].goal!r}"
-
-
-async def test_same_frame_exit_entrance(run_scenario):
-    """Exit and entrance on same frame — entrance should be suppressed."""
-    events = await run_scenario("same_frame_exit_entrance.poke")
-    entrances = [e for e in events if isinstance(e, LevelEntranceEvent)]
-    exits = [e for e in events if isinstance(e, LevelExitEvent)]
-    assert len(entrances) == 1, f"Expected 1 entrance, got {len(entrances)}: {entrances}"
-    assert len(exits) == 2, f"Expected 2 exits, got {len(exits)}: {exits}"

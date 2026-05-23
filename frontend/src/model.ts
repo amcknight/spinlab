@@ -1,4 +1,4 @@
-import { canStartPractice, canStartSpeedRun } from "./model-logic";
+import { canStartPractice, canStartHyperPlay } from "./model-logic";
 import type { AppState, ModelData, TuningData, SessionInfo } from "./types";
 import { renderSegmentDetail, destroySegmentDetail } from "./segment-detail";
 import {
@@ -10,8 +10,8 @@ import {
   patchAttemptInvalidated,
   postPracticeStart,
   postPracticeStop,
-  postSpeedrunStart,
-  postSpeedrunStop,
+  postHyperPlayStart,
+  postHyperPlayStop,
 } from "./model-api";
 import {
   renderWeightSlider,
@@ -104,7 +104,7 @@ export function updateSavingsPanel(session: SessionInfo | null): void {
 
 export function updatePracticeCard(data: AppState): void {
   const card = document.getElementById("practice-card") as HTMLElement;
-  if ((data.mode !== "practice" && data.mode !== "speed_run") || !data.current_segment) {
+  if ((data.mode !== "practice" && data.mode !== "hyper_play") || !data.current_segment) {
     card.style.display = "none";
     return;
   }
@@ -117,9 +117,9 @@ export function updatePracticeCard(data: AppState): void {
 
   const weightsEl = document.getElementById("allocator-weights") as HTMLElement;
   if (weightsEl) {
-    weightsEl.style.display = data.mode === "speed_run" ? "none" : "";
+    weightsEl.style.display = data.mode === "hyper_play" ? "none" : "";
   }
-  if (data.allocator_weights && data.mode !== "speed_run") {
+  if (data.allocator_weights && data.mode !== "hyper_play") {
     _currentWeights = { ...data.allocator_weights };
     renderWeightSlider(data.allocator_weights, (next) => {
       _currentWeights = next;
@@ -131,18 +131,18 @@ export function updatePracticeCard(data: AppState): void {
 export function updatePracticeControls(data: AppState): void {
   const startBtn = document.getElementById("btn-practice-start") as HTMLButtonElement;
   const stopBtn = document.getElementById("btn-practice-stop") as HTMLElement;
-  const srStartBtn = document.getElementById("btn-speedrun-start") as HTMLButtonElement;
-  const srStopBtn = document.getElementById("btn-speedrun-stop") as HTMLElement;
+  const srStartBtn = document.getElementById("btn-hyperplay-start") as HTMLButtonElement;
+  const srStopBtn = document.getElementById("btn-hyperplay-stop") as HTMLElement;
   const isPracticing = data.mode === "practice";
-  const isSpeedRun = data.mode === "speed_run";
+  const isHyperPlay = data.mode === "hyper_play";
 
-  startBtn.style.display = isPracticing || isSpeedRun ? "none" : "";
+  startBtn.style.display = isPracticing || isHyperPlay ? "none" : "";
   startBtn.disabled = !canStartPractice(data);
   stopBtn.style.display = isPracticing ? "" : "none";
 
-  srStartBtn.style.display = isPracticing || isSpeedRun ? "none" : "";
-  srStartBtn.disabled = !canStartSpeedRun(data);
-  srStopBtn.style.display = isSpeedRun ? "" : "none";
+  srStartBtn.style.display = isPracticing || isHyperPlay ? "none" : "";
+  srStartBtn.disabled = !canStartHyperPlay(data);
+  srStopBtn.style.display = isHyperPlay ? "" : "none";
 }
 
 export async function fetchTuningParams(): Promise<void> {
@@ -189,8 +189,8 @@ export function initModelTab(): void {
   });
   document.getElementById("btn-practice-start")!.addEventListener("click", () => postPracticeStart());
   document.getElementById("btn-practice-stop")!.addEventListener("click", () => postPracticeStop());
-  document.getElementById("btn-speedrun-start")!.addEventListener("click", () => postSpeedrunStart());
-  document.getElementById("btn-speedrun-stop")!.addEventListener("click", () => postSpeedrunStop());
+  document.getElementById("btn-hyperplay-start")!.addEventListener("click", () => postHyperPlayStart());
+  document.getElementById("btn-hyperplay-stop")!.addEventListener("click", () => postHyperPlayStop());
 
   const toggle = document.getElementById("tuning-toggle");
   const panel = document.getElementById("tuning-panel");

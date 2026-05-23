@@ -237,3 +237,52 @@ async def test_poller_logs_read_failure_then_recovery(caplog):
     assert len(warns) == 1, f"expected 1 warn, got {[r.getMessage() for r in warns]}"
     assert "poller read failed" in warns[0].getMessage()
     assert any("poller read recovered" in r.getMessage() for r in infos)
+
+
+@pytest.mark.asyncio
+async def test_poller_reconnects_after_persistent_read_failures(caplog):
+    """After _READ_RECONNECT_FAILURE_THRESHOLD consecutive failures the poller
+    calls client.close() so the next read gets a fresh socket.
+
+    Regression for the BlockingIOError[WinError 10035] incident where
+    _read_failing suppressed log spam but the socket was never reconnected,
+    leaving the poller in a permanent silent failure loop for minutes.
+    """
+    from spinlab.retroarch.poller import _READ_RECONNECT_FAILURE_THRESHOLD
+
+    class _TrackingClient:
+        def __init__(self) -> None:
+            self.close_calls = 0
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    def _always_fail(_client) -> MemorySnapshot:
+        raise BlockingIOError("[WinError 10035] A non-blocking socket operation")
+
+    client = _TrackingClient()
+    deps = PollerDeps(
+        client=client,
+        read_snapshot=_always_fail,
+        on_event=lambda _: None,
+    )
+    # period_sec=0 → asyncio.sleep(0) → pure yield, no real delay.
+    # This lets the poller iterate fast enough to hit the threshold in 50ms
+    # even on Windows where asyncio.sleep(0.001) can take ~15ms per call.
+    poller = Poller(deps, period_sec=0)
+
+    with caplog.at_level(logging.WARNING, logger="spinlab.retroarch.poller"):
+        task = asyncio.create_task(poller.run())
+        # Allow enough iterations to exceed the threshold at least once.
+        await asyncio.sleep(0.05)
+        poller.stop()
+        await task
+
+    assert client.close_calls >= 1, (
+        f"expected client.close() after {_READ_RECONNECT_FAILURE_THRESHOLD} failures, "
+        f"got {client.close_calls} close calls"
+    )
+    warns = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("reconnect" in r.getMessage().lower() for r in warns), (
+        f"expected a reconnect warning, got: {[r.getMessage() for r in warns]}"
+    )

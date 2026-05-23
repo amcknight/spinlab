@@ -1,15 +1,15 @@
-"""Tests for PracticeTiming and SpeedRunTiming state machines."""
+"""Tests for PracticeTiming and HyperPlayTiming state machines."""
 from spinlab.protocol import (
     AttemptResultEvent,
     CheckpointEvent,
     DeathEvent,
     EventAttemptEmission,
     LevelExitEvent,
-    SpeedRunCheckpointEvent,
-    SpeedRunCompleteEvent,
-    SpeedRunDeathEvent,
+    HyperPlayCheckpointEvent,
+    HyperPlayCompleteEvent,
+    HyperPlayDeathEvent,
 )
-from spinlab.timing import PracticeTiming, SpeedRunEmittedEvent, SpeedRunTiming
+from spinlab.timing import PracticeTiming, HyperPlayEmittedEvent, HyperPlayTiming
 
 
 class _Clock:
@@ -204,12 +204,12 @@ def test_practice_re_arm_clears_previous_state():
     assert r.time_ms == 2000  # 3000 - 1000
 
 
-# -- SpeedRunTiming -------------------------------------------------------
+# -- HyperPlayTiming -------------------------------------------------------
 
-def test_speed_run_basic_smoke():
+def test_hyper_play_basic_smoke():
     """Smoke: arming and disarm work."""
     clock = _Clock()
-    sr = SpeedRunTiming(now_ms=clock)
+    sr = HyperPlayTiming(now_ms=clock)
     sr.arm(
         segment_id="run-1",
         checkpoints=[],
@@ -220,9 +220,9 @@ def test_speed_run_basic_smoke():
     assert sr.is_armed is False
 
 
-def test_speed_run_arm_stores_delay_kwargs():
+def test_hyper_play_arm_stores_delay_kwargs():
     """arm() captures death_delay_ms and auto_advance_delay_ms for later use."""
-    sr = SpeedRunTiming()
+    sr = HyperPlayTiming()
     sr.arm(
         segment_id="run-1",
         checkpoints=[],
@@ -235,8 +235,8 @@ def test_speed_run_arm_stores_delay_kwargs():
     assert sr._death_delay_ms == 2000
 
 
-def _make_speed_run(clock: _Clock, received: list, **kwargs) -> SpeedRunTiming:
-    sr = SpeedRunTiming(now_ms=clock)
+def _make_hyper_play(clock: _Clock, received: list, **kwargs) -> HyperPlayTiming:
+    sr = HyperPlayTiming(now_ms=clock)
     sr.arm(
         segment_id="run-1",
         checkpoints=kwargs.pop("checkpoints", [{"ordinal": 1}, {"ordinal": 2}]),
@@ -247,17 +247,17 @@ def _make_speed_run(clock: _Clock, received: list, **kwargs) -> SpeedRunTiming:
     return sr
 
 
-def test_speed_run_death_emits_event_and_enters_dying():
+def test_hyper_play_death_emits_event_and_enters_dying():
     clock = _Clock()
-    received: list[SpeedRunEmittedEvent] = []
-    sr = _make_speed_run(clock, received)
+    received: list[HyperPlayEmittedEvent] = []
+    sr = _make_hyper_play(clock, received)
 
     clock.now = 2500
     sr.observe_event(DeathEvent())
 
     assert len(received) == 1
     ev = received[0]
-    assert isinstance(ev, SpeedRunDeathEvent)
+    assert isinstance(ev, HyperPlayDeathEvent)
     assert ev.elapsed_ms == 2500
     assert ev.split_ms == 2500
     # State is DYING — observe_event no-ops for further events while in DYING.
@@ -265,10 +265,10 @@ def test_speed_run_death_emits_event_and_enters_dying():
     assert len(received) == 1
 
 
-def test_speed_run_checkpoint_emits_event_and_advances_index():
+def test_hyper_play_checkpoint_emits_event_and_advances_index():
     clock = _Clock()
-    received: list[SpeedRunEmittedEvent] = []
-    sr = _make_speed_run(clock, received)
+    received: list[HyperPlayEmittedEvent] = []
+    sr = _make_hyper_play(clock, received)
 
     clock.now = 1500
     sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
@@ -276,7 +276,7 @@ def test_speed_run_checkpoint_emits_event_and_advances_index():
     # Note: ordinal comes from the checkpoints list arm() was given, not the event.
     assert len(received) == 1
     ev = received[0]
-    assert isinstance(ev, SpeedRunCheckpointEvent)
+    assert isinstance(ev, HyperPlayCheckpointEvent)
     assert ev.ordinal == 1  # first checkpoint in the list
     assert ev.elapsed_ms == 1500
     assert ev.split_ms == 1500
@@ -288,11 +288,11 @@ def test_speed_run_checkpoint_emits_event_and_advances_index():
     assert received[1].ordinal == 2
 
 
-def test_speed_run_checkpoint_past_end_of_list_no_emit():
+def test_hyper_play_checkpoint_past_end_of_list_no_emit():
     """checkpoints exhausted — extra checkpoint events are silently dropped."""
     clock = _Clock()
-    received: list[SpeedRunEmittedEvent] = []
-    sr = _make_speed_run(clock, received, checkpoints=[{"ordinal": 1}])
+    received: list[HyperPlayEmittedEvent] = []
+    sr = _make_hyper_play(clock, received, checkpoints=[{"ordinal": 1}])
 
     sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
     sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
@@ -300,12 +300,12 @@ def test_speed_run_checkpoint_past_end_of_list_no_emit():
     assert len(received) == 1, "second checkpoint should not emit"
 
 
-def test_speed_run_checkpoint_non_dict_uses_positional_ordinal():
+def test_hyper_play_checkpoint_non_dict_uses_positional_ordinal():
     """checkpoints can be opaque objects; if not a dict with 'ordinal',
-    SpeedRunTiming falls back to the 1-based index."""
+    HyperPlayTiming falls back to the 1-based index."""
     clock = _Clock()
-    received: list[SpeedRunEmittedEvent] = []
-    sr = _make_speed_run(clock, received, checkpoints=["unused-string", "another"])
+    received: list[HyperPlayEmittedEvent] = []
+    sr = _make_hyper_play(clock, received, checkpoints=["unused-string", "another"])
 
     sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
     sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
@@ -314,11 +314,11 @@ def test_speed_run_checkpoint_non_dict_uses_positional_ordinal():
     assert received[1].ordinal == 2
 
 
-def test_speed_run_level_exit_enters_result_state():
+def test_hyper_play_level_exit_enters_result_state():
     """A non-abort LevelExit transitions to RESULT; no event emitted yet."""
     clock = _Clock()
-    received: list[SpeedRunEmittedEvent] = []
-    sr = _make_speed_run(clock, received)
+    received: list[HyperPlayEmittedEvent] = []
+    sr = _make_hyper_play(clock, received)
 
     clock.now = 4000
     sr.observe_event(LevelExitEvent(level=5, goal="normal"))
@@ -329,11 +329,11 @@ def test_speed_run_level_exit_enters_result_state():
     assert sr.is_armed is True  # still in RESULT, not idle yet
 
 
-def test_speed_run_level_exit_abort_no_transition():
+def test_hyper_play_level_exit_abort_no_transition():
     """abort exit while PLAYING is ignored — the run continues."""
     clock = _Clock()
-    received: list[SpeedRunEmittedEvent] = []
-    sr = _make_speed_run(clock, received)
+    received: list[HyperPlayEmittedEvent] = []
+    sr = _make_hyper_play(clock, received)
 
     sr.observe_event(LevelExitEvent(level=5, goal="abort"))
 
@@ -341,13 +341,13 @@ def test_speed_run_level_exit_abort_no_transition():
     clock.now = 2000
     sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
     assert len(received) == 1
-    assert isinstance(received[0], SpeedRunCheckpointEvent)
+    assert isinstance(received[0], HyperPlayCheckpointEvent)
 
 
-def test_speed_run_tick_in_dying_resumes_playing_after_delay():
+def test_hyper_play_tick_in_dying_resumes_playing_after_delay():
     clock = _Clock()
-    received: list[SpeedRunEmittedEvent] = []
-    sr = _make_speed_run(clock, received, death_delay_ms=1500)
+    received: list[HyperPlayEmittedEvent] = []
+    sr = _make_hyper_play(clock, received, death_delay_ms=1500)
 
     clock.now = 2000
     sr.observe_event(DeathEvent())  # enters DYING
@@ -365,12 +365,12 @@ def test_speed_run_tick_in_dying_resumes_playing_after_delay():
     assert len(received) == 2
 
 
-def test_speed_run_dying_blackout_excludes_dead_time_from_elapsed():
+def test_hyper_play_dying_blackout_excludes_dead_time_from_elapsed():
     """The DYING blackout duration is bumped into start_ms so it doesn't
     count toward elapsed time after the player respawns."""
     clock = _Clock()
-    received: list[SpeedRunEmittedEvent] = []
-    sr = _make_speed_run(clock, received, death_delay_ms=1500)
+    received: list[HyperPlayEmittedEvent] = []
+    sr = _make_hyper_play(clock, received, death_delay_ms=1500)
 
     clock.now = 1000
     sr.observe_event(DeathEvent())  # elapsed at this point = 1000ms
@@ -384,16 +384,16 @@ def test_speed_run_dying_blackout_excludes_dead_time_from_elapsed():
     clock.now = 3100
     sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
     cp_ev = received[-1]
-    assert isinstance(cp_ev, SpeedRunCheckpointEvent)
+    assert isinstance(cp_ev, HyperPlayCheckpointEvent)
     # Elapsed accounts for the bumped start_ms (start_ms += blackout_duration).
     # elapsed = now - start_ms = 3100 - (0 + 1600) = 1500
     assert cp_ev.elapsed_ms == 1500
 
 
-def test_speed_run_tick_in_result_emits_complete_event_after_delay():
+def test_hyper_play_tick_in_result_emits_complete_event_after_delay():
     clock = _Clock()
-    received: list[SpeedRunEmittedEvent] = []
-    sr = _make_speed_run(clock, received, auto_advance_delay_ms=1000)
+    received: list[HyperPlayEmittedEvent] = []
+    sr = _make_hyper_play(clock, received, auto_advance_delay_ms=1000)
 
     clock.now = 4000
     sr.observe_event(LevelExitEvent(level=5, goal="normal"))  # enters RESULT
@@ -406,16 +406,16 @@ def test_speed_run_tick_in_result_emits_complete_event_after_delay():
     assert sr.tick() is True
     assert len(received) == 1
     ev = received[0]
-    assert isinstance(ev, SpeedRunCompleteEvent)
+    assert isinstance(ev, HyperPlayCompleteEvent)
     assert ev.elapsed_ms == 4000
     assert ev.split_ms == 4000
     assert sr.is_armed is False
 
 
-def test_speed_run_unarmed_observes_do_nothing():
+def test_hyper_play_unarmed_observes_do_nothing():
     """observe_event before arm() is a no-op."""
-    received: list[SpeedRunEmittedEvent] = []
-    sr = SpeedRunTiming()
+    received: list[HyperPlayEmittedEvent] = []
+    sr = HyperPlayTiming()
     sr.observe_event(DeathEvent())
     sr.tick(now_ms=1000)
     assert received == []
@@ -553,3 +553,30 @@ def test_practice_new_arm_mints_new_episode_id():
     pt.observe_event(LevelExitEvent(level=1, goal="normal"))
     assert len(events) == 2
     assert events[0].episode_id != events[1].episode_id
+
+
+def test_practice_boss_defeat_completes_attempt():
+    """LevelExitEvent(goal='boss') must complete a goal-type attempt.
+
+    Regression for Bugs #2/#5: before the detect_finish fix, game-ending boss
+    defeats never produced a LevelExitEvent (exit_mode never fired), so the
+    practice session hung indefinitely. This test documents that timing already
+    handles goal='boss' correctly — the fix lives in the detector.
+    """
+    clock = _Clock()
+    received: list[AttemptResultEvent] = []
+    pt = PracticeTiming(now_ms=clock)
+    clock.now = 0
+    pt.arm(
+        segment_id="boss-seg",
+        end_type="goal",
+        death_penalty_ms=3200,
+        auto_advance_delay_ms=100,
+        on_attempt_result=received.append,
+    )
+    clock.now = 8000
+    pt.observe_event(LevelExitEvent(level=49, goal="boss"))
+    clock.now = 8200
+    assert pt.tick() is True
+    assert received[0].completed is True
+    assert received[0].time_ms == 8000

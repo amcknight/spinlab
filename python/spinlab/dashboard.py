@@ -162,7 +162,7 @@ def create_app(
     from .routes.practice import router as practice_router
     from .routes.reference import router as reference_router
     from .routes.segments import router as segments_router
-    from .routes.speed_run import router as speed_run_router
+    from .routes.hyper_play import router as hyper_play_router
     from .routes.system import router as system_router
 
     app.include_router(practice_router)
@@ -171,6 +171,6 @@ def create_app(
     app.include_router(segments_router)
     app.include_router(system_router)
     app.include_router(attempts_router)
-    app.include_router(speed_run_router)
+    app.include_router(hyper_play_router)
 
     return app

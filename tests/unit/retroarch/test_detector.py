@@ -189,3 +189,90 @@ def test_mark_replay_entrance_ignores_stale_died_flag():
     assert any(isinstance(e, LevelEntranceEvent) for e in forced)
     assert not any(isinstance(e, SpawnEvent) for e in forced)
     assert d._state.died_flag is False
+
+
+# ---------------------------------------------------------------------------
+# Early finish detection (detect_finish edge → LevelExitEvent before exit_mode)
+# ---------------------------------------------------------------------------
+
+def test_goal_tape_fires_level_exit_at_fanfare_edge_not_exit_mode():
+    """LevelExitEvent fires when fanfare goes 0→1 (goal tape hit), not when
+    exit_mode later goes non-zero.
+
+    Regression for Bug #3: practice timer was stopping at the exit animation
+    (~1–2s after actual goal) because the detector only emitted on exit_mode.
+    """
+    d = TransitionDetector()
+    d.step(_snap(level_num=5, fanfare=0, exit_mode=0), timestamp_ms=0)
+    # Fanfare fires (goal tape hit) — exit_mode still 0.
+    events = d.step(_snap(level_num=5, fanfare=1, exit_mode=0), timestamp_ms=16)
+    exits = [e for e in events if isinstance(e, LevelExitEvent)]
+    assert len(exits) == 1, f"expected 1 LevelExitEvent at fanfare edge, got {exits}"
+    assert exits[0].goal == "normal"
+
+
+def test_boss_defeat_fires_level_exit_without_exit_mode():
+    """Boss defeat (fanfare→1 + boss_defeat non-zero) emits LevelExitEvent(goal='boss')
+    even if exit_mode never fires.
+
+    Regression for Bugs #2/#5: game-ending boss defeats (Bowser) play credits
+    instead of a normal level-exit sequence, so exit_mode stays 0 forever.
+    Practice sessions hung indefinitely because AttemptResultEvent was never
+    delivered.
+    """
+    d = TransitionDetector()
+    d.step(_snap(level_num=5, fanfare=0, boss_defeat=1, exit_mode=0), timestamp_ms=0)
+    events = d.step(_snap(level_num=5, fanfare=1, boss_defeat=1, exit_mode=0), timestamp_ms=16)
+    exits = [e for e in events if isinstance(e, LevelExitEvent)]
+    assert len(exits) == 1, f"expected 1 LevelExitEvent for boss defeat, got {exits}"
+    assert exits[0].goal == "boss"
+
+
+def test_early_finish_suppresses_duplicate_when_exit_mode_fires():
+    """After detect_finish emits LevelExitEvent, the later exit_mode edge must
+    NOT emit a second LevelExitEvent.
+    """
+    d = TransitionDetector()
+    d.step(_snap(level_num=5, fanfare=0, exit_mode=0), timestamp_ms=0)
+    # Goal tape fires.
+    early = d.step(_snap(level_num=5, fanfare=1, exit_mode=0), timestamp_ms=16)
+    assert sum(1 for e in early if isinstance(e, LevelExitEvent)) == 1
+    # exit_mode fires a few frames later — must NOT emit a duplicate.
+    late = d.step(_snap(level_num=5, fanfare=1, exit_mode=1), timestamp_ms=32)
+    assert not any(isinstance(e, LevelExitEvent) for e in late), (
+        "duplicate LevelExitEvent from exit_mode after detect_finish already fired"
+    )
+
+
+def test_abort_via_exit_mode_still_fires_when_no_fanfare():
+    """Aborts (death-exit, start+select reset) have no fanfare, so detect_finish
+    returns None and the exit_mode edge must still emit LevelExitEvent(goal='abort').
+    """
+    d = TransitionDetector()
+    d.step(_snap(level_num=5, fanfare=0, exit_mode=0), timestamp_ms=0)
+    events = d.step(_snap(level_num=5, fanfare=0, exit_mode=1), timestamp_ms=16)
+    exits = [e for e in events if isinstance(e, LevelExitEvent)]
+    assert len(exits) == 1
+    assert exits[0].goal == "abort"
+
+
+def test_finish_emitted_resets_on_next_level_entrance():
+    """After a goal fires LevelExitEvent, _finish_emitted resets when the next
+    level's entrance is detected, so the second level can also get its exit event.
+    """
+    d = TransitionDetector()
+    # Level 1: goal tape fires.
+    d.step(_snap(level_num=1, fanfare=0), timestamp_ms=0)
+    d.step(_snap(level_num=1, fanfare=1), timestamp_ms=16)
+    assert d._finish_emitted is True
+
+    # Transition to level 2 (edge_spawn: level_start 0→1).
+    d.step(_snap(level_num=2, level_start=0, fanfare=0), timestamp_ms=32)
+    d.step(_snap(level_num=2, level_start=1, fanfare=0), timestamp_ms=48)
+    assert d._finish_emitted is False, "_finish_emitted should reset on new entrance"
+
+    # Level 2 can also detect its goal.
+    d.step(_snap(level_num=2, fanfare=0, exit_mode=0), timestamp_ms=64)
+    events = d.step(_snap(level_num=2, fanfare=1, exit_mode=0), timestamp_ms=80)
+    exits = [e for e in events if isinstance(e, LevelExitEvent)]
+    assert len(exits) == 1

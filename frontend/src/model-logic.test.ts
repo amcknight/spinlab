@@ -1,5 +1,5 @@
 import { describe, it, expect, test } from "vitest";
-import { selectedEstimate, currentEstimate, formatTrend, canStartPractice, canStartSpeedRun } from "./model-logic";
+import { selectedEstimate, currentEstimate, formatTrend, canStartPractice, canStartHyperPlay } from "./model-logic";
 import type { ModelSegment, CurrentSegment, Estimate, AppState } from "./types";
 
 const ESTIMATE: Estimate = {
@@ -157,7 +157,7 @@ describe("selectedEstimate edge cases", () => {
   });
 });
 
-test("canStartSpeedRun returns true when idle and connected", () => {
+test("canStartHyperPlay returns true when idle and connected", () => {
   const state = {
     mode: "idle" as const,
     emu_connected: true,
@@ -174,10 +174,10 @@ test("canStartSpeedRun returns true when idle and connected", () => {
     replay: null,
     cold_fill: null,
   };
-  expect(canStartSpeedRun(state)).toBe(true);
+  expect(canStartHyperPlay(state)).toBe(true);
 });
 
-test("canStartSpeedRun returns false during practice", () => {
+test("canStartHyperPlay returns false during practice", () => {
   const state = {
     mode: "practice" as const,
     emu_connected: true,
@@ -194,5 +194,5 @@ test("canStartSpeedRun returns false during practice", () => {
     replay: null,
     cold_fill: null,
   };
-  expect(canStartSpeedRun(state)).toBe(false);
+  expect(canStartHyperPlay(state)).toBe(false);
 });
