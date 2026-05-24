@@ -25,6 +25,7 @@ fits = [
     "jaxlib==0.10.0",
     "jaxopt==0.8.5",
     "numpyro==0.21.0",
+    # matplotlib renders SVG plots for an audit tool; cross-version visual drift is harmless and a hard floor is enough.
     "matplotlib>=3.8",
 ]
 
