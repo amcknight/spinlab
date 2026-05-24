@@ -213,7 +213,10 @@ async def test_hyper_play_death_makes_next_segment_cold(sr_db):
     emu.is_connected = True
 
     from spinlab.hyper_play import HyperPlaySession
-    sr = HyperPlaySession(emu=emu, db=sr_db, game_id="g")
+    # death_delay_ms=0 keeps the test fast and side-steps the post-death
+    # queue drain — the deliver task's events arrive AFTER the death has
+    # been fully processed.
+    sr = HyperPlaySession(emu=emu, db=sr_db, game_id="g", death_delay_ms=0)
     sr.is_running = True
 
     async def deliver():
@@ -228,6 +231,11 @@ async def test_hyper_play_death_makes_next_segment_cold(sr_db):
             elapsed_ms=18000,
             split_ms=6000,
         ))
+        # Brief settle so the death handler's reload + queue-drain
+        # completes before the complete event arrives. (death_delay_ms=0
+        # means no asyncio.sleep, but the event handler still does a
+        # load_state await + queue drain that needs to clear before the
+        # next event is delivered.)
         await asyncio.sleep(0.02)
         sr.receive_complete(HyperPlayCompleteEvent(
             elapsed_ms=40000,
@@ -242,6 +250,65 @@ async def test_hyper_play_death_makes_next_segment_cold(sr_db):
     attempts = sr_db.get_segment_attempts(seg_ids[1])
     assert len(attempts) == 1
     assert attempts[0]["time_ms"] == 15000
+
+
+@pytest.mark.asyncio
+async def test_hyper_play_death_before_cp_reloads_entrance_state(sr_db):
+    """Death before the in-level checkpoint should load the entrance state."""
+    emu = AsyncMock()
+    emu.is_connected = True
+
+    from spinlab.hyper_play import HyperPlaySession
+    sr = HyperPlaySession(emu=emu, db=sr_db, game_id="g", death_delay_ms=0)
+    sr.is_running = True
+
+    async def deliver():
+        await asyncio.sleep(0.02)
+        sr.receive_death(HyperPlayDeathEvent(elapsed_ms=5000, split_ms=5000))
+        await asyncio.sleep(0.05)
+        sr.receive_complete(HyperPlayCompleteEvent(elapsed_ms=30000, split_ms=25000))
+
+    asyncio.create_task(deliver())
+    await sr.run_one()
+
+    # Two load_state calls happened (sub-segment indexes:
+    #   pre-run: entrance via HyperPlayLoadCmd handler (orchestrator-side,
+    #     not observable through emu.load_state here)
+    #   on death: entrance reload via emu.load_state directly).
+    emu.load_state.assert_called_once()
+    path_arg = emu.load_state.call_args[0][0]
+    assert path_arg == sr.levels[0].entrance_state_path
+
+
+@pytest.mark.asyncio
+async def test_hyper_play_death_after_cp_reloads_checkpoint_state(sr_db):
+    """Death after the in-level checkpoint should load that checkpoint's
+    cold-respawn state, not the entrance state."""
+    emu = AsyncMock()
+    emu.is_connected = True
+
+    from spinlab.hyper_play import HyperPlaySession
+    sr = HyperPlaySession(emu=emu, db=sr_db, game_id="g", death_delay_ms=0)
+    sr.is_running = True
+
+    async def deliver():
+        await asyncio.sleep(0.02)
+        sr.receive_checkpoint(HyperPlayCheckpointEvent(
+            ordinal=1, elapsed_ms=12000, split_ms=12000,
+        ))
+        await asyncio.sleep(0.02)
+        sr.receive_death(HyperPlayDeathEvent(elapsed_ms=18000, split_ms=6000))
+        await asyncio.sleep(0.05)
+        sr.receive_complete(HyperPlayCompleteEvent(elapsed_ms=40000, split_ms=15000))
+
+    asyncio.create_task(deliver())
+    await sr.run_one()
+
+    emu.load_state.assert_called_once()
+    path_arg = emu.load_state.call_args[0][0]
+    expected = sr.levels[0].checkpoints[0]["state_path"]
+    assert path_arg == expected
+    assert path_arg != sr.levels[0].entrance_state_path
 
 
 @pytest.mark.asyncio

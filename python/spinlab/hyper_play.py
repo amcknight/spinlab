@@ -114,6 +114,25 @@ class HyperPlaySession:
                 return cold.state_path
         return fallback
 
+    def _cold_state_for_sub_index(self, level: LevelPlan, sub_index: int) -> str | None:
+        """Cold-respawn save state for the start of a sub-segment.
+
+        ``sub_index`` matches ``level.segments`` indexing:
+
+        - ``0`` → the level entrance (``level.entrance_state_path``).
+        - ``k`` for ``k > 0`` → the ``(k-1)``-th checkpoint's cold state.
+
+        Returns ``None`` if ``sub_index`` is past the last checkpoint (the
+        run is between the final checkpoint and ``HyperPlayCompleteEvent``
+        — no further reload boundary exists for this level).
+        """
+        if sub_index == 0:
+            return level.entrance_state_path
+        cp_index = sub_index - 1
+        if 0 <= cp_index < len(level.checkpoints):
+            return level.checkpoints[cp_index]["state_path"]
+        return None
+
     def _finalize_level(self, segs: list[SegmentRow]) -> LevelPlan:
         """Build a LevelPlan from a group of consecutive segments."""
         entrance_seg = segs[0]
@@ -239,6 +258,42 @@ class HyperPlaySession:
 
             elif isinstance(event, HyperPlayDeathEvent):
                 cold_since = True
+                # Reload the cold start of the current sub-segment so the
+                # player retries from the same boundary every time. SMW's
+                # native respawn drops them at whatever the last in-level
+                # checkpoint was, which may or may not match the sub-segment
+                # we're currently tracking — explicit reload keeps the two
+                # consistent.
+                cold_state = self._cold_state_for_sub_index(level, current_sub_index)
+                if cold_state is not None:
+                    # Match the timing module's blackout duration (timing.py
+                    # also waits death_delay_ms before transitioning DYING →
+                    # PLAYING) so the visible load lines up with timing's
+                    # internal "start of the next attempt" boundary.
+                    if self.death_delay_ms > 0:
+                        await asyncio.sleep(self.death_delay_ms / 1000)
+                    if not self.is_running or not self.emu.is_connected:
+                        break
+                    try:
+                        await self.emu.load_state(cold_state)
+                        logger.info(
+                            "hyper_play: death → reloaded cold state=%s sub=%d",
+                            cold_state, current_sub_index,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "hyper_play: load_state on death failed (path=%s)",
+                            cold_state,
+                        )
+                    # Drop anything that landed in the queue during the
+                    # blackout window — those events reflect the pre-reload
+                    # game state and acting on them now would double-process
+                    # whatever just happened.
+                    while not self._event_queue.empty():
+                        try:
+                            self._event_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
 
             elif isinstance(event, HyperPlayCompleteEvent):
                 if cold_since and current_sub_index < len(level.segments):
