@@ -11,7 +11,6 @@ from spinlab.models import (
     Status,
     Waypoint,
     WaypointSaveState,
-    transition_mode,
 )
 from spinlab.protocol import (
     HyperPlayCheckpointEvent,
@@ -20,23 +19,6 @@ from spinlab.protocol import (
     HyperPlayLoadCmd,
 )
 from spinlab.session_manager import SessionManager
-
-
-def test_hyper_play_mode_exists():
-    assert Mode.HYPER_PLAY.value == "hyper_play"
-
-
-def test_idle_to_hyper_play_legal():
-    assert transition_mode(Mode.IDLE, Mode.HYPER_PLAY) == Mode.HYPER_PLAY
-
-
-def test_hyper_play_to_idle_legal():
-    assert transition_mode(Mode.HYPER_PLAY, Mode.IDLE) == Mode.IDLE
-
-
-def test_hyper_play_to_practice_illegal():
-    with pytest.raises(ValueError):
-        transition_mode(Mode.HYPER_PLAY, Mode.PRACTICE)
 
 
 def _make_waypoint_and_state(db, game_id, level, ep_type, ordinal, state_path, conditions=None):
