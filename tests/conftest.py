@@ -69,6 +69,10 @@ class FakeEmuBackend:
         self.save_state_calls: list[str] = []
         self.load_state_calls: list[str] = []
         self.on_disconnect = None
+        # Test hook: when True, save_state raises after recording the call,
+        # simulating an RA backend that accepted the request but failed to
+        # write a file (e.g., StateSaveTimeoutError).
+        self.save_state_should_raise: bool = False
 
     async def connect(self, timeout: float = 0) -> bool:
         # No-op for tests; consumer code reads `is_connected` directly.
@@ -91,6 +95,8 @@ class FakeEmuBackend:
 
     async def save_state(self, segment_id: str) -> None:
         self.save_state_calls.append(segment_id)
+        if self.save_state_should_raise:
+            raise RuntimeError(f"simulated save_state failure for {segment_id}")
 
     async def load_state(self, state_path: str) -> None:
         self.load_state_calls.append(state_path)

@@ -440,3 +440,95 @@ class TestSaveOnEvent:
             CheckpointEvent(level_num=5, cp_ordinal=1), "g1",
         )
         assert fake_emu.save_state_calls == []
+
+
+class TestSaveStateFailureStripsStatePath:
+    """When save_state raises, the controller must strip state_path before
+    passing the event to the recorder. Otherwise the recorder buffers a path
+    pointing at a file that never landed on disk, _close_segment writes a
+    waypoint_save_states row referencing it, and practice crashes on load.
+    See docs/superpowers/scans/2026-05-23-improve.md → CF-8.
+
+    Spies on the recorder rather than letting it run, so the test stays
+    focused on the controller's stripping behavior without taking on the
+    setup cost of real capture_run / capture_session rows for the
+    close-segment path.
+    """
+
+    async def test_entrance_save_state_failure_strips_state_path(
+        self, controller, fake_emu, monkeypatch,
+    ):
+        from spinlab.protocol import LevelEntranceEvent
+
+        received: list = []
+        monkeypatch.setattr(
+            controller.recorder, "handle_entrance",
+            lambda evt: received.append(evt),
+        )
+
+        controller._enter_recording("run_x", "sess_x")
+        fake_emu.save_state_should_raise = True
+
+        evt = LevelEntranceEvent(
+            level=5, room=2, state_path="/tmp/should-not-be-persisted.state",
+        )
+        await controller.handle_entrance(evt)
+
+        # save_state was attempted (so we have a log trail).
+        assert fake_emu.save_state_calls, "save_state should have been attempted"
+        # The event handed to the recorder carries state_path=None.
+        assert len(received) == 1
+        assert received[0].state_path is None
+        # Other fields untouched.
+        assert received[0].level == 5
+        assert received[0].room == 2
+
+    async def test_checkpoint_save_state_failure_strips_state_path(
+        self, controller, fake_emu, monkeypatch,
+    ):
+        from spinlab.protocol import CheckpointEvent
+
+        received: list = []
+        monkeypatch.setattr(
+            controller.recorder, "handle_checkpoint",
+            lambda evt, game_id: received.append((evt, game_id)),
+        )
+
+        controller._enter_recording("run_x", "sess_x")
+        fake_emu.save_state_should_raise = True
+
+        evt = CheckpointEvent(
+            level_num=5, cp_ordinal=1, state_path="/tmp/should-not-be-persisted.state",
+        )
+        await controller.handle_checkpoint(evt, "g1")
+
+        assert fake_emu.save_state_calls, "save_state should have been attempted"
+        assert len(received) == 1
+        recorded_evt, recorded_game_id = received[0]
+        assert recorded_evt.state_path is None
+        assert recorded_evt.level_num == 5
+        assert recorded_evt.cp_ordinal == 1
+        assert recorded_game_id == "g1"
+
+    async def test_entrance_save_state_success_keeps_state_path(
+        self, controller, fake_emu, monkeypatch,
+    ):
+        """Success path is unchanged: state_path passes through to recorder."""
+        from spinlab.protocol import LevelEntranceEvent
+
+        received: list = []
+        monkeypatch.setattr(
+            controller.recorder, "handle_entrance",
+            lambda evt: received.append(evt),
+        )
+
+        controller._enter_recording("run_x", "sess_x")
+        fake_emu.save_state_should_raise = False  # explicit
+
+        evt = LevelEntranceEvent(
+            level=5, room=2, state_path="/tmp/should-be-persisted.state",
+        )
+        await controller.handle_entrance(evt)
+
+        assert len(received) == 1
+        assert received[0].state_path == "/tmp/should-be-persisted.state"
