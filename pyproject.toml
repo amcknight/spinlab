@@ -25,6 +25,7 @@ fits = [
     "jaxlib==0.10.0",
     "jaxopt==0.8.5",
     "numpyro==0.21.0",
+    "matplotlib>=3.8",
 ]
 
 [project.scripts]
