@@ -118,3 +118,26 @@ class TestRenderHeadlineHtml:
         # is acceptable as long as no fake number leaks through.
         assert "81.2" not in out
         assert "—" in out or "M_clear" not in out
+
+
+import xml.etree.ElementTree as ET
+
+from spinlab.fit_renderer import render_learning_curve_svg
+
+
+class TestRenderLearningCurveSvg:
+    def test_fittable_returns_parseable_svg(self):
+        svg = render_learning_curve_svg(_fittable_payload())
+        # Strip xmlns prefixes for terse parsing.
+        root = ET.fromstring(svg)
+        assert root.tag.endswith("svg")
+        # Three subplots (α, sf, ssp), each with at least a line path.
+        paths = root.findall(".//{http://www.w3.org/2000/svg}path")
+        assert len(paths) >= 3
+
+    def test_unfittable_returns_placeholder(self):
+        svg = render_learning_curve_svg(_unfittable_payload())
+        # Either an empty <svg/> or a string containing "no fit" — never an
+        # SVG with fabricated curves.
+        assert "<svg" in svg
+        assert "fit" not in svg or "no" in svg.lower()

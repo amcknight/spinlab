@@ -15,8 +15,22 @@ Contract: input payloads follow the v1 envelope at
 """
 from __future__ import annotations
 
+import io
 import math
 from typing import Any
+
+
+def _matplotlib_module():
+    """Lazy-import matplotlib with the Agg backend forced.
+
+    Called from inside each plot helper rather than at module top so
+    importing ``spinlab.fit_renderer`` stays cheap (the CLI subcommand
+    registration imports the module unconditionally).
+    """
+    import matplotlib
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+    return matplotlib, plt
 
 
 def _theta_n(log_inf: float, log_1: float, log_halflife: float, n: float) -> float:
@@ -73,3 +87,87 @@ def render_headline_html(payload: dict[str, Any]) -> str:
         f'caveats: {caveats_str}</div>\n'
         f'<div class="headline">{m_str}  ·  {drn_str}</div>\n'
     )
+
+
+# Learning-curve x-axis range: extrapolate one halflife past the
+# observed n so the asymptote is visible. Lower bound is 1 (the
+# model's reference attempt).
+_CURVE_MIN_N = 1
+_CURVE_EXTRAPOLATE_HALFLIVES = 1
+
+
+# Which latent indices in the payload's `bands` map to each curve.
+# Keys come straight from the v1 envelope contract; see api_contract.md
+# section "result.bands".
+_CURVE_LATENTS = [
+    ("alpha", "log_alpha_inf", "log_alpha_1", "log_hl_alpha"),
+    ("sf",    "log_sf_inf",    "log_sf_1",    "log_hl_sf"),
+    ("ssp",   "log_ssp_inf",   "log_ssp_1",   "log_hl_ssp"),
+]
+
+
+def _placeholder_svg(message: str) -> str:
+    """Tiny SVG carrying a plain-text 'no fit' marker. Used for unfittable
+    payloads so the per-segment layout still has the slot filled."""
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="40">'
+        f'<text x="10" y="25" font-family="monospace">{message}</text>'
+        f'</svg>'
+    )
+
+
+def render_learning_curve_svg(payload: dict[str, Any]) -> str:
+    """Render alpha/sf/ssp learning curves with p5-p95 bands.
+
+    Bands are an APPROXIMATION: the payload stores only per-latent
+    p5/p50/p95 in log space, not the joint posterior. We evaluate the
+    curve at the marginal endpoints (log_inf=p5/p95, log_1=p5/p95,
+    log_halflife=p50) to produce a band envelope. Faithful enough for
+    'tight vs. wide' triage; would be wrong to read as a true
+    credible interval. This is fine — Phase 2b is a visual triage
+    tool, not a calibrated reporting surface.
+    """
+    if not payload["status"].get("fittable") or "bands" not in payload.get("result", {}):
+        return _placeholder_svg("no fit (unfittable or missing bands)")
+
+    _, plt = _matplotlib_module()
+    bands = payload["result"]["bands"]
+    n_obs = payload["n_attempts"]
+
+    # Extrapolate the x-axis a bit past the data to reveal the asymptote.
+    max_hl = max(
+        math.exp(bands["log_hl_alpha"]["p50"]),
+        math.exp(bands["log_hl_sf"]["p50"]),
+        math.exp(bands["log_hl_ssp"]["p50"]),
+    )
+    n_max = max(n_obs + 1, int(n_obs + _CURVE_EXTRAPOLATE_HALFLIVES * max_hl))
+    import numpy as np  # local to keep top-of-module light
+    n_grid = np.linspace(_CURVE_MIN_N, n_max, 200)
+
+    fig, axes = plt.subplots(3, 1, figsize=(8, 5), sharex=True)
+    for ax, (label, k_inf, k_1, k_hl) in zip(axes, _CURVE_LATENTS):
+        b_inf = bands[k_inf]
+        b_1 = bands[k_1]
+        log_hl_p50 = bands[k_hl]["p50"]
+        center = np.array([_theta_n(b_inf["p50"], b_1["p50"], log_hl_p50, n) for n in n_grid])
+        lo = np.array([_theta_n(b_inf["p5"], b_1["p5"], log_hl_p50, n) for n in n_grid])
+        hi = np.array([_theta_n(b_inf["p95"], b_1["p95"], log_hl_p50, n) for n in n_grid])
+        # Element-wise min/max so the band is always lo<=center<=hi visually.
+        band_lo = np.minimum(lo, hi)
+        band_hi = np.maximum(lo, hi)
+        ax.fill_between(n_grid, band_lo, band_hi, alpha=0.2)
+        ax.plot(n_grid, center, linewidth=1.5)
+        ax.axvline(n_obs, color="grey", linestyle=":", linewidth=0.8)
+        ax.set_ylabel(label)
+    axes[-1].set_xlabel("attempt #")
+    fig.tight_layout()
+
+    buf = io.StringIO()
+    fig.savefig(buf, format="svg")
+    plt.close(fig)
+    # matplotlib emits an XML prolog; strip it so the SVG embeds cleanly
+    # inside the HTML body without a stray <?xml...?> tag in mid-document.
+    svg = buf.getvalue()
+    if svg.startswith("<?xml"):
+        svg = svg.split("?>", 1)[1].lstrip()
+    return svg
