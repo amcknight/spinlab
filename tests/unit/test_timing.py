@@ -329,19 +329,21 @@ def test_hyper_play_level_exit_enters_result_state():
     assert sr.is_armed is True  # still in RESULT, not idle yet
 
 
-def test_hyper_play_level_exit_abort_no_transition():
-    """abort exit while PLAYING is ignored — the run continues."""
+def test_hyper_play_level_exit_abort_dispatches_death():
+    """abort exit (pit-fall in SMW) is treated as a death — emits
+    HyperPlayDeathEvent and enters DYING so the run loop reloads cold state."""
     clock = _Clock()
     received: list[HyperPlayEmittedEvent] = []
     sr = _make_hyper_play(clock, received)
 
+    clock.now = 1234
     sr.observe_event(LevelExitEvent(level=5, goal="abort"))
 
-    # Still in PLAYING; future checkpoint events still fire.
-    clock.now = 2000
+    assert len(received) == 1
+    assert isinstance(received[0], HyperPlayDeathEvent)
+    # In DYING; subsequent events are ignored until tick() resumes PLAYING.
     sr.observe_event(CheckpointEvent(level_num=5, cp_ordinal=99))
     assert len(received) == 1
-    assert isinstance(received[0], HyperPlayCheckpointEvent)
 
 
 def test_hyper_play_tick_in_dying_resumes_playing_after_delay():

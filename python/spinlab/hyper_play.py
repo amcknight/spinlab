@@ -58,15 +58,15 @@ class HyperPlaySession:
         db: "Database",
         game_id: str,
         auto_advance_delay_ms: int = 1000,
-        death_delay_ms: int = 1500,
+        death_delay_ms: int = 0,
         on_event: Callable | None = None,
         session_id: str | None = None,
     ) -> None:
-        # death_delay_ms: time the emulator holds a black-screen overlay after
-        # a death before reloading the cold save state.  The cold save is
-        # captured at the start of SMW's post-respawn fade-in, so reloading it
-        # instantly looks like a glitchy replay of the death sequence.  A short
-        # blackout gives the death weight without making practice feel sluggish.
+        # death_delay_ms: optional blackout (ms) between death detection and
+        # cold-state reload. Default 0 matches practice mode — load fires
+        # immediately so the player isn't waiting. Non-zero values also
+        # extend timing.py's DYING window, so deaths exclude that duration
+        # from the run timer.
         self.emu = emu
         self.db = db
         self.game_id = game_id

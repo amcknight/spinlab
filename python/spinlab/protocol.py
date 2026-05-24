@@ -236,7 +236,7 @@ class HyperPlayLoadCmd:
     auto_advance_delay_ms: int = 1000
     # Length of the post-death blackout before the cold save state is reloaded.
     # See HyperPlaySession.death_delay_ms for rationale.
-    death_delay_ms: int = 1500
+    death_delay_ms: int = 0
 
 @dataclass
 class HyperPlayStopCmd:

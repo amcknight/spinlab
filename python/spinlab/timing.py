@@ -328,7 +328,7 @@ class HyperPlayTiming:
         segment_id: str,
         checkpoints: list,
         on_event: Callable[[HyperPlayEmittedEvent], None] | None = None,
-        death_delay_ms: int = 1500,
+        death_delay_ms: int = 0,
         auto_advance_delay_ms: int = 1000,
     ) -> None:
         """Arm a speed-run attempt."""
@@ -349,7 +349,12 @@ class HyperPlayTiming:
             # DYING advances in tick(); IDLE/RESULT ignore events.
             return
 
-        if isinstance(event, DeathEvent):
+        if isinstance(event, DeathEvent) or (
+            isinstance(event, LevelExitEvent) and event.goal == "abort"
+        ):
+            # Pit-falls / death-falls in SMW skip player_anim=9 entirely and
+            # surface only as LevelExit(goal='abort'). Treat them as deaths so
+            # HyperPlay reloads the cold state (mirrors practice.handle_level_exit_abort).
             now = self._now()
             elapsed = now - self._start_ms
             split = now - self._split_ms
@@ -375,12 +380,11 @@ class HyperPlayTiming:
                 self._cp_index += 1
 
         elif isinstance(event, LevelExitEvent):
-            if event.goal != "abort":
-                now = self._now()
-                self._elapsed_ms = now - self._start_ms
-                self._result_split_ms = int(math.floor(now - self._split_ms))
-                self._result_start_ms = now
-                self._state = _HyperPlayState.RESULT
+            now = self._now()
+            self._elapsed_ms = now - self._start_ms
+            self._result_split_ms = int(math.floor(now - self._split_ms))
+            self._result_start_ms = now
+            self._state = _HyperPlayState.RESULT
 
     def tick(self, now_ms: int | None = None) -> bool:
         """Advance timers. Returns True when the complete event is emitted."""
