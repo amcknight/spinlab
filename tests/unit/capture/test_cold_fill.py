@@ -213,3 +213,46 @@ class TestGetColdFillState:
         await cc.start("g")
         state = cc.get_state()
         assert state["segment_label"] == "My Custom Name"
+
+
+class TestColdFillSaveStateRetryCount:
+    """First save_state failure should log attempt=1; second should log
+    attempt=2. Success on attempt N clears the counter for that segment."""
+
+    async def test_repeated_failures_increment_attempt_count(
+        self, emu, cold_fill_db, caplog,
+    ):
+        import logging
+        from unittest.mock import AsyncMock
+
+        emu.save_state = AsyncMock(side_effect=RuntimeError("simulated"))
+
+        cc = ColdFillController(cold_fill_db, emu)
+        await cc.start("g")
+
+        with caplog.at_level(logging.WARNING, logger="spinlab.capture.cold_fill"):
+            await cc.handle_spawn(SpawnEvent(state_path="/cold1.mss"))
+            await cc.handle_spawn(SpawnEvent(state_path="/cold1.mss"))
+
+        msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        # log.warn formats int values via repr → "attempt=1" / "attempt=2".
+        assert any("attempt=1" in m for m in msgs), f"missing attempt=1 log; got {msgs}"
+        assert any("attempt=2" in m for m in msgs), f"missing attempt=2 log; got {msgs}"
+
+    async def test_success_clears_retry_counter(self, emu, cold_fill_db):
+        from unittest.mock import AsyncMock
+
+        # Fail once, then succeed.
+        emu.save_state = AsyncMock(side_effect=[RuntimeError("simulated"), None])
+
+        cc = ColdFillController(cold_fill_db, emu)
+        await cc.start("g")
+        seg1_id = cc.current
+
+        await cc.handle_spawn(SpawnEvent(state_path="/cold1.mss"))
+        assert cc._save_state_attempts.get(seg1_id) == 1
+
+        await cc.handle_spawn(SpawnEvent(state_path="/cold1.mss"))
+        # Success — the counter for this segment is cleared so a future
+        # cold-fill of the same segment starts fresh.
+        assert seg1_id not in cc._save_state_attempts

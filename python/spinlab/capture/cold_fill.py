@@ -29,6 +29,10 @@ class ColdFillController:
         self.current: str | None = None
         self.cold_waypoint_id: str | None = None
         self.total: int = 0
+        # Per-segment retry counter for save_state failures. The user retries
+        # by dying again; on the next spawn we log attempt=N so repeated
+        # failures don't drown in single-line warnings.
+        self._save_state_attempts: dict[str, int] = {}
 
     async def start(self, game_id: str) -> ActionResult:
         """Begin cold-fill for all segments missing cold save states."""
@@ -93,14 +97,20 @@ class ColdFillController:
             logger.info("cold_fill: spawn without state_path — ignoring")
             return False
         seg_id = event.segment_id or self.current
+        attempt = self._save_state_attempts.get(seg_id, 0) + 1
+        self._save_state_attempts[seg_id] = attempt
         try:
             await self.emu.save_state(seg_id)
         except Exception as exc:
             log.warn(
-                logger, "cold_fill: save_state failed, skipping segment",
-                exc=exc, segment_id=seg_id,
+                logger,
+                "cold_fill: save_state failed; segment will be retried on next spawn",
+                exc=exc, segment_id=seg_id, attempt=attempt,
             )
             return False
+        # Success — clear the retry counter so a re-entered cold-fill pass
+        # for this segment starts fresh.
+        self._save_state_attempts.pop(seg_id, None)
         logger.info("cold_fill: captured cold state for segment=%s path=%s",
                      self.current, event.state_path)
         if self.cold_waypoint_id:
@@ -123,6 +133,7 @@ class ColdFillController:
         self.queue = []
         self.current = None
         self.total = 0
+        self._save_state_attempts = {}
 
     def get_state(self) -> dict | None:
         """Return cold-fill progress dict for state snapshots, or None."""
