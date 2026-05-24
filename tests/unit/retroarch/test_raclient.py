@@ -55,6 +55,15 @@ def client(ra_dirs):
     )
     c._nci = MagicMock()
     c._game_basename = "Test"  # pre-connect for save/load tests
+    # Default: read_ram returns a fresh value each call so the post-load
+    # validation in `_load_state_sync` sees a "change" and treats the load
+    # as successful. Tests that exercise the validation path itself override
+    # this side_effect explicitly.
+    _read_call_count = [0]
+    def _default_read_ram(addr: int, length: int) -> bytes:
+        _read_call_count[0] += 1
+        return bytes([_read_call_count[0] % 256] * length)
+    c._nci.read_ram.side_effect = _default_read_ram
     return c
 
 
@@ -221,6 +230,72 @@ async def test_load_state_without_basename_raises(client, tmp_path):
     src.write_bytes(b"data")
     with pytest.raises(RAClientError, match="game basename not set"):
         await client.load_state(src)
+
+
+@pytest.mark.asyncio
+async def test_load_state_raises_when_ram_unchanged_after_settle(client, tmp_path):
+    """RA silently rejects malformed state files — NCI returns no error code.
+
+    SpinLab infers success by reading game-state RAM before and after the
+    load. If every poll in LOAD_VALIDATION_POLL_MAX_SEC matches the pre-load
+    bytes, the load was a no-op and we raise so the practice loop can
+    surface a clear error instead of hanging waiting for events that will
+    never fire.
+    """
+    # Tighten the validation window so the test doesn't sit on the full
+    # 500ms when failing — patch the module constant for the duration.
+    import spinlab.retroarch.raclient as raclient_mod
+
+    src = tmp_path / "saved.state"
+    src.write_bytes(b"malformed-but-existent")
+    client._nci.read_ram.side_effect = None
+    client._nci.read_ram.return_value = b"\x00" * 155
+
+    original_max = raclient_mod.LOAD_VALIDATION_POLL_MAX_SEC
+    raclient_mod.LOAD_VALIDATION_POLL_MAX_SEC = 0.05
+    try:
+        with pytest.raises(StateLoadError, match="game-state RAM did not change"):
+            await client.load_state(src)
+    finally:
+        raclient_mod.LOAD_VALIDATION_POLL_MAX_SEC = original_max
+
+
+@pytest.mark.asyncio
+async def test_load_state_succeeds_when_ram_changes_within_window(client, tmp_path):
+    """Happy path: post-load RAM differs from pre-load on the very first
+    post-load poll. No raise, state_version advances exactly once."""
+    src = tmp_path / "saved.state"
+    src.write_bytes(b"valid-state")
+
+    call_idx = [0]
+    def side_effect(addr: int, length: int) -> bytes:
+        call_idx[0] += 1
+        # First read = pre-load snapshot; subsequent reads differ.
+        return b"\x00" * length if call_idx[0] == 1 else b"\xff" * length
+    client._nci.read_ram.side_effect = side_effect
+
+    before = client.state_version
+    await client.load_state(src)
+    assert client.state_version == before + 1
+
+
+@pytest.mark.asyncio
+async def test_load_state_polls_until_ram_changes(client, tmp_path):
+    """RA may take longer than load_settle_sec to actually process the load.
+    The validation loop should keep polling until the change is observed."""
+    src = tmp_path / "saved.state"
+    src.write_bytes(b"valid-state")
+
+    call_idx = [0]
+    def side_effect(addr: int, length: int) -> bytes:
+        call_idx[0] += 1
+        # Pre-load read = call 1. Next 2 polls still show pre-load bytes
+        # (RA still processing). Poll 3 finally shows the post-load state.
+        return b"\x00" * length if call_idx[0] <= 3 else b"\xff" * length
+    client._nci.read_ram.side_effect = side_effect
+
+    await client.load_state(src)  # must not raise
+    assert call_idx[0] >= 4, "should have polled past the still-pre-load reads"
 
 
 # ---------------------------------------------------------------------------

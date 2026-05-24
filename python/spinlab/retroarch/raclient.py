@@ -61,6 +61,18 @@ SAVE_RETRY_BACKOFF_SEC = 0.2
 MOVE_RETRY_ATTEMPTS = 5
 MOVE_RETRY_BACKOFF_SEC = 0.1
 
+# After LOAD_STATE_SLOT, poll game-state RAM for up to this long to confirm
+# RA actually consumed the slot. The NCI protocol has no success/failure
+# reply on LOAD_STATE_SLOT — RA silently rejects malformed state files (the
+# failure shows up only in RA's own log). We infer success by comparing a
+# small chunk of game-state RAM before and after the load: if it stays
+# byte-identical across every poll in the window, the load was a no-op.
+# 500ms is comfortably longer than RA's worst-case ~100ms processing while
+# short enough that a real failure surfaces before the practice loop's
+# 1s attempt-result wait times out.
+LOAD_VALIDATION_POLL_INTERVAL_SEC = 0.05
+LOAD_VALIDATION_POLL_MAX_SEC = 0.5
+
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -389,15 +401,15 @@ class RAClient:
         except OSError as exc:
             raise StateLoadError(f"Could not stage {src} → {slot_path}: {exc}") from exc
 
+        # Snapshot game-state RAM BEFORE firing LOAD_STATE_SLOT so we can
+        # detect a silent rejection (RA does not return an error code; the
+        # failure shows up only in RA's own log). See LOAD_VALIDATION_*.
+        pre = self._read_load_validation_bytes()
+
         self._nci.load_state_slot(self._reserved_slot)
         # Bump version immediately after firing the command — poller sees the
         # change on its very next tick and resyncs.
         self._state_version += 1
-
-        logger.info(
-            'load_state ok src="%s" slot=%d version=%d',
-            src, self._reserved_slot, self._state_version,
-        )
 
         # Give RA time to read the slot file before we delete it. RA reads
         # synchronously on its next frame (~16ms); 100ms is a generous margin.
@@ -410,6 +422,48 @@ class RAClient:
                 'load_state slot_cleanup_failed path="%s" err=%s',
                 slot_path, exc,
             )
+
+        if not self._wait_for_load_validation_change(pre):
+            raise StateLoadError(
+                f"RA appears to have rejected the load: game-state RAM did "
+                f"not change in {LOAD_VALIDATION_POLL_MAX_SEC:.1f}s after "
+                f"LOAD_STATE_SLOT (src={src}, slot={self._reserved_slot}). "
+                f"The source file may be malformed — check RA's log for "
+                f"[State] Failed entries."
+            )
+
+        logger.info(
+            'load_state ok src="%s" slot=%d version=%d',
+            src, self._reserved_slot, self._state_version,
+        )
+
+    def _read_load_validation_bytes(self) -> bytes:
+        """Read the game-state RAM chunk used to validate load_state success.
+
+        Returns the 155-byte block from $0071 (player_anim) through $010B
+        (room_num) — a single NCI round-trip that covers the detector's
+        primary state region. After a successful load, at least one byte in
+        this region differs from its pre-load value within ~1 emulator frame.
+        """
+        from spinlab.retroarch import addresses as a
+        return self._nci.read_ram(
+            a.ADDR_PLAYER_ANIM, a.ADDR_ROOM_NUM - a.ADDR_PLAYER_ANIM + 1,
+        )
+
+    def _wait_for_load_validation_change(self, pre: bytes) -> bool:
+        """Poll the validation region until it differs from ``pre`` or the
+        validation window expires. Returns True on change, False on timeout.
+
+        Returns immediately on the first poll that differs — success path
+        costs at most one NCI read.
+        """
+        deadline = time.monotonic() + LOAD_VALIDATION_POLL_MAX_SEC
+        while True:
+            if self._read_load_validation_bytes() != pre:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(LOAD_VALIDATION_POLL_INTERVAL_SEC)
 
     def _ra_slot_path(self) -> Path:
         self._require_basename()
