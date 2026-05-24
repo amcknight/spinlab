@@ -171,3 +171,44 @@ def render_learning_curve_svg(payload: dict[str, Any]) -> str:
     if svg.startswith("<?xml"):
         svg = svg.split("?>", 1)[1].lstrip()
     return svg
+
+
+# Outcome → marker color. Plain hex so renders identically in every browser.
+_OUTCOME_COLOR = {
+    "survived": "#1a9850",   # green
+    "died":     "#d73027",   # red
+}
+
+
+def render_attempts_strip_svg(events: list[dict[str, Any]]) -> str:
+    """Render the raw attempt sequence as a scatter strip.
+
+    x = position in the event sequence (1..N), y = time_ms. Green
+    survived, red died. Lets the reader sanity-check whether the
+    fitted curve passes through the actual data.
+
+    Empty input → placeholder SVG with a 'no attempts' marker; never
+    a blank canvas (the per-segment layout always allocates the slot).
+    """
+    if not events:
+        return _placeholder_svg("no attempts recorded")
+
+    _, plt = _matplotlib_module()
+    import numpy as np
+    xs = np.arange(1, len(events) + 1)
+    ys = np.array([e["time_ms"] for e in events], dtype=float)
+    colors = [_OUTCOME_COLOR.get(e["outcome"], "#888888") for e in events]
+
+    fig, ax = plt.subplots(figsize=(8, 1.6))
+    ax.scatter(xs, ys, c=colors, s=20, alpha=0.85)
+    ax.set_xlabel("attempt #")
+    ax.set_ylabel("time_ms")
+    fig.tight_layout()
+
+    buf = io.StringIO()
+    fig.savefig(buf, format="svg")
+    plt.close(fig)
+    svg = buf.getvalue()
+    if svg.startswith("<?xml"):
+        svg = svg.split("?>", 1)[1].lstrip()
+    return svg

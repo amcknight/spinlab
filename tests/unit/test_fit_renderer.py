@@ -141,3 +141,31 @@ class TestRenderLearningCurveSvg:
         # SVG with fabricated curves.
         assert "<svg" in svg
         assert "fit" not in svg or "no" in svg.lower()
+
+
+from spinlab.fit_renderer import render_attempts_strip_svg
+
+
+def _event_row(outcome: str, time_ms: int) -> dict:
+    """Minimal event-row dict matching the get_segment_event_rows shape."""
+    return {"outcome": outcome, "time_ms": time_ms}
+
+
+class TestRenderAttemptsStripSvg:
+    def test_returns_parseable_svg_with_at_least_one_marker(self):
+        events = [
+            _event_row("died", 12000), _event_row("died", 9000),
+            _event_row("survived", 25000),
+            _event_row("died", 8000), _event_row("survived", 24000),
+        ]
+        svg = render_attempts_strip_svg(events)
+        root = ET.fromstring(svg)
+        assert root.tag.endswith("svg")
+        # Scatter markers render as <path> or <use> elements with `clip-path`
+        # attributes set. Either way at least one drawing element.
+        assert len(root.findall(".//*")) > 5
+
+    def test_empty_events_returns_placeholder(self):
+        svg = render_attempts_strip_svg([])
+        assert "<svg" in svg
+        assert "no attempts" in svg.lower() or "—" in svg
