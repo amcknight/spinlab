@@ -145,7 +145,7 @@ class CaptureRunsMixin:
         return bool(row and row[0] == "draft")
 
     def hard_delete_capture_run(self, run_id: str) -> None:
-        """Hard delete: remove run, segments, model_state, attempts, and recorded times."""
+        """Hard delete: remove run, segments, model_state, and attempts."""
         with self.transaction():  # type: ignore[attr-defined]
             seg_ids = [
                 r[0] for r in self.conn.execute(
