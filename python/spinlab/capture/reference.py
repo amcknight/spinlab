@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -429,9 +430,17 @@ class ReferenceController:
                 try:
                     await self.emu.save_state(seg_id)
                 except Exception:
+                    # Don't pass a state_path that points at a file we
+                    # failed to write — _close_segment would persist a
+                    # waypoint_save_states row referencing it, and practice
+                    # would crash on load. The structured log surfaces the
+                    # failure; the recorder sees the event with no path.
                     logger.exception(
-                        "save_state failed for entrance event seg_id=%r", seg_id,
+                        "save_state failed for entrance event seg_id=%r; "
+                        "stripping state_path from recorded event",
+                        seg_id,
                     )
+                    event = replace(event, state_path=None)
         self.recorder.handle_entrance(event)
 
     async def handle_checkpoint(self, event: CheckpointEvent, game_id: str) -> None:
@@ -445,8 +454,11 @@ class ReferenceController:
                     await self.emu.save_state(seg_id)
                 except Exception:
                     logger.exception(
-                        "save_state failed for checkpoint event seg_id=%r", seg_id,
+                        "save_state failed for checkpoint event seg_id=%r; "
+                        "stripping state_path from recorded event",
+                        seg_id,
                     )
+                    event = replace(event, state_path=None)
         self.recorder.handle_checkpoint(event, game_id)
 
     def handle_death(self, event: DeathEvent) -> None:
