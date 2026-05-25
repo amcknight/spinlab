@@ -300,3 +300,163 @@ class TestGeometricFormula:
             respawn_penalty_ms=3200,
         )
         assert result is None
+
+
+class TestModelOutputWiring:
+    def _events_one_episode_one_completion(self):
+        from tests.factories import make_event_attempt
+        return [make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000)]
+
+    def _events_mixed_aborted_and_completed(self):
+        from tests.factories import make_event_attempt
+        return [
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=2000),
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=2500),
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
+            make_event_attempt(episode_id="ep2", outcome="survived", time_ms=8000),
+            make_event_attempt(episode_id="ep3", outcome="died", time_ms=2200),
+            make_event_attempt(episode_id="ep3", outcome="survived", time_ms=7500),
+        ]
+
+    def test_single_completion_no_deaths(self):
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record
+        est = get_estimator("death_aware_rolling")
+        a = make_attempt_record(8000, True, clean_tail_ms=8000)
+        state = est.init_state(a, priors={})
+        out = est.model_output(state, [a], events=self._events_one_episode_one_completion())
+        assert out.total.expected_ms == pytest.approx(8000.0)
+        assert out.clean.expected_ms == pytest.approx(8000.0)
+        assert out.total.floor_ms == pytest.approx(8000.0)
+        assert out.clean.floor_ms == pytest.approx(8000.0)
+        assert out.extras is not None
+        assert out.extras.p_die_per_life == pytest.approx(0.0)
+        assert out.extras.death_samples == []
+        assert out.extras.completion_samples == [(8000, pytest.approx(1.0))]
+
+    def test_geometric_total_uses_aborted_episodes(self):
+        """The 3 deaths in ep1 (aborted) push p_die_per_life up;
+        total.expected_ms should be larger than the mean of completed-episode
+        totals would suggest."""
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record
+        est = get_estimator("death_aware_rolling")
+        a = make_attempt_record(8000, True, clean_tail_ms=8000)
+        state = est.init_state(a, priors={})
+        # halflife=100 makes weights ≈ uniform across the small dataset so the
+        # hand-computed numbers below match. The test is about the geometric
+        # formula's response to aborted episodes, not about decay weighting.
+        out = est.model_output(state, [a], events=self._events_mixed_aborted_and_completed(), params={"halflife": 100})
+        assert out.extras is not None
+        # 4 died lives + 2 completed lives → p_die_per_life ≈ 4/6 ≈ 0.667
+        assert out.extras.p_die_per_life == pytest.approx(4 / 6, abs=0.01)
+        # E[death] = approx mean(2000, 2500, 3000, 2200) = 2425
+        assert out.extras.expected_death_time_ms == pytest.approx(2425.0, abs=20)
+        # E[completion] = approx mean(8000, 7500) = 7750
+        assert out.extras.expected_completion_time_ms == pytest.approx(7750.0, abs=20)
+        # Expected total: (4/2) * (2425 + 3200) + 7750 = 2 * 5625 + 7750 = 19000
+        assert out.total.expected_ms == pytest.approx(19000.0, abs=100)
+        # Sanity: geometric total is meaningfully larger than the mean
+        # of completed-episode totals (which would naively ignore aborted deaths).
+        assert out.total.expected_ms > 10450.0
+
+    def test_floor_ms_is_min_across_all_completed_episodes(self):
+        """floor_ms = best episode_total observed, regardless of decay window."""
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record, make_event_attempt
+        events = (
+            # Old great clean episode (best ever).
+            [make_event_attempt(episode_id="old_great", outcome="survived", time_ms=5000)]
+            # Plus 50 newer mediocre clean episodes at 9000ms.
+            + [
+                make_event_attempt(episode_id=f"new{i}", outcome="survived", time_ms=9000)
+                for i in range(50)
+            ]
+        )
+        est = get_estimator("death_aware_rolling")
+        a = make_attempt_record(9000, True, clean_tail_ms=9000)
+        state = est.init_state(a, priors={})
+        out = est.model_output(state, [a], events=events, params={"halflife": 5})
+        assert out.total.floor_ms == pytest.approx(5000.0)
+        assert out.clean.floor_ms == pytest.approx(5000.0)
+
+    def test_single_completion_ms_per_attempt_none(self):
+        """One data point ⇒ no slope."""
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record
+        est = get_estimator("death_aware_rolling")
+        a = make_attempt_record(8000, True, clean_tail_ms=8000)
+        state = est.init_state(a, priors={})
+        out = est.model_output(state, [a], events=self._events_one_episode_one_completion())
+        assert out.total.ms_per_attempt is None
+        assert out.clean.ms_per_attempt is None
+
+    def test_improving_completion_times_positive_ms_per_attempt(self):
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record, make_event_attempt
+        events = [
+            make_event_attempt(episode_id=f"ep{i}", outcome="survived", time_ms=t)
+            for i, t in enumerate([12000, 11500, 11000, 10500, 10000, 9500, 9000, 8500])
+        ]
+        est = get_estimator("death_aware_rolling")
+        a = make_attempt_record(8500, True, clean_tail_ms=8500)
+        state = est.init_state(a, priors={})
+        out = est.model_output(state, [a], events=events)
+        # Positive = improving (earlier slower than later).
+        assert out.total.ms_per_attempt is not None
+        assert out.total.ms_per_attempt > 0
+        assert out.clean.ms_per_attempt is not None
+        assert out.clean.ms_per_attempt > 0
+
+    def test_halflife_param_applied(self):
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record, make_event_attempt
+        events = [
+            # 5 old episodes at 5000ms.
+            *[make_event_attempt(episode_id=f"old{i}", outcome="survived", time_ms=5000) for i in range(5)],
+            # 3 recent episodes at 10000ms.
+            *[make_event_attempt(episode_id=f"new{i}", outcome="survived", time_ms=10000) for i in range(3)],
+        ]
+        est = get_estimator("death_aware_rolling")
+        a = make_attempt_record(10000, True, clean_tail_ms=10000)
+        state = est.init_state(a, priors={})
+        # Short halflife should give heavier weight to the recent 10000s.
+        out_short = est.model_output(state, [a], events=events, params={"halflife": 1})
+        # Long halflife mixes old and new more evenly.
+        out_long = est.model_output(state, [a], events=events, params={"halflife": 100})
+        assert out_short.extras is not None and out_long.extras is not None
+        assert out_short.extras.expected_completion_time_ms is not None
+        assert out_long.extras.expected_completion_time_ms is not None
+        assert out_short.extras.expected_completion_time_ms > out_long.extras.expected_completion_time_ms
+
+    def test_halflife_out_of_bounds_raises(self):
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record, make_event_attempt
+        est = get_estimator("death_aware_rolling")
+        a = make_attempt_record(8000, True, clean_tail_ms=8000)
+        state = est.init_state(a, priors={})
+        events = [make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000)]
+        with pytest.raises(ValueError, match="halflife"):
+            est.model_output(state, [a], events=events, params={"halflife": 0})
+        with pytest.raises(ValueError, match="halflife"):
+            est.model_output(state, [a], events=events, params={"halflife": 500})
+
+    def test_all_deaths_no_completions_total_is_none(self):
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record, make_event_attempt
+        est = get_estimator("death_aware_rolling")
+        a = make_attempt_record(0, False, clean_tail_ms=None)
+        state = est.init_state(a, priors={})
+        events = [
+            make_event_attempt(episode_id=f"ep{i}", outcome="died", time_ms=3000)
+            for i in range(5)
+        ]
+        out = est.model_output(state, [a], events=events)
+        assert out.total.expected_ms is None
+        assert out.total.floor_ms is None
+        assert out.clean.expected_ms is None
+        assert out.clean.floor_ms is None
+        assert out.extras is not None
+        assert out.extras.p_die_per_life == pytest.approx(1.0)
+        assert len(out.extras.death_samples) == 5
+        assert out.extras.completion_samples == []

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from spinlab.estimators import Estimator, EstimatorState, ParamDef, register_estimator
-from spinlab.models import AttemptRecord, DeathExtras, Estimate, ModelOutput
+from spinlab.models import AttemptRecord, DeathExtras, DEFAULT_DEATH_PENALTY_MS, Estimate, ModelOutput
 
 if TYPE_CHECKING:
     from spinlab.models import EventAttempt
@@ -277,6 +277,64 @@ def _expected_total_ms(
     return e_n_death_lives * (e_death_time_ms + respawn_penalty_ms) + e_completion_time_ms
 
 
+def _weighted_half_split_slope(
+    samples: list[tuple[int, float]],
+) -> float | None:
+    """Crude slope estimator: (mean_first_half - mean_second_half) / half_n.
+
+    Operates on a chronologically-ordered sample list. Positive ⇒ improving
+    (earlier samples were slower than later samples). Returns None when there
+    are fewer than 2 samples (no slope is defined).
+
+    Both halves use weighted means so the underlying decay weighting is
+    threaded through the trend calculation.
+    """
+    if len(samples) < 2:
+        return None
+    half = max(len(samples) // 2, 1)
+    first = samples[:half]
+    second = samples[half:]
+    m_first = _weighted_mean(first)
+    m_second = _weighted_mean(second)
+    if m_first is None or m_second is None:
+        return None
+    return (m_first - m_second) / half
+
+
+def _floor_over_completed_episode_totals(
+    episodes: list[_Episode], respawn_penalty_ms: int,
+) -> float | None:
+    """Min episode_total_time_ms across all completed episodes (not windowed).
+
+    episode_total_time_ms = sum(event.time_ms) + respawn_penalty_ms × n_deaths.
+    Matches the production roll-up in spinlab.db.attempts._roll_up_episode.
+
+    Not windowed — best-ever total is sticky info, even if the great episode
+    happened long ago.
+    """
+    best: float | None = None
+    for ep in episodes:
+        if ep.outcome != "completed":
+            continue
+        deaths = sum(1 for ev in ep.events if ev.outcome.value == "died")
+        total = sum(ev.time_ms for ev in ep.events) + respawn_penalty_ms * deaths
+        if best is None or total < best:
+            best = float(total)
+    return best
+
+
+def _floor_over_survived_event_times(episodes: list[_Episode]) -> float | None:
+    """Min survived-event time_ms across all survived events (not windowed)."""
+    best: float | None = None
+    for ep in episodes:
+        for ev in ep.events:
+            if ev.outcome.value != "survived":
+                continue
+            if best is None or ev.time_ms < best:
+                best = float(ev.time_ms)
+    return best
+
+
 def _resolve_halflife(params: dict | None) -> int:
     if not params or "halflife" not in params:
         return DEFAULT_HALFLIFE
@@ -336,8 +394,65 @@ class DeathAwareRollingEstimator(Estimator):
     ) -> ModelOutput:
         if not events:
             return _empty_output()
-        # Full math wired in Task 7.
-        return _empty_output()
+        halflife = _resolve_halflife(params)
+
+        # All episodes (used for floor_ms across full history — not windowed).
+        all_episodes = _group_into_episodes(events)
+        if not all_episodes:
+            return _empty_output()
+
+        agg = _compute_aggregates(events, halflife=halflife)
+
+        total_expected_ms = _expected_total_ms(
+            p_die_per_life=agg.p_die_per_life,
+            e_death_time_ms=agg.expected_death_time_ms,
+            e_completion_time_ms=agg.expected_completion_time_ms,
+            respawn_penalty_ms=DEFAULT_DEATH_PENALTY_MS,
+        )
+        clean_expected_ms = agg.expected_completion_time_ms
+
+        # ms_per_attempt: slope over completion_samples in chronological order.
+        # The samples list is already chronological because episodes are
+        # ordered chronologically in _compute_aggregates and each episode's
+        # events are inserted in order.
+        clean_mpa = _weighted_half_split_slope(agg.completion_samples)
+        # For total, slope is over the same completion samples — total tracks
+        # completion-time learning + death-rate trends together; a richer
+        # slope estimator is a follow-up.
+        total_mpa = clean_mpa
+
+        total_floor = _floor_over_completed_episode_totals(
+            all_episodes, respawn_penalty_ms=DEFAULT_DEATH_PENALTY_MS,
+        )
+        clean_floor = _floor_over_survived_event_times(all_episodes)
+
+        extras = DeathExtras(
+            halflife_attempts=halflife,
+            n_attempts_effective=agg.n_attempts_effective,
+            n_episodes_with_death_eff=agg.n_episodes_with_death_eff,
+            n_episodes_completed_eff=agg.n_episodes_completed_eff,
+            p_die_per_attempt=agg.p_die_per_attempt,
+            n_lives_died_effective=agg.n_lives_died_effective,
+            n_lives_survived_effective=agg.n_lives_survived_effective,
+            p_die_per_life=agg.p_die_per_life,
+            death_samples=agg.death_samples,
+            completion_samples=agg.completion_samples,
+            expected_death_time_ms=agg.expected_death_time_ms,
+            expected_completion_time_ms=agg.expected_completion_time_ms,
+        )
+        return ModelOutput(
+            total=Estimate(
+                expected_ms=total_expected_ms,
+                ms_per_attempt=total_mpa,
+                floor_ms=total_floor,
+            ),
+            clean=Estimate(
+                expected_ms=clean_expected_ms,
+                ms_per_attempt=clean_mpa,
+                floor_ms=clean_floor,
+            ),
+            extras=extras,
+        )
 
     def rebuild_state(  # type: ignore[override]
         self, attempts: list[AttemptRecord],
