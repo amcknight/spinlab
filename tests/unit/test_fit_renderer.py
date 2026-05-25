@@ -276,3 +276,38 @@ class TestRenderSegmentSection:
         assert "<svg" in section                  # learning curve + attempts strip
         assert "died_rate" in section             # PPC table
         assert "wall_ms" in section               # history table
+
+
+from spinlab.fit_renderer import render_game_index_html
+
+
+class TestRenderGameIndexHtml:
+    def test_lists_segments_with_anchor_links(self):
+        bundle = [
+            {
+                "segment_row": _segment_row(level_number=1, start_type="entrance",
+                                            start_ordinal=0, end_type="checkpoint",
+                                            end_ordinal=1),
+                "latest_payload": _unfittable_payload(),
+            },
+            {
+                "segment_row": _segment_row(level_number=49, start_type="checkpoint",
+                                            start_ordinal=1, end_type="checkpoint",
+                                            end_ordinal=2),
+                "latest_payload": _fittable_payload(n_attempts=17),
+            },
+        ]
+        out = render_game_index_html(bundle)
+        # Both segments present
+        assert "L1 entrance_0→checkpoint_1" in out
+        assert "L49 checkpoint_1→checkpoint_2" in out
+        # Anchor links present
+        assert "#seg-1-entrance_0-checkpoint_1" in out
+        assert "#seg-49-checkpoint_1-checkpoint_2" in out
+        # Status icons: one ✓ for fittable, one ✗ for unfittable
+        assert "✓" in out
+        assert "✗" in out
+
+    def test_empty_bundle_emits_placeholder(self):
+        out = render_game_index_html([])
+        assert "no segments" in out.lower()

@@ -303,6 +303,38 @@ def _segment_human_label(segment_row: Any) -> str:
     )
 
 
+def render_game_index_html(bundle: list[dict[str, Any]]) -> str:
+    """Top-of-page jump table: one row per segment, links to its section.
+
+    Each ``bundle`` item carries ``segment_row`` and ``latest_payload``.
+    Status column uses ✓ for fittable, ✗ for unfittable so the
+    L1-style flip is visible at a glance. M_clear column shows the
+    median in seconds, or '—' when no derived stats are available.
+    """
+    if not bundle:
+        return "<p class='index-missing'>no segments with fits</p>"
+    header = (
+        "<tr><th>Segment</th><th>n</th><th>status</th><th>M_clear</th></tr>"
+    )
+    rows = []
+    for item in bundle:
+        seg = item["segment_row"]
+        payload = item["latest_payload"]
+        label = _segment_human_label(seg)
+        anchor = _anchor_id(seg)
+        n = payload["n_attempts"]
+        ok = payload["status"]["fittable"]
+        icon = "✓" if ok else "✗"
+        derived = payload.get("result", {}).get("derived") or {}
+        m = derived.get("M_clear")
+        m_str = f"{_fmt_seconds(m['median_ms'])}s" if m else "—"
+        rows.append(
+            f"<tr><td><a href='#{anchor}'>{label}</a></td>"
+            f"<td>{n}</td><td>{icon}</td><td>{m_str}</td></tr>"
+        )
+    return "<table class='index'>\n" + header + "\n" + "\n".join(rows) + "\n</table>"
+
+
 def render_segment_section(
     segment_row: Any,
     latest_payload: dict[str, Any],
