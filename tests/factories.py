@@ -131,6 +131,34 @@ def make_capture_session(
     return sid
 
 
+def make_event_attempt(
+    segment_id: str = "seg1",
+    episode_id: str = "ep1",
+    outcome: str = "died",
+    time_ms: int = 5000,
+    session_id: str | None = "_default_test_session",
+    capture_run_id: str | None = None,
+    invalidated: bool = False,
+    created_at: str = "2026-01-01T00:00:00",
+):
+    """Create an EventAttempt for unit tests."""
+    from datetime import datetime
+    from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
+    if session_id is None and capture_run_id is None:
+        capture_run_id = "_default_test_capture_run"
+    return EventAttempt(
+        segment_id=segment_id,
+        episode_id=episode_id,
+        outcome=AttemptOutcome(outcome),
+        time_ms=time_ms,
+        session_id=session_id,
+        capture_run_id=capture_run_id,
+        source=AttemptSource.PRACTICE,
+        invalidated=invalidated,
+        created_at=datetime.fromisoformat(created_at),
+    )
+
+
 def make_segment_with_model(
     segment_id: str,
     ms_per_attempt: float = 0.0,
