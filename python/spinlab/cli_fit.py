@@ -102,9 +102,10 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> None:
     # Sibling commands attach themselves to the same `fit` parent.
     # Keeps the user-facing surface (`spinlab fit <sub>`) flat while
     # letting each subcommand own its module (and tests) independently.
-    from spinlab import cli_fit_inventory, cli_fit_rebuild
+    from spinlab import cli_fit_inventory, cli_fit_rebuild, cli_fit_render
     cli_fit_inventory.add_to_fit_subparsers(fit_sub)
     cli_fit_rebuild.add_to_fit_subparsers(fit_sub)
+    cli_fit_render.add_to_fit_subparsers(fit_sub)
 
 
 def _open_db(config_path: str):

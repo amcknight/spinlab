@@ -247,6 +247,9 @@ def main(args: list[str] | None = None) -> None:
         elif parsed.fit_command == "rebuild":
             from spinlab import cli_fit_rebuild
             sys.exit(cli_fit_rebuild.run(parsed))
+        elif parsed.fit_command == "render":
+            from spinlab import cli_fit_render
+            sys.exit(cli_fit_render.run(parsed))
 
 
 if __name__ == "__main__":
