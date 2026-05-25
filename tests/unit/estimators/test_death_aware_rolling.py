@@ -1,4 +1,5 @@
 """Tests for the Death-Aware Rolling estimator."""
+import json
 import pytest
 
 
@@ -460,3 +461,41 @@ class TestModelOutputWiring:
         assert out.extras.p_die_per_life == pytest.approx(1.0)
         assert len(out.extras.death_samples) == 5
         assert out.extras.completion_samples == []
+
+
+class TestStateRoundTrip:
+    def test_state_serializes_minimally(self):
+        from spinlab.estimators.death_aware_rolling import DeathAwareRollingState
+        s = DeathAwareRollingState(n_completed=7, n_attempts=12)
+        d = s.to_dict()
+        assert d == {"n_completed": 7, "n_attempts": 12}
+        s2 = DeathAwareRollingState.from_dict(d)
+        assert s2.n_completed == 7
+        assert s2.n_attempts == 12
+
+    def test_state_deserialize_via_registry(self):
+        from spinlab.estimators import EstimatorState
+        state_json = json.dumps({"n_completed": 4, "n_attempts": 6})
+        s = EstimatorState.deserialize("death_aware_rolling", state_json)
+        assert s.n_completed == 4
+        assert s.n_attempts == 6
+
+    def test_rebuild_state_from_attempts(self):
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record, make_incomplete
+        est = get_estimator("death_aware_rolling")
+        attempts = [
+            make_attempt_record(12000, True, clean_tail_ms=12000),
+            make_incomplete(),
+            make_attempt_record(11000, True, clean_tail_ms=11000),
+        ]
+        state = est.rebuild_state(attempts)
+        assert state.n_completed == 2
+        assert state.n_attempts == 3
+
+    def test_rebuild_state_empty(self):
+        from spinlab.estimators import get_estimator
+        est = get_estimator("death_aware_rolling")
+        state = est.rebuild_state([])
+        assert state.n_completed == 0
+        assert state.n_attempts == 0
