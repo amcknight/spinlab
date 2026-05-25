@@ -188,3 +188,44 @@ class TestRenderPpcTableHtml:
         out = render_ppc_table_html(_unfittable_payload())
         assert "no PPC" in out or "—" in out
         assert "0.998" not in out
+
+
+from spinlab.fit_renderer import render_history_table_html
+
+
+class TestRenderHistoryTableHtml:
+    def test_two_fits_oldest_first_with_flip_visible(self):
+        # n=14 fittable, n=20 not — the L1 entrance flip we're auditing for.
+        history = [
+            {**_fittable_payload(n_attempts=14), "fitted_at": "2026-05-24T07:00:00Z"},
+            {**_unfittable_payload(), "fitted_at": "2026-05-24T08:00:00Z"},
+        ]
+        out = render_history_table_html(history)
+        # Headers
+        for h in ("n", "fittable", "M_clear", "wall_ms", "fitted_at"):
+            assert h in out
+        # Both rows present
+        assert ">14<" in out
+        assert ">20<" in out
+        # Fittable flip is visible as both Y and N
+        assert ">Y<" in out
+        assert ">N<" in out
+
+    def test_empty_history_emits_placeholder(self):
+        out = render_history_table_html([])
+        assert "no fit history" in out.lower()
+
+    def test_oldest_first_ordering(self):
+        # Caller passes oldest-first; renderer preserves order. Hand a
+        # newest-first list to verify the renderer does NOT silently
+        # reorder.
+        h = [
+            {**_fittable_payload(n_attempts=20), "fitted_at": "2026-05-24T08:00:00Z"},
+            {**_fittable_payload(n_attempts=14), "fitted_at": "2026-05-24T07:00:00Z"},
+        ]
+        out = render_history_table_html(h)
+        # 20 should appear before 14 in the rendered table — renderer
+        # respects caller-supplied order.
+        idx_20 = out.find(">20<")
+        idx_14 = out.find(">14<")
+        assert 0 <= idx_20 < idx_14

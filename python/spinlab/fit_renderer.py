@@ -214,6 +214,45 @@ def render_attempts_strip_svg(events: list[dict[str, Any]]) -> str:
     return svg
 
 
+def render_history_table_html(history: list[dict[str, Any]]) -> str:
+    """Compact table of every stored fit for one segment.
+
+    Caller decides ordering — the renderer preserves it. The DB helper
+    ``iter_recent_segment_fits`` yields newest-first; the CLI handler
+    is expected to reverse to oldest-first so flips read top-to-bottom
+    chronologically. Each ``history`` item is a v1 envelope dict with
+    an extra ``fitted_at`` key spliced in from the row.
+
+    Columns: n | fittable | M_clear band | wall_ms | fitted_at.
+    """
+    if not history:
+        return "<p class='history-missing'>no fit history</p>"
+    header = (
+        "<tr><th>n</th><th>fittable</th><th>M_clear</th>"
+        "<th>wall_ms</th><th>fitted_at</th></tr>"
+    )
+    rows = []
+    for fit in history:
+        n = fit["n_attempts"]
+        fittable = "Y" if fit["status"]["fittable"] else "N"
+        derived = fit.get("result", {}).get("derived") or {}
+        m = derived.get("M_clear")
+        if m:
+            m_str = (
+                f"{_fmt_seconds(m['median_ms'])}s "
+                f"[{_fmt_seconds(m['p5_ms'])}, {_fmt_seconds(m['p95_ms'])}]"
+            )
+        else:
+            m_str = "—"
+        wall_ms = int(float(fit.get("wall_time_s", 0)) * 1000)
+        fitted_at = fit.get("fitted_at") or "—"
+        rows.append(
+            f"<tr><td>{n}</td><td>{fittable}</td><td>{m_str}</td>"
+            f"<td>{wall_ms}</td><td>{fitted_at}</td></tr>"
+        )
+    return "<table class='history'>\n" + header + "\n" + "\n".join(rows) + "\n</table>"
+
+
 def render_ppc_table_html(payload: dict[str, Any]) -> str:
     """Four-row HTML table of PPC diagnostic stats.
 
