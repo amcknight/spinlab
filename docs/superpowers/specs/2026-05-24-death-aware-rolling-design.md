@@ -220,6 +220,19 @@ serve as a drop-in for the existing greedy allocator and UI.
 
 `total.expected_ms` uses the **geometric formulation**: each life independently
 dies (prob `p_die_per_life`) or completes; player keeps trying until success.
+
+The recursive view (same model, different presentation):
+
+```
+E[attempt_time] = p_die_per_life × (E[death_time] + penalty + E[attempt_time])
+                + (1 - p_die_per_life) × E[completion_time]
+```
+
+In English: with probability `p_die_per_life` you spend some time, take the
+respawn penalty, then start over (recursive); otherwise you spend completion
+time and you're done. Solving the recursion analytically gives the closed
+form below — and yields the same number regardless of which form you compute.
+
 Number of lives until completion is geometric with mean `1 / (1 - p_die_per_life)`.
 
 ```
