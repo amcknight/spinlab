@@ -112,3 +112,114 @@ class TestEmptyEvents:
         assert out.total.floor_ms is None
         assert out.clean.expected_ms is None
         assert out.extras is None
+
+
+class TestLifeLevelAggregates:
+    def test_p_die_per_life_pure_deaths(self):
+        from spinlab.estimators.death_aware_rolling import _compute_aggregates
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
+            make_event_attempt(episode_id="ep2", outcome="died", time_ms=3500),
+        ]
+        # Use a large halflife so the two episodes have nearly equal weight and
+        # the weighted mean is close to the arithmetic midpoint (3250).
+        # halflife=20 would produce ~3254 because the older episode is slightly
+        # down-weighted (2^(-1/20) ≈ 0.966).
+        agg = _compute_aggregates(events, halflife=1000)
+        assert agg.p_die_per_life == pytest.approx(1.0)
+        assert agg.expected_completion_time_ms is None
+        assert agg.expected_death_time_ms == pytest.approx(3250.0, abs=1.0)
+
+    def test_p_die_per_life_pure_completions(self):
+        from spinlab.estimators.death_aware_rolling import _compute_aggregates
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(episode_id="ep1", outcome="survived", time_ms=7000),
+            make_event_attempt(episode_id="ep2", outcome="survived", time_ms=8000),
+        ]
+        # Use a large halflife so the two episodes have nearly equal weight and
+        # the weighted mean is close to the arithmetic midpoint (7500).
+        # halflife=20 would produce ~7509 because the older episode is slightly
+        # down-weighted (2^(-1/20) ≈ 0.966).
+        agg = _compute_aggregates(events, halflife=1000)
+        assert agg.p_die_per_life == pytest.approx(0.0)
+        assert agg.expected_death_time_ms is None
+        assert agg.expected_completion_time_ms == pytest.approx(7500.0, abs=1.0)
+
+    def test_p_die_per_life_mixed(self):
+        """3 lives died, 1 life survived → p_die_per_life = 0.75 (long halflife)."""
+        from spinlab.estimators.death_aware_rolling import _compute_aggregates
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=2000),
+            make_event_attempt(episode_id="ep2", outcome="died", time_ms=3000),
+            make_event_attempt(episode_id="ep3", outcome="died", time_ms=4000),
+            make_event_attempt(episode_id="ep4", outcome="survived", time_ms=7000),
+        ]
+        agg = _compute_aggregates(events, halflife=100)
+        assert agg.p_die_per_life == pytest.approx(0.75, abs=0.01)
+        assert agg.expected_death_time_ms == pytest.approx(3000.0, abs=10)
+        assert agg.expected_completion_time_ms == pytest.approx(7000.0, abs=10)
+
+    def test_multi_death_episode_counts_each_life(self):
+        """Episode [died, died, survived] contributes 2 death samples and 1 completion."""
+        from spinlab.estimators.death_aware_rolling import _compute_aggregates
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=2500),
+            make_event_attempt(episode_id="ep1", outcome="survived", time_ms=7000),
+        ]
+        agg = _compute_aggregates(events, halflife=20)
+        assert len(agg.death_samples) == 2
+        assert len(agg.completion_samples) == 1
+        # All three lives share the same episode weight, so p_die_per_life = 2/3.
+        assert agg.p_die_per_life == pytest.approx(2 / 3, abs=0.01)
+
+    def test_aborted_episode_contributes_deaths_only(self):
+        """[died, died, died] gives 3 death samples and zero completion samples."""
+        from spinlab.estimators.death_aware_rolling import _compute_aggregates
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=2000),
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=2500),
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
+        ]
+        agg = _compute_aggregates(events, halflife=20)
+        assert len(agg.death_samples) == 3
+        assert agg.completion_samples == []
+        assert agg.p_die_per_life == pytest.approx(1.0)
+        assert agg.expected_completion_time_ms is None
+
+
+class TestEpisodeLevelAggregates:
+    def test_p_die_per_attempt_clean_runs(self):
+        from spinlab.estimators.death_aware_rolling import _compute_aggregates
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(episode_id=f"ep{i}", outcome="survived", time_ms=7000)
+            for i in range(5)
+        ]
+        agg = _compute_aggregates(events, halflife=20)
+        assert agg.p_die_per_attempt == pytest.approx(0.0)
+        assert agg.n_attempts_effective == pytest.approx(agg.n_episodes_completed_eff)
+        assert agg.n_episodes_with_death_eff == pytest.approx(0.0)
+
+    def test_p_die_per_attempt_multi_death_then_survive_counts_as_death(self):
+        """An episode with deaths-and-completion counts toward
+        n_episodes_with_death_eff AND n_episodes_completed_eff —
+        their sum can exceed n_attempts_effective."""
+        from spinlab.estimators.death_aware_rolling import _compute_aggregates
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
+            make_event_attempt(episode_id="ep1", outcome="survived", time_ms=7000),
+            make_event_attempt(episode_id="ep2", outcome="survived", time_ms=6500),
+        ]
+        agg = _compute_aggregates(events, halflife=100)
+        # 2 attempts; 1 has a death; both complete.
+        assert agg.n_attempts_effective == pytest.approx(2.0, abs=0.01)
+        assert agg.n_episodes_with_death_eff == pytest.approx(1.0, abs=0.01)
+        assert agg.n_episodes_completed_eff == pytest.approx(2.0, abs=0.01)
+        assert agg.p_die_per_attempt == pytest.approx(0.5, abs=0.01)

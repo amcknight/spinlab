@@ -120,6 +120,128 @@ def _compute_weights(n_episodes: int, halflife: int) -> list[float]:
     ]
 
 
+@dataclass
+class _Aggregates:
+    """Holds all the rolling statistics for one segment.
+
+    Internal — produced by _compute_aggregates and consumed by model_output
+    (Task 7) to compose ModelOutput + DeathExtras.
+
+    Episode-level counts (n_episodes_with_death_eff / n_episodes_completed_eff)
+    are NOT complementary: an episode can both contain deaths AND complete,
+    so their sum can exceed n_attempts_effective.
+    """
+    halflife: int
+    # Episode-level
+    n_attempts_effective: float
+    n_episodes_with_death_eff: float
+    n_episodes_completed_eff: float
+    p_die_per_attempt: float | None
+    # Life-level
+    n_lives_died_effective: float
+    n_lives_survived_effective: float
+    p_die_per_life: float | None
+    # Distributions (life-level samples)
+    death_samples: list[tuple[int, float]]
+    completion_samples: list[tuple[int, float]]
+    expected_death_time_ms: float | None
+    expected_completion_time_ms: float | None
+
+
+def _weighted_mean(samples: list[tuple[int, float]]) -> float | None:
+    """Weighted mean of (value, weight) pairs. Returns None when empty or all-zero-weight."""
+    if not samples:
+        return None
+    total_w = sum(w for _, w in samples)
+    if total_w == 0:
+        return None
+    return sum(t * w for t, w in samples) / total_w
+
+
+def _compute_aggregates(
+    events: list["EventAttempt"], halflife: int,
+) -> _Aggregates:
+    """Compute all rolling statistics for a segment from its event list.
+
+    Drops invalidated episodes (via _group_into_episodes), truncates the
+    working set to ~5×halflife episodes (older episodes contribute weight
+    < ~3% and don't move outputs materially), then computes both life-level
+    and episode-level aggregates from the same weighted dataset.
+
+    Truncation is INLINE here — there is no separate truncate helper.
+    """
+    episodes = _group_into_episodes(events)
+    if not episodes:
+        return _Aggregates(
+            halflife=halflife,
+            n_attempts_effective=0.0,
+            n_episodes_with_death_eff=0.0,
+            n_episodes_completed_eff=0.0,
+            p_die_per_attempt=None,
+            n_lives_died_effective=0.0,
+            n_lives_survived_effective=0.0,
+            p_die_per_life=None,
+            death_samples=[],
+            completion_samples=[],
+            expected_death_time_ms=None,
+            expected_completion_time_ms=None,
+        )
+
+    # Truncate to the effective window. Older episodes' weights are < ~3%
+    # at the cap and don't move outputs within float precision; dropping
+    # them keeps the working set bounded.
+    max_kept = EFFECTIVE_WINDOW_HALFLIVES * halflife
+    if len(episodes) > max_kept:
+        episodes = episodes[-max_kept:]
+
+    weights = _compute_weights(n_episodes=len(episodes), halflife=halflife)
+
+    n_attempts_effective = sum(weights)
+    n_episodes_with_death_eff = sum(
+        w for w, ep in zip(weights, episodes) if ep.had_any_death
+    )
+    n_episodes_completed_eff = sum(
+        w for w, ep in zip(weights, episodes) if ep.outcome == "completed"
+    )
+    p_die_per_attempt = (
+        n_episodes_with_death_eff / n_attempts_effective
+        if n_attempts_effective > 0 else None
+    )
+
+    death_samples: list[tuple[int, float]] = []
+    completion_samples: list[tuple[int, float]] = []
+    for w, ep in zip(weights, episodes):
+        for ev in ep.events:
+            sample = (int(ev.time_ms), w)
+            if ev.outcome.value == "died":
+                death_samples.append(sample)
+            else:
+                completion_samples.append(sample)
+
+    n_lives_died_effective = sum(w for _, w in death_samples)
+    n_lives_survived_effective = sum(w for _, w in completion_samples)
+    total_life_weight = n_lives_died_effective + n_lives_survived_effective
+    p_die_per_life = (
+        n_lives_died_effective / total_life_weight
+        if total_life_weight > 0 else None
+    )
+
+    return _Aggregates(
+        halflife=halflife,
+        n_attempts_effective=n_attempts_effective,
+        n_episodes_with_death_eff=n_episodes_with_death_eff,
+        n_episodes_completed_eff=n_episodes_completed_eff,
+        p_die_per_attempt=p_die_per_attempt,
+        n_lives_died_effective=n_lives_died_effective,
+        n_lives_survived_effective=n_lives_survived_effective,
+        p_die_per_life=p_die_per_life,
+        death_samples=death_samples,
+        completion_samples=completion_samples,
+        expected_death_time_ms=_weighted_mean(death_samples),
+        expected_completion_time_ms=_weighted_mean(completion_samples),
+    )
+
+
 def _resolve_halflife(params: dict | None) -> int:
     if not params or "halflife" not in params:
         return DEFAULT_HALFLIFE
