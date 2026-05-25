@@ -53,6 +53,28 @@ def _attempts_from_rows(rows: list[AttemptRow]) -> list[AttemptRecord]:
     ]
 
 
+def _events_from_rows(rows: list[dict]) -> list["EventAttempt"]:
+    """Convert raw event_attempt rows (dicts from get_segment_event_rows)
+    into EventAttempt dataclass instances for estimator consumption."""
+    from datetime import datetime
+    from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
+    out: list[EventAttempt] = []
+    for r in rows:
+        out.append(EventAttempt(
+            segment_id=r["segment_id"],
+            episode_id=r["episode_id"],
+            outcome=AttemptOutcome(r["outcome"]),
+            time_ms=r["time_ms"],
+            session_id=r.get("session_id"),
+            capture_run_id=r.get("capture_run_id"),
+            source=AttemptSource(r["source"]),
+            chosen_allocator=r.get("chosen_allocator"),
+            invalidated=bool(r.get("invalidated", 0)),
+            created_at=datetime.fromisoformat(r["created_at"]),
+        ))
+    return out
+
+
 class Scheduler:
     def __init__(
         self, db: "Database", game_id: str,
@@ -229,6 +251,11 @@ class Scheduler:
         # called, so no append is needed.
         params = self._load_estimator_params(est.name)
         row = self.db.load_model_state(segment_id, est.name)
+        # Load per-event rows once; pass to the estimator. Legacy estimators
+        # ignore the kwarg; death_aware_rolling and future event-level
+        # estimators read it.
+        event_rows = self.db.get_segment_event_rows(segment_id)
+        events = _events_from_rows(event_rows)
 
         if row and row["state_json"]:
             state = EstimatorState.deserialize(est.name, row["state_json"])
@@ -243,21 +270,24 @@ class Scheduler:
                 state = est.init_state(new_attempt, priors, params=params)
                 state.n_attempts += prior_n_attempts
             else:
-                state = est.process_attempt(state, new_attempt, all_attempts, params=params)
+                state = est.process_attempt(
+                    state, new_attempt, all_attempts,
+                    params=params, events=events,
+                )
         else:
             if completed and time_ms is not None:
                 priors = est.get_priors(self.db, self.game_id)
                 state = est.init_state(new_attempt, priors, params=params)
             else:
-                state = est.rebuild_state([new_attempt], params=params)
-                output = est.model_output(state, all_attempts, params=params)
+                state = est.rebuild_state([new_attempt], params=params, events=events)
+                output = est.model_output(state, all_attempts, params=params, events=events)
                 self.db.save_model_state(
                     segment_id, est.name,
                     json.dumps(state.to_dict()), json.dumps(output.to_dict()),
                 )
                 return
 
-        output = est.model_output(state, all_attempts, params=params)
+        output = est.model_output(state, all_attempts, params=params, events=events)
         self.db.save_model_state(
             segment_id, est.name,
             json.dumps(state.to_dict()), json.dumps(output.to_dict()),
@@ -297,11 +327,13 @@ class Scheduler:
             if not attempt_rows:
                 continue
             all_attempts = _attempts_from_rows(attempt_rows)
+            event_rows = self.db.get_segment_event_rows(segment_id)
+            events = _events_from_rows(event_rows)
             for est in [get_estimator(n) for n in list_estimators()]:
                 try:
                     params = self._load_estimator_params(est.name)
-                    state = est.rebuild_state(all_attempts, params=params)
-                    output = est.model_output(state, all_attempts, params=params)
+                    state = est.rebuild_state(all_attempts, params=params, events=events)
+                    output = est.model_output(state, all_attempts, params=params, events=events)
                     self.db.save_model_state(
                         segment_id, est.name,
                         json.dumps(state.to_dict()), json.dumps(output.to_dict()),
