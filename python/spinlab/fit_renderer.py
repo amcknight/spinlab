@@ -71,7 +71,7 @@ def render_headline_html(payload: dict[str, Any]) -> str:
 
     derived = payload.get("result", {}).get("derived") or {}
     m_clear = derived.get("M_clear")
-    if m_clear:
+    if m_clear is not None:
         m_str = (
             f"M_clear {_fmt_seconds(m_clear['median_ms'])}s "
             f"[{_fmt_seconds(m_clear['p5_ms'])}s, "
@@ -178,6 +178,11 @@ _OUTCOME_COLOR = {
     "survived": "#1a9850",   # green
     "died":     "#d73027",   # red
 }
+# Fallback color for outcomes not in _OUTCOME_COLOR (e.g. a future model
+# emitting a new outcome value). Neutral grey so it stands out as "I
+# don't know how to colour this" without competing visually with the
+# known outcomes.
+_UNKNOWN_OUTCOME_COLOR = "#888888"
 
 
 def render_attempts_strip_svg(events: list[dict[str, Any]]) -> str:
@@ -197,7 +202,7 @@ def render_attempts_strip_svg(events: list[dict[str, Any]]) -> str:
     import numpy as np
     xs = np.arange(1, len(events) + 1)
     ys = np.array([e["time_ms"] for e in events], dtype=float)
-    colors = [_OUTCOME_COLOR.get(e["outcome"], "#888888") for e in events]
+    colors = [_OUTCOME_COLOR.get(e["outcome"], _UNKNOWN_OUTCOME_COLOR) for e in events]
 
     fig, ax = plt.subplots(figsize=(8, 1.6))
     ax.scatter(xs, ys, c=colors, s=20, alpha=0.85)
@@ -237,7 +242,7 @@ def render_history_table_html(history: list[dict[str, Any]]) -> str:
         fittable = "Y" if fit["status"]["fittable"] else "N"
         derived = fit.get("result", {}).get("derived") or {}
         m = derived.get("M_clear")
-        if m:
+        if m is not None:
             m_str = (
                 f"{_fmt_seconds(m['median_ms'])}s "
                 f"[{_fmt_seconds(m['p5_ms'])}, {_fmt_seconds(m['p95_ms'])}]"
@@ -327,7 +332,7 @@ def render_game_index_html(bundle: list[dict[str, Any]]) -> str:
         icon = "✓" if ok else "✗"
         derived = payload.get("result", {}).get("derived") or {}
         m = derived.get("M_clear")
-        m_str = f"{_fmt_seconds(m['median_ms'])}s" if m else "—"
+        m_str = f"{_fmt_seconds(m['median_ms'])}s" if m is not None else "—"
         rows.append(
             f"<tr><td><a href='#{anchor}'>{label}</a></td>"
             f"<td>{n}</td><td>{icon}</td><td>{m_str}</td></tr>"
