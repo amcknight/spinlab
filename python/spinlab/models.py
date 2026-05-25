@@ -284,6 +284,76 @@ class Estimate:
 
 
 @pydantic_dataclass(config=ConfigDict(extra="allow"))
+class DeathExtras:
+    """Death-aware fields published by death_aware_rolling.
+
+    Carried on ModelOutput.extras when the active estimator is death-aware.
+    Legacy estimators leave ModelOutput.extras = None.
+
+    Two granularities:
+      * Life-level (n_lives_*, p_die_per_life): each EventAttempt is one life.
+        Drives total.expected_ms via the geometric formula.
+      * Episode-level (n_attempts_*, n_episodes_*, p_die_per_attempt): each
+        episode_id is one player attempt. Surfaced for player intuition.
+
+    n_episodes_with_death_eff and n_episodes_completed_eff are NOT
+    complementary — an episode can both contain deaths and complete. Their
+    sum can exceed n_attempts_effective.
+    """
+    halflife_attempts: int
+
+    # Episode-level (player intuition)
+    n_attempts_effective: float
+    n_episodes_with_death_eff: float
+    n_episodes_completed_eff: float
+    p_die_per_attempt: float | None
+
+    # Life-level (drives geometric formula)
+    n_lives_died_effective: float
+    n_lives_survived_effective: float
+    p_die_per_life: float | None
+
+    # Distributions (life-level samples)
+    death_samples: list[tuple[int, float]]
+    completion_samples: list[tuple[int, float]]
+    expected_death_time_ms: float | None
+    expected_completion_time_ms: float | None
+
+    def to_dict(self) -> dict:
+        return {
+            "halflife_attempts": self.halflife_attempts,
+            "n_attempts_effective": self.n_attempts_effective,
+            "n_episodes_with_death_eff": self.n_episodes_with_death_eff,
+            "n_episodes_completed_eff": self.n_episodes_completed_eff,
+            "p_die_per_attempt": self.p_die_per_attempt,
+            "n_lives_died_effective": self.n_lives_died_effective,
+            "n_lives_survived_effective": self.n_lives_survived_effective,
+            "p_die_per_life": self.p_die_per_life,
+            "death_samples": [list(s) for s in self.death_samples],
+            "completion_samples": [list(s) for s in self.completion_samples],
+            "expected_death_time_ms": self.expected_death_time_ms,
+            "expected_completion_time_ms": self.expected_completion_time_ms,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "DeathExtras":
+        return cls(
+            halflife_attempts=d["halflife_attempts"],
+            n_attempts_effective=d["n_attempts_effective"],
+            n_episodes_with_death_eff=d["n_episodes_with_death_eff"],
+            n_episodes_completed_eff=d["n_episodes_completed_eff"],
+            p_die_per_attempt=d["p_die_per_attempt"],
+            n_lives_died_effective=d["n_lives_died_effective"],
+            n_lives_survived_effective=d["n_lives_survived_effective"],
+            p_die_per_life=d["p_die_per_life"],
+            death_samples=[tuple(s) for s in d["death_samples"]],
+            completion_samples=[tuple(s) for s in d["completion_samples"]],
+            expected_death_time_ms=d["expected_death_time_ms"],
+            expected_completion_time_ms=d["expected_completion_time_ms"],
+        )
+
+
+@pydantic_dataclass(config=ConfigDict(extra="allow"))
 class ModelOutput:
     """What every estimator produces — predictions for total time and clean tail.
 
@@ -291,16 +361,20 @@ class ModelOutput:
     """
     total: Estimate
     clean: Estimate
+    extras: DeathExtras | None = None
 
     def to_dict(self) -> dict:
         return {
             "total": self.total.to_dict(),
             "clean": self.clean.to_dict(),
+            "extras": self.extras.to_dict() if self.extras is not None else None,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "ModelOutput":
+        extras_d = d.get("extras")
         return cls(
             total=Estimate.from_dict(d["total"]),
             clean=Estimate.from_dict(d["clean"]),
+            extras=DeathExtras.from_dict(extras_d) if extras_d is not None else None,
         )

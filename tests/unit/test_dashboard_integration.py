@@ -265,7 +265,7 @@ class TestModelEndpoint:
             # model_outputs has nested total/clean structure
             if seg["model_outputs"]:
                 output = next(iter(seg["model_outputs"].values()))
-                assert set(output.keys()) == {"total", "clean"}
+                assert set(output.keys()) == {"total", "clean", "extras"}
                 assert set(output["total"].keys()) == {"expected_ms", "ms_per_attempt", "floor_ms"}
 
 

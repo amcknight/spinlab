@@ -49,7 +49,7 @@ class TestModelOutput:
             clean=Estimate(expected_ms=4.0, ms_per_attempt=5.0, floor_ms=6.0),
         )
         d = mo.to_dict()
-        assert set(d.keys()) == {"total", "clean"}
+        assert set(d.keys()) == {"total", "clean", "extras"}
         assert set(d["total"].keys()) == {"expected_ms", "ms_per_attempt", "floor_ms"}
 
     def test_all_none_sides(self):
