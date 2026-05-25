@@ -229,3 +229,50 @@ class TestRenderHistoryTableHtml:
         idx_20 = out.find(">20<")
         idx_14 = out.find(">14<")
         assert 0 <= idx_20 < idx_14
+
+
+from spinlab.fit_renderer import _anchor_id, render_segment_section
+
+
+def _segment_row(**overrides):
+    """Minimal sqlite-Row-like dict matching the segments table shape."""
+    row = {
+        "id": "test-seg",
+        "level_number": 49,
+        "start_type": "checkpoint", "start_ordinal": 1,
+        "end_type": "checkpoint", "end_ordinal": 2,
+    }
+    row.update(overrides)
+    return row
+
+
+class TestAnchorId:
+    def test_stable_format(self):
+        assert _anchor_id(_segment_row()) == "seg-49-checkpoint_1-checkpoint_2"
+
+    def test_entrance_to_checkpoint(self):
+        row = _segment_row(
+            start_type="entrance", start_ordinal=0,
+            end_type="checkpoint", end_ordinal=1,
+        )
+        assert _anchor_id(row) == "seg-49-entrance_0-checkpoint_1"
+
+
+class TestRenderSegmentSection:
+    def test_includes_all_six_parts(self):
+        section = render_segment_section(
+            segment_row=_segment_row(),
+            latest_payload=_fittable_payload(),
+            history_oldest_first=[
+                {**_fittable_payload(n_attempts=14), "fitted_at": "2026-05-24T07:00:00Z"},
+                {**_fittable_payload(n_attempts=17), "fitted_at": "2026-05-24T08:00:00Z"},
+            ],
+            events=[_event_row("died", 9000), _event_row("survived", 25000)],
+        )
+        assert 'id="seg-49-checkpoint_1-checkpoint_2"' in section
+        assert "<section" in section
+        # Each of the five rendered blocks present:
+        assert "fittable: Y" in section          # headline
+        assert "<svg" in section                  # learning curve + attempts strip
+        assert "died_rate" in section             # PPC table
+        assert "wall_ms" in section               # history table

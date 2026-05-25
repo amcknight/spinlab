@@ -276,3 +276,54 @@ def render_ppc_table_html(payload: dict[str, Any]) -> str:
             f"<td>p={cell['p_two_sided']:.3f}</td></tr>"
         )
     return "<table class='ppc'>\n" + "\n".join(rows) + "\n</table>"
+
+
+def _anchor_id(segment_row: Any) -> str:
+    """Stable HTML anchor id for a segment row.
+
+    Format: ``seg-<level>-<start_type>_<start_ord>-<end_type>_<end_ord>``.
+    Built from segment_row's ``level_number / start_type / start_ordinal /
+    end_type / end_ordinal`` columns. Stable across runs as long as the
+    segment's geographic identity is unchanged; survives segment-id
+    rehashing if start/end waypoints change.
+    """
+    return (
+        f"seg-{segment_row['level_number']}-"
+        f"{segment_row['start_type']}_{segment_row['start_ordinal']}-"
+        f"{segment_row['end_type']}_{segment_row['end_ordinal']}"
+    )
+
+
+def _segment_human_label(segment_row: Any) -> str:
+    """Display label for headings: 'L49 checkpoint_1→checkpoint_2'."""
+    return (
+        f"L{segment_row['level_number']} "
+        f"{segment_row['start_type']}_{segment_row['start_ordinal']}→"
+        f"{segment_row['end_type']}_{segment_row['end_ordinal']}"
+    )
+
+
+def render_segment_section(
+    segment_row: Any,
+    latest_payload: dict[str, Any],
+    history_oldest_first: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+) -> str:
+    """Assemble one per-segment <section> for the report.
+
+    Order: heading → headline → learning curve → attempts strip → PPC
+    table → history table. Each piece is built by its dedicated helper;
+    this function is pure layout glue.
+    """
+    anchor = _anchor_id(segment_row)
+    label = _segment_human_label(segment_row)
+    return (
+        f'<section id="{anchor}">\n'
+        f'  <h2>{label}</h2>\n'
+        f'  {render_headline_html(latest_payload)}\n'
+        f'  <figure>{render_learning_curve_svg(latest_payload)}</figure>\n'
+        f'  <figure>{render_attempts_strip_svg(events)}</figure>\n'
+        f'  {render_ppc_table_html(latest_payload)}\n'
+        f'  {render_history_table_html(history_oldest_first)}\n'
+        f'</section>\n'
+    )
