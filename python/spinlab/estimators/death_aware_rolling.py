@@ -29,11 +29,11 @@ if TYPE_CHECKING:
 # week, high enough to avoid thrashing on a single bad session.
 DEFAULT_HALFLIFE = 20
 
-# Effective window: episodes beyond this many halflives contribute weight
-# < 0.001 (2^{-10} ≈ 0.001) and are dropped before computing stats.
-# Outputs are unchanged within float precision; the cutoff just avoids
-# iterating over arbitrarily old history.
-EFFECTIVE_WINDOW_HALFLIVES = 10
+# Effective window: episodes beyond this many halflives are dropped before
+# computing stats.  At 5×halflife, episode weight is 2^{-5} ≈ 0.031 (~3%).
+# Episodes contributing this little don't move outputs materially, so the
+# cutoff just avoids iterating over arbitrarily old history.
+EFFECTIVE_WINDOW_HALFLIVES = 5
 
 
 @dataclass
@@ -46,8 +46,8 @@ class DeathAwareRollingState(EstimatorState):
     @classmethod
     def from_dict(cls, d: dict) -> "DeathAwareRollingState":
         return cls(
-            n_completed=d["n_completed"],
-            n_attempts=d["n_attempts"],
+            n_completed=d.get("n_completed", 0),
+            n_attempts=d.get("n_attempts", 0),
         )
 
 
