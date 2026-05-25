@@ -15,6 +15,7 @@ from spinlab.models import AttemptRecord, Estimate, ModelOutput
 
 if TYPE_CHECKING:
     from spinlab.db import Database
+    from spinlab.models import EventAttempt
 
 DEFAULT_D = 0.0
 DEFAULT_R = 25.0
@@ -228,6 +229,7 @@ class KalmanEstimator(Estimator):
         self, state: KalmanState, new_attempt: AttemptRecord,
         all_attempts: list[AttemptRecord],
         params: dict | None = None,
+        events: list["EventAttempt"] | None = None,
     ) -> KalmanState:
         observed_time = (
             new_attempt.time_ms / 1000.0
@@ -281,6 +283,7 @@ class KalmanEstimator(Estimator):
     def model_output(  # type: ignore[override]
         self, state: KalmanState, all_attempts: list[AttemptRecord],
         params: dict | None = None,
+        events: list["EventAttempt"] | None = None,
     ) -> ModelOutput:
         none_estimate = Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None)
         if state.n_completed == 0:
@@ -335,7 +338,8 @@ class KalmanEstimator(Estimator):
         return {k: v / n for k, v in sums.items()}
 
     def rebuild_state(self, attempts: list[AttemptRecord],
-                      params: dict | None = None) -> KalmanState:
+                      params: dict | None = None,
+                      events: list["EventAttempt"] | None = None) -> KalmanState:
         completed = [a for a in attempts if a.completed and a.time_ms is not None]
         if not completed:
             return KalmanState(n_attempts=len(attempts))

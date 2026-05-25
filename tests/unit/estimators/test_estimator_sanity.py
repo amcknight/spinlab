@@ -343,3 +343,46 @@ class TestEstimatorStateDeserialize:
         from spinlab.estimators import EstimatorState
         with pytest.raises(json.JSONDecodeError):
             EstimatorState.deserialize("kalman", "{bad json")
+
+
+class TestEstimatorEventsKwarg:
+    """The Estimator ABC accepts an optional events kwarg on its three
+    work methods. Legacy estimators ignore it; the kwarg defaults to None
+    so existing call sites keep working."""
+
+    def test_rolling_mean_accepts_events_kwarg(self):
+        from spinlab.estimators.rolling_mean import RollingMeanEstimator
+        from tests.factories import make_attempt_record
+        est = RollingMeanEstimator()
+        a = make_attempt_record(10000, True, clean_tail_ms=10000)
+        state = est.init_state(a, priors={})
+        # The kwarg is accepted and ignored; output is identical to omitting it.
+        state_with = est.process_attempt(state, a, [a], events=None)
+        state_without = est.process_attempt(state, a, [a])
+        assert state_with.n_completed == state_without.n_completed
+        out_with = est.model_output(state, [a], events=None)
+        out_without = est.model_output(state, [a])
+        assert out_with.to_dict() == out_without.to_dict()
+        state_rebuilt = est.rebuild_state([a], events=None)
+        assert state_rebuilt.n_completed == 1
+
+    def test_exp_decay_accepts_events_kwarg(self):
+        from spinlab.estimators.exp_decay import ExpDecayEstimator
+        from tests.factories import make_attempt_record
+        est = ExpDecayEstimator()
+        attempts = [make_attempt_record(t, True, clean_tail_ms=t) for t in [12000, 11000, 10000]]
+        state = est.init_state(attempts[0], priors={})
+        for a in attempts[1:]:
+            state = est.process_attempt(state, a, attempts, events=None)
+        out = est.model_output(state, attempts, events=None)
+        assert out.total.expected_ms is not None
+
+    def test_kalman_accepts_events_kwarg(self):
+        from spinlab.estimators.kalman import KalmanEstimator
+        from tests.factories import make_attempt_record
+        est = KalmanEstimator()
+        a = make_attempt_record(10000, True, clean_tail_ms=10000)
+        state = est.init_state(a, priors={})
+        state = est.process_attempt(state, a, [a], events=None)
+        out = est.model_output(state, [a], events=None)
+        assert out is not None

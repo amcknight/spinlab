@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import statistics
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from spinlab.estimators import Estimator, EstimatorState, ParamDef, register_estimator
 from spinlab.models import AttemptRecord, Estimate, ModelOutput
+
+if TYPE_CHECKING:
+    from spinlab.models import EventAttempt
 
 # 0 = no window: average across every completed attempt.  A positive value
 # uses only the most recent N completions, so the estimate adapts to recent
@@ -65,6 +69,7 @@ class RollingMeanEstimator(Estimator):
         self, state: RollingMeanState, new_attempt: AttemptRecord,
         all_attempts: list[AttemptRecord],
         params: dict | None = None,
+        events: list["EventAttempt"] | None = None,
     ) -> RollingMeanState:
         n_completed = state.n_completed + (1 if new_attempt.completed else 0)
         return RollingMeanState(n_completed=n_completed, n_attempts=state.n_attempts + 1)
@@ -72,6 +77,7 @@ class RollingMeanEstimator(Estimator):
     def model_output(  # type: ignore[override]
         self, state: RollingMeanState, all_attempts: list[AttemptRecord],
         params: dict | None = None,
+        events: list["EventAttempt"] | None = None,
     ) -> ModelOutput:
         completed = [a for a in all_attempts if a.completed and a.time_ms is not None]
         if not completed:
@@ -127,6 +133,7 @@ class RollingMeanEstimator(Estimator):
             clean=clean_estimate,
         )
 
-    def rebuild_state(self, attempts: list[AttemptRecord], params: dict | None = None) -> RollingMeanState:
+    def rebuild_state(self, attempts: list[AttemptRecord], params: dict | None = None,
+                      events: list["EventAttempt"] | None = None) -> RollingMeanState:
         n_completed = sum(1 for a in attempts if a.completed)
         return RollingMeanState(n_completed=n_completed, n_attempts=len(attempts))

@@ -11,7 +11,7 @@ from spinlab import log
 
 if TYPE_CHECKING:
     from spinlab.db import Database
-    from spinlab.models import AttemptRecord, ModelOutput
+    from spinlab.models import AttemptRecord, EventAttempt, ModelOutput
 
 logger = logging.getLogger(__name__)
 
@@ -127,19 +127,27 @@ class Estimator(ABC):
         new_attempt: "AttemptRecord",
         all_attempts: list["AttemptRecord"],
         params: dict | None = None,
+        events: list["EventAttempt"] | None = None,
     ) -> EstimatorState:
-        """Process one attempt. Uses new_attempt and/or all_attempts as needed."""
+        """Process one attempt. Uses new_attempt and/or all_attempts as needed.
+
+        ``events`` is the per-segment event list (one row per died/survived
+        event), passed by the scheduler when available. Legacy estimators
+        ignore it; new estimators that consume event-level data read it here.
+        """
         ...
 
     @abstractmethod
     def model_output(
         self, state: EstimatorState, all_attempts: list["AttemptRecord"],
         params: dict | None = None,
+        events: list["EventAttempt"] | None = None,
     ) -> "ModelOutput":
         """Produce standardized ModelOutput from current state.
 
         ``params`` carries tunable estimator parameters (see ``declared_params``).
         Estimators that don't read params at output time can ignore it.
+        ``events`` is optional event-level input; see process_attempt.
         """
         ...
 
@@ -147,6 +155,7 @@ class Estimator(ABC):
     def rebuild_state(
         self, attempts: list["AttemptRecord"],
         params: dict | None = None,
+        events: list["EventAttempt"] | None = None,
     ) -> EstimatorState:
         """Rebuild state by replaying all attempts."""
         ...

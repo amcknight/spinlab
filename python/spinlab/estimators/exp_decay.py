@@ -22,6 +22,7 @@ from spinlab.models import AttemptRecord, Estimate, ModelOutput
 
 if TYPE_CHECKING:
     from spinlab.db import Database
+    from spinlab.models import EventAttempt
 
 MIN_POINTS_FOR_FIT = 3
 # Mirror the Kalman estimator's bar — only segments with this many completions
@@ -172,6 +173,7 @@ class ExpDecayEstimator(Estimator):
         self, state: ExpDecayState, new_attempt: AttemptRecord,
         all_attempts: list[AttemptRecord],
         params: dict | None = None,
+        events: list["EventAttempt"] | None = None,
     ) -> ExpDecayState:
         n_completed = state.n_completed + (1 if new_attempt.completed else 0)
         completed = [a for a in all_attempts if a.completed and a.time_ms is not None]
@@ -206,6 +208,7 @@ class ExpDecayEstimator(Estimator):
     def model_output(  # type: ignore[override]
         self, state: ExpDecayState, all_attempts: list[AttemptRecord],
         params: dict | None = None,
+        events: list["EventAttempt"] | None = None,
     ) -> ModelOutput:
         completed = [a for a in all_attempts if a.completed and a.time_ms is not None]
         n = len(completed)
@@ -238,7 +241,8 @@ class ExpDecayEstimator(Estimator):
             ),
         )
 
-    def rebuild_state(self, attempts: list[AttemptRecord], params: dict | None = None) -> ExpDecayState:
+    def rebuild_state(self, attempts: list[AttemptRecord], params: dict | None = None,
+                      events: list["EventAttempt"] | None = None) -> ExpDecayState:
         completed = [a for a in attempts if a.completed and a.time_ms is not None]
         state = self._run_fits(completed)
         state.n_completed = len(completed)
