@@ -311,3 +311,31 @@ class TestRenderGameIndexHtml:
     def test_empty_bundle_emits_placeholder(self):
         out = render_game_index_html([])
         assert "no segments" in out.lower()
+
+
+from spinlab.fit_renderer import build_report
+
+
+class TestBuildReport:
+    def test_returns_full_html_document(self):
+        bundle = [{
+            "segment_row": _segment_row(),
+            "latest_payload": _fittable_payload(),
+            "history_oldest_first": [_fittable_payload()],
+            "events": [_event_row("died", 9000), _event_row("survived", 25000)],
+        }]
+        html = build_report(game_label="Beto", game_id="01c9", bundle=bundle)
+        assert html.startswith("<!doctype html>") or html.startswith("<!DOCTYPE html>")
+        assert "<head>" in html and "</head>" in html
+        assert "<body>" in html and "</body>" in html
+        # Title contains game label
+        assert "Beto" in html
+        # Index table present
+        assert "class='index'" in html or 'class="index"' in html
+        # Per-segment section present
+        assert 'id="seg-49-checkpoint_1-checkpoint_2"' in html
+
+    def test_empty_bundle_still_returns_valid_document(self):
+        html = build_report(game_label="Empty", game_id="00", bundle=[])
+        assert "<body>" in html
+        assert "no segments" in html.lower()

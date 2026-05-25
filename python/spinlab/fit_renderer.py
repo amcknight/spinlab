@@ -359,3 +359,62 @@ def render_segment_section(
         f'  {render_history_table_html(history_oldest_first)}\n'
         f'</section>\n'
     )
+
+
+# Minimal CSS. Inline so the HTML is fully self-contained. Just enough
+# to make tables readable; visual polish is explicitly out of Phase 2b
+# scope (this is an audit tool, not a product surface).
+_INLINE_CSS = """
+body { font-family: -apple-system, system-ui, sans-serif; max-width: 1100px;
+       margin: 1em auto; padding: 0 1em; color: #222; }
+table { border-collapse: collapse; margin: 0.5em 0; }
+th, td { border: 1px solid #ddd; padding: 4px 8px; text-align: left;
+         font-size: 14px; }
+th { background: #f4f4f4; }
+section { border-top: 2px solid #ccc; padding-top: 1em; margin-top: 2em; }
+.status { font-family: monospace; color: #555; }
+.headline { font-weight: 600; margin: 0.5em 0 1em 0; }
+.ppc, .history { font-size: 12px; font-family: monospace; }
+figure { margin: 1em 0; }
+a { color: #1a6fc4; text-decoration: none; }
+a:hover { text-decoration: underline; }
+"""
+
+
+def build_report(
+    game_label: str, game_id: str, bundle: list[dict[str, Any]],
+) -> str:
+    """Build the complete self-contained HTML report for one game.
+
+    ``bundle`` order is preserved both in the index and in the
+    per-segment sections — the CLI handler decides sort order (e.g.
+    by level + ordinal). Empty bundle still returns a valid document
+    with an explanatory placeholder.
+    """
+    index_html = render_game_index_html(bundle)
+    if bundle:
+        sections_html = "\n".join(
+            render_segment_section(
+                segment_row=item["segment_row"],
+                latest_payload=item["latest_payload"],
+                history_oldest_first=item["history_oldest_first"],
+                events=item["events"],
+            )
+            for item in bundle
+        )
+    else:
+        sections_html = ""
+    title = f"spinlab v07 fit report — {game_label}"
+    return (
+        "<!doctype html>\n"
+        "<html lang='en'>\n<head>\n"
+        f"  <meta charset='utf-8'>\n"
+        f"  <title>{title}</title>\n"
+        f"  <style>{_INLINE_CSS}</style>\n"
+        "</head>\n<body>\n"
+        f"  <h1>{title}</h1>\n"
+        f"  <p class='meta'>game_id: <code>{game_id}</code></p>\n"
+        f"  {index_html}\n"
+        f"  {sections_html}\n"
+        "</body>\n</html>\n"
+    )
