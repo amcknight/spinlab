@@ -212,3 +212,28 @@ def render_attempts_strip_svg(events: list[dict[str, Any]]) -> str:
     if svg.startswith("<?xml"):
         svg = svg.split("?>", 1)[1].lstrip()
     return svg
+
+
+def render_ppc_table_html(payload: dict[str, Any]) -> str:
+    """Four-row HTML table of PPC diagnostic stats.
+
+    Row format: ``<stat>  obs <value>  p=<p_two_sided>``. Missing PPC
+    block (unfittable payload) → '<p>no PPC</p>' so the slot stays
+    occupied. Stat keys come from the v1 envelope contract; we render
+    them in fixed order so reports stay visually comparable.
+    """
+    ppc = payload.get("result", {}).get("ppc")
+    if not ppc:
+        return "<p class='ppc-missing'>no PPC (unfittable)</p>"
+    rows = []
+    # Fixed order matches the contract's enumeration; new stats added
+    # by future model versions land at the bottom unchanged.
+    for stat in ("died_rate", "died_tau_skew", "died_tau_kurt", "died_s_mid_third"):
+        cell = ppc.get(stat)
+        if cell is None:
+            continue
+        rows.append(
+            f"<tr><td>{stat}</td><td>obs {cell['obs']:.3f}</td>"
+            f"<td>p={cell['p_two_sided']:.3f}</td></tr>"
+        )
+    return "<table class='ppc'>\n" + "\n".join(rows) + "\n</table>"

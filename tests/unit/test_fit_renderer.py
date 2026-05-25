@@ -169,3 +169,22 @@ class TestRenderAttemptsStripSvg:
         svg = render_attempts_strip_svg([])
         assert "<svg" in svg
         assert "no attempts" in svg.lower() or "—" in svg
+
+
+from spinlab.fit_renderer import render_ppc_table_html
+
+
+class TestRenderPpcTableHtml:
+    def test_fittable_emits_all_four_stats(self):
+        out = render_ppc_table_html(_fittable_payload())
+        for stat in (
+            "died_rate", "died_tau_skew", "died_tau_kurt", "died_s_mid_third",
+        ):
+            assert stat in out
+        assert "0.998" in out  # died_rate p_two_sided
+        assert "0.608" in out  # died_tau_skew
+
+    def test_unfittable_emits_placeholder(self):
+        out = render_ppc_table_html(_unfittable_payload())
+        assert "no PPC" in out or "—" in out
+        assert "0.998" not in out
