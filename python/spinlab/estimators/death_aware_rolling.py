@@ -242,6 +242,41 @@ def _compute_aggregates(
     )
 
 
+def _expected_total_ms(
+    p_die_per_life: float | None,
+    e_death_time_ms: float | None,
+    e_completion_time_ms: float | None,
+    respawn_penalty_ms: int,
+) -> float | None:
+    """Geometric formula for expected attempt time.
+
+    E[attempt] = (p / (1-p)) * (E[death] + penalty) + E[completion]
+
+    where p = p_die_per_life. Each life is modeled as independent Bernoulli;
+    player retries until completion. The expected number of death lives
+    before completion is geometric with mean p / (1 - p).
+
+    Returns None when the projection isn't well-defined:
+      - p_die_per_life is None (no events observed)
+      - p_die_per_life is 1.0 (no completions ⇒ can't project completion time)
+      - e_completion_time_ms is None (haven't seen a completion yet)
+      - p_die_per_life > 0 but e_death_time_ms is None (inconsistent input;
+        shouldn't happen in practice but guard anyway)
+    """
+    if p_die_per_life is None or e_completion_time_ms is None:
+        return None
+    if p_die_per_life >= 1.0:
+        return None
+    if p_die_per_life > 0 and e_death_time_ms is None:
+        return None
+    if p_die_per_life == 0:
+        return e_completion_time_ms
+    # p_die_per_life ∈ (0, 1) here, and e_death_time_ms is not None.
+    q = 1.0 - p_die_per_life
+    e_n_death_lives = p_die_per_life / q
+    return e_n_death_lives * (e_death_time_ms + respawn_penalty_ms) + e_completion_time_ms
+
+
 def _resolve_halflife(params: dict | None) -> int:
     if not params or "halflife" not in params:
         return DEFAULT_HALFLIFE

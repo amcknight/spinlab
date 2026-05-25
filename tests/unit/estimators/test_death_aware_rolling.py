@@ -223,3 +223,80 @@ class TestEpisodeLevelAggregates:
         assert agg.n_episodes_with_death_eff == pytest.approx(1.0, abs=0.01)
         assert agg.n_episodes_completed_eff == pytest.approx(2.0, abs=0.01)
         assert agg.p_die_per_attempt == pytest.approx(0.5, abs=0.01)
+
+
+class TestGeometricFormula:
+    def test_zero_p_die_returns_completion_time(self):
+        from spinlab.estimators.death_aware_rolling import _expected_total_ms
+        result = _expected_total_ms(
+            p_die_per_life=0.0,
+            e_death_time_ms=None,
+            e_completion_time_ms=8000.0,
+            respawn_penalty_ms=3200,
+        )
+        assert result == pytest.approx(8000.0)
+
+    def test_half_p_die_means_one_extra_death_life(self):
+        """p_die_per_life=0.5 → E[death lives] = 1, so total = (death+penalty) + completion."""
+        from spinlab.estimators.death_aware_rolling import _expected_total_ms
+        result = _expected_total_ms(
+            p_die_per_life=0.5,
+            e_death_time_ms=3000.0,
+            e_completion_time_ms=8000.0,
+            respawn_penalty_ms=3200,
+        )
+        # (0.5 / 0.5) * (3000 + 3200) + 8000 = 6200 + 8000 = 14200
+        assert result == pytest.approx(14200.0)
+
+    def test_eighty_percent_p_die_means_four_death_lives(self):
+        from spinlab.estimators.death_aware_rolling import _expected_total_ms
+        result = _expected_total_ms(
+            p_die_per_life=0.8,
+            e_death_time_ms=3000.0,
+            e_completion_time_ms=8000.0,
+            respawn_penalty_ms=3200,
+        )
+        # (0.8 / 0.2) * (3000 + 3200) + 8000 = 4 * 6200 + 8000 = 32800
+        assert result == pytest.approx(32800.0)
+
+    def test_p_die_one_returns_none(self):
+        """No completions observed → cannot project an expected attempt time."""
+        from spinlab.estimators.death_aware_rolling import _expected_total_ms
+        result = _expected_total_ms(
+            p_die_per_life=1.0,
+            e_death_time_ms=3000.0,
+            e_completion_time_ms=None,
+            respawn_penalty_ms=3200,
+        )
+        assert result is None
+
+    def test_none_p_die_returns_none(self):
+        from spinlab.estimators.death_aware_rolling import _expected_total_ms
+        result = _expected_total_ms(
+            p_die_per_life=None,
+            e_death_time_ms=None,
+            e_completion_time_ms=None,
+            respawn_penalty_ms=3200,
+        )
+        assert result is None
+
+    def test_no_completion_time_returns_none(self):
+        from spinlab.estimators.death_aware_rolling import _expected_total_ms
+        result = _expected_total_ms(
+            p_die_per_life=0.3,
+            e_death_time_ms=3000.0,
+            e_completion_time_ms=None,
+            respawn_penalty_ms=3200,
+        )
+        assert result is None
+
+    def test_no_death_time_with_nonzero_p_die_returns_none(self):
+        """If p_die > 0 but we have no death-time samples, can't compute total."""
+        from spinlab.estimators.death_aware_rolling import _expected_total_ms
+        result = _expected_total_ms(
+            p_die_per_life=0.3,
+            e_death_time_ms=None,
+            e_completion_time_ms=8000.0,
+            respawn_penalty_ms=3200,
+        )
+        assert result is None
