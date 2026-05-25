@@ -35,6 +35,15 @@ DEFAULT_HALFLIFE = 20
 # cutoff just avoids iterating over arbitrarily old history.
 EFFECTIVE_WINDOW_HALFLIVES = 5
 
+# Halflife bounds. Lower bound = 1 episode (halving every episode is the most
+# responsive sensible setting; lower violates the exponential-decay math since
+# the formula 2**(-(N-i)/halflife) is undefined for halflife=0). Upper bound =
+# 200 episodes (at typical practice cadence this corresponds to multiple weeks
+# of effective memory; above this the rolling estimator stops being "rolling"
+# in any meaningful sense and approaches plain mean.)
+HALFLIFE_MIN = 1
+HALFLIFE_MAX = 200
+
 
 @dataclass
 class DeathAwareRollingState(EstimatorState):
@@ -54,17 +63,17 @@ class DeathAwareRollingState(EstimatorState):
 EstimatorState.register_state("death_aware_rolling", DeathAwareRollingState)
 
 
-def _resolve_halflife(params: dict | None) -> float:
+def _resolve_halflife(params: dict | None) -> int:
     if not params or "halflife" not in params:
-        return float(DEFAULT_HALFLIFE)
+        return DEFAULT_HALFLIFE
     raw = params["halflife"]
     try:
-        v = float(raw)
+        n = int(raw)
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"halflife must be a number, got {raw!r}") from exc
-    if v < 1.0 or v > 200.0:
-        raise ValueError(f"halflife must be in [1, 200], got {v}")
-    return v
+        raise ValueError(f"halflife must be an int, got {raw!r}") from exc
+    if n < HALFLIFE_MIN or n > HALFLIFE_MAX:
+        raise ValueError(f"halflife must be in [{HALFLIFE_MIN}, {HALFLIFE_MAX}], got {n}")
+    return n
 
 
 def _empty_output() -> ModelOutput:
@@ -82,7 +91,7 @@ class DeathAwareRollingEstimator(Estimator):
         return [
             ParamDef(
                 "halflife", "Halflife (episodes)",
-                float(DEFAULT_HALFLIFE), 1.0, 200.0, 1.0,
+                float(DEFAULT_HALFLIFE), float(HALFLIFE_MIN), float(HALFLIFE_MAX), 1.0,
                 "Number of episodes for the rolling weight to halve. "
                 "20 ≈ recent month of casual practice; lower = more "
                 "responsive to recent changes, higher = more stable.",
