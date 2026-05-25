@@ -42,9 +42,9 @@ Carried forward from [`2026-04-01-model-output-v2-design.md`](2026-04-01-model-o
 Plus one new principle specific to this model:
 
 5. **Honest about deaths.** Don't collapse died and survived attempts into a
-   single mean. Track them separately, expose the death rate, and let downstream
-   consumers reason about expected time as `p_die × E[death] + (1-p_die) × E[completion]`
-   when they need a single number.
+   single mean. Track each as its own time distribution, expose the death
+   rate, and let the geometric formulation derive expected attempt time when
+   a single number is needed (see Math section).
 
 ## In scope (V1)
 
