@@ -62,6 +62,15 @@ When an item ships, delete it from this file rather than checking it off — the
 - **Critical path focus.** Just work on critical-path stuff to get real value for a simple run. (Periodic reminder, not a task.)
 - See `docs/model-improvements-spec.md` for the per-estimator improvement plan (Phases 2-4 are open).
 
+### Death-aware-rolling follow-ups (deferred from the 2026-05-24 PoC)
+
+- **[M] Death-aware allocator.** New allocator class (`death_aware_greedy`) that folds `p_die_per_life`/`expected_death_time_ms` into the scoring formula. The current greedy allocator consumes only `total.expected_ms`, so it doesn't currently differentiate "high p_die" from "low p_die at the same expected time." Needs a real session of data to see the per-segment `p_die` distribution before picking the scoring formula.
+- **[M] Frontend death-curve plot.** Render `DeathExtras.death_samples` (weighted `(time_ms, weight)` points) as a KDE or histogram per segment in the Model tab. Data is already on the wire via the OpenAPI codegen; consumer needs to opt in. Likely also surface `expected_death_time_ms` and `p_die_per_attempt` as headline stats next to the existing `expected_ms`.
+- **[S] Population priors for `death_aware_rolling`.** Override `get_priors` once we have ≥5 segments with ≥20 attempts each. Useful values to pool: typical `p_die_per_life` per game, typical `expected_completion_time_ms` shape per level. Currently `get_priors` returns `{}` and cold-start segments get nothing from siblings.
+- **[L] Screen-awareness.** Per-screen death-rate and timing breakdown. Structural change — probably warrants a new `extras` variant or a separate output type, since the question shifts from "when do I die?" to "where do I die?". Wait until at least one real session shows whether per-screen context would meaningfully change practice loop or stat displays.
+- **[L] Learning-curve / asymptote projections.** "Expected gold after infinite practice", "expected practice before WR", "expected time saved by 1 more rep." Requires fitting a parametric learning curve (exponential decay or power law) to the rolling-min or low quantile of the completion-time series. Deferred from this PoC because we wanted to validate the simpler decayed-mean + geometric-formula model first.
+- **[S] Spec wording fix — sample truncation granularity.** The 2026-05-24 spec says `death_samples`/`completion_samples` are "capped at ~5×halflife per outcome", but the implementation truncates per *episode* (in `_compute_aggregates`), so multi-death episodes can push `death_samples` higher than the per-outcome budget. Behavior is fine (storage stays bounded by ~5×halflife × deaths-per-episode-in-window); spec text should be updated to say "~5×halflife episodes" to match the code.
+
 ## Documentation
 
 - **[S] Lock the superpowers spec/plan tree.** Make `docs/superpowers/specs/`, `docs/superpowers/plans/`, and `docs/superpowers/archive/` read-only somehow (CI check, pre-commit hook, or just convention). They are frozen historical artifacts and editing them post-hoc destroys the narrative.
