@@ -42,7 +42,7 @@ class _BaseResponse(BaseModel):
 # models.py — they ARE dataclasses (asdict/fields/to_dict still work) AND
 # Pydantic schema sources, so FastAPI generates OpenAPI definitions from the
 # same class the estimator pipeline constructs and state_builder serializes.
-from spinlab.models import ConditionMap, Mode, ModelOutput, Status  # noqa: E402, I001 — kept beside its explanatory block above
+from spinlab.models import ConditionMap, DeathExtras, Mode, ModelOutput, Status  # noqa: E402, I001 — kept beside its explanatory block above
 
 CaptureRunStatus = Literal["draft", "saved"]
 CaptureRunKind = Literal["live", "replay"]
