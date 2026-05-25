@@ -165,34 +165,11 @@ unchanged within float precision).
 All events within an episode inherit that episode's weight. Halflife counts
 *episodes* (the player's mental unit of practice), not events.
 
-### Episode-level aggregates
-
-```
-n_attempts_effective    = Σ weight_i  over all episodes
-n_died_effective        = Σ weight_i  over episodes where had_any_death == True
-n_completed_effective   = Σ weight_i  over episodes where episode_outcome == "completed"
-p_die                   = n_died_effective / n_attempts_effective
-```
-
-**`p_die` semantics:** "fraction of recent attempts that contained any death."
-An episode that died twice and then completed counts as a "death attempt" —
-that matches how a player thinks about it ("I died on that segment two runs
-ago, even though I made it eventually"). `n_died_effective` and
-`n_completed_effective` are **not** complementary (an episode can have both
-deaths and a completion); their sum can exceed `n_attempts_effective`.
-
-```
-E[episode_total]    = Σ (weight_i × episode_total_time_ms_i) / Σ weight_i
-                      over episodes where episode_outcome == "completed"
-```
-
-`E[episode_total]` is the weighted mean episode-total time, computed only over
-completed episodes (incomplete episodes have no meaningful total). This is the
-direct successor to `rolling_mean`'s mean — same quantity, decay-weighted.
-
 ### Life-level aggregates
 
-For per-event samples (each life is one sample):
+Aborted episodes (player gave up after some deaths, no completion) **do**
+contribute to the model — their died events are real practice data. The
+life-level rollup uses every event regardless of whether the episode finished:
 
 ```
 death_samples      = [(event.time_ms, episode_weight) for each died event in the window]
@@ -203,57 +180,102 @@ completion_samples = [(event.time_ms, episode_weight) for each survived event in
 is one sample with its own `time_ms` (time since last respawn or arm) and the
 episode's weight. A single episode with 3 deaths and then a survival contributes
 3 death samples and 1 completion sample, all sharing the same episode weight.
+An aborted episode `[died, died, died]` contributes 3 death samples and 0
+completion samples.
 
 ```
-E[death_time]      = Σ (w × t) / Σ w   over death_samples       # None if empty
-E[completion_time] = Σ (w × t) / Σ w   over completion_samples  # None if empty
+n_lives_died_effective     = Σ episode_weight  over died events in the window
+n_lives_survived_effective = Σ episode_weight  over survived events in the window
+p_die_per_life             = n_lives_died_effective / (n_lives_died_effective + n_lives_survived_effective)
+E[death_time]              = Σ (w × t) / Σ w   over death_samples       # None if empty
+E[completion_time]         = Σ (w × t) / Σ w   over completion_samples  # None if empty
 ```
+
+**`p_die_per_life` semantics:** "fraction of recent lives that ended in death."
+A multi-death-then-survive episode contributes both to the numerator and the
+denominator — every life counts. An aborted episode contributes only to the
+numerator. This is the death rate the geometric expected-time formula needs.
+
+### Episode-level aggregates (for player intuition)
+
+```
+n_attempts_effective         = Σ weight_i  over all episodes
+n_episodes_with_death_eff    = Σ weight_i  over episodes where had_any_death == True
+n_episodes_completed_eff     = Σ weight_i  over episodes where episode_outcome == "completed"
+p_die_per_attempt            = n_episodes_with_death_eff / n_attempts_effective
+```
+
+`p_die_per_attempt` is "fraction of recent attempts that contained any death" —
+what the player asks ("how often do I die on this segment"). It's NOT used in
+the legacy ModelOutput math; the geometric formula uses `p_die_per_life`. Both
+are surfaced in DeathExtras so the UI and allocator can pick whichever question
+they're answering. `n_episodes_with_death_eff` and `n_episodes_completed_eff`
+are **not** complementary (an episode can have both deaths and a completion);
+their sum can exceed `n_attempts_effective`.
 
 ### Legacy ModelOutput fields
 
 The new model populates `ModelOutput.total` and `ModelOutput.clean` so it can
 serve as a drop-in for the existing greedy allocator and UI.
 
+`total.expected_ms` uses the **geometric formulation**: each life independently
+dies (prob `p_die_per_life`) or completes; player keeps trying until success.
+Number of lives until completion is geometric with mean `1 / (1 - p_die_per_life)`.
+
 ```
-total.expected_ms    = E[episode_total]
-                       (decayed weighted mean of completed-episode totals;
-                        the simplest defensible "what will my next attempt
-                        take" answer — episode-level granularity matches the
-                        question)
-total.ms_per_attempt = (weighted_mean_first_half − weighted_mean_second_half) / half_n
-                       over completed-episode totals in chronological order,
-                       with episode weights applied to each half's mean.
-                       Same crude-trend shape as rolling_mean's slope, with
-                       weights threaded through.
+q = 1 - p_die_per_life     # life completion rate
+E[N_death_lives] = q == 0 ? None : (1 - q) / q   # = p_die_per_life / q
+
+total.expected_ms    = E[N_death_lives] × (E[death_time] + DEFAULT_DEATH_PENALTY_MS)
+                       + E[completion_time]
+                       (= 0 + E[completion_time] when p_die_per_life = 0;
+                        = None when no completions observed —
+                        we can't estimate completion time)
+total.ms_per_attempt = derived by computing the geometric formula over the
+                       first half vs second half of the chronological event
+                       window, then (first − second) / half_n
 total.floor_ms       = min episode_total_time_ms across ALL completed episodes,
-                       not just the window (best-ever is sticky info)
+                       not just the window (best-ever total time the player has
+                       achieved, deaths included — this is the actual achievable
+                       lower bound, not a counterfactual)
 
 clean.expected_ms    = E[completion_time]
                        (same value as DeathExtras.expected_completion_time_ms;
                         kept on both surfaces so each is self-contained)
-clean.ms_per_attempt = same weighted slope formula, applied to completion_samples
+clean.ms_per_attempt = weighted (first-half-mean − second-half-mean) / half_n
+                       over completion_samples
 clean.floor_ms       = min survived event time_ms across ALL survived events,
                        not just the window
 ```
 
-`DEFAULT_DEATH_PENALTY_MS` is the existing constant in `models.py` (= 3200ms),
-folded into `episode_total_time_ms` exactly as the production roll-up does.
+`DEFAULT_DEATH_PENALTY_MS` is the existing constant in `models.py` (= 3200ms).
 
-**Why not the formula `p_die × (E[death]+penalty) + (1-p_die) × E[completion]`?**
-That formula assumes one outcome per attempt (die OR complete, not both). For
-multi-life episodes that's wrong. The expected-attempt-time involves a geometric
-sum over lives until completion, with each life's outcome independent — too much
-modeling for V1, and unnecessary because `E[episode_total]` is the direct
-empirical answer to the same question.
+Per-episode total times (`episode_total_time_ms = sum(event.time_ms) + DEFAULT_DEATH_PENALTY_MS × deaths_in_episode`)
+are only used for `total.floor_ms`. The expected total is the geometric
+projection from life-level data, not the empirical mean of completed episodes —
+which would be biased by excluding aborted attempts.
+
+**Why the geometric formulation matters:** if a segment has 100 lives observed
+(70 deaths, 30 completions) across 50 episodes (20 aborted after deaths, 30
+completed), the empirical mean over completed episodes only sees the 30 "lucky"
+episodes that finished. The geometric formula sees all 100 lives — including
+the deaths from aborted episodes — and projects "if you played to completion,
+the average attempt would take this long." That's the honest answer.
+
+**i.i.d. assumption.** The geometric formula assumes each life independently
+draws `p_die_per_life`. Real practice may have within-episode dynamics ("tilt"
+after a death, warmup on first life). For V1 we accept the simplification and
+note it. If real data shows strong within-episode correlation, the model gets
+flagged in a follow-up.
 
 ### Edge cases
 
 | Case | Behavior |
 |---|---|
 | `events` empty or all invalidated | Return `ModelOutput(total=all-None, clean=all-None, extras=None)`. |
-| Zero completed episodes | `total.expected_ms = None`. `total.floor_ms = None`. `clean.expected_ms = None` (no survived events ⇒ no completion samples). `p_die ≈ 1`. `death_samples` populated; `completion_samples = []`. |
-| Zero died episodes | `p_die = 0`. `death_samples = []`. `total.expected_ms = E[episode_total]`. `clean.expected_ms = E[completion_time]`. |
-| Single episode, completed, no deaths | `n_attempts = 1`, `p_die = 0`, single-sample completion. `ms_per_attempt = None` (no slope across a single point). |
+| Zero survived events (no completions ever observed) | `total.expected_ms = None`. `total.floor_ms = None`. `clean.expected_ms = None`. `clean.floor_ms = None`. `p_die_per_life = 1.0`. `death_samples` populated; `completion_samples = []`. The geometric formula correctly refuses to extrapolate without any successful-life data. |
+| Zero died events | `p_die_per_life = 0`. `death_samples = []`. Geometric formula reduces to `total.expected_ms = E[completion_time]`. |
+| Single event | Distributions are single-sample. `ms_per_attempt = None` (no slope across a single point). |
 | Halflife outside [1, 200] | `declared_params` bounds enforce this; out-of-bounds raises on apply, per the `rolling_mean` pattern. |
 | Sample arrays exceed 5×halflife per outcome | Truncate to most-recent 5×halflife on each side before serialization. |
 
@@ -321,17 +343,34 @@ class DeathExtras:
     Carried on ModelOutput.extras when the active estimator is death-aware.
     Legacy estimators leave ModelOutput.extras = None.
 
-    n_died_effective and n_completed_effective are NOT complementary — an
-    episode can both contain deaths and end in a completion. Their sum can
-    exceed n_attempts_effective.
+    Two granularities exposed:
+      - Life-level (n_lives_*, p_die_per_life): used in the geometric formula
+        for total.expected_ms. Counts every died/survived event including
+        events from aborted episodes.
+      - Episode-level (n_attempts_*, n_episodes_*, p_die_per_attempt): for
+        player intuition ("how often does my attempt die"). Not used by
+        legacy ModelOutput math.
+
+    n_episodes_with_death_eff and n_episodes_completed_eff are NOT
+    complementary — an episode can both contain deaths and complete. Their
+    sum can exceed n_attempts_effective.
     """
     halflife_attempts: int
-    n_attempts_effective: float       # decayed sum of episode weights (denominator for p_die)
-    n_died_effective: float           # decayed weight over episodes with ANY died event
-    n_completed_effective: float      # decayed weight over episodes whose last event is survived
-    p_die: float                      # n_died_effective / n_attempts_effective; "fraction of attempts with any death"
-    death_samples: list[tuple[int, float]]      # life-level (time_ms, weight) per died event; capped at ~5*halflife
-    completion_samples: list[tuple[int, float]] # life-level (time_ms, weight) per survived event; capped at ~5*halflife
+
+    # Episode-level (player intuition)
+    n_attempts_effective: float           # decayed sum of episode weights
+    n_episodes_with_death_eff: float      # decayed weight over episodes with ANY died event
+    n_episodes_completed_eff: float       # decayed weight over episodes whose last event is survived
+    p_die_per_attempt: float | None       # n_episodes_with_death_eff / n_attempts_effective; None if no attempts
+
+    # Life-level (used by the geometric formula)
+    n_lives_died_effective: float         # decayed weight over died events
+    n_lives_survived_effective: float     # decayed weight over survived events
+    p_die_per_life: float | None          # used by total.expected_ms; None if no events
+
+    # Distributions
+    death_samples: list[tuple[int, float]]      # (time_ms, weight) per died event; capped at ~5*halflife
+    completion_samples: list[tuple[int, float]] # (time_ms, weight) per survived event; capped at ~5*halflife
     expected_death_time_ms: float | None        # weighted mean of death_samples; None when empty
     expected_completion_time_ms: float | None   # weighted mean of completion_samples; None when empty
 ```
@@ -363,8 +402,13 @@ Mirror `tests/unit/test_rolling_mean.py` shape:
 - **Multi-death episode** — one episode with 3 deaths + 1 survival contributes
   3 weighted death samples and 1 weighted completion sample at the same weight.
   Also: this episode counts as ONE attempt with `had_any_death=True`, so it
-  contributes to both `n_died_effective` AND `n_completed_effective` (an
-  episode can be both — the counts are not complementary).
+  contributes to both `n_episodes_with_death_eff` AND `n_episodes_completed_eff`
+  (an episode can be both — the counts are not complementary).
+- **Aborted episode still contributes** — a `[died, died, died]` episode adds
+  3 death samples and 3 life-level death weight; contributes 1 to
+  `n_attempts_effective` and 1 to `n_episodes_with_death_eff`; contributes 0
+  to `n_lives_survived_effective` and 0 to `n_episodes_completed_eff`. This
+  is what makes the geometric formula honest.
 - **`n_died + n_completed > n_attempts` is allowed** — assert this holds in
   the multi-death-then-survive case.
 - **Invalidated episode filtering** — invalidated episodes do not appear in
@@ -373,10 +417,20 @@ Mirror `tests/unit/test_rolling_mean.py` shape:
   samples capped at ~50 (5×halflife) per outcome.
 - **Halflife knob** — declared_params surfaces halflife with the documented
   bounds. Out-of-bounds raises (mirrors rolling_mean).
-- **`total.expected_ms` = `E[episode_total]`** — hand-construct events where
-  episode totals are known; verify `total.expected_ms` matches the weighted
-  mean of completed-episode totals. Verify `total.expected_ms = None` when
-  there are zero completed episodes.
+- **`total.expected_ms` geometric formula** — hand-construct events where
+  `p_die_per_life`, `E[death_time]`, and `E[completion_time]` are known;
+  verify `total.expected_ms` matches the geometric formula to float tolerance.
+  Cases to cover:
+    - `p_die_per_life = 0` → `total.expected_ms = E[completion_time]`
+    - `p_die_per_life = 0.5` → one death life on average, so
+      `total.expected_ms = (E[death_time] + 3200) + E[completion_time]`
+    - `p_die_per_life = 0.8` → 4 death lives on average
+    - `p_die_per_life = 1.0` (no completions observed) →
+      `total.expected_ms = None`
+- **Aborted-episode bias check** — synthesize a scenario with 30 completed
+  episodes (clean) and 20 aborted episodes (3 deaths each); verify that the
+  geometric `total.expected_ms` is meaningfully larger than the mean of
+  completed-episode totals (which would naively ignore the aborted deaths).
 - **`total.floor_ms` is min episode_total across ALL completed**, not just the
   window — synthesize a great-but-old completed episode plus mediocre recent
   ones; verify floor reflects the old best.
@@ -424,10 +478,16 @@ extension lands.
 
 This PoC succeeds if, after a few practice sessions with the model active:
 
-1. `total.expected_ms` from `death_aware_rolling` is qualitatively comparable
-   to `rolling_mean`'s — the practice loop doesn't get worse.
-2. The `DeathExtras` payload is populated with sensible numbers (death times
-   look like times you actually died at; `p_die` matches your eyeball estimate).
+1. `total.expected_ms` from `death_aware_rolling` is **larger than** `rolling_mean`'s
+   for segments where Andrew aborts episodes after deaths — that's the geometric
+   formula correctly projecting "if you played to completion, your average
+   attempt would take this long including the aborted deaths." If they're equal,
+   either the segment has no aborted episodes (fine) or the new model is
+   silently falling back to the empirical mean (bug). If the new model is
+   smaller, math is wrong.
+2. The `DeathExtras` payload is populated with sensible numbers — death times
+   look like times Andrew actually died at; `p_die_per_attempt` matches his
+   eyeball estimate; `p_die_per_life` is somewhere between 0 and 1.
 3. The greedy allocator's segment picks are good enough to enable "zero-decision
    practice" — Andrew loads what it picks without overriding.
 
