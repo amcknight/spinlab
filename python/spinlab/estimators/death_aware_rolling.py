@@ -19,7 +19,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from spinlab.estimators import Estimator, EstimatorState, ParamDef, register_estimator
-from spinlab.models import AttemptRecord, DeathExtras, DEFAULT_DEATH_PENALTY_MS, Estimate, ModelOutput
+from spinlab.models import (
+    DEFAULT_DEATH_PENALTY_MS,
+    AttemptRecord,
+    DeathExtras,
+    Estimate,
+    ModelOutput,
+)
 
 if TYPE_CHECKING:
     from spinlab.models import EventAttempt
@@ -272,6 +278,7 @@ def _expected_total_ms(
     if p_die_per_life == 0:
         return e_completion_time_ms
     # p_die_per_life ∈ (0, 1) here, and e_death_time_ms is not None.
+    assert e_death_time_ms is not None  # guarded above; assert for type narrowing
     q = 1.0 - p_die_per_life
     e_n_death_lives = p_die_per_life / q
     return e_n_death_lives * (e_death_time_ms + respawn_penalty_ms) + e_completion_time_ms

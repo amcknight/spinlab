@@ -14,13 +14,14 @@ logger = logging.getLogger(__name__)
 
 from spinlab.allocators import Allocator, SegmentWithModel, get_allocator, list_allocators
 from spinlab.allocators.mix import MixAllocator
-from spinlab.db.attempts import AttemptRow
+from spinlab.db.attempts import AttemptRow, EventAttemptRow
 from spinlab.estimators import EstimatorState, get_estimator, list_estimators
 from spinlab.models import Attempt, AttemptRecord
 
 if TYPE_CHECKING:
     from spinlab.db import Database
     from spinlab.estimators import Estimator
+    from spinlab.models import EventAttempt
 
 
 # Optional segments-v07 silent fit pipeline. The [fits] extra brings
@@ -53,10 +54,11 @@ def _attempts_from_rows(rows: list[AttemptRow]) -> list[AttemptRecord]:
     ]
 
 
-def _events_from_rows(rows: list[dict]) -> list["EventAttempt"]:
+def _events_from_rows(rows: list[EventAttemptRow]) -> list[EventAttempt]:
     """Convert raw event_attempt rows (dicts from get_segment_event_rows)
     into EventAttempt dataclass instances for estimator consumption."""
     from datetime import datetime
+
     from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
     out: list[EventAttempt] = []
     for r in rows:
