@@ -42,7 +42,13 @@ class _BaseResponse(BaseModel):
 # models.py — they ARE dataclasses (asdict/fields/to_dict still work) AND
 # Pydantic schema sources, so FastAPI generates OpenAPI definitions from the
 # same class the estimator pipeline constructs and state_builder serializes.
-from spinlab.models import ConditionMap, Mode, ModelOutput, Status  # noqa: E402, I001 — kept beside its explanatory block above
+# DeathExtras: re-exported (otherwise unused here) so it appears in
+# api_schemas.py's namespace as a named API contract surface. Pydantic
+# includes it in the OpenAPI schema transitively via ModelOutput.extras
+# either way, but the explicit re-export keeps "api_schemas.py declares
+# the API contract" honest and prevents the ruff/lint cycle from removing
+# it again.
+from spinlab.models import ConditionMap, DeathExtras, Mode, ModelOutput, Status  # noqa: E402, F401, I001 — kept beside its explanatory block above
 
 CaptureRunStatus = Literal["draft", "saved"]
 CaptureRunKind = Literal["live", "replay"]
