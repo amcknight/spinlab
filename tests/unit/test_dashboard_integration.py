@@ -463,9 +463,8 @@ def test_segment_history_returns_selected_model(client):
 
 def test_segment_history_returns_null_selected_model_when_no_game(seeded_db):
     """selected_model is None (not ``''``) when no game is loaded."""
-    from tests.conftest import make_test_config
-
     from spinlab.dashboard import create_app
+    from tests.conftest import make_test_config
 
     # Build a client whose session has no game_id set. The seeded DB
     # still contains s1's segment row, so the segment lookup itself
@@ -491,7 +490,10 @@ def test_segment_history_final_extras_present_for_death_aware(
     from datetime import datetime
 
     from spinlab.models import (
-        Attempt, AttemptOutcome, AttemptSource, EventAttempt,
+        Attempt,
+        AttemptOutcome,
+        AttemptSource,
+        EventAttempt,
     )
 
     # log_attempt is a synthesizing shim that also writes one SURVIVED
