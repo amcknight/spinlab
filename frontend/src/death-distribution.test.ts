@@ -1,8 +1,28 @@
 import { describe, it, expect, vi } from "vitest";
 import { binSamples, BIN_COUNT } from "./death-distribution";
 
-// vitest's happy-dom env is configured globally; vi.mock for Chart.js is
-// only needed when we exercise the render function (Step 3.x).
+// Mock Chart.js — happy-dom doesn't run canvas. We just verify the
+// component constructs the chart with the expected data shape and
+// writes the header text we expect.
+vi.mock("chart.js", () => ({
+  Chart: class {
+    data: unknown;
+    options: unknown;
+    static register() {}
+    constructor(_ctx: unknown, config: { data: unknown; options: unknown }) {
+      this.data = config.data;
+      this.options = config.options;
+    }
+    destroy() {}
+    update() {}
+  },
+  BarController: class {},
+  BarElement: class {},
+  LinearScale: class {},
+  CategoryScale: class {},
+  Legend: class {},
+  Tooltip: class {},
+}));
 
 describe("binSamples", () => {
   it("returns BIN_COUNT zero-counts on empty input", () => {
@@ -66,5 +86,63 @@ describe("binSamples", () => {
     // weight; the assertion is on raw count, not weighted sum.
     const { bins } = binSamples([[40, 0.001], [40, 0.001]], []);
     expect(bins[0]!.deaths).toBe(2);
+  });
+});
+
+import { renderDeathDistribution } from "./death-distribution";
+import type { components } from "./api-types";
+
+type DeathExtras = components["schemas"]["DeathExtras"];
+
+const SAMPLE_EXTRAS: DeathExtras = {
+  halflife_attempts: 20,
+  n_attempts_effective: 5.0,
+  n_episodes_with_death_eff: 2.0,
+  n_episodes_completed_eff: 4.0,
+  p_die_per_attempt: 0.4,
+  n_lives_died_effective: 2.0,
+  n_lives_survived_effective: 4.0,
+  p_die_per_life: 0.333,
+  death_samples: [[2000, 1.0], [2200, 0.9]],
+  completion_samples: [[4500, 1.0], [4800, 0.9], [3800, 0.7], [5100, 0.5]],
+  expected_death_time_ms: 2100,
+  expected_completion_time_ms: 4500,
+};
+
+describe("renderDeathDistribution", () => {
+  it("renders the header stats and a chart canvas when extras are present", () => {
+    const container = document.createElement("div");
+    renderDeathDistribution(container, SAMPLE_EXTRAS);
+    expect(container.querySelector(".death-distribution")).not.toBeNull();
+    const header = container.querySelector(".death-distribution-header");
+    expect(header?.textContent).toContain("0.33");  // p_die_per_life rounded
+    expect(header?.textContent).toContain("0.40");  // p_die_per_attempt
+    expect(header?.textContent).toContain("20");    // halflife
+    expect(container.querySelector("canvas")).not.toBeNull();
+  });
+
+  it("renders an empty-state message when extras are null", () => {
+    const container = document.createElement("div");
+    renderDeathDistribution(container, null);
+    expect(container.querySelector(".death-distribution")).not.toBeNull();
+    expect(container.querySelector("canvas")).toBeNull();
+    expect(container.textContent).toContain("No death data");
+  });
+
+  it("renders an empty-state message when sample arrays are both empty", () => {
+    const container = document.createElement("div");
+    const empty: DeathExtras = {
+      ...SAMPLE_EXTRAS,
+      death_samples: [],
+      completion_samples: [],
+      expected_death_time_ms: null,
+      expected_completion_time_ms: null,
+      p_die_per_attempt: null,
+      p_die_per_life: null,
+    };
+    renderDeathDistribution(container, empty);
+    expect(container.querySelector(".death-distribution")).not.toBeNull();
+    expect(container.querySelector("canvas")).toBeNull();
+    expect(container.textContent).toContain("No death data");
   });
 });

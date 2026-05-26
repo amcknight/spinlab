@@ -11,6 +11,7 @@ import {
 import { fetchJSON } from "./api";
 import { segmentName, formatTime } from "./format";
 import type { SegmentHistory } from "./types";
+import { renderDeathDistribution, destroyDeathDistribution } from "./death-distribution";
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Legend, Tooltip);
 
@@ -178,6 +179,15 @@ export async function renderSegmentDetail(
     totalBtn.classList.remove("active");
     updateChart();
   });
+
+  // Death-distribution panel. Reads final_extras for the active estimator.
+  // Renders an empty state when the active estimator doesn't publish extras
+  // or the segment has no death/completion events yet.
+  const curvesForSelected = history.selected_model != null
+    ? history.estimator_curves[history.selected_model]
+    : undefined;
+  const extras = curvesForSelected?.final_extras ?? null;
+  renderDeathDistribution(container, extras);
 }
 
 function updateChart(): void {
@@ -191,6 +201,7 @@ export function destroySegmentDetail(): void {
     _chart.destroy();
     _chart = null;
   }
+  destroyDeathDistribution();
   _history = null;
   _mode = "total";
 }

@@ -70,3 +70,205 @@ export function binSamples(
 
   return { bins, lo, hi };
 }
+
+import {
+  Chart,
+  BarController,
+  BarElement,
+  LinearScale,
+  CategoryScale,
+  Legend,
+  Tooltip,
+} from "chart.js";
+import { formatTime } from "./format";
+import type { components } from "./api-types";
+
+Chart.register(BarController, BarElement, LinearScale, CategoryScale, Legend, Tooltip);
+
+type DeathExtras = components["schemas"]["DeathExtras"];
+
+// Colors chosen to match the conventional red/green of failure/success
+// without being saturated enough to fight the existing line-chart palette.
+const DEATH_COLOR = "rgba(255, 100, 100, 0.55)";
+const DEATH_LINE = "rgba(255, 100, 100, 0.95)";
+const COMPLETION_COLOR = "rgba(100, 200, 100, 0.55)";
+const COMPLETION_LINE = "rgba(100, 200, 100, 0.95)";
+
+interface MarkerPluginOptions {
+  death_ms: number | null;
+  completion_ms: number | null;
+}
+
+// Inline Chart.js plugin: draws two vertical lines + labels on top of the
+// bar chart for the weighted-mean death/completion times. The full chartjs
+// plugin-annotation dep is overkill for two lines.
+const deathMarkersPlugin = {
+  id: "deathMarkers",
+  afterDatasetsDraw(chart: Chart) {
+    const opts = (chart.options.plugins as Record<string, unknown> | undefined)
+      ?.deathMarkers as MarkerPluginOptions | undefined;
+    if (!opts) return;
+    const { ctx, chartArea, scales } = chart;
+    const xScale = scales["x"];
+    if (!xScale) return;
+    const draw = (ms: number | null, color: string, label: string) => {
+      if (ms == null) return;
+      const x = xScale.getPixelForValue(ms);
+      if (x < chartArea.left || x > chartArea.right) return;
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.stroke();
+      ctx.font = "11px sans-serif";
+      ctx.fillText(label, x + 3, chartArea.top + 12);
+      ctx.restore();
+    };
+    draw(opts.death_ms, DEATH_LINE, "μ_d");        // μ_d
+    draw(opts.completion_ms, COMPLETION_LINE, "μ_c"); // μ_c
+  },
+};
+Chart.register(deathMarkersPlugin);
+
+let _histChart: Chart | null = null;
+
+function buildHeader(extras: DeathExtras): HTMLElement {
+  const header = document.createElement("div");
+  header.className = "death-distribution-header";
+  const title = document.createElement("h4");
+  title.textContent = "Death distribution";
+  header.appendChild(title);
+
+  const stats = document.createElement("div");
+  stats.className = "death-distribution-stats dim";
+  const parts: string[] = [];
+  parts.push(`halflife: ${extras.halflife_attempts} ep`);
+  if (extras.p_die_per_life != null) {
+    parts.push(`p(die|life): ${extras.p_die_per_life.toFixed(2)}`);
+  }
+  if (extras.p_die_per_attempt != null) {
+    parts.push(`p(die|attempt): ${extras.p_die_per_attempt.toFixed(2)}`);
+  }
+  stats.textContent = parts.join("   ");
+  header.appendChild(stats);
+  return header;
+}
+
+function buildEmptyState(): HTMLElement {
+  const msg = document.createElement("p");
+  msg.className = "dim";
+  msg.textContent =
+    "No death data — selected estimator doesn’t publish death distributions.";
+  return msg;
+}
+
+export function renderDeathDistribution(
+  container: HTMLElement,
+  extras: DeathExtras | null,
+): void {
+  destroyDeathDistribution();
+
+  const section = document.createElement("section");
+  section.className = "death-distribution";
+  container.appendChild(section);
+
+  if (extras === null) {
+    const headerStub = document.createElement("div");
+    headerStub.className = "death-distribution-header";
+    const title = document.createElement("h4");
+    title.textContent = "Death distribution";
+    headerStub.appendChild(title);
+    section.appendChild(headerStub);
+    section.appendChild(buildEmptyState());
+    return;
+  }
+
+  section.appendChild(buildHeader(extras));
+
+  if (extras.death_samples.length === 0 && extras.completion_samples.length === 0) {
+    section.appendChild(buildEmptyState());
+    return;
+  }
+
+  const { bins } = binSamples(extras.death_samples, extras.completion_samples);
+
+  const chartWrap = document.createElement("div");
+  chartWrap.className = "chart-wrapper";
+  const canvas = document.createElement("canvas");
+  canvas.id = "death-histogram";
+  chartWrap.appendChild(canvas);
+  section.appendChild(chartWrap);
+
+  // Bin centers (ms) so the bar x-position is meaningful on a linear scale.
+  const labels = bins.map((b) => (b.lo_ms + b.hi_ms) / 2);
+  const deathData = bins.map((b) => b.deaths);
+  const completionData = bins.map((b) => b.completions);
+
+  _histChart = new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "deaths",
+          data: deathData,
+          backgroundColor: DEATH_COLOR,
+          borderColor: DEATH_LINE,
+          borderWidth: 1,
+        },
+        {
+          label: "completions",
+          data: completionData,
+          backgroundColor: COMPLETION_COLOR,
+          borderColor: COMPLETION_LINE,
+          borderWidth: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          title: { display: true, text: "Time" },
+          ticks: {
+            callback: (v, idx) => formatTime(Number(labels[idx] ?? 0)),
+          },
+        },
+        y: {
+          title: { display: true, text: "Samples" },
+          ticks: { precision: 0 },
+        },
+      },
+      plugins: {
+        legend: { position: "top" },
+        tooltip: {
+          callbacks: {
+            // ctx typed as TooltipItem<"bar"> via Chart.js's generic
+            // tooltip-callbacks inference.
+            label: (ctx: { dataset: { label?: string }; parsed: { y: number } }) =>
+              `${ctx.dataset.label}: ${ctx.parsed.y}`,
+          },
+        },
+        // Custom plugin sees this via chart.options.plugins.deathMarkers.
+        // The wider object is cast so the unknown 'deathMarkers' key is
+        // accepted; ctx callback above is locally typed so the cast doesn't
+        // erase tooltip inference.
+        deathMarkers: {
+          death_ms: extras.expected_death_time_ms,
+          completion_ms: extras.expected_completion_time_ms,
+        },
+      } as unknown as Record<string, unknown>,
+    },
+  });
+}
+
+export function destroyDeathDistribution(): void {
+  if (_histChart) {
+    _histChart.destroy();
+    _histChart = null;
+  }
+}
