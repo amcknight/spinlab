@@ -94,6 +94,22 @@ const DEATH_LINE = "rgba(255, 100, 100, 0.95)";
 const COMPLETION_COLOR = "rgba(100, 200, 100, 0.55)";
 const COMPLETION_LINE = "rgba(100, 200, 100, 0.95)";
 
+// Offset the label a few pixels right of the marker line so the glyphs
+// don't sit on top of the stroke.
+const MARKER_LABEL_X_OFFSET_PX = 3;
+
+// Drop the label down from the chart's top edge so it clears the legend
+// and any top gridline.
+const MARKER_LABEL_Y_OFFSET_PX = 12;
+
+// Small-but-legible default; matches the visual weight of the line chart's
+// axis labels above without competing with them.
+const MARKER_LABEL_FONT = "11px sans-serif";
+
+// Both the vertical mean-marker line and the bar borders are 1px; if they
+// ever diverge, split into two constants.
+const MARKER_LINE_WIDTH_PX = 1;
+
 interface MarkerPluginOptions {
   death_ms: number | null;
   completion_ms: number | null;
@@ -114,17 +130,18 @@ const deathMarkersPlugin = {
     const draw = (ms: number | null, color: string, label: string) => {
       if (ms == null) return;
       const x = xScale.getPixelForValue(ms);
+      if (!Number.isFinite(x)) return;
       if (x < chartArea.left || x > chartArea.right) return;
       ctx.save();
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = MARKER_LINE_WIDTH_PX;
       ctx.beginPath();
       ctx.moveTo(x, chartArea.top);
       ctx.lineTo(x, chartArea.bottom);
       ctx.stroke();
-      ctx.font = "11px sans-serif";
-      ctx.fillText(label, x + 3, chartArea.top + 12);
+      ctx.font = MARKER_LABEL_FONT;
+      ctx.fillText(label, x + MARKER_LABEL_X_OFFSET_PX, chartArea.top + MARKER_LABEL_Y_OFFSET_PX);
       ctx.restore();
     };
     draw(opts.death_ms, DEATH_LINE, "μ_d");        // μ_d
@@ -135,12 +152,14 @@ Chart.register(deathMarkersPlugin);
 
 let _histChart: Chart | null = null;
 
-function buildHeader(extras: DeathExtras): HTMLElement {
+function buildHeader(extras: DeathExtras | null): HTMLElement {
   const header = document.createElement("div");
   header.className = "death-distribution-header";
   const title = document.createElement("h4");
   title.textContent = "Death distribution";
   header.appendChild(title);
+
+  if (extras === null) return header;
 
   const stats = document.createElement("div");
   stats.className = "death-distribution-stats dim";
@@ -176,12 +195,7 @@ export function renderDeathDistribution(
   container.appendChild(section);
 
   if (extras === null) {
-    const headerStub = document.createElement("div");
-    headerStub.className = "death-distribution-header";
-    const title = document.createElement("h4");
-    title.textContent = "Death distribution";
-    headerStub.appendChild(title);
-    section.appendChild(headerStub);
+    section.appendChild(buildHeader(null));
     section.appendChild(buildEmptyState());
     return;
   }
@@ -217,14 +231,14 @@ export function renderDeathDistribution(
           data: deathData,
           backgroundColor: DEATH_COLOR,
           borderColor: DEATH_LINE,
-          borderWidth: 1,
+          borderWidth: MARKER_LINE_WIDTH_PX,
         },
         {
           label: "completions",
           data: completionData,
           backgroundColor: COMPLETION_COLOR,
           borderColor: COMPLETION_LINE,
-          borderWidth: 1,
+          borderWidth: MARKER_LINE_WIDTH_PX,
         },
       ],
     },
@@ -235,7 +249,7 @@ export function renderDeathDistribution(
         x: {
           title: { display: true, text: "Time" },
           ticks: {
-            callback: (v, idx) => formatTime(Number(labels[idx] ?? 0)),
+            callback: (_v, idx) => formatTime(labels[idx]!),
           },
         },
         y: {
@@ -247,21 +261,18 @@ export function renderDeathDistribution(
         legend: { position: "top" },
         tooltip: {
           callbacks: {
-            // ctx typed as TooltipItem<"bar"> via Chart.js's generic
-            // tooltip-callbacks inference.
-            label: (ctx: { dataset: { label?: string }; parsed: { y: number } }) =>
-              `${ctx.dataset.label}: ${ctx.parsed.y}`,
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y}`,
           },
         },
-        // Custom plugin sees this via chart.options.plugins.deathMarkers.
-        // The wider object is cast so the unknown 'deathMarkers' key is
-        // accepted; ctx callback above is locally typed so the cast doesn't
-        // erase tooltip inference.
-        deathMarkers: {
-          death_ms: extras.expected_death_time_ms,
-          completion_ms: extras.expected_completion_time_ms,
-        },
-      } as unknown as Record<string, unknown>,
+        // Chart.js doesn't type custom plugin options; merge as `unknown`
+        // so legend/tooltip above keep their inferred types.
+        ...({
+          deathMarkers: {
+            death_ms: extras.expected_death_time_ms,
+            completion_ms: extras.expected_completion_time_ms,
+          },
+        } as Record<string, unknown>),
+      },
     },
   });
 }
