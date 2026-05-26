@@ -173,6 +173,7 @@ def segment_history(
         clean_expected: list[float | None] = []
         clean_floor: list[float | None] = []
 
+        final_extras = None
         if completed:
             state = est.init_state(completed[0], priors, params=params)
             out = est.model_output(state, completed[:1], params=params)
@@ -191,16 +192,15 @@ def segment_history(
                 clean_expected.append(out.clean.expected_ms)
                 clean_floor.append(out.clean.floor_ms)
 
-        # Compute final extras by rebuilding state with the full event list.
-        # The per-attempt curve loop above doesn't pass events (so e.g.
-        # death_aware_rolling returns empty curves there — pre-existing
-        # behavior, separate concern). For the final-state snapshot used by
-        # the histogram panel we want extras to actually be populated.
-        final_extras = None
-        if completed and events:
-            final_state = est.rebuild_state(completed, params=params, events=events)
+            # Compute final extras by reusing the final state from the
+            # per-attempt loop above and recomputing model_output with the
+            # full event list. The per-attempt loop intentionally doesn't
+            # pass events (the per-attempt curves for death-aware
+            # estimators are pre-existing-empty; out of scope here).
+            # Estimators that don't publish extras (kalman, rolling_mean)
+            # return extras=None naturally — no explicit gate needed.
             final_out = est.model_output(
-                final_state, completed, params=params, events=events,
+                state, completed, params=params, events=events,
             )
             final_extras = (
                 final_out.extras.to_dict() if final_out.extras is not None else None
@@ -213,7 +213,7 @@ def segment_history(
         }
 
     sched = session.get_scheduler() if session.game_id is not None else None
-    selected_model = sched.estimator.name if sched is not None else ""
+    selected_model = sched.estimator.name if sched is not None else None
 
     return {
         "segment_id": segment_id,

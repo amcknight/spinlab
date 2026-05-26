@@ -296,9 +296,12 @@ class SegmentHistory(_BaseResponse):
     attempts: list[SegmentAttempt]
     estimator_curves: dict[str, EstimatorCurves]
     # Name of the currently active estimator (mirrors sched.estimator.name).
-    # Frontend uses this to pick which estimator_curves entry's final_extras
-    # to render.
-    selected_model: str
+    # None when no game is loaded — the segment can still be queried
+    # standalone (the route doesn't require a game context to look up a
+    # segment by id), but with no scheduler there's no active estimator
+    # to name. Frontend uses this to pick which estimator_curves entry's
+    # final_extras to render; falls through to the empty state when None.
+    selected_model: str | None = None
 
 
 # ---------------------------------------------------------------------------

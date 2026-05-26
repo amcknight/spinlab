@@ -461,6 +461,24 @@ def test_segment_history_returns_selected_model(client):
     assert data["selected_model"] == "kalman"
 
 
+def test_segment_history_returns_null_selected_model_when_no_game(seeded_db):
+    """selected_model is None (not ``''``) when no game is loaded."""
+    from tests.conftest import make_test_config
+
+    from spinlab.dashboard import create_app
+
+    # Build a client whose session has no game_id set. The seeded DB
+    # still contains s1's segment row, so the segment lookup itself
+    # succeeds; only the scheduler-derived selected_model is absent.
+    app = create_app(db=seeded_db, config=make_test_config())
+    # Explicitly do NOT set app.state.session.game_id.
+    client = TestClient(app)
+
+    resp = client.get("/api/segments/s1/history")
+    assert resp.status_code == 200
+    assert resp.json()["selected_model"] is None
+
+
 def test_segment_history_final_extras_present_for_death_aware(
     seeded_db, client,
 ):
