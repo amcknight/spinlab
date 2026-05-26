@@ -61,7 +61,7 @@ describe("binSamples", () => {
   });
 
   it("ignores sample weights for bar heights (raw counts only)", () => {
-    // With max=100 → hi=1000 → width=50, t=40 lands in bin 0
+    // With max=40 → hi=1000 → width=50, t=40 lands in bin 0
     // (floor(40/50)=0). Both samples share the same bin regardless of
     // weight; the assertion is on raw count, not weighted sum.
     const { bins } = binSamples([[40, 0.001], [40, 0.001]], []);
