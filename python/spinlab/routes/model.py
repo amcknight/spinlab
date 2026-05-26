@@ -20,7 +20,7 @@ from spinlab.api_schemas import (
 )
 from spinlab.db import Database
 from spinlab.estimators import get_estimator, list_estimators
-from spinlab.scheduler import _attempts_from_rows
+from spinlab.scheduler import _attempts_from_rows, _events_from_rows
 from spinlab.session_manager import SessionManager
 
 from ._deps import get_db, get_session
@@ -128,7 +128,11 @@ def set_estimator_params(
 
 
 @router.get("/segments/{segment_id}/history", response_model=SegmentHistory)
-def segment_history(segment_id: str, db: Database = Depends(get_db)):
+def segment_history(
+    segment_id: str,
+    db: Database = Depends(get_db),
+    session: SessionManager = Depends(get_session),
+):
     seg = db.get_segment_by_id(segment_id)
     if seg is None:
         logger.warning("segment_history: unknown segment %r", segment_id)
@@ -138,6 +142,12 @@ def segment_history(segment_id: str, db: Database = Depends(get_db)):
     # _attempts_from_rows already drops invalidated; filter to completed too.
     all_records = _attempts_from_rows(raw_rows)
     completed = [a for a in all_records if a.completed and a.time_ms is not None]
+
+    # Load events once for death-aware estimators. They produce DeathExtras
+    # from events, not from AttemptRecords. Estimators that ignore events
+    # (rolling_mean, kalman) get this argument harmlessly.
+    event_rows = db.get_segment_event_rows(segment_id)
+    events = _events_from_rows(event_rows)
 
     attempts = []
     for i, a in enumerate(completed):
@@ -181,10 +191,29 @@ def segment_history(segment_id: str, db: Database = Depends(get_db)):
                 clean_expected.append(out.clean.expected_ms)
                 clean_floor.append(out.clean.floor_ms)
 
+        # Compute final extras by rebuilding state with the full event list.
+        # The per-attempt curve loop above doesn't pass events (so e.g.
+        # death_aware_rolling returns empty curves there — pre-existing
+        # behavior, separate concern). For the final-state snapshot used by
+        # the histogram panel we want extras to actually be populated.
+        final_extras = None
+        if completed and events:
+            final_state = est.rebuild_state(completed, params=params, events=events)
+            final_out = est.model_output(
+                final_state, completed, params=params, events=events,
+            )
+            final_extras = (
+                final_out.extras.to_dict() if final_out.extras is not None else None
+            )
+
         estimator_curves[est_name] = {
             "total": {"expected_ms": total_expected, "floor_ms": total_floor},
             "clean": {"expected_ms": clean_expected, "floor_ms": clean_floor},
+            "final_extras": final_extras,
         }
+
+    sched = session.get_scheduler() if session.game_id is not None else None
+    selected_model = sched.estimator.name if sched is not None else ""
 
     return {
         "segment_id": segment_id,
@@ -196,4 +225,5 @@ def segment_history(segment_id: str, db: Database = Depends(get_db)):
         "end_ordinal": seg.end_ordinal,
         "attempts": attempts,
         "estimator_curves": estimator_curves,
+        "selected_model": selected_model,
     }

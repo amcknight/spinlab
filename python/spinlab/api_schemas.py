@@ -42,13 +42,10 @@ class _BaseResponse(BaseModel):
 # models.py — they ARE dataclasses (asdict/fields/to_dict still work) AND
 # Pydantic schema sources, so FastAPI generates OpenAPI definitions from the
 # same class the estimator pipeline constructs and state_builder serializes.
-# DeathExtras: re-exported (otherwise unused here) so it appears in
-# api_schemas.py's namespace as a named API contract surface. Pydantic
-# includes it in the OpenAPI schema transitively via ModelOutput.extras
-# either way, but the explicit re-export keeps "api_schemas.py declares
-# the API contract" honest and prevents the ruff/lint cycle from removing
-# it again.
-from spinlab.models import ConditionMap, DeathExtras, Mode, ModelOutput, Status  # noqa: E402, F401, I001 — kept beside its explanatory block above
+# DeathExtras is referenced directly by EstimatorCurves.final_extras below,
+# so it's a first-class API contract type. The explicit re-export also
+# keeps it in api_schemas.py's namespace transitively via ModelOutput.extras.
+from spinlab.models import ConditionMap, DeathExtras, Mode, ModelOutput, Status  # noqa: E402, I001 — kept beside its explanatory block above
 
 CaptureRunStatus = Literal["draft", "saved"]
 CaptureRunKind = Literal["live", "replay"]
@@ -280,6 +277,12 @@ class EstimatorSeries(_BaseResponse):
 class EstimatorCurves(_BaseResponse):
     total: EstimatorSeries
     clean: EstimatorSeries
+    # DeathExtras from the estimator's final state (after every completed
+    # attempt). None when the estimator doesn't publish death-aware extras
+    # (every estimator other than death_aware_rolling today) or when the
+    # segment has no completed attempts. Drives the death-histogram panel
+    # on the segment detail page.
+    final_extras: DeathExtras | None = None
 
 
 class SegmentHistory(_BaseResponse):
@@ -292,6 +295,10 @@ class SegmentHistory(_BaseResponse):
     end_ordinal: int
     attempts: list[SegmentAttempt]
     estimator_curves: dict[str, EstimatorCurves]
+    # Name of the currently active estimator (mirrors sched.estimator.name).
+    # Frontend uses this to pick which estimator_curves entry's final_extras
+    # to render.
+    selected_model: str
 
 
 # ---------------------------------------------------------------------------
