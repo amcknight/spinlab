@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import pytest
 
-from spinlab.db import Database
 from spinlab.capture.recorder import SegmentRecorder
 from spinlab.condition_registry import ConditionRegistry
+from spinlab.db import Database
 from spinlab.protocol import CheckpointEvent, LevelEntranceEvent, LevelExitEvent
 
 

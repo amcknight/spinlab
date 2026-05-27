@@ -7,7 +7,10 @@ import pytest
 def _seed_segment_with_events(db, segment_id: str, game_id: str):
     """Create a segment with one completed episode (1 death + 1 survival)."""
     from spinlab.models import (
-        AttemptOutcome, AttemptSource, EndpointType, EventAttempt,
+        AttemptOutcome,
+        AttemptSource,
+        EndpointType,
+        EventAttempt,
         Segment,
     )
     db.upsert_game(game_id, "FakeGame", "any%")
@@ -41,7 +44,10 @@ class TestEventsFromRows:
 
         from spinlab.db import Database
         from spinlab.models import (
-            AttemptOutcome, AttemptSource, EndpointType, EventAttempt,
+            AttemptOutcome,
+            AttemptSource,
+            EndpointType,
+            EventAttempt,
             Segment,
         )
         from spinlab.scheduler import _events_from_rows

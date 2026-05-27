@@ -1,10 +1,7 @@
 """Migration 0007 — is_hot column + reference-run backfill."""
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
-
-import pytest
 
 import spinlab.db.migrations as _mig_pkg
 from spinlab.db import Database
@@ -91,8 +88,8 @@ def test_backfill_cold_when_prior_attempt_died():
     next first-of-episode is COLD (post-death respawn)."""
     db = Database(":memory:")
     run_id = _seed_run(db)
-    a1 = _insert_attempt(db, segment_id="segA", capture_run_id=run_id,
-                         episode_id="epA", outcome="died")
+    _insert_attempt(db, segment_id="segA", capture_run_id=run_id,
+                    episode_id="epA", outcome="died")
     a2 = _insert_attempt(db, segment_id="segA", capture_run_id=run_id,
                          episode_id="epA2", outcome="survived")
 
