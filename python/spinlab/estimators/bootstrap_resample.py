@@ -15,29 +15,18 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from spinlab.estimators import Estimator, EstimatorState, ParamDef, register_estimator
-from spinlab.estimators._episode_helpers import (
-    _compute_weights,
-    _group_into_episodes,
-)
 from spinlab.estimators.death_aware_rolling import (
     DEFAULT_HALFLIFE,
-    EFFECTIVE_WINDOW_HALFLIVES,
     HALFLIFE_MAX,
     HALFLIFE_MIN,
-    _floor_over_completed_episode_totals,
-    _floor_over_survived_event_times,
-    _resolve_halflife,
-    _weighted_half_split_slope,
 )
 from spinlab.models import (
-    DEFAULT_DEATH_PENALTY_MS,
     AttemptRecord,
     Estimate,
     ModelOutput,
 )
 
 if TYPE_CHECKING:
-    from spinlab.estimators._episode_helpers import _Episode
     from spinlab.models import EventAttempt
 
 # Bootstrap draw count. 1000 is enough to bring the Monte-Carlo standard
