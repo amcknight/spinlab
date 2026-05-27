@@ -2,10 +2,16 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 import pytest
 
+import spinlab.db.migrations as _mig_pkg
 from spinlab.db import Database
+
+_BACKFILL_SQL = (
+    Path(_mig_pkg.__file__).parent / "0007_attempt_start_kind.sql"
+).read_text().split("-- BACKFILL")[1]
 
 
 def _columns(db: Database, table: str) -> set[str]:
@@ -70,9 +76,7 @@ def test_backfill_hot_when_prior_attempt_survived_different_episode():
                          episode_id="epA", outcome="survived")
     a2 = _insert_attempt(db, segment_id="segB", capture_run_id=run_id,
                          episode_id="epB", outcome="survived")
-    from pathlib import Path
-    sql = Path("python/spinlab/db/migrations/0007_attempt_start_kind.sql").read_text()
-    backfill = sql.split("-- BACKFILL")[1]
+    backfill = _BACKFILL_SQL
     db.conn.executescript(backfill)
     db.conn.commit()
 
@@ -92,9 +96,7 @@ def test_backfill_cold_when_prior_attempt_died():
     a2 = _insert_attempt(db, segment_id="segA", capture_run_id=run_id,
                          episode_id="epA2", outcome="survived")
 
-    from pathlib import Path
-    sql = Path("python/spinlab/db/migrations/0007_attempt_start_kind.sql").read_text()
-    backfill = sql.split("-- BACKFILL")[1]
+    backfill = _BACKFILL_SQL
     db.conn.executescript(backfill)
     db.conn.commit()
 
@@ -118,9 +120,7 @@ def test_backfill_cold_for_practice_attempts():
     a2 = _insert_attempt(db, segment_id="seg1", session_id="sess1",
                          episode_id="ep2", outcome="survived", source="practice")
 
-    from pathlib import Path
-    sql = Path("python/spinlab/db/migrations/0007_attempt_start_kind.sql").read_text()
-    backfill = sql.split("-- BACKFILL")[1]
+    backfill = _BACKFILL_SQL
     db.conn.executescript(backfill)
     db.conn.commit()
 
@@ -143,9 +143,7 @@ def test_backfill_subsequent_attempts_in_same_episode_are_cold():
     third_b = _insert_attempt(db, segment_id="segB", capture_run_id=run_id,
                               episode_id="epB", outcome="survived")
 
-    from pathlib import Path
-    sql = Path("python/spinlab/db/migrations/0007_attempt_start_kind.sql").read_text()
-    backfill = sql.split("-- BACKFILL")[1]
+    backfill = _BACKFILL_SQL
     db.conn.executescript(backfill)
     db.conn.commit()
 

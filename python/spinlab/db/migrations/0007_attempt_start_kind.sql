@@ -30,7 +30,7 @@ WHERE id IN (
     FROM attempts
     WHERE source = 'reference'
       AND capture_run_id IS NOT NULL
-    GROUP BY episode_id
+    GROUP BY episode_id, capture_run_id
   ) AS first_evt
   WHERE EXISTS (
     SELECT 1
