@@ -134,3 +134,187 @@ class TestSurvivedTailMs:
         ]
         ep = _group_into_episodes(events)[0]
         assert _survived_tail_ms(ep) is None
+
+
+class TestResolveNSamples:
+    def test_default_when_param_missing(self):
+        from spinlab.estimators.bootstrap_resample import (
+            DEFAULT_N_SAMPLES, _resolve_n_samples,
+        )
+        assert _resolve_n_samples(None) == DEFAULT_N_SAMPLES
+        assert _resolve_n_samples({}) == DEFAULT_N_SAMPLES
+
+    def test_explicit_value_used(self):
+        from spinlab.estimators.bootstrap_resample import _resolve_n_samples
+        assert _resolve_n_samples({"n_samples": 500}) == 500
+
+    def test_below_min_raises(self):
+        from spinlab.estimators.bootstrap_resample import _resolve_n_samples
+        with pytest.raises(ValueError, match="n_samples"):
+            _resolve_n_samples({"n_samples": 50})
+
+    def test_above_max_raises(self):
+        from spinlab.estimators.bootstrap_resample import _resolve_n_samples
+        with pytest.raises(ValueError, match="n_samples"):
+            _resolve_n_samples({"n_samples": 999999})
+
+    def test_non_int_raises(self):
+        from spinlab.estimators.bootstrap_resample import _resolve_n_samples
+        with pytest.raises(ValueError, match="n_samples"):
+            _resolve_n_samples({"n_samples": "lots"})
+
+
+class TestBootstrapMeans:
+    def test_single_completed_episode_returns_its_values(self):
+        """Pool of one ⇒ every draw is the same episode ⇒ zero variance."""
+        from spinlab.estimators.bootstrap_resample import _bootstrap_means
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from tests.factories import make_event_attempt
+        events = [make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000)]
+        episodes = _group_into_episodes(events)
+        import random
+        rng = random.Random(42)
+        result = _bootstrap_means(
+            episodes=episodes,
+            weights=[1.0],
+            n_samples=1000,
+            respawn_penalty_ms=3200,
+            rng=rng,
+        )
+        assert result.mean_total_ms == pytest.approx(8000.0)
+        assert result.mean_completion_ms == pytest.approx(8000.0)
+
+    def test_empty_pool_returns_none(self):
+        from spinlab.estimators.bootstrap_resample import _bootstrap_means
+        import random
+        rng = random.Random(42)
+        result = _bootstrap_means(
+            episodes=[],
+            weights=[],
+            n_samples=1000,
+            respawn_penalty_ms=3200,
+            rng=rng,
+        )
+        assert result.mean_total_ms is None
+        assert result.mean_completion_ms is None
+
+    def test_no_completed_episodes_completion_mean_none(self):
+        """All-aborted pool ⇒ total has values (deaths counted), completion is None."""
+        from spinlab.estimators.bootstrap_resample import _bootstrap_means
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=2000),
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
+        ]
+        episodes = _group_into_episodes(events)
+        import random
+        rng = random.Random(42)
+        result = _bootstrap_means(
+            episodes=episodes,
+            weights=[1.0],
+            n_samples=1000,
+            respawn_penalty_ms=3200,
+            rng=rng,
+        )
+        # Total = 2000 + 3000 + 2 × 3200 = 11400 every draw.
+        assert result.mean_total_ms == pytest.approx(11400.0)
+        # No completed episode in the pool ⇒ no completion samples to mean.
+        assert result.mean_completion_ms is None
+
+    def test_seeded_reproducibility(self):
+        """Same seed + same pool ⇒ same answer."""
+        from spinlab.estimators.bootstrap_resample import _bootstrap_means
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000),
+            make_event_attempt(episode_id="ep2", outcome="died", time_ms=3000),
+            make_event_attempt(episode_id="ep2", outcome="survived", time_ms=7000),
+        ]
+        episodes = _group_into_episodes(events)
+        weights = [1.0, 1.0]
+        import random
+        a = _bootstrap_means(episodes=episodes, weights=weights, n_samples=500,
+                             respawn_penalty_ms=3200, rng=random.Random(7))
+        b = _bootstrap_means(episodes=episodes, weights=weights, n_samples=500,
+                             respawn_penalty_ms=3200, rng=random.Random(7))
+        assert a.mean_total_ms == b.mean_total_ms
+        assert a.mean_completion_ms == b.mean_completion_ms
+
+    def test_agrees_with_geometric_when_iid(self):
+        """When deaths truly are i.i.d. Bernoulli, bootstrap and the geometric
+        formula should agree within Monte-Carlo error."""
+        from spinlab.estimators.bootstrap_resample import _bootstrap_means
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.death_aware_rolling import _expected_total_ms
+        from tests.factories import make_event_attempt
+        events = []
+        for i in range(20):
+            events.append(make_event_attempt(episode_id=f"ep{i}", outcome="died", time_ms=3000))
+            events.append(make_event_attempt(episode_id=f"ep{i}", outcome="survived", time_ms=7000))
+        episodes = _group_into_episodes(events)
+        # Every episode IS the same i.i.d. realization here — bootstrapping
+        # whole episodes just reshuffles them, so the bootstrap mean equals
+        # the per-episode total exactly: 3000 + 7000 + 1 × 3200 = 13200.
+        import random
+        rng = random.Random(123)
+        weights = [1.0] * len(episodes)
+        result = _bootstrap_means(
+            episodes=episodes, weights=weights, n_samples=2000,
+            respawn_penalty_ms=3200, rng=rng,
+        )
+        geom = _expected_total_ms(
+            p_die_per_life=0.5,
+            e_death_time_ms=3000.0,
+            e_completion_time_ms=7000.0,
+            respawn_penalty_ms=3200,
+        )
+        assert result.mean_total_ms == pytest.approx(geom, rel=0.01)
+
+    def test_aborted_episodes_pull_bootstrap_below_geometric(self):
+        """When some attempts abort (player gives up), the geometric formula
+        OVERESTIMATES expected time because it pretends every attempt
+        completes-by-attrition, while bootstrap uses the actual short totals
+        of aborted episodes.
+
+        Pool: 5 clean completes (7000ms, 1 life) + 5 aborts (4 × 3000ms
+        deaths, no survive).
+          Lives: 5 survives + 20 deaths = 25 lives. p_die_per_life = 0.8.
+          Geometric: (0.8/0.2) × (3000+3200) + 7000 = 4×6200 + 7000 = 31800.
+          Per-episode totals: A=7000, B = 12000 + 4×3200 = 24800.
+          Bootstrap mean = (5×7000 + 5×24800)/10 = 15900.
+
+        Note: the spec said bootstrap > geometric on "clustered deaths," but
+        the direction is data-dependent. With aborts in the pool the
+        bootstrap is LOWER. Test the direction we actually see for this
+        construction; the broader "when do they diverge?" question is a
+        branch-3 visualization concern (see BACKLOG entry from Task 10).
+        """
+        from spinlab.estimators.bootstrap_resample import _bootstrap_means
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.death_aware_rolling import _expected_total_ms
+        from tests.factories import make_event_attempt
+        events = []
+        for i in range(5):
+            events.append(make_event_attempt(episode_id=f"clean{i}", outcome="survived", time_ms=7000))
+        for i in range(5):
+            for _ in range(4):
+                events.append(make_event_attempt(episode_id=f"abort{i}", outcome="died", time_ms=3000))
+        episodes = _group_into_episodes(events)
+        import random
+        weights = [1.0] * len(episodes)
+        bs = _bootstrap_means(
+            episodes=episodes, weights=weights, n_samples=5000,
+            respawn_penalty_ms=3200, rng=random.Random(99),
+        )
+        geom = _expected_total_ms(
+            p_die_per_life=0.8,
+            e_death_time_ms=3000.0,
+            e_completion_time_ms=7000.0,
+            respawn_penalty_ms=3200,
+        )
+        assert bs.mean_total_ms is not None
+        assert geom is not None
+        # bs should be ≈ 15900, geom = 31800 ⇒ ratio < 0.6.
+        assert bs.mean_total_ms < 0.6 * geom

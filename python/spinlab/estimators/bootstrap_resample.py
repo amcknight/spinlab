@@ -87,6 +87,76 @@ def _survived_tail_ms(episode: "_Episode") -> int | None:
     return last.time_ms
 
 
+def _resolve_n_samples(params: dict | None) -> int:
+    if not params or "n_samples" not in params:
+        return DEFAULT_N_SAMPLES
+    raw = params["n_samples"]
+    try:
+        n = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"n_samples must be an int, got {raw!r}") from exc
+    if n < N_SAMPLES_MIN or n > N_SAMPLES_MAX:
+        raise ValueError(
+            f"n_samples must be in [{N_SAMPLES_MIN}, {N_SAMPLES_MAX}], got {n}"
+        )
+    return n
+
+
+@dataclass
+class _BootstrapResult:
+    """Means computed across the bootstrap draws.
+
+    Both fields are None when the corresponding pool is empty:
+      - mean_total_ms: None ⇔ no episodes at all
+      - mean_completion_ms: None ⇔ no COMPLETED episodes (all aborted)
+    """
+    mean_total_ms: float | None
+    mean_completion_ms: float | None
+
+
+def _bootstrap_means(
+    episodes: list["_Episode"],
+    weights: list[float],
+    n_samples: int,
+    respawn_penalty_ms: int,
+    rng: random.Random,
+) -> _BootstrapResult:
+    """Draw n_samples episodes from `episodes` with the given weights,
+    then return mean per-draw total time and mean completion-tail time.
+
+    The completion mean is computed over only the completed-episode draws
+    (aborted draws contribute None and are filtered out). When zero draws
+    land on a completed episode, mean_completion_ms is None.
+    """
+    if not episodes:
+        return _BootstrapResult(mean_total_ms=None, mean_completion_ms=None)
+
+    # Precompute per-episode totals and tails once — saves O(n_samples × episode_len)
+    # work versus computing inside the resample loop.
+    totals = [_episode_total_ms(ep, respawn_penalty_ms) for ep in episodes]
+    tails = [_survived_tail_ms(ep) for ep in episodes]
+
+    draws = rng.choices(range(len(episodes)), weights=weights, k=n_samples)
+
+    total_sum = 0.0
+    completion_sum = 0.0
+    completion_count = 0
+    for idx in draws:
+        total_sum += totals[idx]
+        tail = tails[idx]
+        if tail is not None:
+            completion_sum += tail
+            completion_count += 1
+
+    mean_total = total_sum / n_samples
+    mean_completion = (
+        completion_sum / completion_count if completion_count > 0 else None
+    )
+    return _BootstrapResult(
+        mean_total_ms=mean_total, mean_completion_ms=mean_completion,
+    )
+
+
 @dataclass
 class BootstrapResampleState(EstimatorState):
     """Minimal bookkeeping. Stats recompute from events each call."""
