@@ -143,3 +143,20 @@ def test_compute_p_die_aggregates():
     # latest event), episode e1's representative weight is w0. Numerator and
     # denominator are identical, so p_die_per_attempt = 1.0 exactly.
     assert dist.p_die_per_attempt == pytest.approx(1.0, rel=1e-9)
+
+
+def test_hazard_fields_on_schema():
+    from spinlab.api_schemas import ColdBin, ColdDistribution
+    bin_ = ColdBin(
+        lo_ms=0.0, hi_ms=500.0, n_deaths=1, n_completions=0,
+        hazard=0.5, at_risk_w=2.0,
+    )
+    dist = ColdDistribution(
+        bins=[bin_], n_cold_attempts=2,
+        mu_d_ms=200.0, mu_c_ms=None,
+        p_die_per_attempt=0.5, p_die_per_life=0.5,
+        halflife=20,
+    )
+    assert dist.bins[0].hazard == 0.5
+    assert dist.bins[0].at_risk_w == 2.0
+    assert dist.halflife == 20
