@@ -334,6 +334,9 @@ class SegmentHistory(_BaseResponse):
     # to name. Frontend uses this to pick which estimator_curves entry's
     # final_extras to render; falls through to the empty state when None.
     selected_model: str | None = None
+    # Cold-only distribution for the segment-detail panel (histogram +
+    # hazard). None when there are no cold events for this segment.
+    cold_distribution: ColdDistribution | None = None
 
 
 # ---------------------------------------------------------------------------
