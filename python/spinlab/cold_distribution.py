@@ -11,6 +11,8 @@ this module trusts its input.
 """
 from __future__ import annotations
 
+import math
+
 # Maximum bin count. 20 matches screen-width comfort at typical viewport
 # widths; above this, bars are too thin to read.
 MAX_BINS = 20
@@ -27,3 +29,23 @@ EFFECTIVE_WINDOW_HALFLIVES = 5
 # X-axis upper-edge rounding. One-second rounding gives clean axis
 # labels without manual tick configuration.
 HI_ROUND_MS = 1000
+
+
+def _compute_attempt_weights(n: int, halflife: int) -> list[float]:
+    """Per-attempt exponential decay weights, chronological order.
+
+    weights[i] = 2 ** (-(n - 1 - i) / halflife)
+
+    The most-recent attempt (index n-1) has weight 1.0. An attempt one
+    halflife back has weight 0.5. Mirrors _episode_helpers._compute_weights
+    but operates at the attempt level (not episode level) since cold-
+    filtered analysis treats each attempt as its own risk timeline.
+    """
+    return [2.0 ** (-(n - 1 - i) / halflife) for i in range(n)]
+
+
+def _bin_count_for(n: int) -> int:
+    """Adaptive bin count via the square-root rule, clamped to [MIN_BINS, MAX_BINS]."""
+    if n <= 0:
+        return MIN_BINS
+    return min(MAX_BINS, max(MIN_BINS, math.ceil(math.sqrt(n))))
