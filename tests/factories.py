@@ -139,6 +139,7 @@ def make_event_attempt(
     session_id: str | None = "_default_test_session",
     capture_run_id: str | None = None,
     invalidated: bool = False,
+    is_hot: bool = False,
     created_at: str = "2026-01-01T00:00:00",
 ):
     """Create an EventAttempt for unit tests."""
@@ -155,6 +156,7 @@ def make_event_attempt(
         capture_run_id=capture_run_id,
         source=AttemptSource.PRACTICE,
         invalidated=invalidated,
+        is_hot=is_hot,
         created_at=datetime.fromisoformat(created_at),
     )
 
