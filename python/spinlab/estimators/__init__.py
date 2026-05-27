@@ -191,7 +191,7 @@ def list_estimators() -> list[str]:
 
 def _register_all():
     """Import all estimator modules to trigger @register_estimator decorators."""
-    from . import death_aware_rolling, kalman, rolling_mean
+    from . import bootstrap_resample, death_aware_rolling, kalman, rolling_mean
     try:
         from . import exp_decay
     except ImportError:

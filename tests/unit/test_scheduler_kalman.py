@@ -90,7 +90,8 @@ class TestSchedulerProcessAttempt:
         for r in rows:
             out = ModelOutput.from_dict(json.loads(r["output_json"]))
             # exp_decay returns all None with < 3 points — that's correct.
-            if r["estimator"] not in ("exp_decay",):
+            # bootstrap_resample skeleton returns all None pending Task 4 wiring.
+            if r["estimator"] not in ("exp_decay", "bootstrap_resample"):
                 assert out.total.expected_ms is not None or out.clean.expected_ms is not None
 
     def test_process_attempt_incomplete(self, db_with_segments):
