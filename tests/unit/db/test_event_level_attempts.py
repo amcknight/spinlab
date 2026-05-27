@@ -183,3 +183,35 @@ def test_multiple_episodes_in_order(db_with_segment):
     assert len(rows) == 2
     assert rows[0]["time_ms"] == 10000
     assert rows[1]["time_ms"] == 20000
+
+
+def test_event_attempt_round_trip_with_is_hot(db_with_segment: "Database"):
+    """EventAttempt with is_hot=True persists and round-trips through
+    log_event_attempt + get_segment_event_rows."""
+    db_with_segment.create_capture_run("run1", "g1", "test run")
+    db_with_segment.log_event_attempt(EventAttempt(
+        segment_id="seg1",
+        episode_id="ep1",
+        outcome=AttemptOutcome.SURVIVED,
+        time_ms=1000,
+        capture_run_id="run1",
+        source=AttemptSource.REFERENCE,
+        is_hot=True,
+    ))
+    rows = db_with_segment.get_segment_event_rows("seg1")
+    assert len(rows) == 1
+    assert rows[0]["is_hot"] == 1  # SQLite returns int, not bool
+
+
+def test_event_attempt_default_is_cold(db_with_segment: "Database"):
+    """An EventAttempt with no explicit is_hot persists as cold (0)."""
+    db_with_segment.log_event_attempt(EventAttempt(
+        segment_id="seg1",
+        episode_id="ep1",
+        outcome=AttemptOutcome.SURVIVED,
+        time_ms=1000,
+        session_id="sess1",
+        source=AttemptSource.PRACTICE,
+    ))
+    rows = db_with_segment.get_segment_event_rows("seg1")
+    assert rows[0]["is_hot"] == 0

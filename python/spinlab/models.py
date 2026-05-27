@@ -211,6 +211,7 @@ class EventAttempt:
     source: AttemptSource = AttemptSource.PRACTICE
     chosen_allocator: str | None = None
     invalidated: bool = False
+    is_hot: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def __post_init__(self) -> None:
