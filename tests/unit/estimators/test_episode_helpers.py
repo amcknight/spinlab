@@ -21,8 +21,9 @@ class TestModuleExports:
 class TestGroupBehaviorMatchesLegacy:
     """Sanity check: the moved function behaves the same as before."""
     def test_groups_by_episode_id_preserves_chronological_order(self):
-        from spinlab.estimators._episode_helpers import _group_into_episodes
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
         events = [
             make_event_attempt(episode_id="old", outcome="survived", time_ms=8000),
             make_event_attempt(episode_id="new", outcome="died", time_ms=3000),
@@ -34,8 +35,9 @@ class TestGroupBehaviorMatchesLegacy:
         assert episodes[1].had_any_death is True
 
     def test_invalidated_event_drops_whole_episode(self):
-        from spinlab.estimators._episode_helpers import _group_into_episodes
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
         events = [
             make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000, invalidated=True),
             make_event_attempt(episode_id="ep2", outcome="survived", time_ms=7500),
