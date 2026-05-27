@@ -12,6 +12,7 @@ import { fetchJSON } from "./api";
 import { segmentName, formatTime } from "./format";
 import type { SegmentHistory } from "./types";
 import { renderColdHistogram } from "./death-distribution";
+import { renderHazard } from "./hazard-render";
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Legend, Tooltip);
 
@@ -66,7 +67,7 @@ export function buildChartDatasets(history: SegmentHistory, mode: SeriesMode): C
 }
 
 let _chart: Chart | null = null;
-let _histogramChart: Chart | null = null;
+let _coldChart: Chart | null = null;
 let _history: SegmentHistory | null = null;
 let _mode: SeriesMode = "total";
 
@@ -181,21 +182,38 @@ export async function renderSegmentDetail(
     updateChart();
   });
 
-  // Cold-distribution histogram panel. Reads cold_distribution from the
-  // segment history response. Renders an empty state when the segment has
-  // no cold-attempt data yet.
-  const dist = history.cold_distribution;
+  // Cold-distribution panel with Histogram/Hazard toggle.
+  // The tab bar is always rendered; the Hazard tab is disabled when
+  // cold_distribution is absent. When present, both tabs are clickable.
+  const dist = history.cold_distribution ?? null;
+
+  const histSection = document.createElement("section");
+  histSection.className = "death-distribution";
+  container.appendChild(histSection);
+
+  const histHeader = document.createElement("div");
+  histHeader.className = "death-distribution-header";
+  const histTitle = document.createElement("h4");
+  histTitle.textContent = "Cold distribution";
+  histHeader.appendChild(histTitle);
+
+  // Tab bar: [Histogram] [Hazard]
+  const tabBar = document.createElement("div");
+  tabBar.className = "cold-tabs";
+  const histBtn = document.createElement("button");
+  histBtn.className = "cold-tab active";
+  histBtn.setAttribute("data-chart", "histogram");
+  histBtn.textContent = "Histogram";
+  const hazBtn = document.createElement("button");
+  hazBtn.className = "cold-tab";
+  hazBtn.setAttribute("data-chart", "hazard");
+  hazBtn.textContent = "Hazard";
+  if (!dist) hazBtn.disabled = true;
+  tabBar.appendChild(histBtn);
+  tabBar.appendChild(hazBtn);
+  histHeader.appendChild(tabBar);
+
   if (dist) {
-    const histSection = document.createElement("section");
-    histSection.className = "death-distribution";
-    container.appendChild(histSection);
-
-    const histHeader = document.createElement("div");
-    histHeader.className = "death-distribution-header";
-    const histTitle = document.createElement("h4");
-    histTitle.textContent = "Cold distribution";
-    histHeader.appendChild(histTitle);
-
     const stats = document.createElement("div");
     stats.className = "death-distribution-stats dim";
     const parts: string[] = [];
@@ -207,28 +225,35 @@ export async function renderSegmentDetail(
     }
     stats.textContent = parts.join("   ");
     histHeader.appendChild(stats);
-    histSection.appendChild(histHeader);
+  }
 
-    const chartWrap = document.createElement("div");
-    chartWrap.className = "chart-wrapper";
+  histSection.appendChild(histHeader);
+
+  if (dist) {
+    const coldWrap = document.createElement("div");
+    coldWrap.className = "chart-wrapper";
     const histCanvas = document.createElement("canvas");
     histCanvas.id = "death-histogram";
-    chartWrap.appendChild(histCanvas);
-    histSection.appendChild(chartWrap);
+    coldWrap.appendChild(histCanvas);
+    histSection.appendChild(coldWrap);
 
-    _histogramChart = renderColdHistogram(histCanvas, dist);
+    const showHistogram = () => {
+      _coldChart?.destroy();
+      _coldChart = renderColdHistogram(histCanvas, dist);
+      histBtn.classList.add("active");
+      hazBtn.classList.remove("active");
+    };
+    const showHazard = () => {
+      _coldChart?.destroy();
+      _coldChart = renderHazard(histCanvas, dist);
+      hazBtn.classList.add("active");
+      histBtn.classList.remove("active");
+    };
+
+    histBtn.addEventListener("click", showHistogram);
+    hazBtn.addEventListener("click", showHazard);
+    showHistogram(); // default view
   } else {
-    const histSection = document.createElement("section");
-    histSection.className = "death-distribution";
-    container.appendChild(histSection);
-
-    const histHeader = document.createElement("div");
-    histHeader.className = "death-distribution-header";
-    const histTitle = document.createElement("h4");
-    histTitle.textContent = "Cold distribution";
-    histHeader.appendChild(histTitle);
-    histSection.appendChild(histHeader);
-
     const msg = document.createElement("p");
     msg.className = "dim";
     msg.textContent = "No cold data for this segment.";
@@ -247,9 +272,9 @@ export function destroySegmentDetail(): void {
     _chart.destroy();
     _chart = null;
   }
-  if (_histogramChart) {
-    _histogramChart.destroy();
-    _histogramChart = null;
+  if (_coldChart) {
+    _coldChart.destroy();
+    _coldChart = null;
   }
   _history = null;
   _mode = "total";
