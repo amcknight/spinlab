@@ -160,3 +160,46 @@ def test_hazard_fields_on_schema():
     assert dist.bins[0].hazard == 0.5
     assert dist.bins[0].at_risk_w == 2.0
     assert dist.halflife == 20
+
+
+def test_hazard_single_death():
+    # One cold attempt died at 2000ms. The bin containing 2000ms gets
+    # hazard = 1/1 = 1.0; bins after the death have at_risk_w = 0, hazard = None.
+    events = [_ev(2000, AttemptOutcome.DIED)]
+    dist = compute_cold_distribution(events, halflife=20)
+    # Find the bin containing 2000ms
+    target_idx = next(
+        i for i, b in enumerate(dist.bins) if b.lo_ms <= 2000 <= b.hi_ms
+    )
+    assert dist.bins[target_idx].hazard == 1.0
+    assert dist.bins[target_idx].at_risk_w == 1.0
+    # Bins before the death: at_risk_w = 1.0, hazard = 0.0 (no deaths yet)
+    for i in range(target_idx):
+        assert dist.bins[i].at_risk_w == 1.0
+        assert dist.bins[i].hazard == 0.0
+    # Bins after the death: at_risk_w = 0, hazard = None
+    for i in range(target_idx + 1, len(dist.bins)):
+        assert dist.bins[i].at_risk_w == 0.0
+        assert dist.bins[i].hazard is None
+
+
+def test_hazard_one_death_one_completion():
+    # Died at 2000, survived at 8000.
+    # Use a very large halflife so both weights are effectively 1.0:
+    #   deaths_w_in_2s_bin ≈ 1, at_risk_w ≈ 2 → hazard ≈ 0.5
+    # Bins after 8000 have at_risk_w = 0 → hazard = None.
+    events = [
+        _ev(2000, AttemptOutcome.DIED, ep="e1"),
+        _ev(8000, AttemptOutcome.SURVIVED, ep="e2"),
+    ]
+    dist = compute_cold_distribution(events, halflife=10_000)
+    bin_at_2s = next(b for b in dist.bins if b.lo_ms <= 2000 <= b.hi_ms)
+    # With halflife=10000, weight[0] = 2^(-1/10000) ≈ 0.99993; close enough.
+    assert abs(bin_at_2s.hazard - 0.5) < 1e-3
+    assert abs(bin_at_2s.at_risk_w - 2.0) < 1e-3
+
+
+def test_hazard_curve_returns_halflife():
+    events = [_ev(2000, AttemptOutcome.DIED)]
+    dist = compute_cold_distribution(events, halflife=42)
+    assert dist.halflife == 42
