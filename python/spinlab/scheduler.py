@@ -72,6 +72,7 @@ def _events_from_rows(rows: list[EventAttemptRow]) -> list[EventAttempt]:
             source=AttemptSource(r["source"]),
             chosen_allocator=r.get("chosen_allocator"),
             invalidated=bool(r.get("invalidated", 0)),
+            is_hot=bool(r["is_hot"]),
             created_at=datetime.fromisoformat(r["created_at"]),
         ))
     return out

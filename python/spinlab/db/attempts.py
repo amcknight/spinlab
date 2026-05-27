@@ -77,6 +77,7 @@ class EventAttemptRow(TypedDict):
     source: str
     chosen_allocator: str | None
     invalidated: int
+    is_hot: int
     created_at: str
 
 
@@ -233,14 +234,14 @@ class AttemptsMixin:
         cur = self.conn.execute(
             """INSERT INTO attempts
                (segment_id, session_id, capture_run_id, episode_id, outcome,
-                time_ms, source, chosen_allocator, invalidated, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                time_ms, source, chosen_allocator, invalidated, is_hot, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event.segment_id, event.session_id, event.capture_run_id,
                 event.episode_id, event.outcome.value,
                 event.time_ms,
                 event.source.value if isinstance(event.source, AttemptSource) else event.source,
-                event.chosen_allocator, int(event.invalidated),
+                event.chosen_allocator, int(event.invalidated), int(event.is_hot),
                 event.created_at.isoformat(),
             ),
         )
