@@ -72,3 +72,65 @@ class TestColdFilter:
         episodes = _group_into_episodes(events)
         cold = _filter_to_cold_episodes(episodes)
         assert cold == []
+
+
+class TestEpisodeTotal:
+    def test_clean_completion_total_is_just_time(self):
+        from spinlab.estimators.bootstrap_resample import _episode_total_ms
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from tests.factories import make_event_attempt
+        events = [make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000)]
+        ep = _group_into_episodes(events)[0]
+        assert _episode_total_ms(ep, respawn_penalty_ms=3200) == 8000
+
+    def test_episode_with_deaths_adds_penalty_per_death(self):
+        """Total = sum(time_ms) + penalty × deaths. Matches _roll_up_episode."""
+        from spinlab.estimators.bootstrap_resample import _episode_total_ms
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=2500),
+            make_event_attempt(episode_id="ep1", outcome="survived", time_ms=7000),
+        ]
+        ep = _group_into_episodes(events)[0]
+        # 3000 + 2500 + 7000 = 12500 raw, plus 2 deaths × 3200 penalty = 18900
+        assert _episode_total_ms(ep, respawn_penalty_ms=3200) == 18900
+
+    def test_aborted_episode_total_no_penalty_on_last_life(self):
+        """Aborted (all-deaths) episode: raw sum + penalty × deaths."""
+        from spinlab.estimators.bootstrap_resample import _episode_total_ms
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=2000),
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
+        ]
+        ep = _group_into_episodes(events)[0]
+        # 5000 raw + 2 × 3200 penalty = 11400
+        assert _episode_total_ms(ep, respawn_penalty_ms=3200) == 11400
+
+
+class TestSurvivedTailMs:
+    def test_completed_episode_returns_last_life_time(self):
+        from spinlab.estimators.bootstrap_resample import _survived_tail_ms
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
+            make_event_attempt(episode_id="ep1", outcome="survived", time_ms=7500),
+        ]
+        ep = _group_into_episodes(events)[0]
+        assert _survived_tail_ms(ep) == 7500
+
+    def test_aborted_episode_returns_none(self):
+        """No survived life ⇒ no completion tail to sample."""
+        from spinlab.estimators.bootstrap_resample import _survived_tail_ms
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=2000),
+            make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
+        ]
+        ep = _group_into_episodes(events)[0]
+        assert _survived_tail_ms(ep) is None

@@ -58,6 +58,35 @@ def _filter_to_cold_episodes(episodes: list["_Episode"]) -> list["_Episode"]:
     ]
 
 
+def _episode_total_ms(episode: "_Episode", respawn_penalty_ms: int) -> int:
+    """Compute the episode's wall-clock total, matching db.attempts._roll_up_episode.
+
+    total = sum(event.time_ms) + respawn_penalty_ms × n_deaths
+
+    Per-event time_ms is the raw delta since the prior event (or arm time
+    for the first), so summing them gives the raw wall-clock; the penalty
+    adds the standard 3.2s respawn lag for each death. The penalty value
+    must match the one used at write time (DEFAULT_DEATH_PENALTY_MS).
+    """
+    deaths = sum(1 for ev in episode.events if ev.outcome.value == "died")
+    raw_sum = sum(ev.time_ms for ev in episode.events)
+    return raw_sum + respawn_penalty_ms * deaths
+
+
+def _survived_tail_ms(episode: "_Episode") -> int | None:
+    """Return the completion-tail time (last life's time_ms) or None.
+
+    Only completed episodes have a tail — aborted episodes (all deaths)
+    return None and the caller skips them when building the completion
+    sample pool.
+    """
+    if episode.outcome != "completed":
+        return None
+    last = episode.events[-1]
+    assert last.outcome.value == "survived"  # implied by outcome == "completed"
+    return last.time_ms
+
+
 @dataclass
 class BootstrapResampleState(EstimatorState):
     """Minimal bookkeeping. Stats recompute from events each call."""
