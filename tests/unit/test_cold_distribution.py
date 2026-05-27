@@ -203,3 +203,26 @@ def test_hazard_curve_returns_halflife():
     events = [_ev(2000, AttemptOutcome.DIED)]
     dist = compute_cold_distribution(events, halflife=42)
     assert dist.halflife == 42
+
+
+def test_hazard_weighted_at_risk():
+    # Two events with halflife=1 → older event weight = 2^(-1/1) = 0.5,
+    # newer event weight = 1.0. If at_risk_w were computed as an unweighted
+    # count, both bins through 2000ms would show 2.0 instead of 1.5. This
+    # test pins the weighted division.
+    import pytest
+    events = [
+        _ev(2000, AttemptOutcome.DIED, ep="e1"),     # older — weight 0.5
+        _ev(8000, AttemptOutcome.SURVIVED, ep="e2"), # newer — weight 1.0
+    ]
+    dist = compute_cold_distribution(events, halflife=1)
+    # Bin containing 2000ms: both events at-risk (2000 >= bin.lo_ms),
+    # one death weighted 0.5 → hazard = 0.5 / (0.5 + 1.0) = 1/3 exactly.
+    bin_at_2s = next(b for b in dist.bins if b.lo_ms <= 2000 <= b.hi_ms)
+    assert bin_at_2s.at_risk_w == pytest.approx(1.5, rel=1e-9)
+    assert bin_at_2s.hazard == pytest.approx(1.0/3.0, rel=1e-9)
+    # Bin containing 8000ms: only the SURVIVED event at-risk → at_risk_w = 1.0,
+    # no deaths in this bin → hazard = 0.0
+    bin_at_8s = next(b for b in dist.bins if b.lo_ms <= 8000 <= b.hi_ms)
+    assert bin_at_8s.at_risk_w == pytest.approx(1.0, rel=1e-9)
+    assert bin_at_8s.hazard == pytest.approx(0.0, rel=1e-9)
