@@ -5,7 +5,14 @@ from spinlab.cold_distribution import (
     MIN_BINS,
     _bin_count_for,
     _compute_attempt_weights,
+    compute_cold_distribution,
 )
+from spinlab.models import AttemptOutcome
+from tests.factories import make_event_attempt
+
+
+def _ev(time_ms: int, outcome: AttemptOutcome, ep: str = "e1"):
+    return make_event_attempt(time_ms=time_ms, outcome=outcome, episode_id=ep)
 
 
 def test_bin_count_constants_are_sane():
@@ -54,3 +61,81 @@ def test_schema_imports():
     )
     assert dist.bins[0].n_deaths == 2
     assert dist.n_cold_attempts == 3
+
+
+def test_compute_empty_inputs_disallowed():
+    # Caller (route) substitutes None on empty input; the function itself
+    # should never be called with an empty list. Test that this is the
+    # documented contract.
+    import pytest
+    with pytest.raises((AssertionError, IndexError, ValueError)):
+        compute_cold_distribution([], halflife=20)
+
+
+def test_compute_single_death_at_2s():
+    # One cold attempt that died at 2000ms.
+    events = [_ev(2000, AttemptOutcome.DIED)]
+    dist = compute_cold_distribution(events, halflife=20)
+    # n_cold_attempts pre-truncation (only 1 here, no truncation)
+    assert dist.n_cold_attempts == 1
+    # bin count = max(5, ceil(sqrt(1))) = 5
+    assert len(dist.bins) == 5
+    # X-axis range: 0 to ceil(2000/1000)*1000 = 2000
+    assert dist.bins[0].lo_ms == 0
+    assert dist.bins[-1].hi_ms == 2000
+    # Single death lands in topmost bin (time 2000 == hi -> clamped)
+    total_deaths = sum(b.n_deaths for b in dist.bins)
+    assert total_deaths == 1
+    assert dist.mu_d_ms == 2000.0
+    assert dist.mu_c_ms is None  # no completions
+
+
+def test_compute_two_attempts_mixed_outcomes():
+    # One died at 2000, one survived at 8000.
+    events = [
+        _ev(2000, AttemptOutcome.DIED, ep="e1"),
+        _ev(8000, AttemptOutcome.SURVIVED, ep="e2"),
+    ]
+    dist = compute_cold_distribution(events, halflife=20)
+    assert dist.n_cold_attempts == 2
+    assert len(dist.bins) == 5  # sqrt(2) -> ceil 2 -> clamped to 5
+    # hi rounds up to ceil(8000/1000)*1000 = 8000
+    assert dist.bins[-1].hi_ms == 8000
+    total_deaths = sum(b.n_deaths for b in dist.bins)
+    total_completions = sum(b.n_completions for b in dist.bins)
+    assert total_deaths == 1
+    assert total_completions == 1
+    # Weighted means: only one death, only one completion -> equal to the
+    # raw times regardless of weight.
+    assert dist.mu_d_ms == 2000.0
+    assert dist.mu_c_ms == 8000.0
+
+
+def test_compute_truncates_to_5x_halflife():
+    # 200 cold attempts; halflife=20 -> window = 100 attempts.
+    events = [
+        _ev(time_ms=100 + i, outcome=AttemptOutcome.SURVIVED, ep=f"e{i}")
+        for i in range(200)
+    ]
+    dist = compute_cold_distribution(events, halflife=20)
+    # n_cold_attempts reflects POST-truncation count
+    assert dist.n_cold_attempts == 100
+    assert len(dist.bins) == min(20, max(5, 10))  # sqrt(100)=10
+
+
+def test_compute_p_die_aggregates():
+    # Two episodes:
+    #   ep1: died at 2000  ->  1 death
+    #   ep2: died at 1500, then survived at 5000  ->  episode "attempted" had a death
+    events = [
+        _ev(2000, AttemptOutcome.DIED, ep="e1"),
+        _ev(1500, AttemptOutcome.DIED, ep="e2"),
+        _ev(5000, AttemptOutcome.SURVIVED, ep="e2"),
+    ]
+    dist = compute_cold_distribution(events, halflife=20)
+    # Life-level: 2 deaths / 3 lives = 0.667
+    assert dist.p_die_per_life is not None
+    assert abs(dist.p_die_per_life - 2.0/3.0) < 0.05  # weighted, so approximate
+    # Attempt-level (per episode): 2/2 episodes had a death = 1.0
+    assert dist.p_die_per_attempt is not None
+    assert dist.p_die_per_attempt > 0.9  # both episodes had a death
