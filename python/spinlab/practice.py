@@ -188,6 +188,7 @@ class PracticeSession:
             session_id=self.session_id,
             source=AttemptSource.PRACTICE,
             chosen_allocator=self._last_allocator,
+            is_hot=False,  # Practice always loads from a savestate → cold spawn.
         )
         self.db.log_event_attempt(record)
         self._current_episode_id = event.episode_id
