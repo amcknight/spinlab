@@ -427,3 +427,37 @@ class TestModelOutput:
         assert out.total.ms_per_attempt > 0
         assert out.clean.ms_per_attempt is not None
         assert out.clean.ms_per_attempt > 0
+
+
+class TestRegistryFactory:
+    def test_get_estimator_returns_a_fresh_seedless_instance(self):
+        """The routes call get_estimator(name) — no seed kwarg. The default
+        constructor must work and return nondeterministic output."""
+        from spinlab.estimators import get_estimator
+        est = get_estimator("bootstrap_resample")
+        est2 = get_estimator("bootstrap_resample")
+        assert est is not est2
+
+    def test_default_constructed_estimator_produces_output_on_real_history(self):
+        """End-to-end through get_estimator — what the route does at runtime."""
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record, make_event_attempt
+        est = get_estimator("bootstrap_resample")
+        events = [
+            make_event_attempt(episode_id=f"ep{i}", outcome="survived", time_ms=8000)
+            for i in range(5)
+        ]
+        a = make_attempt_record(8000, True, clean_tail_ms=8000)
+        state = est.init_state(a, priors={})
+        out = est.model_output(state, [a], events=events)
+        assert out.total.expected_ms == pytest.approx(8000.0)
+        assert out.clean.expected_ms == pytest.approx(8000.0)
+
+
+class TestAPIExposure:
+    def test_appears_in_list_estimators_payload(self):
+        """The route reads list_estimators(); appearing here means the dropdown shows it."""
+        from spinlab.estimators import list_estimators
+        names = list_estimators()
+        assert "bootstrap_resample" in names
+        assert "death_aware_rolling" in names
