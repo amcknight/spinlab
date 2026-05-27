@@ -4,7 +4,7 @@ import pytest
 
 class TestRegistration:
     def test_registered_in_registry(self):
-        from spinlab.estimators import list_estimators, get_estimator
+        from spinlab.estimators import get_estimator, list_estimators
         assert "bootstrap_resample" in list_estimators()
         est = get_estimator("bootstrap_resample")
         assert est.name == "bootstrap_resample"
@@ -31,9 +31,10 @@ class TestRegistration:
 
 class TestColdFilter:
     def test_all_cold_episodes_pass_through(self):
-        from spinlab.estimators.bootstrap_resample import _filter_to_cold_episodes
-        from spinlab.estimators._episode_helpers import _group_into_episodes
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.bootstrap_resample import _filter_to_cold_episodes
         events = [
             make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000, is_hot=False),
             make_event_attempt(episode_id="ep2", outcome="died", time_ms=3000, is_hot=False),
@@ -49,9 +50,10 @@ class TestColdFilter:
         Half-counting a mixed-state episode would muddle the cold sample
         pool; cleanest rule is all-or-nothing per episode.
         """
-        from spinlab.estimators.bootstrap_resample import _filter_to_cold_episodes
-        from spinlab.estimators._episode_helpers import _group_into_episodes
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.bootstrap_resample import _filter_to_cold_episodes
         events = [
             make_event_attempt(episode_id="cold", outcome="survived", time_ms=8000, is_hot=False),
             make_event_attempt(episode_id="mixed", outcome="died", time_ms=3000, is_hot=False),
@@ -62,9 +64,10 @@ class TestColdFilter:
         assert [ep.episode_id for ep in cold] == ["cold"]
 
     def test_all_hot_returns_empty(self):
-        from spinlab.estimators.bootstrap_resample import _filter_to_cold_episodes
-        from spinlab.estimators._episode_helpers import _group_into_episodes
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.bootstrap_resample import _filter_to_cold_episodes
         events = [
             make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000, is_hot=True),
             make_event_attempt(episode_id="ep2", outcome="survived", time_ms=7500, is_hot=True),
@@ -76,18 +79,20 @@ class TestColdFilter:
 
 class TestEpisodeTotal:
     def test_clean_completion_total_is_just_time(self):
-        from spinlab.estimators.bootstrap_resample import _episode_total_ms
-        from spinlab.estimators._episode_helpers import _group_into_episodes
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.bootstrap_resample import _episode_total_ms
         events = [make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000)]
         ep = _group_into_episodes(events)[0]
         assert _episode_total_ms(ep, respawn_penalty_ms=3200) == 8000
 
     def test_episode_with_deaths_adds_penalty_per_death(self):
         """Total = sum(time_ms) + penalty × deaths. Matches _roll_up_episode."""
-        from spinlab.estimators.bootstrap_resample import _episode_total_ms
-        from spinlab.estimators._episode_helpers import _group_into_episodes
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.bootstrap_resample import _episode_total_ms
         events = [
             make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
             make_event_attempt(episode_id="ep1", outcome="died", time_ms=2500),
@@ -99,9 +104,10 @@ class TestEpisodeTotal:
 
     def test_aborted_episode_total_no_penalty_on_last_life(self):
         """Aborted (all-deaths) episode: raw sum + penalty × deaths."""
-        from spinlab.estimators.bootstrap_resample import _episode_total_ms
-        from spinlab.estimators._episode_helpers import _group_into_episodes
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.bootstrap_resample import _episode_total_ms
         events = [
             make_event_attempt(episode_id="ep1", outcome="died", time_ms=2000),
             make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
@@ -113,9 +119,10 @@ class TestEpisodeTotal:
 
 class TestSurvivedTailMs:
     def test_completed_episode_returns_last_life_time(self):
-        from spinlab.estimators.bootstrap_resample import _survived_tail_ms
-        from spinlab.estimators._episode_helpers import _group_into_episodes
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.bootstrap_resample import _survived_tail_ms
         events = [
             make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
             make_event_attempt(episode_id="ep1", outcome="survived", time_ms=7500),
@@ -125,9 +132,10 @@ class TestSurvivedTailMs:
 
     def test_aborted_episode_returns_none(self):
         """No survived life ⇒ no completion tail to sample."""
-        from spinlab.estimators.bootstrap_resample import _survived_tail_ms
-        from spinlab.estimators._episode_helpers import _group_into_episodes
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.bootstrap_resample import _survived_tail_ms
         events = [
             make_event_attempt(episode_id="ep1", outcome="died", time_ms=2000),
             make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
@@ -139,7 +147,8 @@ class TestSurvivedTailMs:
 class TestResolveNSamples:
     def test_default_when_param_missing(self):
         from spinlab.estimators.bootstrap_resample import (
-            DEFAULT_N_SAMPLES, _resolve_n_samples,
+            DEFAULT_N_SAMPLES,
+            _resolve_n_samples,
         )
         assert _resolve_n_samples(None) == DEFAULT_N_SAMPLES
         assert _resolve_n_samples({}) == DEFAULT_N_SAMPLES
@@ -167,9 +176,10 @@ class TestResolveNSamples:
 class TestBootstrapMeans:
     def test_single_completed_episode_returns_its_values(self):
         """Pool of one ⇒ every draw is the same episode ⇒ zero variance."""
-        from spinlab.estimators.bootstrap_resample import _bootstrap_means
-        from spinlab.estimators._episode_helpers import _group_into_episodes
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.bootstrap_resample import _bootstrap_means
         events = [make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000)]
         episodes = _group_into_episodes(events)
         import random
@@ -185,8 +195,9 @@ class TestBootstrapMeans:
         assert result.mean_completion_ms == pytest.approx(8000.0)
 
     def test_empty_pool_returns_none(self):
-        from spinlab.estimators.bootstrap_resample import _bootstrap_means
         import random
+
+        from spinlab.estimators.bootstrap_resample import _bootstrap_means
         rng = random.Random(42)
         result = _bootstrap_means(
             episodes=[],
@@ -200,9 +211,10 @@ class TestBootstrapMeans:
 
     def test_no_completed_episodes_completion_mean_none(self):
         """All-aborted pool ⇒ total has values (deaths counted), completion is None."""
-        from spinlab.estimators.bootstrap_resample import _bootstrap_means
-        from spinlab.estimators._episode_helpers import _group_into_episodes
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.bootstrap_resample import _bootstrap_means
         events = [
             make_event_attempt(episode_id="ep1", outcome="died", time_ms=2000),
             make_event_attempt(episode_id="ep1", outcome="died", time_ms=3000),
@@ -224,9 +236,10 @@ class TestBootstrapMeans:
 
     def test_seeded_reproducibility(self):
         """Same seed + same pool ⇒ same answer."""
-        from spinlab.estimators.bootstrap_resample import _bootstrap_means
-        from spinlab.estimators._episode_helpers import _group_into_episodes
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.bootstrap_resample import _bootstrap_means
         events = [
             make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000),
             make_event_attempt(episode_id="ep2", outcome="died", time_ms=3000),
@@ -245,10 +258,11 @@ class TestBootstrapMeans:
     def test_agrees_with_geometric_when_iid(self):
         """When deaths truly are i.i.d. Bernoulli, bootstrap and the geometric
         formula should agree within Monte-Carlo error."""
-        from spinlab.estimators.bootstrap_resample import _bootstrap_means
-        from spinlab.estimators._episode_helpers import _group_into_episodes
-        from spinlab.estimators.death_aware_rolling import _expected_total_ms
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.bootstrap_resample import _bootstrap_means
+        from spinlab.estimators.death_aware_rolling import _expected_total_ms
         events = []
         for i in range(20):
             events.append(make_event_attempt(episode_id=f"ep{i}", outcome="died", time_ms=3000))
@@ -291,10 +305,11 @@ class TestBootstrapMeans:
         construction; the broader "when do they diverge?" question is a
         branch-3 visualization concern (see BACKLOG entry from Task 10).
         """
-        from spinlab.estimators.bootstrap_resample import _bootstrap_means
-        from spinlab.estimators._episode_helpers import _group_into_episodes
-        from spinlab.estimators.death_aware_rolling import _expected_total_ms
         from tests.factories import make_event_attempt
+
+        from spinlab.estimators._episode_helpers import _group_into_episodes
+        from spinlab.estimators.bootstrap_resample import _bootstrap_means
+        from spinlab.estimators.death_aware_rolling import _expected_total_ms
         events = []
         for i in range(5):
             events.append(make_event_attempt(episode_id=f"clean{i}", outcome="survived", time_ms=7000))
@@ -322,8 +337,9 @@ class TestBootstrapMeans:
 
 class TestModelOutput:
     def test_empty_events_returns_none_output(self):
-        from spinlab.estimators import get_estimator
         from tests.factories import make_attempt_record
+
+        from spinlab.estimators import get_estimator
         est = get_estimator("bootstrap_resample")
         a = make_attempt_record(8000, True, clean_tail_ms=8000)
         state = est.init_state(a, priors={})
@@ -334,8 +350,9 @@ class TestModelOutput:
 
     def test_hot_only_history_returns_none_output(self):
         """All-hot pool filters down to empty after cold filter."""
-        from spinlab.estimators import get_estimator
         from tests.factories import make_attempt_record, make_event_attempt
+
+        from spinlab.estimators import get_estimator
         events = [
             make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000, is_hot=True),
             make_event_attempt(episode_id="ep2", outcome="survived", time_ms=7500, is_hot=True),
@@ -349,8 +366,9 @@ class TestModelOutput:
         assert out.extras is None
 
     def test_single_completion_returns_completion_time(self):
-        from spinlab.estimators.bootstrap_resample import BootstrapResampleEstimator
         from tests.factories import make_attempt_record, make_event_attempt
+
+        from spinlab.estimators.bootstrap_resample import BootstrapResampleEstimator
         events = [make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000)]
         est = BootstrapResampleEstimator(seed=42)
         a = make_attempt_record(8000, True, clean_tail_ms=8000)
@@ -368,8 +386,9 @@ class TestModelOutput:
 
     def test_filters_hot_episodes_before_sampling(self):
         """Hot episodes in the input must NOT contribute to the bootstrap pool."""
-        from spinlab.estimators.bootstrap_resample import BootstrapResampleEstimator
         from tests.factories import make_attempt_record, make_event_attempt
+
+        from spinlab.estimators.bootstrap_resample import BootstrapResampleEstimator
         events = [
             # Cold pool: 5000ms clean.
             make_event_attempt(episode_id="cold", outcome="survived", time_ms=5000, is_hot=False),
@@ -388,9 +407,10 @@ class TestModelOutput:
     def test_floor_ms_matches_death_aware(self):
         """floor_ms uses the same helper as death_aware_rolling ⇒ same answer
         for the same input."""
-        from spinlab.estimators.bootstrap_resample import BootstrapResampleEstimator
-        from spinlab.estimators import get_estimator
         from tests.factories import make_attempt_record, make_event_attempt
+
+        from spinlab.estimators import get_estimator
+        from spinlab.estimators.bootstrap_resample import BootstrapResampleEstimator
         events = (
             [make_event_attempt(episode_id="old_great", outcome="survived", time_ms=5000)]
             + [
@@ -413,8 +433,9 @@ class TestModelOutput:
 
     def test_ms_per_attempt_uses_chronological_completion_samples(self):
         """Slope estimator is the same one death_aware uses; positive when improving."""
-        from spinlab.estimators.bootstrap_resample import BootstrapResampleEstimator
         from tests.factories import make_attempt_record, make_event_attempt
+
+        from spinlab.estimators.bootstrap_resample import BootstrapResampleEstimator
         events = [
             make_event_attempt(episode_id=f"ep{i}", outcome="survived", time_ms=t)
             for i, t in enumerate([12000, 11500, 11000, 10500, 10000, 9500, 9000, 8500])
@@ -440,8 +461,9 @@ class TestRegistryFactory:
 
     def test_default_constructed_estimator_produces_output_on_real_history(self):
         """End-to-end through get_estimator — what the route does at runtime."""
-        from spinlab.estimators import get_estimator
         from tests.factories import make_attempt_record, make_event_attempt
+
+        from spinlab.estimators import get_estimator
         est = get_estimator("bootstrap_resample")
         events = [
             make_event_attempt(episode_id=f"ep{i}", outcome="survived", time_ms=8000)
