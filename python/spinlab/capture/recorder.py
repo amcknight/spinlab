@@ -53,6 +53,7 @@ class _PendingEvent:
     outcome: AttemptOutcome
     time_ms: int
     created_at: datetime
+    is_hot: bool = False
 
 
 class SegmentRecorder:
@@ -88,6 +89,14 @@ class SegmentRecorder:
         # Buffered events for the in-flight segment; flushed atomically with
         # the segment upsert at _close_segment.
         self._pending_events: list[_PendingEvent] = []
+        # Whether the NEXT event to be appended is the first of its episode.
+        # Set to True on _arm_new_episode; flipped to False after the first
+        # event is appended. Combined with _next_first_is_hot.
+        self._next_event_is_first: bool = False
+        # Whether the next first-of-episode event should be hot. Set by the
+        # arm-source: True from handle_checkpoint (carry-over), False from
+        # handle_entrance (level start).
+        self._next_first_is_hot: bool = False
 
     def set_condition_registry(self, registry: "ConditionRegistry") -> None:
         """Swap the active condition registry (called on game-switch)."""
@@ -105,8 +114,10 @@ class SegmentRecorder:
         self._episode_id = ""
         self._last_event_ms = 0
         self._pending_events = []
+        self._next_event_is_first = False
+        self._next_first_is_hot = False
 
-    def _arm_new_episode(self, start_ts_ms: int) -> None:
+    def _arm_new_episode(self, start_ts_ms: int, *, is_hot: bool = False) -> None:
         """Mint a fresh episode_id for the upcoming segment and reset
         per-segment buffer/counters."""
         self._episode_id = uuid.uuid4().hex
@@ -115,6 +126,21 @@ class SegmentRecorder:
         self._deaths_in_segment = 0
         self._last_spawn_ms = None
         self.died = False
+        self._next_event_is_first = True
+        self._next_first_is_hot = is_hot
+
+    def _append_event(self, ev: _PendingEvent) -> None:
+        """Append ev to the pending buffer, tagging it hot if it is the first
+        event of a checkpoint-armed episode."""
+        if self._next_event_is_first:
+            ev = _PendingEvent(
+                outcome=ev.outcome,
+                time_ms=ev.time_ms,
+                created_at=ev.created_at,
+                is_hot=self._next_first_is_hot,
+            )
+            self._next_event_is_first = False
+        self._pending_events.append(ev)
 
     def handle_entrance(self, event: LevelEntranceEvent) -> None:
         """Buffer a level entrance as pending start."""
@@ -199,6 +225,18 @@ class SegmentRecorder:
             # the just-upserted segment_id so the FK is satisfied.
             events_to_write = list(self._pending_events)
             if survived_event is not None:
+                # If no deaths were buffered, the survived event is the FIRST
+                # event of this episode and picks up the hot/cold tag.
+                # If deaths were already buffered, _next_event_is_first is
+                # already False and is_hot stays at the dataclass default (False).
+                if self._next_event_is_first:
+                    survived_event = _PendingEvent(
+                        outcome=survived_event.outcome,
+                        time_ms=survived_event.time_ms,
+                        created_at=survived_event.created_at,
+                        is_hot=self._next_first_is_hot,
+                    )
+                    self._next_event_is_first = False
                 events_to_write.append(survived_event)
             if events_to_write and self.capture_run_id is not None:
                 for ev in events_to_write:
@@ -209,6 +247,7 @@ class SegmentRecorder:
                         time_ms=ev.time_ms,
                         capture_run_id=self.capture_run_id,
                         source=AttemptSource.REFERENCE,
+                        is_hot=ev.is_hot,
                         created_at=ev.created_at,
                     ))
                 logger.info(
@@ -234,8 +273,10 @@ class SegmentRecorder:
             state_path=event.state_path, timestamp_ms=event.timestamp_ms,
             level_num=level, raw_conditions=event.conditions,
         )
-        # New segment starts here — fresh episode for the cp→next pass.
-        self._arm_new_episode(event.timestamp_ms)
+        # New segment starts here — fresh episode for the cp→next pass. The
+        # FIRST event of this episode is HOT because the player carried state
+        # from the just-completed segment.
+        self._arm_new_episode(event.timestamp_ms, is_hot=True)
 
     def handle_exit(self, event: LevelExitEvent, game_id: str) -> None:
         if event.goal == "abort":
@@ -279,7 +320,7 @@ class SegmentRecorder:
             return
         self.died = True
         self._deaths_in_segment += 1
-        self._pending_events.append(_PendingEvent(
+        self._append_event(_PendingEvent(
             outcome=AttemptOutcome.DIED,
             time_ms=timestamp_ms - self._last_event_ms,
             created_at=datetime.now(UTC),
