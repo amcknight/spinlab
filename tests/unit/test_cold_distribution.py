@@ -1,5 +1,8 @@
 from spinlab.cold_distribution import (
-    MAX_BINS, MIN_BINS, EFFECTIVE_WINDOW_HALFLIVES, HI_ROUND_MS,
+    EFFECTIVE_WINDOW_HALFLIVES,
+    HI_ROUND_MS,
+    MAX_BINS,
+    MIN_BINS,
 )
 
 
