@@ -27,6 +27,7 @@ from spinlab.models import (
 )
 
 if TYPE_CHECKING:
+    from spinlab.estimators._episode_helpers import _Episode
     from spinlab.models import EventAttempt
 
 # Bootstrap draw count. 1000 is enough to bring the Monte-Carlo standard
@@ -39,6 +40,22 @@ DEFAULT_N_SAMPLES = 1000
 # range almost certainly means the user is using the wrong tool.
 N_SAMPLES_MIN = 100
 N_SAMPLES_MAX = 10000
+
+
+def _filter_to_cold_episodes(episodes: list["_Episode"]) -> list["_Episode"]:
+    """Keep only episodes where every life is cold (is_hot is False).
+
+    Hot lives represent a different population (carry-over from a prior
+    completed segment, not a fresh-load attempt). The scheduler's
+    "next practice load" decision is a cold-load question, so cold-only
+    is the right resampling pool. Mixed-state episodes are dropped
+    entirely rather than half-counted — partial inclusion would
+    contaminate the sample with hot-life timing within a "cold" draw.
+    """
+    return [
+        ep for ep in episodes
+        if all(not ev.is_hot for ev in ep.events)
+    ]
 
 
 @dataclass
