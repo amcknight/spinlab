@@ -451,6 +451,101 @@ def test_segment_history_no_completed_attempts(seeded_db, client):
         assert est_curves["clean"]["expected_ms"] == []
 
 
+def test_segment_history_returns_selected_model(client):
+    """selected_model mirrors the scheduler's active estimator name."""
+    resp = client.get("/api/segments/s1/history")
+    assert resp.status_code == 200
+    data = resp.json()
+    # The seeded client uses the default scheduler — "kalman" is the
+    # default estimator, matching test_recent_attempts_ordered* assertions.
+    assert data["selected_model"] == "kalman"
+
+
+def test_segment_history_returns_null_selected_model_when_no_game(seeded_db):
+    """selected_model is None (not ``''``) when no game is loaded."""
+    from spinlab.dashboard import create_app
+    from tests.conftest import make_test_config
+
+    # Build a client whose session has no game_id set. The seeded DB
+    # still contains s1's segment row, so the segment lookup itself
+    # succeeds; only the scheduler-derived selected_model is absent.
+    app = create_app(db=seeded_db, config=make_test_config())
+    # Explicitly do NOT set app.state.session.game_id.
+    client = TestClient(app)
+
+    resp = client.get("/api/segments/s1/history")
+    assert resp.status_code == 200
+    assert resp.json()["selected_model"] is None
+
+
+def test_segment_history_final_extras_present_for_death_aware(
+    seeded_db, client,
+):
+    """Death-aware estimator returns a populated final_extras dict when
+    the segment has events; legacy estimators return None.
+
+    Uses s5 — which has no pre-seeded attempts/events in the fixture —
+    so the only data the estimator sees is what this test seeds.
+    """
+    from datetime import datetime
+
+    from spinlab.models import (
+        Attempt,
+        AttemptOutcome,
+        AttemptSource,
+        EventAttempt,
+    )
+
+    # log_attempt is a synthesizing shim that also writes one SURVIVED
+    # event_attempt row (see python/spinlab/db/attempts.py). We need at
+    # least one completed Attempt for the route's per-estimator loop to
+    # enter its final-extras branch (gated on `completed and events`).
+    seeded_db.log_attempt(Attempt(
+        segment_id="s5", session_id="sess1",
+        completed=True, time_ms=4500,
+    ))
+
+    # Two extra events on top: one died, one survived.
+    seeded_db.log_event_attempt(EventAttempt(
+        segment_id="s5", episode_id="epA",
+        outcome=AttemptOutcome("died"), time_ms=2000,
+        session_id="sess1", capture_run_id=None,
+        source=AttemptSource.PRACTICE, chosen_allocator=None,
+        invalidated=False, created_at=datetime.now(),
+    ))
+    seeded_db.log_event_attempt(EventAttempt(
+        segment_id="s5", episode_id="epB",
+        outcome=AttemptOutcome("survived"), time_ms=3800,
+        session_id="sess1", capture_run_id=None,
+        source=AttemptSource.PRACTICE, chosen_allocator=None,
+        invalidated=False, created_at=datetime.now(),
+    ))
+
+    resp = client.get("/api/segments/s5/history")
+    assert resp.status_code == 200
+    curves = resp.json()["estimator_curves"]
+
+    da = curves["death_aware_rolling"]["final_extras"]
+    assert da is not None
+    # One died event in our seeded data (2000ms).
+    assert len(da["death_samples"]) == 1
+    assert da["death_samples"][0][0] == 2000  # (time_ms, weight)
+    # Survived events:
+    #   - 4500ms from the log_attempt shim's synthesized SURVIVED event
+    #   - 3800ms from the explicit event_attempt seed
+    # (Episode "epA" — one died event with no survived follow-up — does
+    #  NOT contribute to completion_samples.)
+    assert len(da["completion_samples"]) == 2
+    # p_die_per_life: deaths_weight / (deaths_weight + survived_weight).
+    # One death, two survives, so p ∈ (0, 1).
+    assert da["p_die_per_life"] is not None
+    assert 0.0 < da["p_die_per_life"] < 1.0
+
+    # Legacy estimators don't publish extras.
+    assert curves["kalman"]["final_extras"] is None
+    assert curves["rolling_mean"]["final_extras"] is None
+
+
 # -- GET /roms ---------------------------------------------------------------
 
 class TestRomsEndpoint:

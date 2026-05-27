@@ -46,6 +46,8 @@ export type SegmentHistory = S["SegmentHistory"];
 export type SegmentAttempt = S["SegmentAttempt"];
 export type EstimatorCurves = S["EstimatorCurves"];
 export type EstimatorSeries = S["EstimatorSeries"];
+export type ColdDistribution = S["ColdDistribution"];
+export type ColdBin = S["ColdBin"];
 
 // ---- Request bodies (auto-generated) --------------------------------------
 

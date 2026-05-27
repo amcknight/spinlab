@@ -18,9 +18,11 @@ from spinlab.api_schemas import (
     SegmentHistory,
     TuningData,
 )
+from spinlab.cold_distribution import compute_cold_distribution
 from spinlab.db import Database
 from spinlab.estimators import get_estimator, list_estimators
-from spinlab.scheduler import _attempts_from_rows
+from spinlab.estimators.death_aware_rolling import DEFAULT_HALFLIFE
+from spinlab.scheduler import _attempts_from_rows, _events_from_rows
 from spinlab.session_manager import SessionManager
 
 from ._deps import get_db, get_session
@@ -128,7 +130,11 @@ def set_estimator_params(
 
 
 @router.get("/segments/{segment_id}/history", response_model=SegmentHistory)
-def segment_history(segment_id: str, db: Database = Depends(get_db)):
+def segment_history(
+    segment_id: str,
+    db: Database = Depends(get_db),
+    session: SessionManager = Depends(get_session),
+):
     seg = db.get_segment_by_id(segment_id)
     if seg is None:
         logger.warning("segment_history: unknown segment %r", segment_id)
@@ -138,6 +144,12 @@ def segment_history(segment_id: str, db: Database = Depends(get_db)):
     # _attempts_from_rows already drops invalidated; filter to completed too.
     all_records = _attempts_from_rows(raw_rows)
     completed = [a for a in all_records if a.completed and a.time_ms is not None]
+
+    # Load events once for death-aware estimators. They produce DeathExtras
+    # from events, not from AttemptRecords. Estimators that ignore events
+    # (rolling_mean, kalman) get this argument harmlessly.
+    event_rows = db.get_segment_event_rows(segment_id)
+    events = _events_from_rows(event_rows)
 
     attempts = []
     for i, a in enumerate(completed):
@@ -163,6 +175,7 @@ def segment_history(segment_id: str, db: Database = Depends(get_db)):
         clean_expected: list[float | None] = []
         clean_floor: list[float | None] = []
 
+        final_extras = None
         if completed:
             state = est.init_state(completed[0], priors, params=params)
             out = est.model_output(state, completed[:1], params=params)
@@ -181,10 +194,40 @@ def segment_history(segment_id: str, db: Database = Depends(get_db)):
                 clean_expected.append(out.clean.expected_ms)
                 clean_floor.append(out.clean.floor_ms)
 
+            # Compute final extras by reusing the final state from the
+            # per-attempt loop above and recomputing model_output with the
+            # full event list. The per-attempt loop intentionally doesn't
+            # pass events (the per-attempt curves for death-aware
+            # estimators are pre-existing-empty; out of scope here).
+            # Estimators that don't publish extras (kalman, rolling_mean)
+            # return extras=None naturally — no explicit gate needed.
+            final_out = est.model_output(
+                state, completed, params=params, events=events,
+            )
+            final_extras = (
+                final_out.extras.to_dict() if final_out.extras is not None else None
+            )
+
         estimator_curves[est_name] = {
             "total": {"expected_ms": total_expected, "floor_ms": total_floor},
             "clean": {"expected_ms": clean_expected, "floor_ms": clean_floor},
+            "final_extras": final_extras,
         }
+
+    sched = session.get_scheduler() if session.game_id is not None else None
+    selected_model = sched.estimator.name if sched is not None else None
+
+    # Cold-only distribution for the segment-detail panel (histogram + hazard).
+    # Use the active death_aware_rolling halflife so the cold panel tracks the
+    # user's tuned smoothing knob (shared with DAR + bootstrap).
+    cold_events = [ev for ev in events if not ev.is_hot]
+    if cold_events:
+        dar_params_raw = db.load_allocator_config("estimator_params:death_aware_rolling")
+        dar_params = json.loads(dar_params_raw) if dar_params_raw else {}
+        halflife = int(dar_params.get("halflife", DEFAULT_HALFLIFE))
+        cold_distribution = compute_cold_distribution(cold_events, halflife=halflife)
+    else:
+        cold_distribution = None
 
     return {
         "segment_id": segment_id,
@@ -196,4 +239,6 @@ def segment_history(segment_id: str, db: Database = Depends(get_db)):
         "end_ordinal": seg.end_ordinal,
         "attempts": attempts,
         "estimator_curves": estimator_curves,
+        "selected_model": selected_model,
+        "cold_distribution": cold_distribution,
     }
