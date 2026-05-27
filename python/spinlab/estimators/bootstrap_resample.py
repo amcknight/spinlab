@@ -15,12 +15,19 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from spinlab.estimators import Estimator, EstimatorState, ParamDef, register_estimator
+from spinlab.estimators._episode_helpers import _compute_weights, _group_into_episodes
 from spinlab.estimators.death_aware_rolling import (
     DEFAULT_HALFLIFE,
+    EFFECTIVE_WINDOW_HALFLIVES,
     HALFLIFE_MAX,
     HALFLIFE_MIN,
+    _floor_over_completed_episode_totals,
+    _floor_over_survived_event_times,
+    _resolve_halflife,
+    _weighted_half_split_slope,
 )
 from spinlab.models import (
+    DEFAULT_DEATH_PENALTY_MS,
     AttemptRecord,
     Estimate,
     ModelOutput,
@@ -228,9 +235,64 @@ class BootstrapResampleEstimator(Estimator):
         params: dict | None = None,
         events: list["EventAttempt"] | None = None,
     ) -> ModelOutput:
-        # Placeholder — wired up in Task 4+. Returning empty keeps the
-        # estimator registered without producing misleading numbers.
-        return _empty_output()
+        if not events:
+            return _empty_output()
+        halflife = _resolve_halflife(params)
+        n_samples = _resolve_n_samples(params)
+
+        all_episodes = _group_into_episodes(events)
+        if not all_episodes:
+            return _empty_output()
+
+        # Floor reuses death_aware's "best across full history" helpers so
+        # the floor numbers agree across estimators. Floor isn't a sampling
+        # question; it's a min over completed history.
+        total_floor = _floor_over_completed_episode_totals(
+            all_episodes, respawn_penalty_ms=DEFAULT_DEATH_PENALTY_MS,
+        )
+        clean_floor = _floor_over_survived_event_times(all_episodes)
+
+        # Cold filter + windowing for the sampling pool.
+        cold_episodes = _filter_to_cold_episodes(all_episodes)
+        if not cold_episodes:
+            return _empty_output()
+
+        max_kept = EFFECTIVE_WINDOW_HALFLIVES * halflife
+        if len(cold_episodes) > max_kept:
+            cold_episodes = cold_episodes[-max_kept:]
+        weights = _compute_weights(n_episodes=len(cold_episodes), halflife=halflife)
+
+        bs = _bootstrap_means(
+            episodes=cold_episodes,
+            weights=weights,
+            n_samples=n_samples,
+            respawn_penalty_ms=DEFAULT_DEATH_PENALTY_MS,
+            rng=self._rng,
+        )
+
+        # ms_per_attempt: same slope estimator death_aware uses, over the
+        # chronological completion-tail samples. Survived-event time_ms is
+        # the completion tail; one per completed episode.
+        completion_samples: list[tuple[int, float]] = []
+        for w, ep in zip(weights, cold_episodes):
+            tail = _survived_tail_ms(ep)
+            if tail is not None:
+                completion_samples.append((int(tail), w))
+        mpa = _weighted_half_split_slope(completion_samples)
+
+        return ModelOutput(
+            total=Estimate(
+                expected_ms=bs.mean_total_ms,
+                ms_per_attempt=mpa,
+                floor_ms=total_floor,
+            ),
+            clean=Estimate(
+                expected_ms=bs.mean_completion_ms,
+                ms_per_attempt=mpa,
+                floor_ms=clean_floor,
+            ),
+            extras=None,
+        )
 
     def rebuild_state(  # type: ignore[override]
         self, attempts: list[AttemptRecord],

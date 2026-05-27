@@ -318,3 +318,112 @@ class TestBootstrapMeans:
         assert geom is not None
         # bs should be ≈ 15900, geom = 31800 ⇒ ratio < 0.6.
         assert bs.mean_total_ms < 0.6 * geom
+
+
+class TestModelOutput:
+    def test_empty_events_returns_none_output(self):
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record
+        est = get_estimator("bootstrap_resample")
+        a = make_attempt_record(8000, True, clean_tail_ms=8000)
+        state = est.init_state(a, priors={})
+        out = est.model_output(state, [a], events=[])
+        assert out.total.expected_ms is None
+        assert out.clean.expected_ms is None
+        assert out.extras is None  # bootstrap never populates extras (locked-in decision)
+
+    def test_hot_only_history_returns_none_output(self):
+        """All-hot pool filters down to empty after cold filter."""
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record, make_event_attempt
+        events = [
+            make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000, is_hot=True),
+            make_event_attempt(episode_id="ep2", outcome="survived", time_ms=7500, is_hot=True),
+        ]
+        est = get_estimator("bootstrap_resample")
+        a = make_attempt_record(8000, True, clean_tail_ms=8000)
+        state = est.init_state(a, priors={})
+        out = est.model_output(state, [a], events=events)
+        assert out.total.expected_ms is None
+        assert out.clean.expected_ms is None
+        assert out.extras is None
+
+    def test_single_completion_returns_completion_time(self):
+        from spinlab.estimators.bootstrap_resample import BootstrapResampleEstimator
+        from tests.factories import make_attempt_record, make_event_attempt
+        events = [make_event_attempt(episode_id="ep1", outcome="survived", time_ms=8000)]
+        est = BootstrapResampleEstimator(seed=42)
+        a = make_attempt_record(8000, True, clean_tail_ms=8000)
+        state = est.init_state(a, priors={})
+        out = est.model_output(state, [a], events=events)
+        assert out.total.expected_ms == pytest.approx(8000.0)
+        assert out.clean.expected_ms == pytest.approx(8000.0)
+        # Floor reuses the death_aware helper ⇒ same answer.
+        assert out.total.floor_ms == pytest.approx(8000.0)
+        assert out.clean.floor_ms == pytest.approx(8000.0)
+        # One sample ⇒ no slope.
+        assert out.total.ms_per_attempt is None
+        assert out.clean.ms_per_attempt is None
+        assert out.extras is None
+
+    def test_filters_hot_episodes_before_sampling(self):
+        """Hot episodes in the input must NOT contribute to the bootstrap pool."""
+        from spinlab.estimators.bootstrap_resample import BootstrapResampleEstimator
+        from tests.factories import make_attempt_record, make_event_attempt
+        events = [
+            # Cold pool: 5000ms clean.
+            make_event_attempt(episode_id="cold", outcome="survived", time_ms=5000, is_hot=False),
+            # Hot episode: should be excluded from sampling.
+            make_event_attempt(episode_id="hot", outcome="survived", time_ms=99000, is_hot=True),
+        ]
+        est = BootstrapResampleEstimator(seed=42)
+        a = make_attempt_record(5000, True, clean_tail_ms=5000)
+        state = est.init_state(a, priors={})
+        out = est.model_output(state, [a], events=events)
+        # If the hot episode leaked in, total would jump toward 99000.
+        # Cold-only ⇒ should sit at the cold value.
+        assert out.total.expected_ms == pytest.approx(5000.0)
+        assert out.clean.expected_ms == pytest.approx(5000.0)
+
+    def test_floor_ms_matches_death_aware(self):
+        """floor_ms uses the same helper as death_aware_rolling ⇒ same answer
+        for the same input."""
+        from spinlab.estimators.bootstrap_resample import BootstrapResampleEstimator
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record, make_event_attempt
+        events = (
+            [make_event_attempt(episode_id="old_great", outcome="survived", time_ms=5000)]
+            + [
+                make_event_attempt(episode_id=f"new{i}", outcome="survived", time_ms=9000)
+                for i in range(20)
+            ]
+        )
+        a = make_attempt_record(9000, True, clean_tail_ms=9000)
+
+        bs = BootstrapResampleEstimator(seed=1)
+        bs_state = bs.init_state(a, priors={})
+        bs_out = bs.model_output(bs_state, [a], events=events)
+
+        da = get_estimator("death_aware_rolling")
+        da_state = da.init_state(a, priors={})
+        da_out = da.model_output(da_state, [a], events=events)
+
+        assert bs_out.total.floor_ms == da_out.total.floor_ms
+        assert bs_out.clean.floor_ms == da_out.clean.floor_ms
+
+    def test_ms_per_attempt_uses_chronological_completion_samples(self):
+        """Slope estimator is the same one death_aware uses; positive when improving."""
+        from spinlab.estimators.bootstrap_resample import BootstrapResampleEstimator
+        from tests.factories import make_attempt_record, make_event_attempt
+        events = [
+            make_event_attempt(episode_id=f"ep{i}", outcome="survived", time_ms=t)
+            for i, t in enumerate([12000, 11500, 11000, 10500, 10000, 9500, 9000, 8500])
+        ]
+        est = BootstrapResampleEstimator(seed=1)
+        a = make_attempt_record(8500, True, clean_tail_ms=8500)
+        state = est.init_state(a, priors={})
+        out = est.model_output(state, [a], events=events)
+        assert out.total.ms_per_attempt is not None
+        assert out.total.ms_per_attempt > 0
+        assert out.clean.ms_per_attempt is not None
+        assert out.clean.ms_per_attempt > 0
