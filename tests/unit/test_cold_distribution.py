@@ -65,10 +65,10 @@ def test_schema_imports():
 
 def test_compute_empty_inputs_disallowed():
     # Caller (route) substitutes None on empty input; the function itself
-    # should never be called with an empty list. Test that this is the
-    # documented contract.
+    # should never be called with an empty list. The contract is to raise
+    # ValueError specifically.
     import pytest
-    with pytest.raises((AssertionError, IndexError, ValueError)):
+    with pytest.raises(ValueError, match="non-empty"):
         compute_cold_distribution([], halflife=20)
 
 
@@ -76,7 +76,7 @@ def test_compute_single_death_at_2s():
     # One cold attempt that died at 2000ms.
     events = [_ev(2000, AttemptOutcome.DIED)]
     dist = compute_cold_distribution(events, halflife=20)
-    # n_cold_attempts pre-truncation (only 1 here, no truncation)
+    # n_cold_attempts is post-truncation; with 1 event there is no truncation
     assert dist.n_cold_attempts == 1
     # bin count = max(5, ceil(sqrt(1))) = 5
     assert len(dist.bins) == 5
@@ -133,9 +133,13 @@ def test_compute_p_die_aggregates():
         _ev(5000, AttemptOutcome.SURVIVED, ep="e2"),
     ]
     dist = compute_cold_distribution(events, halflife=20)
-    # Life-level: 2 deaths / 3 lives = 0.667
-    assert dist.p_die_per_life is not None
-    assert abs(dist.p_die_per_life - 2.0/3.0) < 0.05  # weighted, so approximate
-    # Attempt-level (per episode): 2/2 episodes had a death = 1.0
-    assert dist.p_die_per_attempt is not None
-    assert dist.p_die_per_attempt > 0.9  # both episodes had a death
+    import pytest
+    w0 = 2.0 ** (-2/20)
+    w1 = 2.0 ** (-1/20)
+    w2 = 1.0
+    expected_p_die_per_life = (w0 + w1) / (w0 + w1 + w2)
+    assert dist.p_die_per_life == pytest.approx(expected_p_die_per_life, rel=1e-9)
+    # Both episodes had a death; episode e2's representative weight is w2 (the
+    # latest event), episode e1's representative weight is w0. Numerator and
+    # denominator are identical, so p_die_per_attempt = 1.0 exactly.
+    assert dist.p_die_per_attempt == pytest.approx(1.0, rel=1e-9)

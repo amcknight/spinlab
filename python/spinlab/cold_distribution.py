@@ -12,6 +12,7 @@ this module trusts its input.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 from spinlab.api_schemas import ColdBin, ColdDistribution
 from spinlab.models import AttemptOutcome, EventAttempt
@@ -32,6 +33,18 @@ EFFECTIVE_WINDOW_HALFLIVES = 5
 # X-axis upper-edge rounding. One-second rounding gives clean axis
 # labels without manual tick configuration.
 HI_ROUND_MS = 1000
+
+
+@dataclass
+class _EpisodeAccum:
+    """Per-episode accumulator for cold-distribution episode-level aggregates.
+
+    Used internally by compute_cold_distribution to track each episode's
+    representative weight (latest-event weight) and a had-death flag for
+    the p_die_per_attempt computation.
+    """
+    weight: float
+    had_death: bool
 
 
 def _compute_attempt_weights(n: int, halflife: int) -> list[float]:
@@ -115,18 +128,18 @@ def compute_cold_distribution(
     # p_die_per_attempt = weighted fraction of episodes with a death.
     # The "weight" used per episode is the weight of the most-recent
     # event in that episode (a reasonable proxy for "episode recency").
-    episodes_seen: dict[str, dict] = {}
+    episodes_seen: dict[str, _EpisodeAccum] = {}
 
     for ev, w in zip(truncated, weights):
         idx = bin_idx(ev.time_ms)
-        ep_entry = episodes_seen.setdefault(ev.episode_id, {"weight": w, "had_death": False})
+        ep_entry = episodes_seen.setdefault(ev.episode_id, _EpisodeAccum(weight=w, had_death=False))
         # Chronological order; later overrides earlier.
-        ep_entry["weight"] = w
+        ep_entry.weight = w
         if ev.outcome == AttemptOutcome.DIED:
             bins[idx].n_deaths += 1
             sum_w_d += w
             sum_wt_d += w * ev.time_ms
-            ep_entry["had_death"] = True
+            ep_entry.had_death = True
         elif ev.outcome == AttemptOutcome.SURVIVED:
             bins[idx].n_completions += 1
             sum_w_c += w
@@ -138,8 +151,8 @@ def compute_cold_distribution(
     total_w_life = sum_w_d + sum_w_c
     p_die_per_life = sum_w_d / total_w_life if total_w_life > 0 else None
 
-    total_ep_w = sum(e["weight"] for e in episodes_seen.values())
-    had_death_w = sum(e["weight"] for e in episodes_seen.values() if e["had_death"])
+    total_ep_w = sum(e.weight for e in episodes_seen.values())
+    had_death_w = sum(e.weight for e in episodes_seen.values() if e.had_death)
     p_die_per_attempt = had_death_w / total_ep_w if total_ep_w > 0 else None
 
     return ColdDistribution(
