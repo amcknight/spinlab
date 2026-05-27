@@ -42,3 +42,15 @@ def test_bin_count_clamps_high():
     assert _bin_count_for(n=400) == 20    # sqrt(400)=20
     assert _bin_count_for(n=401) == 20    # capped
     assert _bin_count_for(n=10_000) == 20
+
+
+def test_schema_imports():
+    from spinlab.api_schemas import ColdBin, ColdDistribution
+    bin_ = ColdBin(lo_ms=0.0, hi_ms=500.0, n_deaths=2, n_completions=1)
+    dist = ColdDistribution(
+        bins=[bin_], n_cold_attempts=3,
+        mu_d_ms=200.0, mu_c_ms=400.0,
+        p_die_per_attempt=0.5, p_die_per_life=0.5,
+    )
+    assert dist.bins[0].n_deaths == 2
+    assert dist.n_cold_attempts == 3

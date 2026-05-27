@@ -285,6 +285,38 @@ class EstimatorCurves(_BaseResponse):
     final_extras: DeathExtras | None = None
 
 
+class ColdBin(_BaseResponse):
+    """One time bin of the cold-attempt distribution.
+
+    Hazard fields (hazard, at_risk_w) are added in Phase 1.
+    """
+
+    lo_ms: float
+    hi_ms: float
+    n_deaths: int        # raw count of cold deaths landing in this bin
+    n_completions: int   # raw count of cold completions landing in this bin
+
+
+class ColdDistribution(_BaseResponse):
+    """Per-segment cold-attempt distribution payload.
+
+    Feeds the "Cold distribution" panel on the segment-detail page.
+    Histogram view reads bin counts; hazard view (Phase 1) reads
+    hazard/at_risk_w (also added in Phase 1) from the same bins.
+
+    Aggregates (mu_*, p_die_*) are cold-only — derived from the same
+    cold pool the bins were computed from, NOT from DAR's all-events
+    aggregates.
+    """
+
+    bins: list[ColdBin]
+    n_cold_attempts: int                  # raw cold count after truncation; drives bin layout
+    mu_d_ms: float | None                 # weighted mean cold-death time; None when no deaths
+    mu_c_ms: float | None                 # weighted mean cold-completion time; None when no completions
+    p_die_per_attempt: float | None       # weighted P(any death in attempt); None when n_cold=0
+    p_die_per_life: float | None          # weighted P(this life dies); None when no events
+
+
 class SegmentHistory(_BaseResponse):
     segment_id: str
     description: str
