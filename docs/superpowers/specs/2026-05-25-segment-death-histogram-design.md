@@ -144,3 +144,17 @@ No emulator tests — pure presentation over an existing computation.
 - Toggling between weighted and raw counts. Single deliberate choice (raw counts + weighted-mean markers).
 - Live re-render on estimator-switch while the detail page is open. The detail page is short-lived; re-opening picks up the new selection.
 - A standalone `/api/segments/{id}/events` endpoint. The existing history endpoint carries everything needed.
+
+## Post-merge deviation (2026-05-27)
+
+Folded into the segment-hazard-plot work (see
+`docs/superpowers/specs/2026-05-27-segment-hazard-plot-design.md`):
+
+- Data source switched from `EstimatorCurves.final_extras` to a new
+  `SegmentHistory.cold_distribution` field, computed cold-only in
+  `python/spinlab/cold_distribution.py`.
+- Fixed 20-bin layout replaced with adaptive sqrt-rule binning.
+- Panel title renamed "Death distribution" → "Cold distribution".
+
+`final_extras` remains on the response but is no longer read by the
+histogram view.
