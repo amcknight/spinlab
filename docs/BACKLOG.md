@@ -87,3 +87,24 @@ When an item ships, delete it from this file rather than checking it off — the
 ## Documentation
 
 - **[S] Lock the superpowers spec/plan tree.** Make `docs/superpowers/specs/`, `docs/superpowers/plans/`, and `docs/superpowers/archive/` read-only somehow (CI check, pre-commit hook, or just convention). They are frozen historical artifacts and editing them post-hoc destroys the narrative.
+
+### Cold distribution / hazard follow-ups (post-2026-05-27)
+
+- **Hot-view toggle**: add [Cold]/[Hot] sub-filter to the segment-detail
+  distribution panel. Today the panel shows cold only; hot data is rare
+  but a per-segment hot view is interesting once it accumulates.
+- **Bootstrap filter consistency**: `bootstrap_resample` filters at the
+  episode level (drops any episode containing a hot attempt); the
+  cold_distribution layer filters at the attempt level. Decide whether
+  bootstrap should be brought into line.
+- **Confidence intervals on hazard**: opacity-as-confidence is the only
+  signal today. KM-style binomial confidence bands are a reasonable next
+  iteration if opacity proves insufficient.
+- **Toggle persistence**: Histogram/Hazard tab choice resets to Histogram
+  on every detail-page open. Persist across the session if useful.
+- **`SegmentAttempt` episode aggregate**: do we even need it? Branch 3's
+  cold_distribution.py works on a flat list of attempts and never touches
+  the episode aggregate. Refactor candidate.
+- **Histogram bar weighting**: histogram uses raw counts (n_deaths,
+  n_completions). If users find the divergence from hazard's weighted
+  view confusing, revisit.
