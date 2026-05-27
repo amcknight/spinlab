@@ -143,3 +143,86 @@ def test_compute_p_die_aggregates():
     # latest event), episode e1's representative weight is w0. Numerator and
     # denominator are identical, so p_die_per_attempt = 1.0 exactly.
     assert dist.p_die_per_attempt == pytest.approx(1.0, rel=1e-9)
+
+
+def test_hazard_fields_on_schema():
+    from spinlab.api_schemas import ColdBin, ColdDistribution
+    bin_ = ColdBin(
+        lo_ms=0.0, hi_ms=500.0, n_deaths=1, n_completions=0,
+        hazard=0.5, at_risk_w=2.0,
+    )
+    dist = ColdDistribution(
+        bins=[bin_], n_cold_attempts=2,
+        mu_d_ms=200.0, mu_c_ms=None,
+        p_die_per_attempt=0.5, p_die_per_life=0.5,
+        halflife=20,
+    )
+    assert dist.bins[0].hazard == 0.5
+    assert dist.bins[0].at_risk_w == 2.0
+    assert dist.halflife == 20
+
+
+def test_hazard_single_death():
+    # One cold attempt died at 2000ms. The bin containing 2000ms gets
+    # hazard = 1/1 = 1.0; bins after the death have at_risk_w = 0, hazard = None.
+    events = [_ev(2000, AttemptOutcome.DIED)]
+    dist = compute_cold_distribution(events, halflife=20)
+    # Find the bin containing 2000ms
+    target_idx = next(
+        i for i, b in enumerate(dist.bins) if b.lo_ms <= 2000 <= b.hi_ms
+    )
+    assert dist.bins[target_idx].hazard == 1.0
+    assert dist.bins[target_idx].at_risk_w == 1.0
+    # Bins before the death: at_risk_w = 1.0, hazard = 0.0 (no deaths yet)
+    for i in range(target_idx):
+        assert dist.bins[i].at_risk_w == 1.0
+        assert dist.bins[i].hazard == 0.0
+    # Bins after the death: at_risk_w = 0, hazard = None
+    for i in range(target_idx + 1, len(dist.bins)):
+        assert dist.bins[i].at_risk_w == 0.0
+        assert dist.bins[i].hazard is None
+
+
+def test_hazard_one_death_one_completion():
+    # Died at 2000, survived at 8000.
+    # Use a very large halflife so both weights are effectively 1.0:
+    #   deaths_w_in_2s_bin ≈ 1, at_risk_w ≈ 2 → hazard ≈ 0.5
+    # Bins after 8000 have at_risk_w = 0 → hazard = None.
+    events = [
+        _ev(2000, AttemptOutcome.DIED, ep="e1"),
+        _ev(8000, AttemptOutcome.SURVIVED, ep="e2"),
+    ]
+    dist = compute_cold_distribution(events, halflife=10_000)
+    bin_at_2s = next(b for b in dist.bins if b.lo_ms <= 2000 <= b.hi_ms)
+    # With halflife=10000, weight[0] = 2^(-1/10000) ≈ 0.99993; close enough.
+    assert abs(bin_at_2s.hazard - 0.5) < 1e-3
+    assert abs(bin_at_2s.at_risk_w - 2.0) < 1e-3
+
+
+def test_hazard_curve_returns_halflife():
+    events = [_ev(2000, AttemptOutcome.DIED)]
+    dist = compute_cold_distribution(events, halflife=42)
+    assert dist.halflife == 42
+
+
+def test_hazard_weighted_at_risk():
+    # Two events with halflife=1 → older event weight = 2^(-1/1) = 0.5,
+    # newer event weight = 1.0. If at_risk_w were computed as an unweighted
+    # count, both bins through 2000ms would show 2.0 instead of 1.5. This
+    # test pins the weighted division.
+    import pytest
+    events = [
+        _ev(2000, AttemptOutcome.DIED, ep="e1"),     # older — weight 0.5
+        _ev(8000, AttemptOutcome.SURVIVED, ep="e2"), # newer — weight 1.0
+    ]
+    dist = compute_cold_distribution(events, halflife=1)
+    # Bin containing 2000ms: both events at-risk (2000 >= bin.lo_ms),
+    # one death weighted 0.5 → hazard = 0.5 / (0.5 + 1.0) = 1/3 exactly.
+    bin_at_2s = next(b for b in dist.bins if b.lo_ms <= 2000 <= b.hi_ms)
+    assert bin_at_2s.at_risk_w == pytest.approx(1.5, rel=1e-9)
+    assert bin_at_2s.hazard == pytest.approx(1.0/3.0, rel=1e-9)
+    # Bin containing 8000ms: only the SURVIVED event at-risk → at_risk_w = 1.0,
+    # no deaths in this bin → hazard = 0.0
+    bin_at_8s = next(b for b in dist.bins if b.lo_ms <= 8000 <= b.hi_ms)
+    assert bin_at_8s.at_risk_w == pytest.approx(1.0, rel=1e-9)
+    assert bin_at_8s.hazard == pytest.approx(0.0, rel=1e-9)

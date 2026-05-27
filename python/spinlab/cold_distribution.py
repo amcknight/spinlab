@@ -124,6 +124,11 @@ def compute_cold_distribution(
     sum_wt_d = 0.0  # weighted sum of death times
     sum_wt_c = 0.0  # weighted sum of completion times
 
+    # Hazard accumulators: per-bin weighted death count, and all
+    # (time_ms, weight) pairs for at_risk_w computation below.
+    deaths_w_per_bin: list[float] = [0.0] * bin_count
+    event_weights_at_time: list[tuple[int, float]] = []
+
     # Episode-level: per-episode "had at least one death" indicator.
     # p_die_per_attempt = weighted fraction of episodes with a death.
     # The "weight" used per episode is the weight of the most-recent
@@ -135,15 +140,28 @@ def compute_cold_distribution(
         ep_entry = episodes_seen.setdefault(ev.episode_id, _EpisodeAccum(weight=w, had_death=False))
         # Chronological order; later overrides earlier.
         ep_entry.weight = w
+        event_weights_at_time.append((ev.time_ms, w))
         if ev.outcome == AttemptOutcome.DIED:
             bins[idx].n_deaths += 1
             sum_w_d += w
             sum_wt_d += w * ev.time_ms
+            deaths_w_per_bin[idx] += w
             ep_entry.had_death = True
         elif ev.outcome == AttemptOutcome.SURVIVED:
             bins[idx].n_completions += 1
             sum_w_c += w
             sum_wt_c += w * ev.time_ms
+
+    # Hazard: at_risk_w[i] = sum of weights of all events whose time_ms
+    # >= lo_i (the attempt was still "alive" at the start of this bin).
+    # hazard[i] = deaths_w_per_bin[i] / at_risk_w[i], or None when 0.
+    for i, b in enumerate(bins):
+        at_risk_w = sum(w for t, w in event_weights_at_time if t >= b.lo_ms)
+        b.at_risk_w = at_risk_w
+        if at_risk_w > 0:
+            b.hazard = deaths_w_per_bin[i] / at_risk_w
+        else:
+            b.hazard = None
 
     # 7. Aggregates.
     mu_d_ms = sum_wt_d / sum_w_d if sum_w_d > 0 else None
@@ -159,4 +177,5 @@ def compute_cold_distribution(
         bins=bins, n_cold_attempts=n,
         mu_d_ms=mu_d_ms, mu_c_ms=mu_c_ms,
         p_die_per_attempt=p_die_per_attempt, p_die_per_life=p_die_per_life,
+        halflife=halflife,
     )
