@@ -286,6 +286,8 @@ class SegmentRecorder:
             self._pending_events = []
             self._deaths_in_segment = 0
             self._last_spawn_ms = None
+            self._next_event_is_first = False
+            self._next_first_is_hot = False
             return
         if not self.pending_start:
             return
