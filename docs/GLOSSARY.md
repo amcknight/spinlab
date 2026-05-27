@@ -16,6 +16,19 @@ Quick reference for domain terms used across specs, architecture docs, and code.
 - **Required conditions** — subset of conditions a waypoint carries as part of its identity.
 - **Condition scope** — `game` (every level) or `{ levels: [...] }` (specific levels only).
 
+## Attempts (cold vs hot)
+
+The `attempts` table stores one row per died-or-survived event (one "life"). One or more attempts grouped by `episode_id` make up a player's full trial of a segment (spawn → final outcome).
+
+- **Cold attempt** (`is_hot=0`) — spawn from a fresh load: level start, post-death respawn, practice savestate load, hyper-play savestate load. No carried state from prior segments; powerups are whatever the load gave the player.
+- **Hot attempt** (`is_hot=1`) — spawn carrying live state out of a completed prior segment. Currently produced only by the reference recorder when a checkpoint arms the next episode; practice and hyper-play emit cold-only today.
+
+Cold dominates: every post-death respawn is cold, the first attempt of a level is cold, and all practice / hyper-play attempts are cold. Hot attempts are the first life of each non-first segment in a reference run.
+
+Historical data (pre-migration 0007) was backfilled by inspecting capture-run attempt ordering; the heuristic catches the common case but a few edge cases (paused/resumed runs across `capture_session` boundaries) may be mis-labeled — see the cold/hot follow-ups in [BACKLOG.md](BACKLOG.md). Going forward, the recorder tags new attempts correctly at write time.
+
+Don't conflate "cold/hot attempt" (a per-life starting condition) with "cold/hot save state variant" (the save-state file kind, defined immediately below). They are related — a cold-variant save state always seeds a cold attempt — but the attempt-level concept also covers practice loads and within-run respawns that don't go through save states at all.
+
 ## Save States
 
 - **Hot variant** — save state captured at the exact frame a checkpoint is hit.
