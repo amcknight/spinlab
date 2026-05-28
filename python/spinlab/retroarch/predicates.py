@@ -75,7 +75,7 @@ def check_checkpoint_hit(
     return None
 
 
-def detect_finish(prev: MemorySnapshot, curr: MemorySnapshot) -> str | None:
+def detect_finish(prev: MemorySnapshot, curr: MemorySnapshot) -> LevelExitGoal | None:
     """Early finish detection (kaizosplits LevelFinish).
 
     Returns "normal" / "boss" / "orb" / "key" if one fired this frame, else None.
