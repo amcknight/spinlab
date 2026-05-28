@@ -140,6 +140,10 @@ async def test_segments_tab_lists_seeded_segments(page):
     # Each section contains a tbody with one <tr> per segment at that level.
     rows = await pg.locator("#segments-view-container section.segments-level tbody tr").count()
     assert rows >= 1
+    cold_header_count = await pg.locator(
+        "#segments-view-container th", has_text="Cold"
+    ).count()
+    assert cold_header_count >= 1, "Segments table should render a Cold column"
 
 
 @pytest.mark.asyncio(loop_scope="session")
