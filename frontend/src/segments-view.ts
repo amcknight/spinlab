@@ -52,7 +52,7 @@ export function renderSegmentsView(container: HTMLElement, segs: ApiSegment[]): 
     section.appendChild(h);
     const table = document.createElement("table");
     table.innerHTML =
-      "<thead><tr><th>Segment</th><th>Conditions</th><th>Primary</th></tr></thead>";
+      "<thead><tr><th>Segment</th><th>Conditions</th><th>Primary</th><th>Cold</th></tr></thead>";
     const tbody = document.createElement("tbody");
     for (const seg of grouped[level] ?? []) {
       const tr = document.createElement("tr");
@@ -81,6 +81,16 @@ export function renderSegmentsView(container: HTMLElement, segs: ApiSegment[]): 
       });
       primaryTd.appendChild(cb);
       tr.appendChild(primaryTd);
+
+      const coldTd = document.createElement("td");
+      coldTd.textContent = seg.has_cold_state ? "✓" : "✗";
+      // ✓ (present) is muted; ✗ (missing) stays prominent — missing is the signal.
+      coldTd.className = seg.has_cold_state ? "dim" : "";
+      coldTd.title = seg.has_cold_state
+        ? "cold state captured"
+        : "cold state missing — needs capture";
+      tr.appendChild(coldTd);
+
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
