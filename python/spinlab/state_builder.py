@@ -13,6 +13,7 @@ from spinlab import log
 
 if TYPE_CHECKING:
     from .db import Database
+    from .scheduler import Scheduler
     from .session_manager import SessionManager
 
 from .db.attempts import RECENT_ATTEMPTS_DB_LIMIT
@@ -132,7 +133,9 @@ class StateBuilder:
                 "state_path": level.entrance_state_path,
             }
 
-    def _build_practice_state(self, base: dict, session: "SessionManager", sched) -> None:
+    def _build_practice_state(
+        self, base: dict, session: "SessionManager", sched: "Scheduler",
+    ) -> None:
         """Populate practice-specific fields into state dict."""
         ps = session.practice_session
         assert ps is not None  # caller checks before calling

@@ -24,6 +24,12 @@ class NotConnectedError(ActionError):
     detail = "not_connected"
 
 
+class NoGameLoadedError(ActionError):
+    """No game is loaded; the requested action needs an active game context."""
+    http_code = 409
+    detail = "no_game_loaded"
+
+
 class DraftPendingError(ActionError):
     """A draft reference run is pending save or discard."""
     http_code = 409

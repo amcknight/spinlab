@@ -15,6 +15,7 @@ from .errors import (
     AlreadyRunningError,
     DraftPendingError,
     MissingSaveStatesError,
+    NoGameLoadedError,
     NotConnectedError,
     NotRunningError,
 )
@@ -28,6 +29,9 @@ from .protocol import (
     DeathEvent,
     EventAttemptEmission,
     GameContextEvent,
+    HyperPlayCheckpointEvent,
+    HyperPlayCompleteEvent,
+    HyperPlayDeathEvent,
     LevelEntranceEvent,
     LevelExitEvent,
     ReplayErrorEvent,
@@ -37,9 +41,6 @@ from .protocol import (
     RomInfoEvent,
     SetConditionsCmd,
     SpawnEvent,
-    HyperPlayCheckpointEvent,
-    HyperPlayCompleteEvent,
-    HyperPlayDeathEvent,
 )
 from .sse import SSEBroadcaster
 from .state_builder import StateBuilder
@@ -48,6 +49,7 @@ from .system_state import SystemState
 if TYPE_CHECKING:
     from .db import Database
     from .emu_backend import EmuBackend
+    from .scheduler import Scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +157,7 @@ class SessionManager:
         """Full state snapshot for API and SSE."""
         return self._state_builder.build(self)
 
-    def get_scheduler(self):
+    def get_scheduler(self) -> Scheduler:
         """Lazy-init scheduler for current game.
 
         Thread-safe: double-checked locking ensures Scheduler() runs exactly
@@ -171,8 +173,7 @@ class SessionManager:
 
     def require_game(self) -> str:
         if self.game_id is None:
-            from fastapi import HTTPException
-            raise HTTPException(status_code=409, detail="No game loaded")
+            raise NoGameLoadedError()
         return self.game_id
 
     def _clear_ref_and_idle(self) -> None:
