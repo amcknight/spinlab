@@ -71,6 +71,17 @@ def test_segment_history_returns_cold_distribution(db, client):
     assert total_completions == 1
     # hi from cold max (3000), NOT from hot max (9999)
     assert cd["bins"][-1]["hi_ms"] == 3000
+    # Hazard math flows end-to-end.
+    # With 2 cold events (death @1500, survival @3000), the range spans all bins,
+    # so every bin has at_risk_w > 0 and a real hazard value (never None).
+    assert all(b["at_risk_w"] > 0 for b in cd["bins"])
+    assert all(b["hazard"] is not None for b in cd["bins"])
+    # The bin containing the death must have hazard > 0; all others are 0.0.
+    death_bins = [b for b in cd["bins"] if b["n_deaths"] > 0]
+    assert len(death_bins) == 1
+    assert death_bins[0]["hazard"] > 0
+    no_death_bins = [b for b in cd["bins"] if b["n_deaths"] == 0]
+    assert all(b["hazard"] == 0.0 for b in no_death_bins)
 
 
 def test_segment_history_returns_null_when_all_hot(db, client):

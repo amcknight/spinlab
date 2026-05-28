@@ -21,7 +21,7 @@ from spinlab.api_schemas import (
 from spinlab.cold_distribution import compute_cold_distribution
 from spinlab.db import Database
 from spinlab.estimators import get_estimator, list_estimators
-from spinlab.estimators.death_aware_rolling import DEFAULT_HALFLIFE
+from spinlab.estimators.death_aware_rolling import _resolve_halflife
 from spinlab.scheduler import _attempts_from_rows, _events_from_rows
 from spinlab.session_manager import SessionManager
 
@@ -223,8 +223,8 @@ def segment_history(
     cold_events = [ev for ev in events if not ev.is_hot]
     if cold_events:
         dar_params_raw = db.load_allocator_config("estimator_params:death_aware_rolling")
-        dar_params = json.loads(dar_params_raw) if dar_params_raw else {}
-        halflife = int(dar_params.get("halflife", DEFAULT_HALFLIFE))
+        dar_params = json.loads(dar_params_raw) if dar_params_raw else None
+        halflife = _resolve_halflife(dar_params)
         cold_distribution = compute_cold_distribution(cold_events, halflife=halflife)
     else:
         cold_distribution = None
