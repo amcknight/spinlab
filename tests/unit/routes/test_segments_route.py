@@ -201,3 +201,64 @@ def test_fill_gap_not_connected_returns_503(db, client):
     resp = client.post(f"/api/segments/{seg.id}/fill-gap")
     assert resp.status_code == 503
     assert resp.json()["detail"] == "not_connected"
+
+
+def test_has_cold_state_true_when_cold_file_exists(db, client, tmp_path):
+    """✓ only when the cold-variant state file is present on disk."""
+    db.upsert_game(GAME_ID, "Game", "any%")
+    wp_start = Waypoint.make(GAME_ID, 1, "entrance", 0, {})
+    wp_end = Waypoint.make(GAME_ID, 1, "goal", 0, {})
+    db.upsert_waypoint(wp_start)
+    db.upsert_waypoint(wp_end)
+    cold_file = tmp_path / "cold.state"
+    cold_file.write_bytes(b"x")
+    db.upsert_segment(Segment(
+        id="seg-cold", game_id=GAME_ID, level_number=1,
+        start_type="entrance", start_ordinal=0, end_type="goal", end_ordinal=0,
+        start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
+        is_primary=True, ordinal=1,
+    ))
+    db.add_save_state(WaypointSaveState(
+        waypoint_id=wp_start.id, variant_type="cold", state_path=str(cold_file)))
+    row = client.get("/api/segments").json()["segments"][0]
+    assert row["has_cold_state"] is True
+
+
+def test_has_cold_state_false_when_cold_file_missing(db, client):
+    """Orphaned cold row (DB row present, file gone) -> ✗."""
+    db.upsert_game(GAME_ID, "Game", "any%")
+    wp_start = Waypoint.make(GAME_ID, 1, "entrance", 0, {})
+    wp_end = Waypoint.make(GAME_ID, 1, "goal", 0, {})
+    db.upsert_waypoint(wp_start)
+    db.upsert_waypoint(wp_end)
+    db.upsert_segment(Segment(
+        id="seg-orphan", game_id=GAME_ID, level_number=1,
+        start_type="entrance", start_ordinal=0, end_type="goal", end_ordinal=0,
+        start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
+        is_primary=True, ordinal=1,
+    ))
+    db.add_save_state(WaypointSaveState(
+        waypoint_id=wp_start.id, variant_type="cold",
+        state_path="/nonexistent/cold.state"))
+    row = client.get("/api/segments").json()["segments"][0]
+    assert row["has_cold_state"] is False
+
+
+def test_has_cold_state_false_when_hot_only(db, client):
+    """Hot variant only, no cold row -> ✗."""
+    _seed_segment_with_conditions(db)  # adds a HOT save state only
+    row = client.get("/api/segments").json()["segments"][0]
+    assert row["has_cold_state"] is False
+
+
+def test_has_cold_state_false_when_no_start_waypoint(db, client):
+    """Segment with no start waypoint -> ✗."""
+    db.upsert_game(GAME_ID, "Game", "any%")
+    db.upsert_segment(Segment(
+        id="seg-nowp", game_id=GAME_ID, level_number=1,
+        start_type="entrance", start_ordinal=0, end_type="goal", end_ordinal=0,
+        start_waypoint_id=None, end_waypoint_id=None,
+        is_primary=True, ordinal=1,
+    ))
+    row = client.get("/api/segments").json()["segments"][0]
+    assert row["has_cold_state"] is False

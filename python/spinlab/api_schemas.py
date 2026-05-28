@@ -239,6 +239,7 @@ class ApiSegment(_BaseResponse):
     ordinal: int | None = None
     state_path: str | None = None
     is_primary: bool
+    has_cold_state: bool
     start_waypoint_id: str | None = None
     end_waypoint_id: str | None = None
     start_conditions: ConditionMap = {}

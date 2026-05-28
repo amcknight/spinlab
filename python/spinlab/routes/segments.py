@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -38,6 +39,10 @@ def api_segments(session: SessionManager = Depends(get_session), db: Database = 
         d["start_conditions"] = json.loads(start_wp.conditions_json) if start_wp else {}
         d["end_conditions"] = json.loads(end_wp.conditions_json) if end_wp else {}
         d["is_primary"] = bool(d.get("is_primary", 1))
+        cold = db.get_save_state(swid, "cold") if swid else None
+        d["has_cold_state"] = bool(
+            cold and cold.state_path and os.path.exists(cold.state_path)
+        )
         out.append(d)
     return {"segments": out}
 
