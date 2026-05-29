@@ -115,6 +115,12 @@ class TestListRoms:
 # ---------------------------------------------------------------------------
 
 class TestColdFillStart:
+    @staticmethod
+    def _with_active_run(client):
+        db = client.app.state.db
+        db.create_capture_run("r1", GAME_ID, "R1", kind="live")
+        db.set_active_capture_run("r1")
+
     def test_400_when_no_game_loaded(self, db, tmp_path):
         client = _make_client(db, tmp_path=tmp_path)
         client.app.state.session.game_id = None
@@ -128,8 +134,15 @@ class TestColdFillStart:
         resp = client.post("/api/cold-fill/start")
         assert resp.status_code == 409
 
+    def test_400_when_no_active_run(self, db, tmp_path):
+        client = _make_client(db, tmp_path=tmp_path)
+        resp = client.post("/api/cold-fill/start")
+        assert resp.status_code == 400
+        assert "active" in resp.json()["detail"].lower()
+
     def test_503_when_not_connected(self, db, tmp_path):
         client = _make_client(db, tmp_path=tmp_path)
+        self._with_active_run(client)
         client.app.state.session.cold_fill.start = AsyncMock(
             side_effect=NotConnectedError()
         )
@@ -138,6 +151,7 @@ class TestColdFillStart:
 
     def test_success_returns_ok_when_cold_fill_started(self, db, tmp_path):
         client = _make_client(db, tmp_path=tmp_path)
+        self._with_active_run(client)
         client.app.state.session.cold_fill.start = AsyncMock(
             return_value=ActionResult(status=Status.STARTED, new_mode=Mode.COLD_FILL)
         )
@@ -147,6 +161,7 @@ class TestColdFillStart:
 
     def test_success_returns_no_gaps_when_nothing_to_fill(self, db, tmp_path):
         client = _make_client(db, tmp_path=tmp_path)
+        self._with_active_run(client)
         client.app.state.session.cold_fill.start = AsyncMock(
             return_value=ActionResult(status=Status.NO_GAPS)
         )

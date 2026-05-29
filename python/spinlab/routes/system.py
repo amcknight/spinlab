@@ -66,13 +66,19 @@ def api_sessions(session: SessionManager = Depends(get_session), db: Database = 
 
 
 @router.post("/cold-fill/start", response_model=OkResponse)
-async def start_cold_fill(session: SessionManager = Depends(get_session)):
+async def start_cold_fill(
+    session: SessionManager = Depends(get_session),
+    db: Database = Depends(get_db),
+):
     if not session.game_id:
         raise HTTPException(status_code=400, detail="No game loaded")
     if session.mode != Mode.IDLE:
         raise HTTPException(status_code=409, detail=f"Cannot start cold fill: mode is {session.mode.value}")
+    run_id = db.get_active_capture_run(session.game_id)
+    if run_id is None:
+        raise HTTPException(status_code=400, detail="No active reference run — select one in Manage first")
     try:
-        result = await session.cold_fill.start(session.game_id)
+        result = await session.cold_fill.start(session.game_id, run_id=run_id)
     except NotConnectedError:
         raise HTTPException(status_code=503, detail="Emulator not connected")
     if result.new_mode == Mode.COLD_FILL:
