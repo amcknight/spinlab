@@ -23,6 +23,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from spinlab.protocol import SPEED_NORMAL
+
 # ---------------------------------------------------------------------------
 # Shared primitives
 # ---------------------------------------------------------------------------
@@ -403,7 +405,10 @@ class ReplayExistsResponse(_BaseResponse):
 class ReplayStartRequest(BaseModel):
     ref_id: str
     session_id: str | None = None
-    speed: int = 0
+    # Default to real-time playback for a user-clicked Replay. Callers that want
+    # the fast-forward sweep (e.g. the replay-fixture test, or a future "Fast
+    # Replay" / DB-regeneration mode) pass SPEED_UNCAPPED (0) explicitly.
+    speed: int = SPEED_NORMAL
 
 
 class ReferenceFinalizeRequest(BaseModel):

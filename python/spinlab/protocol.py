@@ -10,6 +10,9 @@ from dataclasses import dataclass, field
 from typing import Literal, TypedDict
 
 SPEED_UNCAPPED = 0  # passed to ReplayCmd.speed; RA interprets 0 as uncapped
+SPEED_NORMAL = 1  # 1x realtime. MovieController only fast-forwards when
+# speed == SPEED_UNCAPPED, so any non-zero value plays at RA's normal rate;
+# 1 names "watch it play in real time" (the default for a user-clicked Replay).
 
 # Values produced by retroarch/predicates.py::check_checkpoint_hit().
 # Stored on CheckpointEvent.cp_type and persisted in the DB ``end_type``
