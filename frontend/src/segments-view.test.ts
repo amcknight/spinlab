@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { groupByLevel, formatConditions, renderSegmentsView } from "./segments-view";
+import { groupByLevel, formatConditions, renderSegmentsView, coldCaptureButtonEnabled } from "./segments-view";
 
 describe("groupByLevel", () => {
   it("groups segments by level_number preserving ordinal order", () => {
@@ -33,6 +33,15 @@ describe("renderSegmentsView", () => {
     expect(rows.length).toBe(2);
     expect(rows[0]?.textContent).toContain("✓");
     expect(rows[1]?.textContent).toContain("✗");
+  });
+});
+
+describe("coldCaptureButtonEnabled", () => {
+  it("enabled only when idle and an active run exists", () => {
+    expect(coldCaptureButtonEnabled("idle", true)).toBe(true);
+    expect(coldCaptureButtonEnabled("idle", false)).toBe(false);
+    expect(coldCaptureButtonEnabled("cold_fill", true)).toBe(false);
+    expect(coldCaptureButtonEnabled("reference", true)).toBe(false);
   });
 });
 

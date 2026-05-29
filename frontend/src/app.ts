@@ -1,4 +1,4 @@
-import { connectSSE, fetchJSON, formatClientError } from "./api";
+import { connectSSE, fetchJSON, formatClientError, postJSON } from "./api";
 import { initHeader, updateHeader } from "./header";
 import {
   updatePracticeCard,
@@ -8,10 +8,19 @@ import {
   syncTuningWithGame,
 } from "./model";
 import { fetchManage, initManageTab, updateManageState } from "./manage";
-import { fetchSegments, renderSegmentsView } from "./segments-view";
+import { fetchSegments, renderSegmentsView, coldCaptureButtonEnabled } from "./segments-view";
 import type { AppState } from "./types";
 
 let _currentGameId: string | null = null;
+
+function updateColdCaptureButton(data: AppState): void {
+  const btn = document.getElementById("btn-start-cold-fill") as HTMLButtonElement | null;
+  if (!btn) return;
+  btn.disabled = !coldCaptureButtonEnabled(data.mode, (data as any).has_active_run ?? false);
+  btn.title = (data as any).has_active_run
+    ? "Capture cold states for the active run"
+    : "Select a reference run in Manage first";
+}
 
 function updateFromState(data: AppState): void {
   _currentGameId = data.game_id;
@@ -20,6 +29,7 @@ function updateFromState(data: AppState): void {
   updatePracticeCard(data);
   updatePracticeControls(data);
   updateManageState(data);
+  updateColdCaptureButton(data);
 
   const activeTab = document.querySelector(".tab.active") as HTMLElement | null;
   if (activeTab?.dataset.tab === "model") fetchModel();
@@ -70,6 +80,13 @@ async function fetchAndRenderSegments(): Promise<void> {
 initHeader();
 initModelTab();
 initManageTab();
+
+document.getElementById("btn-start-cold-fill")?.addEventListener("click", async () => {
+  const res = await postJSON<{ status?: string }>("/api/cold-fill/start");
+  if (res?.status === "no_gaps") {
+    alert("No missing cold states for the active run.");
+  }
+});
 
 connectSSE(updateFromState);
 fetchJSON<AppState>("/api/state").then((data) => {
