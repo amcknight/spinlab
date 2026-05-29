@@ -168,3 +168,39 @@ class TestColdFillStart:
         resp = client.post("/api/cold-fill/start")
         assert resp.status_code == 200
         assert resp.json()["status"] == "no_gaps"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/cold-fill/skip and /api/cold-fill/abort
+# ---------------------------------------------------------------------------
+
+class TestColdFillSkipAbort:
+    def test_skip_409_when_not_cold_fill(self, db, tmp_path):
+        client = _make_client(db, tmp_path=tmp_path)
+        client.app.state.session.mode = Mode.IDLE
+        assert client.post("/api/cold-fill/skip").status_code == 409
+
+    def test_abort_409_when_not_cold_fill(self, db, tmp_path):
+        client = _make_client(db, tmp_path=tmp_path)
+        client.app.state.session.mode = Mode.IDLE
+        assert client.post("/api/cold-fill/abort").status_code == 409
+
+    def test_skip_calls_session_and_returns_status(self, db, tmp_path):
+        client = _make_client(db, tmp_path=tmp_path)
+        s = client.app.state.session
+        s.mode = Mode.COLD_FILL
+        s.skip_cold_fill = AsyncMock(
+            return_value=ActionResult(status=Status.STARTED, new_mode=Mode.COLD_FILL))
+        resp = client.post("/api/cold-fill/skip")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "started"
+
+    def test_abort_returns_stopped(self, db, tmp_path):
+        client = _make_client(db, tmp_path=tmp_path)
+        s = client.app.state.session
+        s.mode = Mode.COLD_FILL
+        s.abort_cold_fill = AsyncMock(
+            return_value=ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE))
+        resp = client.post("/api/cold-fill/abort")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "stopped"

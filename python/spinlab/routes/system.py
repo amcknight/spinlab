@@ -87,6 +87,22 @@ async def start_cold_fill(
     return {"status": "ok" if result.status != Status.NO_GAPS else "no_gaps"}
 
 
+@router.post("/cold-fill/skip", response_model=OkResponse)
+async def skip_cold_fill(session: SessionManager = Depends(get_session)):
+    if session.mode != Mode.COLD_FILL:
+        raise HTTPException(status_code=409, detail=f"Not in cold fill: mode is {session.mode.value}")
+    result = await session.skip_cold_fill()
+    return {"status": result.status.value}
+
+
+@router.post("/cold-fill/abort", response_model=OkResponse)
+async def abort_cold_fill(session: SessionManager = Depends(get_session)):
+    if session.mode != Mode.COLD_FILL:
+        raise HTTPException(status_code=409, detail=f"Not in cold fill: mode is {session.mode.value}")
+    result = await session.abort_cold_fill()
+    return {"status": result.status.value}
+
+
 @router.post("/reset", response_model=OkResponse)
 async def reset_data(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
     try:
