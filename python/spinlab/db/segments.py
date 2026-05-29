@@ -146,10 +146,20 @@ class SegmentsMixin:
         actual_cols = [desc[0] for desc in cur.description]
         return [dict(zip(actual_cols, row)) for row in cur.fetchall()]  # type: ignore[return-value]
 
-    def segments_missing_cold(self, game_id: str) -> list[MissingColdRow]:
-        """Return segments whose start waypoint has hot but not cold save state."""
+    def segments_missing_cold(self, game_id: str,
+                              run_id: str | None = None) -> list[MissingColdRow]:
+        """Return segments whose start waypoint has hot but not cold save state.
+
+        ``run_id`` scopes to segments whose ``capture_run_id`` matches (None =
+        whole game). See the design note on capture_run_id overwrite semantics.
+        """
+        params: list = [game_id]
+        run_clause = ""
+        if run_id is not None:
+            run_clause = "AND s.capture_run_id = ?"
+            params.append(run_id)
         rows = self.conn.execute(
-            """SELECT s.id AS segment_id, hot.state_path AS hot_state_path,
+            f"""SELECT s.id AS segment_id, hot.state_path AS hot_state_path,
                       s.level_number, s.start_type, s.start_ordinal,
                       s.end_type, s.end_ordinal, s.description
                FROM segments s
@@ -157,9 +167,10 @@ class SegmentsMixin:
                  ON hot.waypoint_id = s.start_waypoint_id AND hot.variant_type = 'hot'
                LEFT JOIN waypoint_save_states cold
                  ON cold.waypoint_id = s.start_waypoint_id AND cold.variant_type = 'cold'
-               WHERE s.game_id = ? AND s.active = 1 AND cold.waypoint_id IS NULL
+               WHERE s.game_id = ? AND s.active = 1 {run_clause}
+                 AND cold.waypoint_id IS NULL
                ORDER BY s.ordinal, s.level_number, s.start_ordinal""",
-            (game_id,),
+            params,
         ).fetchall()
         cols = ["segment_id", "hot_state_path", "level_number",
                 "start_type", "start_ordinal", "end_type", "end_ordinal", "description"]

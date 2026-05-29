@@ -78,6 +78,42 @@ def test_count_segments_for_capture_session(tmp_path):
     assert db.count_segments_for_capture_session("missing") == 0
 
 
+def test_segments_missing_cold_scoped_by_run(tmp_path):
+    from spinlab.db import Database
+    from spinlab.models import Segment, Waypoint, WaypointSaveState
+
+    db = Database(tmp_path / "t.db")
+    db.upsert_game("g1", "Game", "any%")
+
+    # idx_one_live_draft_per_game prevents two live drafts; promote rA first.
+    db.create_capture_run("rA", "g1", "Run A", kind="live")
+    db.promote_draft("rA", "Run A")
+    db.create_capture_run("rB", "g1", "Run B", kind="live")
+
+    def mk(seg_id: str, run_id: str, ordinal: int) -> None:
+        """Create a waypoint + segment + hot save state. Distinct ordinals → distinct wp ids."""
+        wp = Waypoint.make("g1", 1, "checkpoint", ordinal, {})
+        db.upsert_waypoint(wp)
+        db.upsert_segment(Segment(
+            id=seg_id, game_id="g1", level_number=1,
+            start_type="checkpoint", start_ordinal=ordinal,
+            end_type="goal", end_ordinal=0,
+            start_waypoint_id=wp.id, end_waypoint_id=wp.id,
+            capture_run_id=run_id,
+        ))
+        db.add_save_state(WaypointSaveState(wp.id, "hot", f"/{seg_id}.state"))
+
+    mk("segA", "rA", 1)
+    mk("segB", "rB", 2)
+
+    all_gaps = {g["segment_id"] for g in db.segments_missing_cold("g1")}
+    assert all_gaps == {"segA", "segB"}
+    scoped = {g["segment_id"] for g in db.segments_missing_cold("g1", run_id="rA")}
+    assert scoped == {"segA"}
+
+    db.close()
+
+
 def test_has_competing_active_segment(tmp_path):
     from spinlab.db import Database
     from spinlab.models import Segment
