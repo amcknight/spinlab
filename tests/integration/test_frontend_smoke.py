@@ -96,6 +96,20 @@ async def page(browser, fake_dashboard_server):
     # so network never goes idle. DOMContentLoaded + selector waits below
     # are sufficient for contract-level smoke.
     await pg.wait_for_load_state("domcontentloaded")
+    # App-ready gate. app.ts's updateFromState() sets the module-level
+    # _currentGameId BEFORE it populates #game-name (it's the first line of the
+    # same synchronous call). That state arrives asynchronously — via the SSE
+    # stream or the initial /api/state fetch — strictly AFTER domcontentloaded.
+    # Until it lands, a tab click hits the null-_currentGameId path: the
+    # segments tab in particular renders "No game loaded" and returns
+    # terminally (segments has no SSE auto-refresh, unlike model/manage), so a
+    # click that races the state load leaves the seeded sections unrendered for
+    # the full 5s selector timeout. Every test in this module asserts seeded
+    # data, so "a game is loaded" is their shared precondition — wait for the
+    # game name to appear (the same signal test_sse_delivers_state_update uses)
+    # so _currentGameId is guaranteed set before any test clicks a tab. This
+    # closes the historical test_segments_tab_lists_seeded_segments flake.
+    await pg.wait_for_selector("#game-name:has-text('FakeGame')", timeout=5000)
     yield pg, errors
     await ctx.close()
 

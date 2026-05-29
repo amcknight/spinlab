@@ -96,7 +96,10 @@ async def test_poll_count_increments_on_successful_reads():
     Each iteration that returns a snapshot without raising increments the
     counter. Iterations that raise (NCI error path) do not increment it.
     """
-    # Provide enough snapshots for ~10ms at 1ms period, then raise to stop.
+    # Serve a fixed number of snapshots, then raise forever. Once the reads
+    # start raising, poll_count is frozen at _SNAPSHOTS_TO_SERVE, so the final
+    # assertion proves BOTH that successful reads counted and that the raising
+    # reads did not increment the counter.
     _SNAPSHOTS_TO_SERVE = 5
     _calls = 0
 
@@ -112,9 +115,22 @@ async def test_poll_count_increments_on_successful_reads():
         read_snapshot=_read_snapshot,
         on_event=lambda _: None,
     )
-    poller = Poller(deps, period_sec=0.001)
+    # period_sec=0 → asyncio.sleep(0) is a pure yield. Drive on the observable
+    # read counter rather than a fixed wall-clock sleep: on Windows
+    # asyncio.sleep(0.001) can take ~15ms, so a 50ms sleep does NOT reliably
+    # give a 1ms-period poller >=5 ticks. That wall-clock assumption flaked at
+    # ~5-15% under suite load (see project_test_reliability_known_issues).
+    poller = Poller(deps, period_sec=0)
     task = asyncio.create_task(poller.run())
-    await asyncio.sleep(0.05)
+
+    async def _until_raise_path_exercised() -> None:
+        # Wait until the read fn has been called past the served count — i.e.
+        # the raising branch has run at least once. At that point poll_count is
+        # settled and cannot change, so the assertion below is deterministic.
+        while _calls <= _SNAPSHOTS_TO_SERVE:
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(_until_raise_path_exercised(), timeout=5.0)
     poller.stop()
     await task
 
