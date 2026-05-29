@@ -10,6 +10,7 @@ beforeEach(() => {
     <select id="ref-select"></select>
     <button id="btn-ref-start"></button>
     <button id="btn-replay"></button>
+    <button id="btn-fast-replay"></button>
     <button id="btn-ref-rename"></button>
     <button id="btn-ref-delete"></button>
     <button id="btn-resume"></button>
@@ -66,6 +67,20 @@ describe("Save & Finish button", () => {
     const call = mockFetch.mock.calls[0];
     expect(call).toBeDefined();
     expect(JSON.parse(call![1].body)).toEqual({ name: "Untitled" });
+  });
+});
+
+describe("Fast Replay button", () => {
+  it("POSTs to /api/replay/start with speed 0 (uncapped)", async () => {
+    (document.getElementById("ref-select") as HTMLSelectElement).innerHTML =
+      '<option value="r1" selected>R1</option>';
+    document.getElementById("btn-fast-replay")!.click();
+    await Promise.resolve();
+    expect(mockFetch).toHaveBeenCalledWith("/api/replay/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ref_id: "r1", speed: 0 }),
+    });
   });
 });
 

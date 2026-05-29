@@ -96,6 +96,8 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
   const hasReplayable = !!selectedRef?.has_replay;
   btnReplay.disabled =
     busy || pausedRun != null || !hasReplayable || !lastState?.emu_connected;
+  const btnFastReplay = document.getElementById("btn-fast-replay") as HTMLButtonElement | null;
+  if (btnFastReplay) btnFastReplay.disabled = btnReplay.disabled;
 
   const cfBanner = document.getElementById("cold-fill-banner") as HTMLElement | null;
   if (cfBanner) {
@@ -242,6 +244,15 @@ export function initManageTab(): void {
   document.getElementById("btn-replay")!.addEventListener("click", async () => {
     const sel = document.getElementById("ref-select") as HTMLSelectElement;
     await postJSON("/api/replay/start", { ref_id: sel.value });
+  });
+
+  // Fast Replay: uncapped (fast-forward) playback for regenerating
+  // states/events quickly. SPEED_UNCAPPED mirrors python/spinlab/protocol.py;
+  // the plain Replay button omits speed and gets SPEED_NORMAL server-side.
+  const SPEED_UNCAPPED = 0;
+  document.getElementById("btn-fast-replay")?.addEventListener("click", async () => {
+    const sel = document.getElementById("ref-select") as HTMLSelectElement;
+    await postJSON("/api/replay/start", { ref_id: sel.value, speed: SPEED_UNCAPPED });
   });
 
   document.getElementById("btn-resume")?.addEventListener("click", async () => {
