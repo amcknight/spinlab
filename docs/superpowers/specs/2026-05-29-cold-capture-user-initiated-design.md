@@ -99,29 +99,49 @@ transient in-memory `capture.active_run_id` (only set while recording).
 - **Controller.** `ColdFillController.start(game_id, run_id: str | None = None)`
   threads `run_id` into `segments_missing_cold`.
 
+**Known limitation of `capture_run_id` scoping.** Segment ids are deterministic
+(`level:start:end:waypoint-hashes`), and `upsert_segment` overwrites
+`capture_run_id` on conflict. So if the same segment is recorded in run A and
+later re-recorded in run B, its `capture_run_id` becomes B. Scoping to an
+*older* active run A would then miss those shared segments. This is acceptable:
+the common flow is "record a run → it is auto-set active → capture its colds,"
+where the active run is the most recent owner. We document the edge rather than
+build a segment↔run join table for it.
+
 ### Skip
 - `ColdFillController.skip() -> ActionResult` — pop `self.queue[0]` without
   saving, clear that segment's retry counter, then `await self._load_next()`.
   If the queue is now empty, reset (`current=None`, `cold_waypoint_id=None`)
   and return a completion result so the caller sets mode → IDLE.
-- `SessionManager.skip_cold_fill()` wraps it and `_notify_sse()`.
+- `SessionManager.skip_cold_fill()` wraps it and `_notify_sse()`. **Skip-drain
+  (skipping the last segment) leaves the emulator where it is — no `ResetCmd`** —
+  because Skip is in the give-up family, like Abort. This differs from natural
+  completion (the last segment actually *captured*), whose existing `ResetCmd`
+  power-cycle in `_handle_spawn` is left untouched.
 - `POST /api/cold-fill/skip` — 409 if mode≠COLD_FILL; otherwise call through.
 
 ### Abort
 - `ColdFillController.abort()` — `clear()` the queue/state.
-- New `Poller.deactivate_cold_fill()` → `ColdFillSpawnDetector.deactivate()`
-  (sets `_active = False`, clears `_segment_id`/`_waiting_spawn`). Routed
-  through the orchestrator/emu backend the same way `activate_cold_fill` is.
-- `SessionManager.abort_cold_fill()` — call `cold_fill.abort()`, deactivate the
-  detector via the backend, set mode → IDLE, `_notify_sse()`. No `ResetCmd`.
+- `SessionManager.abort_cold_fill()` — call `cold_fill.abort()`, set mode → IDLE,
+  `_notify_sse()`. No `ResetCmd` (emulator left as-is).
+- **No detector-deactivation command is required.** The `ColdFillSpawnDetector`
+  stays `_active` for the abandoned segment, but in IDLE any `SpawnEvent` it
+  later emits is ignored by `_handle_spawn` (which only acts on
+  `mode == COLD_FILL`), and the detector is fully reset on the next
+  `activate_cold_fill`. Adding a deactivation command/route would be
+  speculative wiring (YAGNI); a stray ignored event in IDLE is harmless.
 - `POST /api/cold-fill/abort` — 409 if mode≠COLD_FILL; otherwise call through.
 
 ### Endpoint summary (all under `/api`, in `routes/system.py`)
 | Route | Method | Guard | Effect |
 |---|---|---|---|
-| `/cold-fill/start` | POST | game loaded; mode==IDLE | scope to active run; → COLD_FILL or no_gaps |
-| `/cold-fill/skip` | POST | mode==COLD_FILL | advance queue; → COLD_FILL or IDLE if drained |
+| `/cold-fill/start` | POST | game loaded; mode==IDLE; active run exists | scope to active run; → COLD_FILL or no_gaps |
+| `/cold-fill/skip` | POST | mode==COLD_FILL | advance queue; → COLD_FILL or IDLE if drained (leave emulator as-is) |
 | `/cold-fill/abort` | POST | mode==COLD_FILL | clear + → IDLE, leave emulator as-is |
+
+`/cold-fill/start` returns **400 "no active run"** when
+`get_active_capture_run(game_id)` is None (the frontend also disables the button
+in that case, but the server guards independently).
 
 ## Frontend changes
 
@@ -157,11 +177,19 @@ spawn conditions, and `resync_after_state_load` are untouched in this pass.
     `skip()` advances and completes when drained; `abort()` clears state.
   - `SessionManager.finalize_run` / `save_and_finish_run` no longer enter
     COLD_FILL (regression test against the deleted auto-trigger).
-- **Route tests:** start (run-scoped happy path, no_gaps, 409 when not IDLE),
-  skip (advance + drain→IDLE, 409 when not COLD_FILL), abort (→IDLE, 409 when
-  not COLD_FILL).
-- **Frontend (`vitest`):** Start button enable/disable predicate; skip/exit
-  button wiring posts the right endpoints.
+  - **Rewrite `test_cold_fill_integration.py::test_full_cycle`** — it currently
+    asserts `sm.mode == Mode.COLD_FILL` immediately after `finalize_run`
+    (lines 111-114). Under the new behavior, finalize → IDLE; the test must
+    then drive cold capture via the explicit run-scoped start (its fixture
+    segments already carry `capture_run_id="run1"`, so set run1 active and
+    start). Then exercise skip/abort paths.
+- **Route tests:** start (run-scoped happy path, no_gaps, 400 when no active
+  run, 409 when not IDLE), skip (advance + drain→IDLE, 409 when not COLD_FILL),
+  abort (→IDLE, 409 when not COLD_FILL). Update `test_system_route.py` (which
+  mocks `cold_fill.start`) to also stub an active run.
+- **Frontend (`vitest`):** Start button enable/disable predicate (needs
+  `has_active_run` in the AppState test fixtures in `api-contract.test.ts` and
+  `model-logic.test.ts`); skip/exit button wiring posts the right endpoints.
 - **Detector unit:** instrumentation logs on change and is silent on
   steady-state (no behavior regression).
 - **Full suite:** `python -m pytest` (unit + emulator + frontend) green before
