@@ -244,6 +244,15 @@ class TestStartRunId:
 
 
 class TestSkipAndAbort:
+    async def test_skip_when_already_idle(self, emu, cold_fill_db):
+        """skip() on an idle controller (empty queue) returns STOPPED/IDLE."""
+        cc = ColdFillController(cold_fill_db, emu)
+        result = await cc.skip()
+        assert result.status == Status.STOPPED
+        assert result.new_mode == Mode.IDLE
+        assert cc.current is None
+        assert cc.cold_waypoint_id is None
+
     async def test_skip_advances_to_next_segment(self, emu, cold_fill_db):
         """skip() pops the current segment and loads the next one."""
         cc = ColdFillController(cold_fill_db, emu)
@@ -270,6 +279,7 @@ class TestSkipAndAbort:
 
         result = await cc.skip()
 
+        assert result.status == Status.STARTED
         assert result.new_mode == Mode.COLD_FILL
         assert cc.current == cold_fill_db._seg2_id
         assert len(cc.queue) == 1
@@ -292,6 +302,7 @@ class TestSkipAndAbort:
 
         result = await cc.skip()
 
+        assert result.status == Status.STOPPED
         assert result.new_mode == Mode.IDLE
         assert cc.queue == []
         assert cc.current is None
@@ -315,6 +326,7 @@ class TestSkipAndAbort:
 
         assert cc.queue == []
         assert cc.current is None
+        assert cc.cold_waypoint_id is None
         assert cc.total == 0
 
 
