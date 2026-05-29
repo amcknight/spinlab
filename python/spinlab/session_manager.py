@@ -433,10 +433,13 @@ class SessionManager:
 
     async def skip_cold_fill(self) -> ActionResult:
         result = await self.cold_fill.skip()
-        # Drain → IDLE. NO_GAPS covers the case where _load_next emptied the
-        # queue because every remaining segment's hot state file was missing
-        # (new_mode is None there), so don't gate solely on new_mode == IDLE.
-        if result.new_mode == Mode.IDLE or result.status == Status.NO_GAPS:
+        # Apply whatever mode the skip resolved to (COLD_FILL when it advanced
+        # to the next segment, IDLE when the queue drained). The NO_GAPS branch
+        # has no new_mode — it means _load_next emptied the queue because every
+        # remaining segment's hot state file was missing — so treat it as drain.
+        if result.new_mode is not None:
+            self.mode = result.new_mode
+        elif result.status == Status.NO_GAPS:
             self.mode = Mode.IDLE
         await self._notify_sse()
         return result
