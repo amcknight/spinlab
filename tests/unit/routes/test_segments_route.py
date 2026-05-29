@@ -1,4 +1,6 @@
 """Tests for /api/segments response shape (waypoints + conditions + is_primary)."""
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -224,8 +226,9 @@ def test_has_cold_state_true_when_cold_file_exists(db, client, tmp_path):
     assert row["has_cold_state"] is True
 
 
-def test_has_cold_state_false_when_cold_file_missing(db, client):
-    """Orphaned cold row (DB row present, file gone) -> ✗."""
+def test_has_cold_state_false_when_cold_file_missing(db, client, caplog):
+    """Orphaned cold row (DB row present, file gone) -> ✗, and the DB/disk
+    disagreement is logged so a vanished state dir isn't a silent ✗."""
     db.upsert_game(GAME_ID, "Game", "any%")
     wp_start = Waypoint.make(GAME_ID, 1, "entrance", 0, {})
     wp_end = Waypoint.make(GAME_ID, 1, "goal", 0, {})
@@ -240,8 +243,11 @@ def test_has_cold_state_false_when_cold_file_missing(db, client):
     db.add_save_state(WaypointSaveState(
         waypoint_id=wp_start.id, variant_type="cold",
         state_path="/nonexistent/cold.state"))
-    row = client.get("/api/segments").json()["segments"][0]
+    with caplog.at_level(logging.WARNING, logger="spinlab.routes.segments"):
+        row = client.get("/api/segments").json()["segments"][0]
     assert row["has_cold_state"] is False
+    assert "missing on disk" in caplog.text
+    assert "/nonexistent/cold.state" in caplog.text
 
 
 def test_has_cold_state_false_when_hot_only(db, client):

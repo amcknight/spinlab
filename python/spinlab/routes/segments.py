@@ -40,9 +40,13 @@ def api_segments(session: SessionManager = Depends(get_session), db: Database = 
         d["end_conditions"] = json.loads(end_wp.conditions_json) if end_wp else {}
         d["is_primary"] = bool(d.get("is_primary", 1))
         cold = db.get_save_state(swid, "cold") if swid else None
-        d["has_cold_state"] = bool(
-            cold and cold.state_path and os.path.exists(cold.state_path)
-        )
+        has_cold = bool(cold and cold.state_path and os.path.exists(cold.state_path))
+        if cold and cold.state_path and not has_cold:
+            logger.warning(
+                "segment %s: cold state recorded at %s but file is missing on disk",
+                d.get("id"), cold.state_path,
+            )
+        d["has_cold_state"] = has_cold
         out.append(d)
     return {"segments": out}
 
