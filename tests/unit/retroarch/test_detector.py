@@ -137,6 +137,9 @@ def test_mark_replay_entrance_fires_without_rising_edge():
     assert not any(isinstance(e, LevelEntranceEvent) for e in normal)
 
     d.mark_replay_entrance()
+    # PLAY_REPLAY loads the replay's savestate and bumps state_version, so the
+    # poller resyncs; that arms the pending replay entrance.
+    d.resync_after_state_load(_snap(level_num=5, level_start=1))
     # Replay loaded: level_start is still 1 (replay's savestate is at the splash).
     forced = d.step(_snap(level_num=5, level_start=1), timestamp_ms=48)
     entrance = [e for e in forced if isinstance(e, LevelEntranceEvent)]
@@ -144,35 +147,57 @@ def test_mark_replay_entrance_fires_without_rising_edge():
     assert entrance[0].level == 5
 
 
+def test_mark_replay_entrance_fires_regardless_of_level_start_after_resync():
+    """Robustness fix: the replay-start entrance fires even if the poller never
+    samples a frame where level_start==1.
+
+    SMW holds level_start=1 for only a few frames at the entrance splash, then
+    drops to 0 forever in a one-level replay. Under fast-forward (or a
+    shared-NCI-socket read stall during play_movie's verify) the poller can step
+    right over that brief window. The OLD logic gated the synthesized entrance on
+    `curr.level_start == ACTIVE`, so a missed window meant a missed entrance
+    forever (sections_captured stuck at 0 → the replay-fixture 120s hang). The
+    state_version bump on PLAY_REPLAY arms the entrance at resync; it must then
+    fire on the next step regardless of level_start.
+    """
+    d = TransitionDetector()
+    # Pre-replay: frozen title-demo frame.
+    d.step(_snap(level_num=3, level_start=0), timestamp_ms=0)
+    d.mark_replay_entrance()
+    # Resync snapshot already shows level_start=0 — the splash window was missed.
+    d.resync_after_state_load(_snap(level_num=44, level_start=0))
+    forced = d.step(_snap(level_num=44, level_start=0), timestamp_ms=32)
+    entrance = [e for e in forced if isinstance(e, LevelEntranceEvent)]
+    assert len(entrance) == 1
+    assert entrance[0].level == 44
+
+
+def test_mark_replay_entrance_does_not_fire_before_resync():
+    """The pending replay entrance must NOT fire until the state-load resync
+    arms it. A poller tick landing between mark_replay_entrance() and
+    PLAY_REPLAY's savestate load would otherwise synthesize an entrance on the
+    stale pre-load (title-demo) frame, with the wrong level_num.
+    """
+    d = TransitionDetector()
+    # prev=1, curr=1: no natural rising edge, so only the forced path could fire.
+    d.step(_snap(level_num=3, level_start=1), timestamp_ms=0)
+    d.mark_replay_entrance()
+    pre = d.step(_snap(level_num=3, level_start=1), timestamp_ms=16)
+    assert not any(isinstance(e, LevelEntranceEvent) for e in pre)
+
+
 def test_mark_replay_entrance_clears_after_firing():
-    """The flag is one-shot: once a LevelEntranceEvent is synthesized,
-    subsequent frames with level_start=1 don't keep refiring."""
+    """The armed entrance is one-shot: once a LevelEntranceEvent is
+    synthesized, subsequent frames don't keep refiring."""
     d = TransitionDetector()
     d.step(_snap(level_start=1), timestamp_ms=0)
     d.mark_replay_entrance()
+    d.resync_after_state_load(_snap(level_num=5, level_start=1))
     first = d.step(_snap(level_num=5, level_start=1), timestamp_ms=16)
     assert any(isinstance(e, LevelEntranceEvent) for e in first)
 
     second = d.step(_snap(level_num=5, level_start=1), timestamp_ms=32)
     assert not any(isinstance(e, LevelEntranceEvent) for e in second)
-
-
-def test_mark_replay_entrance_waits_for_level_start_active():
-    """If level_start is 0 when the flag is set (e.g. RA was paused on the
-    title screen), the synthesized entrance waits for level_start to go
-    active. The natural rising edge fires on the same frame; the forced flag
-    is a safety net for the prev=1 case, not a same-frame trigger."""
-    d = TransitionDetector()
-    d.step(_snap(level_start=0), timestamp_ms=0)
-    d.mark_replay_entrance()
-    # level_start still 0 — flag retained.
-    none_yet = d.step(_snap(level_start=0), timestamp_ms=16)
-    assert not any(isinstance(e, LevelEntranceEvent) for e in none_yet)
-    # level_start goes 0 -> 1: natural edge_spawn AND forced flag both want
-    # to fire; the entrance should fire exactly once.
-    entrance = d.step(_snap(level_num=7, level_start=1), timestamp_ms=32)
-    matched = [e for e in entrance if isinstance(e, LevelEntranceEvent)]
-    assert len(matched) == 1
 
 
 def test_mark_replay_entrance_ignores_stale_died_flag():
@@ -185,7 +210,8 @@ def test_mark_replay_entrance_ignores_stale_died_flag():
     assert d._state.died_flag is True
 
     d.mark_replay_entrance()
-    forced = d.step(_snap(level_num=5, level_start=1, player_anim=0), timestamp_ms=32)
+    d.resync_after_state_load(_snap(level_num=5, level_start=0, player_anim=0))
+    forced = d.step(_snap(level_num=5, level_start=0, player_anim=0), timestamp_ms=32)
     assert any(isinstance(e, LevelEntranceEvent) for e in forced)
     assert not any(isinstance(e, SpawnEvent) for e in forced)
     assert d._state.died_flag is False

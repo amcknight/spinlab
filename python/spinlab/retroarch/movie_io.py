@@ -127,11 +127,17 @@ class RAMovieIO:
         movie_dir: Path | None,
         log_dir: Path | None,
         game_basename: Callable[[], str | None],
+        on_state_load: Callable[[], None] | None = None,
     ) -> None:
         self._nci = nci
         self._movie_dir = movie_dir
         self._log_dir = log_dir
         self._game_basename = game_basename
+        # Called right after PLAY_REPLAY fires. PLAY_REPLAY loads the replay's
+        # embedded savestate — a state-load channel that bypasses load_state —
+        # so RAClient bumps its state_version here, letting the poller resync
+        # (and synthesize the replay entrance) just as it does for load_state.
+        self._on_state_load: Callable[[], None] = on_state_load or (lambda: None)
 
     async def record_movie(self, dest_path: Path) -> MovieRecording:
         """Fire RECORD_REPLAY and return a handle whose ``.stop()`` halts RA
@@ -277,6 +283,9 @@ class RAMovieIO:
         staged.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(src), str(staged))
         self._nci.play_replay()
+        # PLAY_REPLAY loads the replay's embedded savestate — signal the
+        # state-load so the poller resyncs before detecting on post-load frames.
+        self._on_state_load()
 
     def _stop_playback(self, staged: Path) -> None:
         try:

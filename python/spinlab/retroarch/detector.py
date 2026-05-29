@@ -52,8 +52,12 @@ class TransitionDetector:
         # is_exit_frame emission so only one LevelExitEvent fires per level.
         # Cleared on LevelEntranceEvent (new level) and state-load resync.
         self._finish_emitted = False
-        # See `mark_replay_entrance`. Cleared the first frame after it's set
-        # where `curr.level_start == LEVEL_START_ACTIVE`.
+        # Replay-start entrance synthesis. `mark_replay_entrance` sets
+        # `_replay_pending`; the state-load resync (PLAY_REPLAY bumps
+        # state_version) converts it to `_force_next_entrance`, which `step`
+        # consumes on the next frame regardless of level_start. See
+        # `mark_replay_entrance` for the why.
+        self._replay_pending = False
         self._force_next_entrance = False
 
     def reset(self) -> None:
@@ -64,9 +68,10 @@ class TransitionDetector:
         self._level_start_frame = 0
         self._exit_this_frame = False
         self._finish_emitted = False
+        self._replay_pending = False
         self._force_next_entrance = False
 
-    def resync_after_state_load(self, snapshot: MemorySnapshot) -> None:
+    def resync_after_state_load(self, snapshot: MemorySnapshot) -> bool:
         """Replace prev wholesale after a save state load and clear flags.
 
         Treats the loaded snapshot as the previous frame so the first frame
@@ -79,32 +84,52 @@ class TransitionDetector:
         bit practice mode hard, where every reload-on-death loaded the
         state but kept died_flag=True, blocking all later death detections).
         We do NOT reset _frame_counter (it's a monotonic session clock).
+
+        A replay start is also a state load: PLAY_REPLAY bumps state_version, so
+        this runs on the replay's first post-load frame. If a replay entrance is
+        pending, arm it here — the *next* step fires it (this snapshot becomes
+        prev), guaranteeing the entrance lands on a post-load frame with the
+        replay's level_num. See `mark_replay_entrance`.
+
+        Returns True if this resync armed a pending replay entrance (lets the
+        poller log the replay-start signal for failure diagnostics).
         """
         self._state.reset()
         self._cp_acquired = False
         self._exit_this_frame = False
         self._finish_emitted = False
         self._prev = snapshot
+        if self._replay_pending:
+            self._force_next_entrance = True
+            self._replay_pending = False
+            return True
+        return False
 
     def mark_replay_entrance(self) -> None:
-        """Force `LevelEntranceEvent` on the next frame where level_start=1.
+        """Mark the next state-load resync as a replay entrance.
 
-        Replay playback (BSV_REPLAY / PLAY_REPLAY) bypasses raclient.load_state
-        and so doesn't bump the poller's `state_version`. That means
-        `_prev` keeps whatever the pre-replay frame had — and if RA happened
-        to be paused on a title-demo frame where level_start was already 1,
-        the natural `prev=0 -> curr=1` rising-edge check at line 125 misses
-        the entrance. In the only-one-level Love Yourself fixture there is
-        no second 0→1 edge, so the missed entrance never re-fires; segments
-        stay at 0 and the replay-fixture test times out (~7% flake rate
-        before this hook landed; see
-        docs/superpowers/plans/2026-05-18-mode2-replay-entrance-detection.md).
+        Replay playback (PLAY_REPLAY) loads the replay's embedded savestate,
+        which always begins at a level entrance. PLAY_REPLAY now bumps
+        raclient.state_version (like load_state), so the poller resyncs on the
+        replay's first post-load frame and `resync_after_state_load` converts
+        this pending mark into an armed `_force_next_entrance`; the next `step`
+        then synthesizes the `LevelEntranceEvent` regardless of level_start.
 
-        Caller (MovieController.start_playback) invokes this AFTER play_movie
-        succeeds. The next `step()` where curr.level_start == LEVEL_START_ACTIVE
-        synthesizes the entrance and clears the flag.
+        Why not key off level_start directly: SMW holds level_start=1 for only
+        a few frames at the entrance splash, then drops to 0 forever in a
+        one-level replay. Under fast-forward, or when the shared NCI socket
+        stalls the poller during play_movie's verify, the poller can step right
+        over that brief window — and a missed first edge is a missed entrance
+        forever (no segment recording starts, sections_captured stays 0, the
+        replay-fixture test hangs to its 120s timeout). Arming at the resync
+        and firing regardless of level_start removes that dependency. See
+        docs/superpowers/plans/2026-05-18-mode2-replay-entrance-detection.md.
+
+        Caller (MovieController.start_playback) invokes this BEFORE play_movie
+        so the pending mark is set before PLAY_REPLAY's state_version bump
+        triggers the resync.
         """
-        self._force_next_entrance = True
+        self._replay_pending = True
 
     def step(self, curr: MemorySnapshot, timestamp_ms: int) -> list[_EmittedEvent]:
         """Advance one frame; return list of transition events fired (often empty)."""
@@ -181,11 +206,11 @@ class TransitionDetector:
             and curr.player_anim != PLAYER_ANIM_DEAD
             and prev.player_anim == PLAYER_ANIM_DEAD
         )
-        # Replay start: synthesize a rising-edge entrance the first frame
-        # we see level_start active. See `mark_replay_entrance`.
-        forced_entrance = (
-            self._force_next_entrance and curr.level_start == LEVEL_START_ACTIVE
-        )
+        # Replay start: the state-load resync armed this on the replay's first
+        # post-load frame. Fire on the next step regardless of level_start —
+        # the brief level_start=1 splash may have been missed entirely. See
+        # `mark_replay_entrance`.
+        forced_entrance = self._force_next_entrance
         if forced_entrance:
             self._force_next_entrance = False
         if (edge_spawn or fast_retry or forced_entrance) and not self._exit_this_frame:

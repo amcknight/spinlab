@@ -197,6 +197,15 @@ async def test_load_state_increments_state_version_exactly_once(client, ra_dirs,
     assert client.state_version == before + 1
 
 
+def test_replay_state_load_increments_state_version(client):
+    """PLAY_REPLAY loads a savestate too. RAMovieIO's on_state_load is wired to
+    RAClient._note_replay_state_load so replay start bumps state_version,
+    letting the poller resync and synthesize the replay entrance."""
+    before = client.state_version
+    client._movie_io._on_state_load()
+    assert client.state_version == before + 1
+
+
 @pytest.mark.asyncio
 async def test_load_state_fires_load_state_slot(client, ra_dirs, tmp_path):
     src = tmp_path / "saved.state"

@@ -186,6 +186,7 @@ class RAClient:
             movie_dir=self._ra_movie_dir,
             log_dir=self._ra_log_dir,
             game_basename=lambda: self._game_basename,
+            on_state_load=self._note_replay_state_load,
         )
 
     # ------------------------------------------------------------------
@@ -203,12 +204,26 @@ class RAClient:
 
     @property
     def state_version(self) -> int:
-        """Monotonic counter; increments after every successful ``load_state``.
+        """Monotonic counter; increments after every successful ``load_state``
+        and on every ``PLAY_REPLAY`` (both load a savestate).
 
         The poller reads this each tick; a change tells it to treat the next
         snapshot as a fresh prev.
         """
         return self._state_version
+
+    def _note_replay_state_load(self) -> None:
+        """Bump ``state_version`` when PLAY_REPLAY loads the replay's embedded
+        savestate.
+
+        PLAY_REPLAY is a state-load channel that bypasses ``load_state``, so
+        without this bump the poller never resyncs on replay start: it keeps
+        the stale pre-replay ``prev`` and the detector misses the replay's
+        level entrance (the replay-fixture flake). Wired into RAMovieIO as
+        ``on_state_load`` and fired right after PLAY_REPLAY. See
+        ``TransitionDetector.mark_replay_entrance``.
+        """
+        self._state_version += 1
 
     @property
     def nci(self) -> NCIClient:

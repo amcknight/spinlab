@@ -117,6 +117,23 @@ def _wait_for_idle_with_progress(
             _api(base_url, "post", "/api/replay/stop")
             stop_sent = True
 
+        # Fail fast instead of spinning to the full REPLAY_TIMEOUT_S (~120s).
+        # Past the fast-forward regression cap with capture still incomplete,
+        # the run is already doomed: the elapsed_s < FAST_FORWARD_REGRESSION_CAP_S
+        # assertion below can no longer pass. Bail in seconds with diagnostics
+        # rather than hanging. Reuses the existing justified cap — no new
+        # threshold. A stuck sections_captured=0 here means the replay-start
+        # LevelEntranceEvent was missed (see TransitionDetector.mark_replay_entrance).
+        captured = sections or 0
+        if not stop_sent and elapsed > FAST_FORWARD_REGRESSION_CAP_S:
+            pytest.fail(
+                f"Replay stalled: captured {captured}/{expected_segments} "
+                f"segments after {elapsed:.1f}s (> FAST_FORWARD cap "
+                f"{FAST_FORWARD_REGRESSION_CAP_S}s). mode={state.get('mode')}, "
+                f"replay={state.get('replay')}. sections_captured stuck at 0 "
+                f"means the replay-start LevelEntranceEvent was missed."
+            )
+
         time.sleep(POLL_INTERVAL_S)
     pytest.fail(
         f"Replay did not produce {expected_segments} segments within {timeout}s. "

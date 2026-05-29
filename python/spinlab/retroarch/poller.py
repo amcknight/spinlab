@@ -119,9 +119,10 @@ class Poller:
         self._cold_fill.activate(segment_id)
 
     def mark_replay_entrance(self) -> None:
-        """Forward to the embedded detector. Called by MovieController when
-        PLAY_REPLAY succeeds so the detector synthesizes the entrance edge
-        that the replay's savestate load would otherwise bypass.
+        """Forward to the embedded detector. Called by MovieController before
+        PLAY_REPLAY so the detector arms a synthesized entrance at the
+        state-load resync (PLAY_REPLAY bumps state_version). See
+        ``TransitionDetector.mark_replay_entrance``.
         """
         self._detector.mark_replay_entrance()
 
@@ -156,9 +157,18 @@ class Poller:
                 # RA reloaded since last tick; treat this snapshot as the new
                 # prev and skip detection for this tick — otherwise the diff
                 # against the pre-load prev would emit phantom edges.
-                self._detector.resync_after_state_load(snap)
+                armed_replay_entrance = self._detector.resync_after_state_load(snap)
                 self._cold_fill.resync_after_state_load(snap)
                 self._last_seen_state_version = cur_ver
+                if armed_replay_entrance:
+                    # Replay start: PLAY_REPLAY bumped state_version and this
+                    # resync armed the synthesized entrance. Log it so a
+                    # replay-fixture failure's diagnostic ring buffer shows the
+                    # replay-start signal actually reached the detector.
+                    log.info(
+                        logger, "poller resync armed replay entrance",
+                        state_version=cur_ver,
+                    )
                 await asyncio.sleep(self._period)
                 continue
 

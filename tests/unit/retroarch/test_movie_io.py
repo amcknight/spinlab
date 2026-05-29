@@ -181,3 +181,23 @@ async def test_play_movie_missing_source_raises(tmp_path):
     )
     with pytest.raises(StateLoadError, match="Movie source not found"):
         await movie_io.play_movie(tmp_path / "nonexistent.replay")
+
+
+def test_stage_and_play_signals_state_load(tmp_path):
+    """PLAY_REPLAY loads the replay's embedded savestate, so _stage_and_play
+    must fire the on_state_load callback (RAClient bumps state_version there so
+    the poller resyncs and synthesizes the replay entrance)."""
+    called: list[None] = []
+    nci = _StubNCI()
+    movie_io = RAMovieIO(
+        nci=nci,
+        movie_dir=tmp_path,
+        log_dir=tmp_path,
+        game_basename=lambda: "Test Game",
+        on_state_load=lambda: called.append(None),
+    )
+    src = tmp_path / "x.replay"
+    src.write_bytes(b"data")
+    movie_io._stage_and_play(src, tmp_path / "Test Game.replay0")
+    assert nci.play_replay.called
+    assert called == [None]

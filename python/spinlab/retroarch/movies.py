@@ -120,18 +120,14 @@ class MovieController:
             logger.warning("MovieController: start_playback rejected — movies disabled")
             raise BackendNotImplementedError()
 
-        # Prime the detector BEFORE play_movie awaits. play_movie sends
-        # PLAY_REPLAY (which loads the replay's savestate inside RA) and then
-        # waits ~150ms verifying WRAM advanced. The poller is a concurrent
-        # asyncio task running at 60Hz; during that 150ms window the poller
-        # can already see the post-load level_start=1 state. If the flag
-        # isn't set yet, the detector's natural rising-edge check fails on
-        # prev=1, curr=1 (the pre-replay snapshot can have level_start=1 from
-        # the SMW title demo) and the entrance is missed forever in a
-        # one-level replay. Setting the flag pre-play closes the race.
-        # Idempotent if play_movie fails — the flag is a no-op until
-        # level_start goes active, and the next legitimate level entrance
-        # consumes it as a single combined event.
+        # Mark the pending replay entrance BEFORE play_movie awaits. play_movie
+        # fires PLAY_REPLAY, which loads the replay's savestate AND bumps
+        # state_version; the poller resyncs on its next tick and arms the
+        # entrance. The mark must be set before that bump, so it goes here. The
+        # entrance then fires regardless of the brief level_start=1 splash (see
+        # detector.mark_replay_entrance). Safe if play_movie fails: the mark is
+        # a no-op until a state-load resync, and the next legitimate level
+        # entrance consumes it as a single combined event.
         self._on_replay_started()
 
         try:
