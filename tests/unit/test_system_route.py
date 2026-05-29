@@ -206,3 +206,16 @@ class TestColdFillSkipAbort:
         assert resp.status_code == 200
         assert resp.json()["status"] == "stopped"
         s.abort_cold_fill.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# GET /api/state — has_active_run
+# ---------------------------------------------------------------------------
+
+class TestHasActiveRun:
+    def test_has_active_run_toggles(self, db, tmp_path):
+        client = _make_client(db, tmp_path=tmp_path)
+        assert client.get("/api/state").json()["has_active_run"] is False
+        db.create_capture_run("r1", GAME_ID, "R1", kind="live")
+        db.set_active_capture_run("r1")
+        assert client.get("/api/state").json()["has_active_run"] is True

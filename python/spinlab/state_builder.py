@@ -66,6 +66,10 @@ class StateBuilder:
             "replay": None,
             "paused_run": None,
             "cold_fill": None,
+            "has_active_run": (
+                game_id is not None
+                and self.db.get_active_capture_run(game_id) is not None
+            ),
         }
 
         if game_id is None:

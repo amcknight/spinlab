@@ -133,6 +133,7 @@ class AppState(_BaseResponse):
     replay: ReplayState | None
     paused_run: PausedRunState | None
     cold_fill: ColdFillState | None
+    has_active_run: bool
 
 
 # ---------------------------------------------------------------------------
