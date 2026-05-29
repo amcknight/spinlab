@@ -96,6 +96,14 @@ class CaptureRunsMixin:
                 "UPDATE capture_runs SET active = 1 WHERE id = ?", (run_id,)
             )
 
+    def get_active_capture_run(self, game_id: str) -> str | None:
+        """Return the id of the active (active=1) capture run for a game, or None."""
+        row = self.conn.execute(
+            "SELECT id FROM capture_runs WHERE game_id = ? AND active = 1",
+            (game_id,),
+        ).fetchone()
+        return row[0] if row else None
+
     def rename_capture_run(self, run_id: str, name: str) -> None:
         self.conn.execute(
             "UPDATE capture_runs SET name = ? WHERE id = ?", (name, run_id)

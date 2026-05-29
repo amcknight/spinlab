@@ -190,6 +190,26 @@ class TestIsRunDraft:
         assert db.is_run_draft("does_not_exist") is False
 
 
+def test_get_active_capture_run_returns_active_id(tmp_path):
+    from spinlab.db import Database
+    db = Database(tmp_path / "t.db")
+    db.upsert_game("g1", "Game", "any%")
+    db.create_capture_run("r1", "g1", "Run 1", kind="live")
+    db.promote_draft("r1", "Run 1")
+    db.create_capture_run("r2", "g1", "Run 2", kind="live")
+    db.promote_draft("r2", "Run 2")
+    db.set_active_capture_run("r2")
+    assert db.get_active_capture_run("g1") == "r2"
+
+
+def test_get_active_capture_run_none_when_no_active(tmp_path):
+    from spinlab.db import Database
+    db = Database(tmp_path / "t.db")
+    db.upsert_game("g1", "Game", "any%")
+    db.create_capture_run("r1", "g1", "Run 1", kind="live")
+    assert db.get_active_capture_run("g1") is None
+
+
 class TestHardDelete:
     def test_hard_delete_removes_everything(self, tmp_db):
         """Hard delete cascades: model_state, attempts, segments, run."""
