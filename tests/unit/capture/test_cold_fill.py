@@ -243,6 +243,81 @@ class TestStartRunId:
         assert seen == {"game_id": "g1", "run_id": None}
 
 
+class TestSkipAndAbort:
+    async def test_skip_advances_to_next_segment(self, emu, cold_fill_db):
+        """skip() pops the current segment and loads the next one."""
+        cc = ColdFillController(cold_fill_db, emu)
+        # Build a queue using the real DB rows and real temp files so _load_next
+        # can find the hot state file on disk.
+        cc.queue = [
+            {
+                "segment_id": cold_fill_db._seg1_id,
+                "hot_state_path": cold_fill_db._hot1_path,
+                "start_type": "checkpoint", "start_ordinal": 1,
+                "end_type": "checkpoint", "end_ordinal": 2,
+                "level_number": 105, "description": "",
+            },
+            {
+                "segment_id": cold_fill_db._seg2_id,
+                "hot_state_path": cold_fill_db._hot2_path,
+                "start_type": "checkpoint", "start_ordinal": 2,
+                "end_type": "goal", "end_ordinal": 0,
+                "level_number": 105, "description": "",
+            },
+        ]
+        cc.total = 2
+        cc.current = cold_fill_db._seg1_id
+
+        result = await cc.skip()
+
+        assert result.new_mode == Mode.COLD_FILL
+        assert cc.current == cold_fill_db._seg2_id
+        assert len(cc.queue) == 1
+        assert cc.queue[0]["segment_id"] == cold_fill_db._seg2_id
+
+    async def test_skip_last_segment_drains_to_idle(self, emu, cold_fill_db):
+        """skip() on the last item drains the queue and returns IDLE."""
+        cc = ColdFillController(cold_fill_db, emu)
+        cc.queue = [
+            {
+                "segment_id": cold_fill_db._seg1_id,
+                "hot_state_path": cold_fill_db._hot1_path,
+                "start_type": "checkpoint", "start_ordinal": 1,
+                "end_type": "checkpoint", "end_ordinal": 2,
+                "level_number": 105, "description": "",
+            }
+        ]
+        cc.total = 1
+        cc.current = cold_fill_db._seg1_id
+
+        result = await cc.skip()
+
+        assert result.new_mode == Mode.IDLE
+        assert cc.queue == []
+        assert cc.current is None
+
+    def test_abort_clears_queue(self, emu, cold_fill_db):
+        """abort() resets all queue state."""
+        cc = ColdFillController(cold_fill_db, emu)
+        cc.queue = [
+            {
+                "segment_id": cold_fill_db._seg1_id,
+                "hot_state_path": cold_fill_db._hot1_path,
+                "start_type": "checkpoint", "start_ordinal": 1,
+                "end_type": "checkpoint", "end_ordinal": 2,
+                "level_number": 105, "description": "",
+            }
+        ]
+        cc.total = 1
+        cc.current = cold_fill_db._seg1_id
+
+        cc.abort()
+
+        assert cc.queue == []
+        assert cc.current is None
+        assert cc.total == 0
+
+
 class TestColdFillSaveStateRetryCount:
     """First save_state failure should log attempt=1; second should log
     attempt=2. Success on attempt N clears the counter for that segment."""

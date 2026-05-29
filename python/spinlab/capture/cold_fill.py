@@ -131,10 +131,37 @@ class ColdFillController:
         await self._load_next()
         return False
 
+    async def skip(self) -> ActionResult:
+        """Abandon the current segment without capturing; advance the queue.
+
+        Used when the user can't reproduce a death/respawn for this segment.
+        Draining the queue returns a STOPPED/IDLE result (no power-cycle —
+        Skip is in the give-up family, unlike a captured completion).
+        """
+        if not self.queue:
+            self.current = None
+            self.cold_waypoint_id = None
+            return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
+        skipped = self.queue.pop(0)
+        self._save_state_attempts.pop(skipped["segment_id"], None)
+        logger.info("cold_fill: skipped segment=%s", skipped["segment_id"])
+        if not self.queue:
+            self.current = None
+            self.cold_waypoint_id = None
+            logger.info("cold_fill: queue drained after skip — done")
+            return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
+        return await self._load_next()
+
+    def abort(self) -> None:
+        """Abandon the whole queue. Caller resets mode → IDLE."""
+        logger.info("cold_fill: aborted with %d segment(s) remaining", len(self.queue))
+        self.clear()
+
     def clear(self) -> None:
         """Reset cold-fill state (e.g., on disconnect)."""
         self.queue = []
         self.current = None
+        self.cold_waypoint_id = None
         self.total = 0
         self._save_state_attempts = {}
 
