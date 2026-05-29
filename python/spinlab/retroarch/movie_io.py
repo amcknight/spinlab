@@ -49,6 +49,11 @@ MOVIE_POLL_ATTEMPTS = 5
 PLAYBACK_VERIFY_SLEEP_SEC = 0.15
 PLAYBACK_VERIFY_BYTES = 16
 
+# RA writes this to its log when a movie finishes playing (the only signal RA
+# gives — there is no NCI end-of-playback event). MovieController watches for it
+# to auto-finalize a replay. Exact string from input/bsv/bsvmovie.c.
+_REPLAY_END_MARKER = "Input replay movie playback ended"
+
 # Pattern for parsing RA's log lines that report the current replay slot.
 # RA emits in three forms:
 #   - At startup:                "[Replay] Found last replay slot: #N"
@@ -324,7 +329,8 @@ class RAMovieIO:
             self._cleanup_staged(staged_paths)
         logger.info('play_movie stop staged=%s', [p.name for p in staged_paths])
 
-    def _find_current_replay_slot(self) -> int | None:
+    def _current_log_path(self) -> Path | None:
+        """Most-recently-modified RA log, or None if no log dir / no logs."""
         if self._log_dir is None or not self._log_dir.exists():
             return None
         logs = sorted(
@@ -332,17 +338,52 @@ class RAMovieIO:
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
-        if not logs:
+        return logs[0] if logs else None
+
+    def _find_current_replay_slot(self) -> int | None:
+        log_path = self._current_log_path()
+        if log_path is None:
             return None
         try:
-            text = logs[0].read_text(encoding="utf-8", errors="replace")
+            text = log_path.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
-            logger.warning('play_movie log_read_failed path="%s" err=%s', logs[0], exc)
+            logger.warning('play_movie log_read_failed path="%s" err=%s', log_path, exc)
             return None
         matches = _REPLAY_SLOT_LOG_PATTERN.findall(text)
         if not matches:
             return None
         return int(matches[-1])
+
+    def replay_log_anchor(self) -> tuple[Path, int] | None:
+        """Snapshot (current RA log, byte size) to anchor end-of-playback
+        detection. Returns None when no log is available (caller then skips
+        auto-end and falls back to manual stop)."""
+        log_path = self._current_log_path()
+        if log_path is None:
+            return None
+        try:
+            return (log_path, log_path.stat().st_size)
+        except OSError:
+            return None
+
+    def playback_ended_since(self, anchor: tuple[Path, int] | None) -> bool:
+        """True if RA logged the end-of-playback marker after ``anchor``.
+
+        RA emits no NCI event when a movie finishes — it only writes
+        ``Input replay movie playback ended`` to its log. Reading from the
+        anchored byte offset ignores markers from earlier playbacks in the
+        same session.
+        """
+        if anchor is None:
+            return False
+        log_path, offset = anchor
+        try:
+            with log_path.open("rb") as fh:
+                fh.seek(offset)
+                tail = fh.read().decode("utf-8", errors="replace")
+        except OSError:
+            return False
+        return _REPLAY_END_MARKER in tail
 
     async def _verify_playback_advanced(self) -> bool:
         try:

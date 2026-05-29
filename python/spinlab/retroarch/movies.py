@@ -42,6 +42,15 @@ from spinlab.retroarch.raclient import RAClient, RAClientError
 
 logger = logging.getLogger(__name__)
 
+# Auto-end-of-replay detection. RA gives no NCI event when a movie finishes; we
+# poll its log for the end marker, then halt. 0.5s is frequent enough that the
+# replay finalizes promptly without busy-spinning the log file.
+REPLAY_END_POLL_SEC = 0.5
+# After the marker appears, wait this long before halting so the 60Hz poller can
+# sample RA's paused final frame and flush the closing transition — otherwise a
+# fast-forward replay can lose its last segment. ~2s ≈ 120 ticks of headroom.
+REPLAY_END_SETTLE_SEC = 2.0
+
 
 class MovieController:
     def __init__(
@@ -65,6 +74,9 @@ class MovieController:
         self._active_recording: MovieRecording | None = None
         self._active_playback: MoviePlayback | None = None
         self._fast_forwarding: bool = False
+        # Background task that watches RA's log for the end-of-playback marker
+        # and auto-finalizes the replay. None when no replay is being watched.
+        self._end_watch_task: asyncio.Task[None] | None = None
 
     def set_event_callback(self, on_event: Callable[[MovieEvent], None]) -> None:
         """Rebind the event callback. Used by build_orchestrator to bind
@@ -160,12 +172,49 @@ class MovieController:
             path, self._active_playback.frame_count, self._fast_forwarding,
         )
 
+        # Auto-finalize when the movie finishes. RA emits no NCI event for the
+        # natural end of playback, so watch its log; without this a finished
+        # replay sits forever with fast-forward still on and the run unfinalized.
+        # Skipped when no log anchor is available (then manual stop is the only
+        # path, as before).
+        anchor = self._movie_io.replay_log_anchor()
+        if anchor is not None:
+            self._end_watch_task = asyncio.create_task(self._watch_for_replay_end(anchor))
+
+    async def _watch_for_replay_end(self, anchor: tuple[Path, int] | None) -> None:
+        """Poll RA's log for the end-of-playback marker, then auto-finalize.
+
+        Cancelled by ``stop_playback`` when the user halts first; otherwise it
+        detects the natural end, settles briefly so the closing segment is
+        captured, and runs the normal stop path (FF off + ReplayFinishedEvent).
+        """
+        try:
+            while not await asyncio.to_thread(
+                self._movie_io.playback_ended_since, anchor
+            ):
+                await asyncio.sleep(REPLAY_END_POLL_SEC)
+            await asyncio.sleep(REPLAY_END_SETTLE_SEC)
+        except asyncio.CancelledError:
+            return
+        # Clear our own handle before stopping so stop_playback doesn't try to
+        # cancel the task that's currently running it.
+        self._end_watch_task = None
+        logger.info("Movie replay ended (RA log marker) — auto-finalizing")
+        await self.stop_playback()
+
     async def stop_playback(self) -> None:
         """Stop playback. Idempotent. Emits ReplayFinishedEvent on a real stop.
 
         Symmetric fast-forward toggle: if start_playback toggled ON, this
         toggles OFF.
         """
+        # Cancel the end-of-playback watcher (no-op if we're being called BY it,
+        # which clears the handle first).
+        watch_task = self._end_watch_task
+        self._end_watch_task = None
+        if watch_task is not None and watch_task is not asyncio.current_task():
+            watch_task.cancel()
+
         if self._active_playback is None:
             return
         try:

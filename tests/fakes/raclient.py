@@ -148,6 +148,10 @@ class FakeMovieIO:
     fail_play_movie: bool = False
     play_movie_error_message: str = "fake refusal"
     frame_count: int = 0
+    # End-of-playback detection (MovieController auto-finalize). Default anchor
+    # None → MovieController skips the log-watch watcher entirely.
+    replay_log_anchor_value: object = None
+    playback_ended_value: bool = False
 
     def __post_init__(self) -> None:
         self.record_movie_calls: list[Path] = []
@@ -178,6 +182,12 @@ class FakeMovieIO:
         pb = MoviePlayback(path=path, frame_count=self.frame_count, _stop=_stop)
         self.last_playback = pb
         return pb
+
+    def replay_log_anchor(self) -> object:
+        return self.replay_log_anchor_value
+
+    def playback_ended_since(self, anchor: object) -> bool:
+        return self.playback_ended_value
 
 
 class FakePoller:

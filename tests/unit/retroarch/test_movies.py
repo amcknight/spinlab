@@ -1,6 +1,7 @@
 """Tests for MovieController — owns RA movie record/playback lifecycle."""
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -121,6 +122,40 @@ async def test_stop_playback_no_toggle_when_not_fast_forwarding(mc, raclient):
     assert raclient.fast_forward_toggles == 0
     await mc.stop_playback()
     assert raclient.fast_forward_toggles == 0
+
+
+@pytest.mark.asyncio
+async def test_replay_auto_finalizes_when_movie_ends(mc, movie_io, raclient, events, monkeypatch):
+    """When RA's log shows the movie ended, the watcher auto-runs the stop path
+    (FF off + ReplayFinishedEvent) — no manual /api/replay/stop needed."""
+    monkeypatch.setattr("spinlab.retroarch.movies.REPLAY_END_POLL_SEC", 0.001)
+    monkeypatch.setattr("spinlab.retroarch.movies.REPLAY_END_SETTLE_SEC", 0.001)
+    movie_io.replay_log_anchor_value = ("log", 0)  # non-None → watcher runs
+    movie_io.playback_ended_value = True            # log already shows "ended"
+
+    await mc.start_playback(Path("/x.replay"), speed=SPEED_UNCAPPED)
+    assert raclient.fast_forward_toggles == 1  # FF on at start
+
+    for _ in range(100):
+        await asyncio.sleep(0.005)
+        if any(isinstance(e, ReplayFinishedEvent) for e in events):
+            break
+
+    assert any(isinstance(e, ReplayFinishedEvent) for e in events), "auto-finalize did not fire"
+    assert raclient.fast_forward_toggles == 2, "auto-stop must toggle FF off"
+    assert mc.is_playing is False
+
+
+@pytest.mark.asyncio
+async def test_manual_stop_cancels_end_watcher(mc, movie_io, raclient, events):
+    """A manual stop cancels the auto-end watcher so it can't double-finalize."""
+    movie_io.replay_log_anchor_value = ("log", 0)
+    movie_io.playback_ended_value = False  # movie still playing
+    await mc.start_playback(Path("/x.replay"), speed=SPEED_UNCAPPED)
+    await mc.stop_playback()
+    assert mc._end_watch_task is None
+    finished = [e for e in events if isinstance(e, ReplayFinishedEvent)]
+    assert len(finished) == 1  # exactly one finalize, from the manual stop
 
 
 @pytest.mark.asyncio

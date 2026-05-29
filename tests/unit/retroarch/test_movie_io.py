@@ -204,6 +204,40 @@ def test_stage_and_play_signals_state_load(tmp_path):
     assert (tmp_path / "Test Game.replay0").exists()
 
 
+def test_playback_ended_since_detects_marker_after_anchor(tmp_path):
+    log = tmp_path / "retroarch__2026_01_01__00_00_00.log"
+    log.write_text("[INFO] [Replay] Starting movie playback.\n")
+    movie_io = RAMovieIO(
+        nci=_StubNCI(), movie_dir=tmp_path, log_dir=tmp_path, game_basename=lambda: "G",
+    )
+    anchor = movie_io.replay_log_anchor()
+    assert anchor is not None
+    assert movie_io.playback_ended_since(anchor) is False
+    with log.open("a", encoding="utf-8") as f:
+        f.write("[INFO] [Replay] Input replay movie playback ended.\n")
+    assert movie_io.playback_ended_since(anchor) is True
+
+
+def test_playback_ended_since_ignores_marker_before_anchor(tmp_path):
+    """An end marker from a PRIOR playback (before the anchor offset) must not
+    count as the current playback ending."""
+    log = tmp_path / "retroarch__2026_01_01__00_00_00.log"
+    log.write_text("[INFO] [Replay] Input replay movie playback ended.\n")
+    movie_io = RAMovieIO(
+        nci=_StubNCI(), movie_dir=tmp_path, log_dir=tmp_path, game_basename=lambda: "G",
+    )
+    anchor = movie_io.replay_log_anchor()  # anchored AFTER the stale marker
+    assert movie_io.playback_ended_since(anchor) is False
+
+
+def test_replay_log_anchor_none_without_logs(tmp_path):
+    movie_io = RAMovieIO(
+        nci=_StubNCI(), movie_dir=tmp_path, log_dir=tmp_path, game_basename=lambda: "G",
+    )
+    assert movie_io.replay_log_anchor() is None  # no retroarch__*.log present
+    assert movie_io.playback_ended_since(None) is False
+
+
 def test_stage_and_play_stages_every_window_slot(tmp_path):
     """play_movie stages the movie across a window of slots; _stage_and_play
     must write a copy at each one so RA finds it wherever its runtime slot is."""
