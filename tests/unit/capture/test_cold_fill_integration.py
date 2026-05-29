@@ -103,39 +103,42 @@ def _create_segments_with_hot_only(db, tmp_path=None):
 class TestColdFillIntegration:
     async def test_full_cycle(self, sm, db, emu, tmp_path):
         sm.game_id = "g1"
-
-        # Set up and save draft — capture run must exist before segments (FK)
         db.create_capture_run("run1", "g1", "Test Run", kind="live")
         segs, wp_cp1, wp_cp2 = _create_segments_with_hot_only(db, tmp_path=tmp_path)
         sm.capture.paused_run_id = "run1"
-        result = await sm.finalize_run("Test Run")
 
+        # Finalize no longer auto-enters cold-fill.
+        result = await sm.finalize_run("Test Run")
         assert result.status == Status.OK
+        assert sm.mode == Mode.IDLE
+
+        # User starts cold-fill for the active run.
+        db.set_active_capture_run("run1")
+        start = await sm.cold_fill.start("g1", run_id="run1")
+        if start.new_mode == Mode.COLD_FILL:
+            sm.mode = Mode.COLD_FILL
         assert sm.mode == Mode.COLD_FILL
 
-        # Verify first cold-gap segment loaded (cp1 has hot but not cold)
         cmd = emu.send_command.call_args[0][0]
         assert isinstance(cmd, ColdFillLoadCmd)
         assert cmd.state_path == str(tmp_path / "hot1.mss")
         assert cmd.segment_id == segs[1].id
 
-        # Simulate spawn for first segment
         await sm.route_event(SpawnEvent(state_path="/cold1.mss"))
-        assert sm.mode == Mode.COLD_FILL  # still filling
+        assert sm.mode == Mode.COLD_FILL
+        assert db.get_save_state(wp_cp1.id, "cold").state_path == "/cold1.mss"
 
-        # Verify cold save state stored on cp1 waypoint
-        ss = db.get_save_state(wp_cp1.id, "cold")
-        assert ss is not None
-        assert ss.state_path == "/cold1.mss"
-
-        # Simulate spawn for second segment
         await sm.route_event(SpawnEvent(state_path="/cold2.mss"))
-        assert sm.mode == Mode.IDLE  # done
+        assert sm.mode == Mode.IDLE
+        assert db.get_save_state(wp_cp2.id, "cold").state_path == "/cold2.mss"
+        assert db.segments_missing_cold("g1", run_id="run1") == []
 
-        # Verify cold save state stored on cp2 waypoint
-        ss2 = db.get_save_state(wp_cp2.id, "cold")
-        assert ss2 is not None
-        assert ss2.state_path == "/cold2.mss"
-
-        # Verify no more gaps
-        assert db.segments_missing_cold("g1") == []
+    async def test_finalize_does_not_auto_enter_cold_fill(self, sm, db, emu, tmp_path):
+        sm.game_id = "g1"
+        db.create_capture_run("run1", "g1", "Test Run", kind="live")
+        _create_segments_with_hot_only(db, tmp_path=tmp_path)
+        sm.capture.paused_run_id = "run1"
+        emu.send_command.reset_mock()
+        await sm.finalize_run("Test Run")
+        assert sm.mode == Mode.IDLE
+        emu.send_command.assert_not_called()  # no ColdFillLoadCmd fired

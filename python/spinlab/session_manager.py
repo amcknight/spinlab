@@ -431,13 +431,25 @@ class SessionManager:
             await self.fill_gap.start(segment_id)
         )
 
+    async def skip_cold_fill(self) -> ActionResult:
+        result = await self.cold_fill.skip()
+        # Drain → IDLE. NO_GAPS covers the case where _load_next emptied the
+        # queue because every remaining segment's hot state file was missing
+        # (new_mode is None there), so don't gate solely on new_mode == IDLE.
+        if result.new_mode == Mode.IDLE or result.status == Status.NO_GAPS:
+            self.mode = Mode.IDLE
+        await self._notify_sse()
+        return result
+
+    async def abort_cold_fill(self) -> ActionResult:
+        self.cold_fill.abort()
+        self.mode = Mode.IDLE
+        await self._notify_sse()
+        return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
+
     async def finalize_run(self, name: str) -> ActionResult:
         scheduler = self.get_scheduler() if self.game_id else None
         result = await self.capture.finalize_run(name, scheduler=scheduler)
-        if result.status == Status.OK and self.game_id and self.emu.is_connected:
-            cf_result = await self.cold_fill.start(self.game_id)
-            if cf_result.new_mode == Mode.COLD_FILL:
-                self.mode = Mode.COLD_FILL
         await self._notify_sse()
         return result
 
@@ -446,10 +458,6 @@ class SessionManager:
         result = await self.capture.save_and_finish_run(self.mode, name, scheduler=scheduler)
         if result.new_mode is not None:
             self.mode = result.new_mode
-        if result.status == Status.OK and self.game_id and self.emu.is_connected:
-            cf_result = await self.cold_fill.start(self.game_id)
-            if cf_result.new_mode == Mode.COLD_FILL:
-                self.mode = Mode.COLD_FILL
         await self._notify_sse()
         return result
 
