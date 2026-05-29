@@ -16,8 +16,8 @@ let _currentGameId: string | null = null;
 function updateColdCaptureButton(data: AppState): void {
   const btn = document.getElementById("btn-start-cold-fill") as HTMLButtonElement | null;
   if (!btn) return;
-  btn.disabled = !coldCaptureButtonEnabled(data.mode, (data as any).has_active_run ?? false);
-  btn.title = (data as any).has_active_run
+  btn.disabled = !coldCaptureButtonEnabled(data.mode, data.has_active_run);
+  btn.title = data.has_active_run
     ? "Capture cold states for the active run"
     : "Select a reference run in Manage first";
 }
