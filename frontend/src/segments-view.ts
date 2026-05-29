@@ -1,8 +1,8 @@
 import { shortEndpoint } from "./format";
 import type { ApiSegment } from "./types";
 
-export function coldCaptureButtonEnabled(mode: string, hasActiveRun: boolean): boolean {
-  return mode === "idle" && hasActiveRun;
+export function coldCaptureButtonEnabled(mode: string, hasActiveRun: boolean, emuConnected: boolean): boolean {
+  return mode === "idle" && hasActiveRun && emuConnected;
 }
 
 export function groupByLevel(segs: ApiSegment[]): Record<string, ApiSegment[]> {

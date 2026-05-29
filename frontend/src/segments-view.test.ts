@@ -37,11 +37,12 @@ describe("renderSegmentsView", () => {
 });
 
 describe("coldCaptureButtonEnabled", () => {
-  it("enabled only when idle and an active run exists", () => {
-    expect(coldCaptureButtonEnabled("idle", true)).toBe(true);
-    expect(coldCaptureButtonEnabled("idle", false)).toBe(false);
-    expect(coldCaptureButtonEnabled("cold_fill", true)).toBe(false);
-    expect(coldCaptureButtonEnabled("reference", true)).toBe(false);
+  it("enabled only when idle, an active run exists, and emulator is connected", () => {
+    expect(coldCaptureButtonEnabled("idle", true, true)).toBe(true);
+    expect(coldCaptureButtonEnabled("idle", true, false)).toBe(false);
+    expect(coldCaptureButtonEnabled("idle", false, true)).toBe(false);
+    expect(coldCaptureButtonEnabled("cold_fill", true, true)).toBe(false);
+    expect(coldCaptureButtonEnabled("reference", true, true)).toBe(false);
   });
 });
 
