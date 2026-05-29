@@ -52,11 +52,15 @@ class SegmentsMixin:
                ON CONFLICT(id) DO UPDATE SET
                  description=excluded.description,
                  ordinal=excluded.ordinal,
-                 capture_run_id=excluded.capture_run_id,
-                 capture_session_id=excluded.capture_session_id,
                  active=excluded.active,
                  is_primary=excluded.is_primary,
                  updated_at=excluded.updated_at""",
+            # NOTE: capture_run_id / capture_session_id are deliberately NOT
+            # updated on conflict — the run that FIRST captured a segment keeps
+            # ownership. Segments are shared rows keyed by a deterministic id, so
+            # a later run that re-traverses the same segment (notably a Replay,
+            # which re-runs the detector) must not steal it from the original
+            # run, or run-scoped queries (cold-fill, sections_captured) break.
             (seg.id, seg.game_id, seg.level_number, seg.start_type,
              seg.start_ordinal, seg.end_type, seg.end_ordinal,
              seg.start_waypoint_id, seg.end_waypoint_id, int(seg.is_primary),

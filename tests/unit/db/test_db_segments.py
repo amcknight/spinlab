@@ -26,6 +26,35 @@ def test_segment_persists_capture_session_id():
     d.close()
 
 
+def test_upsert_segment_preserves_original_run_owner():
+    """A re-upsert (e.g. a Replay re-running the detector) must NOT steal a
+    segment's capture_run_id from the run that first captured it."""
+    d = Database(":memory:")
+    d.upsert_game("smw", "Super Mario World", "any%")
+    d.create_capture_run("live1", "smw", "Live", kind="live")
+    d.create_capture_run("replay1", "smw", "Replay", kind="replay")
+    d.create_capture_session("sessL", "live1", 1)
+    d.create_capture_session("sessR", "replay1", 1)
+    wp_a = Waypoint.make("smw", 1, EndpointType.ENTRANCE, 0, {})
+    wp_b = Waypoint.make("smw", 1, EndpointType.GOAL, 0, {})
+    d.upsert_waypoint(wp_a)
+    d.upsert_waypoint(wp_b)
+    base = dict(
+        id="seg_x", game_id="smw", level_number=1,
+        start_type=EndpointType.ENTRANCE, start_ordinal=0,
+        end_type=EndpointType.GOAL, end_ordinal=0,
+        start_waypoint_id=wp_a.id, end_waypoint_id=wp_b.id,
+    )
+    d.upsert_segment(Segment(**base, capture_run_id="live1", capture_session_id="sessL"))
+    # Replay re-captures the same segment id under a different run.
+    d.upsert_segment(Segment(**base, capture_run_id="replay1", capture_session_id="sessR"))
+    fetched = d.get_segment_by_id("seg_x")
+    assert fetched is not None
+    assert fetched.capture_run_id == "live1"          # original owner kept
+    assert fetched.capture_session_id == "sessL"
+    d.close()
+
+
 def test_count_segments_for_run(tmp_path):
     from spinlab.db import Database
     from spinlab.models import Segment
