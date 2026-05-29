@@ -215,6 +215,34 @@ class TestGetColdFillState:
         assert state["segment_label"] == "My Custom Name"
 
 
+class TestStartRunId:
+    async def test_start_passes_run_id_to_query(self, emu, cold_fill_db, monkeypatch):
+        cc = ColdFillController(cold_fill_db, emu)
+        seen: dict = {}
+
+        def fake_missing(game_id, run_id=None):
+            seen["game_id"] = game_id
+            seen["run_id"] = run_id
+            return []  # no gaps → returns early
+
+        monkeypatch.setattr(cc.db, "segments_missing_cold", fake_missing)
+        await cc.start("g1", run_id="rA")
+        assert seen == {"game_id": "g1", "run_id": "rA"}
+
+    async def test_start_run_id_defaults_to_none(self, emu, cold_fill_db, monkeypatch):
+        cc = ColdFillController(cold_fill_db, emu)
+        seen: dict = {}
+
+        def fake_missing(game_id, run_id=None):
+            seen["game_id"] = game_id
+            seen["run_id"] = run_id
+            return []
+
+        monkeypatch.setattr(cc.db, "segments_missing_cold", fake_missing)
+        await cc.start("g1")
+        assert seen == {"game_id": "g1", "run_id": None}
+
+
 class TestColdFillSaveStateRetryCount:
     """First save_state failure should log attempt=1; second should log
     attempt=2. Success on attempt N clears the counter for that segment."""

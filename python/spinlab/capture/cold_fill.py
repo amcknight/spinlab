@@ -34,12 +34,15 @@ class ColdFillController:
         # failures don't drown in single-line warnings.
         self._save_state_attempts: dict[str, int] = {}
 
-    async def start(self, game_id: str) -> ActionResult:
-        """Begin cold-fill for all segments missing cold save states."""
+    async def start(self, game_id: str, run_id: str | None = None) -> ActionResult:
+        """Begin cold-fill for segments missing cold save states.
+
+        ``run_id`` scopes to a single capture run (None = whole game).
+        """
         if not self.emu.is_connected:
             logger.info("cold_fill: skipped — backend not connected")
             raise NotConnectedError()
-        gaps = self.db.segments_missing_cold(game_id)
+        gaps = self.db.segments_missing_cold(game_id, run_id=run_id)
         if not gaps:
             logger.info("cold_fill: no gaps found — all segments have cold states")
             return ActionResult(status=Status.NO_GAPS)
