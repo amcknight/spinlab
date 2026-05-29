@@ -163,6 +163,21 @@ def test_no_false_positive_when_active_but_not_yet_dead():
     assert cf.is_active() is True
 
 
+def test_trace_logs_on_change_and_is_silent_on_repeat(caplog):
+    import logging
+    from spinlab.retroarch.cold_fill_detector import ColdFillSpawnDetector
+    det = ColdFillSpawnDetector()
+    det.activate("seg1")
+    snap = _snap(player_anim=0, exit_mode=0, level_start=1)
+    with caplog.at_level(logging.INFO, logger="spinlab.retroarch.cold_fill_detector"):
+        det.step(snap, timestamp_ms=0)
+        first = [r for r in caplog.records if "trace" in r.getMessage()]
+        det.step(snap, timestamp_ms=16)  # identical signal → no new trace line
+        second = [r for r in caplog.records if "trace" in r.getMessage()]
+    assert len(first) == 1
+    assert len(second) == 1  # unchanged → no additional trace
+
+
 def test_goal_exit_does_not_count_as_death():
     """exit_mode change WITH a goal signal (fanfare or io_port=goal/orb/key)
     is a normal level completion, not a death. Cold-fill must not treat it

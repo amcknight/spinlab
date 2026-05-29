@@ -34,6 +34,7 @@ class ColdFillSpawnDetector:
         self._prev_anim = 0
         self._prev_level_start = 0
         self._prev_exit_mode = 0
+        self._prev_trace_sig: tuple | None = None
 
     def is_active(self) -> bool:
         return self._active
@@ -45,6 +46,7 @@ class ColdFillSpawnDetector:
         self._prev_anim = 0
         self._prev_level_start = 0
         self._prev_exit_mode = 0
+        self._prev_trace_sig = None
         logger.info("cold_fill_detector: activated for segment=%s", segment_id)
 
     def resync_after_state_load(self, snapshot: MemorySnapshot) -> None:
@@ -72,6 +74,21 @@ class ColdFillSpawnDetector:
     def step(self, curr: MemorySnapshot, timestamp_ms: int) -> SpawnEvent | None:
         if not self._active:
             return None
+
+        # Diagnostic-only trace: emit one compact line whenever the raw death
+        # signals change, so a failed-capture reproduction shows exactly which
+        # signal the detector did (not) see. No effect on detection logic.
+        sig = (curr.player_anim, curr.exit_mode, curr.level_start,
+               curr.fanfare, curr.io_port, self._waiting_spawn)
+        if sig != self._prev_trace_sig:
+            log.info(
+                logger, "cold_fill_detector: trace",
+                segment_id=self._segment_id, player_anim=curr.player_anim,
+                exit_mode=curr.exit_mode, level_start=curr.level_start,
+                fanfare=curr.fanfare, io_port=curr.io_port,
+                waiting_spawn=self._waiting_spawn, ts=timestamp_ms,
+            )
+            self._prev_trace_sig = sig
 
         emitted: SpawnEvent | None = None
 
