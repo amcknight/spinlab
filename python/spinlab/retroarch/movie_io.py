@@ -253,18 +253,33 @@ class RAMovieIO:
         target_slot = self._find_current_replay_slot() or 0
         basename = self._game_basename()
         staged = self._movie_dir / f"{basename}.replay{target_slot}"
+        # DIAGNOSTIC (replay-slot regression, 2026-05-29): PLAY_REPLAY plays
+        # RA's *current runtime* replay slot — we can only GUESS it by parsing
+        # the log, then stage a file there. Log the guessed slot alongside the
+        # .replay* files that actually exist, so a failed live replay shows
+        # whether RA's runtime slot diverged from where we staged.
+        existing = sorted(p.name for p in self._movie_dir.glob(f"{basename}.replay*"))
+        logger.info(
+            'play_movie staging src="%s" basename="%s" target_slot=%d '
+            'staged="%s" existing_replays=%s',
+            src.name, basename, target_slot, staged.name, existing,
+        )
         await asyncio.to_thread(self._stage_and_play, src, staged)
 
         if not await self._verify_playback_advanced():
             await asyncio.to_thread(self._nci.halt_replay)
             logger.warning(
-                'play_movie verify_failed src="%s" no_wram_advance_within_ms=%d',
-                src, int(PLAYBACK_VERIFY_SLEEP_SEC * 1000),
+                'play_movie verify_failed src="%s" target_slot=%d staged="%s" '
+                'no_wram_advance_within_ms=%d',
+                src, target_slot, staged.name,
+                int(PLAYBACK_VERIFY_SLEEP_SEC * 1000),
             )
             raise MoviePlaybackError(
-                f"RA refused to load {src.name} (likely ROM-checksum "
-                "mismatch or unreadable file). Check RA's log for the "
-                "underlying error."
+                f"RA produced no frame advance after PLAY_REPLAY of {src.name} "
+                f"(staged at slot {target_slot} as {staged.name}). PLAY_REPLAY "
+                f"plays RA's current runtime replay slot, which can differ from "
+                f"the staged slot (replay_auto_index advances it on record). "
+                f"Check RA's log for the slot it actually played."
             )
 
         frame_count = _read_frame_count(src)
@@ -333,7 +348,18 @@ class RAMovieIO:
         except NCIError as exc:
             logger.warning('play_movie verify_read_failed err=%s', exc)
             return False
-        return before != after
+        advanced = before != after
+        if not advanced:
+            # DIAGNOSTIC: dump the static WRAM window so a failed verify shows
+            # whether the core is frozen/paused vs RA played an empty slot.
+            logger.warning(
+                'play_movie verify no WRAM advance: before=%s after=%s '
+                '(addr=0x0000 bytes=%d)',
+                before.hex() if isinstance(before, (bytes, bytearray)) else before,
+                after.hex() if isinstance(after, (bytes, bytearray)) else after,
+                PLAYBACK_VERIFY_BYTES,
+            )
+        return advanced
 
 
 # ---------------------------------------------------------------------------
