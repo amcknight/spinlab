@@ -194,6 +194,7 @@ class TestColdFillSkipAbort:
         resp = client.post("/api/cold-fill/skip")
         assert resp.status_code == 200
         assert resp.json()["status"] == "started"
+        s.skip_cold_fill.assert_awaited_once()
 
     def test_abort_returns_stopped(self, db, tmp_path):
         client = _make_client(db, tmp_path=tmp_path)
@@ -204,3 +205,4 @@ class TestColdFillSkipAbort:
         resp = client.post("/api/cold-fill/abort")
         assert resp.status_code == 200
         assert resp.json()["status"] == "stopped"
+        s.abort_cold_fill.assert_awaited_once()
