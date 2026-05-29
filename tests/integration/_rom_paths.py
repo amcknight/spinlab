@@ -21,7 +21,10 @@ CLEAN_SMW_ROM_NAME = "_clean.smc"
 # rom_key -> filename in config.yaml's rom.dir.
 # Each entry produces one cached session-scoped RAHarness in `ra_harness_factory`.
 # Tests must declare which ROM they need via the matching named fixture
-# (e.g. `ra_harness_vanilla_smw`); there is no implicit `default` fallback.
+# (e.g. `ra_harness_love_yourself`); there is no implicit `default` fallback.
+# (vanilla_smw stays registered for resolver unit-test coverage but has no
+# emulator fixture — the suite routes everything to the love_yourself harnesses
+# to keep concurrent RA process count low; see the Mode 3 ACCESS_VIOLATION note.)
 #
 # Adding a new ROM requires THREE things:
 #   1. A `<rom_key>: "<rom_filename>"` line below.

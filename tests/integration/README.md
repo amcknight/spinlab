@@ -30,17 +30,23 @@ pytest                         RetroArch (headless, null drivers)
   |  teardown: quit + terminate  |
 ```
 
-**RA launch model.** One RetroArch process per unique `rom_key`,
-session-scoped via `ra_harness_factory`. Three registered keys:
-`vanilla_smw` (`_clean.smc`), `love_yourself` (`Love Yourself.smc`),
-`toothpaste` (`Toothpaste.smc`). Each key gets its own RA process — that's
-what keeps `test_two_harnesses_use_distinct_nci_ports` honest. Tests
-declare which ROM they need via the matching named fixture
-(`ra_harness_vanilla_smw`, `ra_harness_love_yourself`); there is no
-implicit `default` fallback. To add a new ROM: add a `ROM_REGISTRY` entry
-in `conftest.py`, run `python scripts/make_fresh_boot_state.py --rom-key
-<key>` to generate the fresh-boot savestate, and add a
-`ra_harness_<key>` fixture next to the others.
+**RA launch model.** One RetroArch process per cache key
+`(rom_key, use_fresh_state)` via `ra_harness_factory`. The suite keeps the
+**concurrent RA process count low on purpose** — the snes9x core crashes
+intermittently with a Windows ACCESS_VIOLATION (0xC0000005) that scales with
+concurrency. So everything routes to two Love Yourself harnesses:
+`ra_harness_love_yourself` (fresh-state, session-scoped — the transition
+workhorse) and `ra_harness_love_yourself_no_reset` (function-scoped, released
+on teardown — used by the replay fixture and the isolation test). The no-reset
+harness is the deliberate second process for
+`test_two_harnesses_use_distinct_nci_ports`; releasing it on teardown keeps it
+out of the crash-prone transition phase (peak ~1 live RA there). `vanilla_smw`
+and `toothpaste` stay in `ROM_REGISTRY` for resolver coverage but have no
+emulator fixture. The factory health-gates cached harnesses: a dead RA is torn
+down, relaunched fresh, and the recovery is reported at session end (so a crash
+doesn't cascade). To add a new ROM: add a `ROM_REGISTRY` entry, run `python
+scripts/make_fresh_boot_state.py --rom-key <key>`, and add a fixture if an
+emulator test needs it.
 
 **Per-scenario fresh-boot reset.** `RAPokeEngine.run_scenario`
 `LOAD_STATE_SLOT`s a per-ROM "fresh boot" savestate

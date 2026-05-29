@@ -104,31 +104,25 @@ async def fake_game_loaded(fake_dashboard_server):
 # ---------------------------------------------------------------------------
 
 
+# Accumulates (rom_key, use_fresh_state, exit_code) for every transparent RA
+# relaunch this session, copied off the factory at teardown so
+# pytest_terminal_summary can surface them after the factory is gone.
+_RA_RECOVERIES: list[tuple[str, bool, int | None]] = []
+
+
 @pytest.fixture(scope="session")
 def ra_harness_factory():
-    """Session-scoped factory: factory(rom_key) -> RAHarness, cached per rom_key.
+    """Session-scoped factory: factory(rom_key) -> live RAHarness, cached per key.
 
     Hard-fails (RuntimeError) on any missing infrastructure — no pytest.skip.
-    See ROM_REGISTRY for the available rom_keys.
+    The factory health-gates cached harnesses and transparently relaunches a
+    crashed RA (upstream snes9x ACCESS_VIOLATION); those relaunches are
+    recorded and surfaced at session end. See ROM_REGISTRY for rom_keys.
     """
     factory = harness_factory_impl()
     yield factory
+    _RA_RECOVERIES.extend(factory.recoveries)
     factory.teardown_all()
-
-
-@pytest.fixture(scope="session")
-def ra_harness_vanilla_smw(ra_harness_factory):
-    """Session-scoped RAHarness pinned to vanilla SMW (_clean.smc).
-
-    Used by the practice smoke and harness isolation tests. NOT currently
-    used by poke transition tests — the committed _clean.state savestate
-    lands on the title screen (the no-input free-run settle can't reach
-    an in-game frame without controller input injection, which NCI doesn't
-    expose). Once make_fresh_boot_state.py learns to drive controller input
-    to reach an in-game frame, run_scenario can switch to this harness and
-    test vanilla SMW level numbering directly.
-    """
-    return ra_harness_factory("vanilla_smw")
 
 
 @pytest.fixture(scope="session")
@@ -144,31 +138,43 @@ def ra_harness_love_yourself(ra_harness_factory):
     return ra_harness_factory("love_yourself")
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def ra_harness_love_yourself_no_reset(ra_harness_factory):
-    """Session-scoped RAHarness for Love Yourself.smc, WITHOUT fresh-boot reset.
+    """RAHarness for Love Yourself.smc WITHOUT fresh-boot reset (distinct RA process).
 
-    The only consumer is the replay fixture, which needs RA's
-    ``savestate_directory`` to be the user's actual savestate dir so RA can
-    find the staged ``.replay`` files. The fresh-state harness override
-    isolates ``savestate_directory`` to a tmp dir, which would hide the
-    .replay files from RA. Distinct cache key from ``ra_harness_love_yourself``,
-    so a second RA process is launched for this purpose.
+    Consumers: the replay fixture (needs RA's ``savestate_directory`` to be the
+    user's actual dir so RA finds the staged ``.replay`` files) and the harness-
+    isolation test (needs a second distinct RA process).
+
+    FUNCTION-scoped + released on teardown (not session-scoped) so this second
+    RA process does NOT stay alive into the crash-prone transition phase. The
+    snes9x ACCESS_VIOLATION (Mode 3) scales with concurrent RA count, so we keep
+    that phase at one live RA. The factory relaunches on the next request.
     """
-    return ra_harness_factory("love_yourself", use_fresh_state=False)
+    yield ra_harness_factory("love_yourself", use_fresh_state=False)
+    ra_harness_factory.release("love_yourself", use_fresh_state=False)
 
 
 @pytest.fixture
-def run_scenario(ra_harness_love_yourself):
+def run_scenario(ra_harness_love_yourself, ra_harness_factory):
     """Send a poke scenario through the Love Yourself RA harness and collect events.
 
     Pinned to Love Yourself because that's the ROM whose committed fresh-boot
-    savestate lands the player in a level (vanilla SMW's lands on the title
-    screen — see ra_harness_vanilla_smw). The detector tests are ROM-agnostic
+    savestate lands the player in a level. The detector tests are ROM-agnostic
     in practice: they assert on transitions in tracked ADDR_MAP bytes, which
     the engine zeros after the savestate load — so absolute level numbers
     don't matter, only that the ROM isn't actively overwriting our pokes.
+
+    Depends on ``ra_harness_love_yourself`` so the RA launches at fixture-setup
+    time (preserving launch-failure-at-setup diagnostics). Resolves the harness
+    through ``ra_harness_factory`` at run time so the factory health-gate hands
+    back a *live* harness — if the snes9x core crashed in a prior test (Mode 3 /
+    0xC0000005), the factory transparently relaunches a fresh one, so the crash
+    doesn't cascade across the remaining transition tests.
     """
+
+    def _resolve_and_run(scenario) -> list:
+        return ra_harness_factory("love_yourself").engine.run_scenario(scenario)
 
     async def _run(scenario_name: str, timeout: float = 30.0) -> list:
         scenario_path = SCENARIO_DIR / scenario_name
@@ -178,9 +184,7 @@ def run_scenario(ra_harness_love_yourself):
         start = time.monotonic()
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(
-                    ra_harness_love_yourself.engine.run_scenario, scenario
-                ),
+                asyncio.to_thread(_resolve_and_run, scenario),
                 timeout=timeout,
             )
         except asyncio.TimeoutError:
@@ -193,22 +197,30 @@ def run_scenario(ra_harness_love_yourself):
     return _run
 
 
-@pytest.fixture(scope="session")
-def replay_ra_dashboard(ra_harness_love_yourself_no_reset, tmp_path_factory):
+@pytest.fixture
+def replay_ra_dashboard(
+    ra_harness_love_yourself_no_reset, ra_harness_factory, tmp_path_factory
+):
     """Start a dashboard pointed at the Love Yourself RA session for replay tests.
 
     Mirrors ``replay_dashboard`` but uses the RA backend (build_orchestrator)
-    instead of the legacy Mesen+TCP backend. The RA process is already up
-    (ra_harness_love_yourself); this fixture wires the dashboard to it via
-    NCI at the configured port.
+    instead of the legacy Mesen+TCP backend. Wires the dashboard to the no-reset
+    harness via NCI at its configured port.
 
     Phase E PLAY_REPLAY requires RA to be in PLAYING (not PAUSED) state.
     The harness leaves RA paused; we unpause it here so the orchestrator's
     _on_replay → MoviePlayer.play → play_replay() works correctly.
 
+    Releases the fresh-state workhorse harness (``love_yourself``) for the
+    duration of the replay so this high-load test runs against ONE live RA.
+    Measured crash rate: 1 RA ≈ 0.7%/scenario-load vs ~18-43% at 2-6 concurrent
+    RA (snes9x ACCESS_VIOLATION scales steeply with concurrency). The next
+    transition test relaunches the workhorse via the factory.
+
     Yields (base_url, db, tmp_path) — tmp_path is the data dir where the
     test should stage its fixture files.
     """
+    ra_harness_factory.release("love_yourself", use_fresh_state=True)
     from tests.integration._dashboard_harness import DashboardHarness
 
     config_raw = load_config()
@@ -391,6 +403,31 @@ def pytest_runtest_setup(item):
     if "integration" in str(item.fspath):
         ring.clear()
     yield
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Surface RA crash recoveries prominently in the test summary.
+
+    The snes9x core crashes intermittently with a Windows ACCESS_VIOLATION
+    (0xC0000005) — an upstream bug. The harness recovers by relaunching so the
+    crash doesn't cascade or redden the suite, but the crashes must NOT be
+    swallowed silently (CLAUDE.md: "never silently move on"). This reports how
+    many times RA crashed and was relaunched this session.
+    """
+    if not _RA_RECOVERIES:
+        return
+    terminalreporter.section("SpinLab RA crash recovery")
+    terminalreporter.write_line(
+        f"RA backend crashed and was relaunched {len(_RA_RECOVERIES)} time(s) "
+        "this session (upstream snes9x ACCESS_VIOLATION; tests auto-recovered):"
+    )
+    for rom_key, use_fresh_state, exit_code in _RA_RECOVERIES:
+        exit_hex = (
+            f"0x{exit_code & 0xFFFFFFFF:X}" if exit_code is not None else "<unknown>"
+        )
+        terminalreporter.write_line(
+            f"  - {rom_key} (fresh_state={use_fresh_state}) exit {exit_hex}"
+        )
 
 
 def pytest_sessionfinish(session, exitstatus):

@@ -227,6 +227,123 @@ def test_factory_propagates_resolver_runtime_errors(tmp_path):
             factory_impl("vanilla_smw")
 
 
+def test_factory_keeps_live_cached_harness(tmp_path):
+    """Health gate must NOT evict a live harness on cache hit — that would
+    relaunch RA every call and defeat the session-scoped cache."""
+    from tests.integration._harness_factory import harness_factory_impl
+    from tests.integration.ra_harness import RAHarness
+
+    live = MagicMock(spec=RAHarness)
+    live.is_alive.return_value = True
+
+    with patch(
+        "tests.integration._harness_factory.RAHarness.launch",
+        return_value=live,
+    ), patch(
+        "tests.integration._harness_factory.resolve_ra_paths",
+        return_value=(Path("exe"), Path("core"), Path("rom")),
+    ), patch(
+        "tests.integration._harness_factory._free_udp_port",
+        return_value=55001,
+    ):
+        factory = harness_factory_impl()
+        h1 = factory("vanilla_smw")
+        h2 = factory("vanilla_smw")
+        h3 = factory("vanilla_smw")
+
+    assert h1 is h2 is h3 is live
+    # First call is a cache miss (no probe). The two hits each probe once.
+    assert live.is_alive.call_count == 2
+    assert factory.recoveries == []
+
+
+def test_factory_relaunches_dead_cached_harness(tmp_path):
+    """When a cached harness's RA proc has died (e.g. 0xC0000005), the next
+    factory call must tear down the corpse, relaunch a FRESH harness, return
+    it, and record the recovery — instead of returning the dead one (which
+    causes the 8-11 NCITimeout cascade)."""
+    from tests.integration._harness_factory import harness_factory_impl
+    from tests.integration.ra_harness import RAHarness
+
+    dead = MagicMock(spec=RAHarness)
+    dead.is_alive.return_value = True  # alive on first (cache-miss) return
+    dead.last_returncode = None
+    fresh = MagicMock(spec=RAHarness)
+    fresh.is_alive.return_value = True
+
+    launched = [dead, fresh]
+    with patch(
+        "tests.integration._harness_factory.RAHarness.launch",
+        side_effect=lambda **kw: launched.pop(0),
+    ), patch(
+        "tests.integration._harness_factory.resolve_ra_paths",
+        return_value=(Path("exe"), Path("core"), Path("rom")),
+    ), patch(
+        "tests.integration._harness_factory._free_udp_port",
+        side_effect=[55001, 55002],
+    ):
+        factory = harness_factory_impl()
+        h1 = factory("vanilla_smw")
+        assert h1 is dead
+
+        # RA crashes between tests.
+        dead.is_alive.return_value = False
+        dead.last_returncode = 3221225477  # 0xC0000005
+
+        h2 = factory("vanilla_smw")  # transparent relaunch
+
+    assert h2 is fresh
+    assert h2 is not dead
+    dead.teardown.assert_called_once()  # corpse cleaned up
+    assert len(factory.recoveries) == 1
+    rom_key, use_fresh_state, exit_code = factory.recoveries[0]
+    assert rom_key == "vanilla_smw"
+    assert use_fresh_state is True
+    assert exit_code == 3221225477
+
+
+def test_factory_release_tears_down_and_evicts_one_harness(tmp_path):
+    """release() tears down a single cached harness and evicts it, so the next
+    __call__ relaunches fresh. Used to serialize RA processes (keep the
+    crash-prone transition phase at one live RA)."""
+    from tests.integration._harness_factory import harness_factory_impl
+    from tests.integration.ra_harness import RAHarness
+
+    h1 = MagicMock(spec=RAHarness)
+    h1.is_alive.return_value = True
+    h2 = MagicMock(spec=RAHarness)
+    h2.is_alive.return_value = True
+    launched = [h1, h2]
+
+    with patch(
+        "tests.integration._harness_factory.RAHarness.launch",
+        side_effect=lambda **kw: launched.pop(0),
+    ), patch(
+        "tests.integration._harness_factory.resolve_ra_paths",
+        return_value=(Path("exe"), Path("core"), Path("rom")),
+    ), patch(
+        "tests.integration._harness_factory._free_udp_port",
+        side_effect=[55001, 55002],
+    ):
+        factory = harness_factory_impl()
+        a = factory("love_yourself", use_fresh_state=False)
+        factory.release("love_yourself", use_fresh_state=False)
+        b = factory("love_yourself", use_fresh_state=False)
+
+    assert a is h1
+    h1.teardown.assert_called_once()  # released
+    assert b is h2  # relaunched fresh after release
+    assert b is not a
+
+
+def test_factory_release_is_noop_for_uncached_key(tmp_path):
+    from tests.integration._harness_factory import harness_factory_impl
+
+    factory = harness_factory_impl()
+    # Nothing cached — must not raise.
+    factory.release("love_yourself", use_fresh_state=False)
+
+
 def test_factory_teardown_calls_each_harness(tmp_path):
     """Factory must teardown every cached harness exactly once when the
     fixture's `yield` returns."""

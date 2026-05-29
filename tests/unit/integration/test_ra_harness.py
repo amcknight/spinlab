@@ -232,3 +232,43 @@ def test_launch_writes_ra_stdout_stderr_to_logfile(fake_paths, fake_proc):
     assert harness.log_path.exists()
     assert harness.log_path.parent == harness._tmp_dir
     harness.teardown()
+
+
+# ---------------------------------------------------------------------------
+# is_alive() / last_returncode — RA crash detection (Mode 3 recovery)
+# ---------------------------------------------------------------------------
+
+
+def test_is_alive_true_when_proc_running():
+    proc = MagicMock()
+    proc.poll.return_value = None
+    harness = RAHarness(proc=proc, client=MagicMock())
+
+    assert harness.is_alive() is True
+    assert harness.last_returncode is None  # nothing to capture
+
+
+def test_is_alive_false_and_captures_exit_code_when_dead():
+    proc = MagicMock()
+    # 3221225477 == 0xC0000005 == STATUS_ACCESS_VIOLATION on Windows
+    proc.poll.return_value = 3221225477
+    harness = RAHarness(proc=proc, client=MagicMock())
+
+    assert harness.is_alive() is False
+    assert harness.last_returncode == 3221225477
+
+
+def test_last_returncode_is_monotonic_once_captured():
+    """Once a death exit code is captured, a later poll()==None (Windows Popen
+    reaping quirk) must NOT clear it — the recovery/diagnostic path relies on
+    the captured code surviving."""
+    proc = MagicMock()
+    proc.poll.return_value = 3221225477
+    harness = RAHarness(proc=proc, client=MagicMock())
+
+    assert harness.is_alive() is False
+    assert harness.last_returncode == 3221225477
+
+    proc.poll.return_value = None  # process reaped; poll now returns None
+    harness.is_alive()
+    assert harness.last_returncode == 3221225477  # preserved

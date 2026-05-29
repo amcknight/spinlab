@@ -111,10 +111,33 @@ class RAHarness:
     _log_handle: IO[bytes] | None = field(default=None, repr=False)
     _tmp_dir: Path | None = field(default=None, repr=False)
     fresh_boot_slot: int | None = field(default=None, repr=False)
+    # Captured by is_alive() the first time it sees proc.poll() != None.
+    # Monotonic once set — survives teardown reaping the process, so the
+    # recovery path and diagnostics can still report the crash exit code.
+    last_returncode: int | None = field(default=None)
     engine: RAPokeEngine = field(init=False)
 
     def __post_init__(self) -> None:
         self.engine = RAPokeEngine(self.client, fresh_boot_slot=self.fresh_boot_slot)
+
+    def is_alive(self) -> bool:
+        """Return True iff the RA subprocess is still running.
+
+        On first-detected death, captures ``proc.returncode`` into
+        ``last_returncode`` and logs it. The capture is monotonic: once a
+        non-None code is stored it is never cleared, even if a later
+        ``proc.poll()`` returns None after the process is reaped.
+        """
+        rc = self.proc.poll()
+        if rc is None:
+            return True
+        if self.last_returncode is None:
+            self.last_returncode = rc
+            logger.warning(
+                "ra_harness: RA proc pid=%s exited rc=%s (0x%X)",
+                self.proc.pid, rc, rc & 0xFFFFFFFF,
+            )
+        return False
 
     @classmethod
     def launch(
