@@ -153,6 +153,10 @@
       <!-- Segments table -->
       <div class="manage-section">
         <h3>Segments</h3>
+        <div id="segments-toolbar">
+          <button id="btn-start-cold-fill" disabled
+                  title="Select a reference run first">Start Cold Capture</button>
+        </div>
         <div id="cold-fill-banner" style="display:none"></div>
         <table id="segment-table">
           <thead>
@@ -180,10 +184,6 @@
 
     <!-- Segments Tab -->
     <section id="tab-segments" class="tab-content">
-      <div id="segments-toolbar">
-        <button id="btn-start-cold-fill" disabled
-                title="Select a reference run in Manage first">Start Cold Capture</button>
-      </div>
       <div id="segments-view-container"></div>
     </section>
   </main>
