@@ -198,6 +198,26 @@ def test_stage_and_play_signals_state_load(tmp_path):
     )
     src = tmp_path / "x.replay"
     src.write_bytes(b"data")
-    movie_io._stage_and_play(src, tmp_path / "Test Game.replay0")
+    movie_io._stage_and_play(src, [tmp_path / "Test Game.replay0"])
     assert nci.play_replay.called
     assert called == [None]
+    assert (tmp_path / "Test Game.replay0").exists()
+
+
+def test_stage_and_play_stages_every_window_slot(tmp_path):
+    """play_movie stages the movie across a window of slots; _stage_and_play
+    must write a copy at each one so RA finds it wherever its runtime slot is."""
+    nci = _StubNCI()
+    movie_io = RAMovieIO(
+        nci=nci, movie_dir=tmp_path, log_dir=tmp_path,
+        game_basename=lambda: "Test Game", on_state_load=lambda: None,
+    )
+    src = tmp_path / "x.replay"
+    src.write_bytes(b"data")
+    paths = [tmp_path / f"Test Game.replay{s}" for s in (0, 1, 2)]
+    movie_io._stage_and_play(src, paths)
+    for p in paths:
+        assert p.exists()
+    movie_io._cleanup_staged(paths)
+    for p in paths:
+        assert not p.exists()

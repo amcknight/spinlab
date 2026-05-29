@@ -252,69 +252,77 @@ class RAMovieIO:
 
         target_slot = self._find_current_replay_slot() or 0
         basename = self._game_basename()
-        staged = self._movie_dir / f"{basename}.replay{target_slot}"
-        # DIAGNOSTIC (replay-slot regression, 2026-05-29): PLAY_REPLAY plays
-        # RA's *current runtime* replay slot — we can only GUESS it by parsing
-        # the log, then stage a file there. Log the guessed slot alongside the
-        # .replay* files that actually exist, so a failed live replay shows
-        # whether RA's runtime slot diverged from where we staged.
+        # PLAY_REPLAY plays RA's *current runtime* replay slot, which
+        # replay_auto_index advances on record — so it can differ from the slot
+        # we recorded to (and from what the log's "record to …replayN" line
+        # shows). NCI has no read/set-slot command (only relative PLUS/MINUS),
+        # so we can't target RA's slot directly. Stage the movie at a small
+        # window of slots around the guessed one so RA finds it wherever its
+        # runtime pointer landed. Every staged copy is cleaned up on stop/fail.
+        window = list(range(max(0, target_slot - 1), target_slot + 3))
+        staged_paths = [self._movie_dir / f"{basename}.replay{s}" for s in window]
         existing = sorted(p.name for p in self._movie_dir.glob(f"{basename}.replay*"))
         logger.info(
             'play_movie staging src="%s" basename="%s" target_slot=%d '
-            'staged="%s" existing_replays=%s',
-            src.name, basename, target_slot, staged.name, existing,
+            'window=%s existing_replays=%s',
+            src.name, basename, target_slot, window, existing,
         )
-        await asyncio.to_thread(self._stage_and_play, src, staged)
+        await asyncio.to_thread(self._stage_and_play, src, staged_paths)
 
         if not await self._verify_playback_advanced():
             await asyncio.to_thread(self._nci.halt_replay)
+            await asyncio.to_thread(self._cleanup_staged, staged_paths)
             logger.warning(
-                'play_movie verify_failed src="%s" target_slot=%d staged="%s" '
+                'play_movie verify_failed src="%s" target_slot=%d window=%s '
                 'no_wram_advance_within_ms=%d',
-                src, target_slot, staged.name,
+                src, target_slot, window,
                 int(PLAYBACK_VERIFY_SLEEP_SEC * 1000),
             )
             raise MoviePlaybackError(
                 f"RA produced no frame advance after PLAY_REPLAY of {src.name} "
-                f"(staged at slot {target_slot} as {staged.name}). PLAY_REPLAY "
-                f"plays RA's current runtime replay slot, which can differ from "
-                f"the staged slot (replay_auto_index advances it on record). "
-                f"Check RA's log for the slot it actually played."
+                f"(staged across slots {window}). PLAY_REPLAY plays RA's current "
+                f"runtime replay slot; even staging a window around the recorded "
+                f"slot did not land on it. Check RA's log for the slot it played."
             )
 
         frame_count = _read_frame_count(src)
 
         logger.info(
-            'play_movie start src="%s" slot=%d frame_count=%d',
-            src, target_slot, frame_count,
+            'play_movie start src="%s" target_slot=%d window=%s frame_count=%d',
+            src, target_slot, window, frame_count,
         )
 
         async def _stop() -> None:
-            await asyncio.to_thread(self._stop_playback, staged)
+            await asyncio.to_thread(self._stop_playback, staged_paths)
 
         return MoviePlayback(path=src, frame_count=frame_count, _stop=_stop)
 
-    def _stage_and_play(self, src: Path, staged: Path) -> None:
-        staged.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(src), str(staged))
+    def _stage_and_play(self, src: Path, staged_paths: list[Path]) -> None:
+        for staged in staged_paths:
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(src), str(staged))
         self._nci.play_replay()
         # PLAY_REPLAY loads the replay's embedded savestate — signal the
         # state-load so the poller resyncs before detecting on post-load frames.
         self._on_state_load()
 
-    def _stop_playback(self, staged: Path) -> None:
+    def _cleanup_staged(self, staged_paths: list[Path]) -> None:
+        for staged in staged_paths:
+            try:
+                if staged.exists():
+                    staged.unlink()
+            except OSError as exc:
+                logger.warning(
+                    'play_movie cleanup unlink_failed staged="%s" err=%s',
+                    staged, exc,
+                )
+
+    def _stop_playback(self, staged_paths: list[Path]) -> None:
         try:
             self._nci.halt_replay()
         finally:
-            if staged.exists():
-                try:
-                    staged.unlink()
-                except OSError as exc:
-                    logger.warning(
-                        'play_movie stop unlink_failed staged="%s" err=%s',
-                        staged, exc,
-                    )
-        logger.info('play_movie stop staged="%s"', staged)
+            self._cleanup_staged(staged_paths)
+        logger.info('play_movie stop staged=%s', [p.name for p in staged_paths])
 
     def _find_current_replay_slot(self) -> int | None:
         if self._log_dir is None or not self._log_dir.exists():
