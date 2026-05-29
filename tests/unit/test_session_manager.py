@@ -300,17 +300,27 @@ def _seed_paused_run_with_hot_segments(
 
 
 class TestColdFill:
-    async def test_save_draft_triggers_cold_fill(self, db, emu, tmp_path):
+    async def test_finalize_stays_idle_then_explicit_cold_fill_enters(
+        self, db, emu, tmp_path
+    ):
         sm = make_sm(db, emu)
         sm.game_id = "game1"
 
-        # Real paused run + 2 real segments with hot state but no cold —
-        # the actual "segments missing cold" scenario the cold-fill flow detects.
+        # Real paused run + 2 real segments with hot state but no cold.
+        # finalize_run no longer auto-triggers cold-fill; it returns to IDLE
+        # and callers must explicitly start cold-fill afterward.
         _seed_paused_run_with_hot_segments(db, tmp_path, "game1", "run1", n_segments=2)
         sm.capture.paused_run_id = "run1"
 
         result = await sm.finalize_run("Test")
         assert result.status == Status.OK
+        assert sm.mode == Mode.IDLE  # no auto-trigger
+
+        # Explicit start (whole-game scope — segments are not capture_run_id-linked
+        # by make_seg_with_state, so run-scoped start would find no gaps).
+        start = await sm.cold_fill.start("game1")
+        if start.new_mode == Mode.COLD_FILL:
+            sm.mode = Mode.COLD_FILL
         assert sm.mode == Mode.COLD_FILL
 
     async def test_save_draft_no_gaps_stays_idle(self, db, emu, tmp_path):
