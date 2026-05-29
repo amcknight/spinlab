@@ -29,9 +29,13 @@ export function updateHeader(data: AppState): void {
   const chip = document.getElementById("mode-chip")!;
   const label = document.getElementById("mode-label")!;
   const stopBtn = document.getElementById("mode-stop") as HTMLElement;
+  const skipBtn = document.getElementById("cold-fill-skip") as HTMLElement;
+  const exitBtn = document.getElementById("cold-fill-exit") as HTMLElement;
 
   chip.className = "mode-chip";
   stopBtn.style.display = "none";
+  skipBtn.style.display = "none";
+  exitBtn.style.display = "none";
 
   if (!data.emu_connected) {
     chip.classList.add("disconnected");
@@ -66,6 +70,8 @@ export function updateHeader(data: AppState): void {
     chip.classList.add("recording");
     label.textContent =
       "Cold starts — " + data.cold_fill.current + "/" + data.cold_fill.total;
+    skipBtn.style.display = "";
+    exitBtn.style.display = "";
   } else if (data.mode === "fill_gap") {
     chip.classList.add("recording");
     label.textContent = "Filling gap…";
@@ -125,6 +131,13 @@ export function initHeader(): void {
     } finally {
       stopBtn.disabled = false;
     }
+  });
+
+  document.getElementById("cold-fill-skip")?.addEventListener("click", async () => {
+    await postJSON("/api/cold-fill/skip");
+  });
+  document.getElementById("cold-fill-exit")?.addEventListener("click", async () => {
+    await postJSON("/api/cold-fill/abort");
   });
 }
 
