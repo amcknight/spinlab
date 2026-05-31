@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 from spinlab.api_schemas import (
     AllocatorWeightsResponse,
+    EmSuiteMatrixResponse,
     EstimatorParamsRequest,
     EstimatorSwitchRequest,
     EstimatorSwitchResponse,
@@ -241,4 +242,41 @@ def segment_history(
         "estimator_curves": estimator_curves,
         "selected_model": selected_model,
         "cold_distribution": cold_distribution,
+    }
+
+
+@router.get(
+    "/segments/{segment_id}/em-suite-matrix",
+    response_model=EmSuiteMatrixResponse,
+)
+def get_em_suite_matrix(
+    segment_id: str,
+    db: Database = Depends(get_db),
+):
+    """Per-segment EMA-suite prediction matrix.
+
+    Replays the segment's event log through the EmSuiteSamplerEstimator,
+    computes the closed-form geometric mean per (alpha_fast, alpha_slow)
+    pair. See docs/superpowers/specs/2026-05-30-em-suite-sampler-design.md.
+    """
+    from spinlab.estimators.em_suite_sampler import build_matrix
+
+    seg = db.get_segment_by_id(segment_id)
+    if seg is None:
+        logger.warning("get_em_suite_matrix: unknown segment %r", segment_id)
+        raise HTTPException(status_code=404, detail=f"Segment not found: {segment_id}")
+
+    event_rows = db.get_segment_event_rows(segment_id)
+    events = _events_from_rows(event_rows)
+    est = get_estimator("em_suite_sampler")
+    state = est.rebuild_state(attempts=[], events=events)
+    grid = build_matrix(state)
+    return {
+        "segment_id": segment_id,
+        "alpha_grid": grid["alpha_grid"],
+        "baseline": grid["baseline"],
+        "matrix": grid["matrix"],
+        "n_attempts_total": state.n_attempts_total,
+        "n_successes": state.n_successes,
+        "n_deaths": state.n_deaths,
     }

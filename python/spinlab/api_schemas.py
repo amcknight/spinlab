@@ -316,6 +316,14 @@ class ColdDistribution(_BaseResponse):
     n_cold_attempts: int                  # raw cold count after truncation; drives bin layout
     mu_d_ms: float | None                 # weighted mean cold-death time; None when no deaths
     mu_c_ms: float | None                 # weighted mean cold-completion time; None when no completions
+    # Weighted std and log-moments back the Normal/Lognormal PDF overlays on
+    # the histogram. Completions only — death-time density is
+    # hazard(t) * S(t) / P(die), so a Normal/Lognormal fit there mashes two
+    # things together; the hazard view is the principled tool for that side.
+    # All None when the underlying sample is empty or non-positive.
+    sigma_c_ms: float | None = None       # weighted std of cold-completion times
+    mu_log_c: float | None = None         # weighted mean of ln(t_ms) over cold completions
+    sigma_log_c: float | None = None      # weighted std of ln(t_ms) over cold completions
     p_die_per_attempt: float | None       # weighted P(any death in attempt); None when n_cold=0
     p_die_per_life: float | None          # weighted P(this life dies); None when no events
     halflife: int = 0                     # halflife used to compute this distribution; echoed for label/debug
@@ -471,3 +479,29 @@ class EmulatorLaunchResponse(_BaseResponse):
 
 class ShutdownResponse(_BaseResponse):
     status: str
+
+
+# ---------------------------------------------------------------------------
+# EMA-Suite Sampler — per-segment prediction matrix
+# See docs/superpowers/specs/2026-05-30-em-suite-sampler-design.md
+# ---------------------------------------------------------------------------
+
+class EmSuiteMatrixResponse(_BaseResponse):
+    """Per-segment prediction matrix.
+
+    The matrix is upper triangular: matrix[fast_idx][slow_idx] is non-None
+    iff fast_idx > slow_idx. The diagonal is reserved for the baseline row
+    (no slope; one number per alpha).
+
+    All times are milliseconds. None values mean either insufficient data
+    (n_successes / n_deaths / n_attempts < 2) or geometric mean diverges
+    (p_die at the suite alpha is ~1).
+    """
+
+    segment_id: str
+    alpha_grid: list[float]
+    baseline: list[float | None]
+    matrix: list[list[float | None]]
+    n_attempts_total: int
+    n_successes: int
+    n_deaths: int
