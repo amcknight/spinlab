@@ -231,3 +231,84 @@ class TestTrendSignalSlopes:
         assert isinstance(slope_log_success, float)
         assert isinstance(slope_log_death, float)
         assert isinstance(slope_logit_p_die, float)
+
+
+class TestExpectedEpisodeTime:
+    def _populated_state(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, process_event,
+        )
+        from tests.factories import make_event_attempt
+        state = SamplerState()
+        # 3 successes around 20s, 3 deaths around 5s
+        for t in (20_000, 21_000, 19_000):
+            state = process_event(
+                state, make_event_attempt(outcome="survived", time_ms=t),
+            )
+        for t in (5_000, 4_500, 5_500):
+            state = process_event(
+                state, make_event_attempt(outcome="died", time_ms=t),
+            )
+        return state
+
+    def test_returns_none_when_gate_fails(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, expected_episode_time_ms,
+        )
+        state = SamplerState()  # no attempts yet
+        assert expected_episode_time_ms(state, 5, 2, apply_slope=False) is None
+        assert expected_episode_time_ms(state, 5, 2, apply_slope=True) is None
+
+    def test_baseline_matches_geometric_formula(self):
+        from spinlab.estimators.em_suite_sampler import (
+            expected_episode_time_ms,
+        )
+        from spinlab.models import DEFAULT_DEATH_PENALTY_MS
+        state = self._populated_state()
+        fast_idx = 8  # alpha=0.5
+        result = expected_episode_time_ms(
+            state, fast_idx, fast_idx, apply_slope=False,
+        )
+        assert result is not None
+        # Reconstruct the formula to compare
+        s = math.exp(state.log_success_time_emas[fast_idx])
+        d = math.exp(state.log_death_time_emas[fast_idx])
+        p = state.p_die_emas[fast_idx]
+        expected = s + (p / (1.0 - p)) * (d + DEFAULT_DEATH_PENALTY_MS)
+        assert math.isclose(result, expected, rel_tol=1e-9)
+
+    def test_slope_shifts_prediction(self):
+        from spinlab.estimators.em_suite_sampler import (
+            expected_episode_time_ms,
+        )
+        state = self._populated_state()
+        baseline = expected_episode_time_ms(
+            state, 8, 2, apply_slope=False,
+        )
+        sloped = expected_episode_time_ms(
+            state, 8, 2, apply_slope=True,
+        )
+        assert baseline is not None
+        assert sloped is not None
+        # The two should differ unless the data is exactly stationary
+        assert not math.isclose(baseline, sloped, rel_tol=1e-9)
+
+    def test_returns_none_when_p_die_too_close_to_one(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, expected_episode_time_ms, process_event,
+        )
+        from tests.factories import make_event_attempt
+
+        state = SamplerState()
+        for t in (20_000, 21_000):
+            state = process_event(
+                state, make_event_attempt(outcome="survived", time_ms=t),
+            )
+        # Manually push p_die EMA at index 8 to ~1.0 to simulate the divergent case
+        state.p_die_emas[8] = 1.0 - 1e-9
+        for t in (5_000, 4_500):
+            state = process_event(
+                state, make_event_attempt(outcome="died", time_ms=t),
+            )
+        # The deaths will push p_die up further; baseline at idx 8 should still diverge
+        assert expected_episode_time_ms(state, 8, 2, apply_slope=False) is None

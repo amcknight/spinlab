@@ -18,7 +18,7 @@ import math
 from dataclasses import dataclass, field
 
 from spinlab.estimators import EstimatorState
-from spinlab.models import EventAttempt
+from spinlab.models import DEFAULT_DEATH_PENALTY_MS, EventAttempt
 
 # Decay-rate grid (locked, strictly ascending). Endpoints (0.0, 1.0) are
 # sanity-check anchors that should look obviously broken on the matrix.
@@ -200,3 +200,46 @@ def trend_signal_slopes(
         d_fast - d_slow,
         _logit(p_fast) - _logit(p_slow),
     )
+
+
+def expected_episode_time_ms(
+    state: SamplerState, fast_idx: int, slow_idx: int,
+    *, apply_slope: bool,
+    reload_penalty_ms: int = DEFAULT_DEATH_PENALTY_MS,
+) -> float | None:
+    """Closed-form mean of the geometric episode-time process.
+
+    Formula:
+      E[episode] = success_time + (p / (1 - p)) * (death_time + reload)
+
+    Where:
+      success_time = exp(log_E_fast_success [+ slope_log_success if apply_slope])
+      death_time   = exp(log_E_fast_death   [+ slope_log_death   if apply_slope])
+      p            = p_E_fast               [shifted in logit space if apply_slope]
+
+    Returns None when the prediction gate fails or when p is too close to 1
+    (the geometric mean diverges as p → 1).
+    """
+    if not _gate_passes(state):
+        return None
+
+    s_fast = state.log_success_time_emas[fast_idx]
+    d_fast = state.log_death_time_emas[fast_idx]
+    p_fast = state.p_die_emas[fast_idx]
+    assert s_fast is not None and d_fast is not None and p_fast is not None
+
+    if apply_slope:
+        slopes = trend_signal_slopes(state, fast_idx, slow_idx)
+        assert slopes is not None  # gate already passed
+        slope_log_success, slope_log_death, slope_logit_p_die = slopes
+        success_time = math.exp(s_fast + slope_log_success)
+        death_time = math.exp(d_fast + slope_log_death)
+        p = _logistic(_logit(p_fast) + slope_logit_p_die)
+    else:
+        success_time = math.exp(s_fast)
+        death_time = math.exp(d_fast)
+        p = p_fast
+
+    if p >= 1.0 - LOGIT_EPS:
+        return None  # geometric mean diverges
+    return success_time + (p / (1.0 - p)) * (death_time + reload_penalty_ms)
