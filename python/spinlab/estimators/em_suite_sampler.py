@@ -243,3 +243,47 @@ def expected_episode_time_ms(
     if p >= 1.0 - LOGIT_EPS:
         return None  # geometric mean diverges
     return success_time + (p / (1.0 - p)) * (death_time + reload_penalty_ms)
+
+
+def build_matrix(
+    state: SamplerState, *,
+    reload_penalty_ms: int = DEFAULT_DEATH_PENALTY_MS,
+) -> dict:
+    """Compute the full per-segment prediction matrix.
+
+    Returns a dict with:
+      - alpha_grid: list[float]    — the suite's alpha values in order
+      - baseline: list[float|None] — sample(0) per alpha (no slope; one number per row)
+      - matrix: list[list[float|None]] — sample(1) per (fast_idx, slow_idx).
+        Upper-triangular: cell [fast][slow] is non-None iff fast > slow.
+
+    None cells appear when either the prediction gate fails (insufficient data)
+    or when fast_idx <= slow_idx.
+    """
+    n = len(ALPHA_GRID)
+    baseline: list[float | None] = []
+    matrix: list[list[float | None]] = []
+    for fast_idx in range(n):
+        baseline.append(
+            expected_episode_time_ms(
+                state, fast_idx, fast_idx, apply_slope=False,
+                reload_penalty_ms=reload_penalty_ms,
+            )
+        )
+        row: list[float | None] = []
+        for slow_idx in range(n):
+            if slow_idx >= fast_idx:
+                row.append(None)
+            else:
+                row.append(
+                    expected_episode_time_ms(
+                        state, fast_idx, slow_idx, apply_slope=True,
+                        reload_penalty_ms=reload_penalty_ms,
+                    )
+                )
+        matrix.append(row)
+    return {
+        "alpha_grid": list(ALPHA_GRID),
+        "baseline": baseline,
+        "matrix": matrix,
+    }

@@ -312,3 +312,71 @@ class TestExpectedEpisodeTime:
             )
         # The deaths will push p_die up further; baseline at idx 8 should still diverge
         assert expected_episode_time_ms(state, 8, 2, apply_slope=False) is None
+
+
+class TestBuildMatrix:
+    def _populated_state(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, process_event,
+        )
+        from tests.factories import make_event_attempt
+        state = SamplerState()
+        for t in (20_000, 21_000, 19_000):
+            state = process_event(
+                state, make_event_attempt(outcome="survived", time_ms=t),
+            )
+        for t in (5_000, 4_500, 5_500):
+            state = process_event(
+                state, make_event_attempt(outcome="died", time_ms=t),
+            )
+        return state
+
+    def test_matrix_shape_and_alpha_grid(self):
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, build_matrix,
+        )
+        result = build_matrix(self._populated_state())
+        n = len(ALPHA_GRID)
+        assert result["alpha_grid"] == list(ALPHA_GRID)
+        assert len(result["baseline"]) == n
+        assert len(result["matrix"]) == n
+        assert all(len(row) == n for row in result["matrix"])
+
+    def test_matrix_is_upper_triangular(self):
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, build_matrix,
+        )
+        result = build_matrix(self._populated_state())
+        n = len(ALPHA_GRID)
+        for fast_idx in range(n):
+            for slow_idx in range(n):
+                if slow_idx >= fast_idx:
+                    assert result["matrix"][fast_idx][slow_idx] is None, (
+                        f"cell [{fast_idx}][{slow_idx}] should be None (fast<=slow)"
+                    )
+                else:
+                    assert result["matrix"][fast_idx][slow_idx] is not None
+
+    def test_baseline_contains_no_slope_predictions(self):
+        from spinlab.estimators.em_suite_sampler import (
+            build_matrix, expected_episode_time_ms,
+        )
+        state = self._populated_state()
+        result = build_matrix(state)
+        for fast_idx, baseline_value in enumerate(result["baseline"]):
+            expected = expected_episode_time_ms(
+                state, fast_idx, fast_idx, apply_slope=False,
+            )
+            assert (baseline_value is None and expected is None) or (
+                baseline_value is not None
+                and expected is not None
+                and math.isclose(baseline_value, expected, rel_tol=1e-9)
+            )
+
+    def test_returns_none_for_empty_state(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, build_matrix,
+        )
+        result = build_matrix(SamplerState())
+        assert all(v is None for v in result["baseline"])
+        assert all(all(v is None for v in row) for row in result["matrix"])
