@@ -134,7 +134,7 @@ def main() -> int:
     print(f"Found {len(segments)} segments in game {args.game_id}")
     n_processed = 0
     for seg in segments:
-        events = _load_events(db, seg.segment_id)
+        events = _load_events(db, seg["id"])
         if len(events) < args.min_events:
             continue
         results = []
@@ -152,16 +152,18 @@ def main() -> int:
                     sloped[1],
                 ))
         if not results:
-            print(f"  {seg.segment_id}: no scoreable pairs (events={len(events)})")
+            print(f"  {seg['id']}: no scoreable pairs (events={len(events)})")
             continue
-        csv_path = out_dir / f"{seg.segment_id}.csv"
+        # Filenames: replace colons and other path-unsafe chars (Windows).
+        safe_id = seg["id"].replace(":", "_").replace("/", "_").replace("\\", "_")
+        csv_path = out_dir / f"{safe_id}.csv"
         _write_csv(csv_path, results)
         try:
-            plot_path = out_dir / f"{seg.segment_id}.png"
+            plot_path = out_dir / f"{safe_id}.png"
             _plot_segment(csv_path, plot_path)
-            print(f"  {seg.segment_id}: {len(results)} pairs scored, wrote {csv_path.name} + {plot_path.name}")
+            print(f"  {seg['id']}: {len(results)} pairs scored, wrote {csv_path.name} + {plot_path.name}")
         except Exception as exc:
-            print(f"  {seg.segment_id}: csv ok, plot failed: {exc}")
+            print(f"  {seg['id']}: csv ok, plot failed: {exc}")
         n_processed += 1
 
     print(f"Done. Processed {n_processed} segments.")
