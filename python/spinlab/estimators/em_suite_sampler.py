@@ -148,3 +148,55 @@ def process_event(state: SamplerState, event: EventAttempt) -> SamplerState:
         n_deaths=new_n_deaths,
         n_attempts_total=state.n_attempts_total + 1,
     )
+
+
+# Numerical defense for logit at the [0, 1] edges from same-outcome streaks.
+LOGIT_EPS = 1e-6
+
+
+def _logit(p: float) -> float:
+    clamped = max(LOGIT_EPS, min(1.0 - LOGIT_EPS, p))
+    return math.log(clamped / (1.0 - clamped))
+
+
+def _logistic(x: float) -> float:
+    return 1.0 / (1.0 + math.exp(-x))
+
+
+def _gate_passes(state: SamplerState) -> bool:
+    """Prediction gate: nil-until-2 of each outcome and overall."""
+    return (
+        state.n_successes >= 2
+        and state.n_deaths >= 2
+        and state.n_attempts_total >= 2
+    )
+
+
+def trend_signal_slopes(
+    state: SamplerState, fast_idx: int, slow_idx: int,
+) -> tuple[float, float, float] | None:
+    """Compute (slope_log_success, slope_log_death, slope_logit_p_die).
+
+    Returns None when the prediction gate fails (nil-until-2 of each kind).
+
+    Each slope is E_fast − E_slow, in log-space for times and logit-space
+    for p_die. The logit values are clamped to [LOGIT_EPS, 1−LOGIT_EPS] to
+    defend against same-outcome streaks that drive p toward 0 or 1.
+    """
+    if not _gate_passes(state):
+        return None
+    s_fast = state.log_success_time_emas[fast_idx]
+    s_slow = state.log_success_time_emas[slow_idx]
+    d_fast = state.log_death_time_emas[fast_idx]
+    d_slow = state.log_death_time_emas[slow_idx]
+    p_fast = state.p_die_emas[fast_idx]
+    p_slow = state.p_die_emas[slow_idx]
+    # Gate guarantees ≥ 2 of each outcome, so the matching EMAs are seeded.
+    assert s_fast is not None and s_slow is not None
+    assert d_fast is not None and d_slow is not None
+    assert p_fast is not None and p_slow is not None
+    return (
+        s_fast - s_slow,
+        d_fast - d_slow,
+        _logit(p_fast) - _logit(p_slow),
+    )

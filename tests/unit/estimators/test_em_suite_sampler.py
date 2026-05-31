@@ -179,3 +179,55 @@ class TestProcessEvent:
         assert math.isclose(state.log_success_time_emas[idx], expected)
         assert state.n_successes == 2
         assert state.n_attempts_total == 2
+
+
+class TestTrendSignalSlopes:
+    def test_returns_none_when_gate_fails_n_successes(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, process_event, trend_signal_slopes,
+        )
+        from tests.factories import make_event_attempt
+
+        state = SamplerState()
+        # 1 success + 2 deaths → fails n_successes >= 2
+        state = process_event(state, make_event_attempt(outcome="survived", time_ms=20_000))
+        state = process_event(state, make_event_attempt(outcome="died", time_ms=5_000))
+        state = process_event(state, make_event_attempt(outcome="died", time_ms=4_000))
+        assert trend_signal_slopes(state, fast_idx=5, slow_idx=2) is None
+
+    def test_returns_none_when_gate_fails_n_deaths(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, process_event, trend_signal_slopes,
+        )
+        from tests.factories import make_event_attempt
+
+        state = SamplerState()
+        # 2 successes + 1 death → fails n_deaths >= 2
+        for _ in range(2):
+            state = process_event(
+                state, make_event_attempt(outcome="survived", time_ms=20_000),
+            )
+        state = process_event(state, make_event_attempt(outcome="died", time_ms=5_000))
+        assert trend_signal_slopes(state, fast_idx=5, slow_idx=2) is None
+
+    def test_returns_slopes_when_gate_passes(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, process_event, trend_signal_slopes,
+        )
+        from tests.factories import make_event_attempt
+
+        state = SamplerState()
+        for t in (10_000, 8_000):
+            state = process_event(
+                state, make_event_attempt(outcome="survived", time_ms=t),
+            )
+        for t in (5_000, 4_000):
+            state = process_event(
+                state, make_event_attempt(outcome="died", time_ms=t),
+            )
+        slopes = trend_signal_slopes(state, fast_idx=8, slow_idx=2)
+        assert slopes is not None
+        slope_log_success, slope_log_death, slope_logit_p_die = slopes
+        assert isinstance(slope_log_success, float)
+        assert isinstance(slope_log_death, float)
+        assert isinstance(slope_logit_p_die, float)
