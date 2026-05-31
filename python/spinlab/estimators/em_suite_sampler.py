@@ -30,8 +30,14 @@ def update_ema_array(
       - If existing value is None, seed at observation (no decay yet).
       - Else, value' = alpha * observation + (1 - alpha) * value.
 
+    ``values`` MUST have length ``len(ALPHA_GRID)``; passing a shorter list
+    is a programming error (results would be silently truncated by ``zip``).
     Returns a new list; does not mutate input.
     """
+    if len(values) != len(ALPHA_GRID):
+        raise ValueError(
+            f"values has length {len(values)}, expected {len(ALPHA_GRID)}",
+        )
     return [
         observation if v is None
         else (alpha * observation + (1.0 - alpha) * v)

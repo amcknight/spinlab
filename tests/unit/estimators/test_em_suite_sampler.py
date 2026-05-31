@@ -4,7 +4,7 @@ Spec: docs/superpowers/specs/2026-05-30-em-suite-sampler-design.md
 """
 import math
 
-import pytest
+import pytest  # noqa: F401  — kept for later tests that use pytest.raises
 
 
 class TestAlphaGrid:
@@ -36,13 +36,18 @@ class TestUpdateEmaArray:
             assert math.isclose(v, 10.0 * (1.0 - alpha))
 
     def test_alpha_zero_never_updates(self):
-        from spinlab.estimators.em_suite_sampler import update_ema_array
-        result = update_ema_array([10.0, 10.0], 100.0)
-        # alpha=0.0 at index 0 means observation is ignored.
-        # We can't test full grid without checking shape; just confirm
-        # that with alpha=0.0 the value sticks at the prior.
-        # NOTE: this test passes through the grid order; index 0 == 0.0.
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, update_ema_array,
+        )
+        n = len(ALPHA_GRID)
+        result = update_ema_array([10.0] * n, 100.0)
+        # alpha=0.0 at index 0 means observation is ignored; value sticks.
         assert result[0] == 10.0
+
+    def test_rejects_wrong_length_values(self):
+        from spinlab.estimators.em_suite_sampler import update_ema_array
+        with pytest.raises(ValueError, match="length"):
+            update_ema_array([10.0, 10.0], 100.0)
 
     def test_alpha_one_replaces_entirely(self):
         from spinlab.estimators.em_suite_sampler import (
