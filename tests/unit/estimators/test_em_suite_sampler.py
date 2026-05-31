@@ -57,3 +57,43 @@ class TestUpdateEmaArray:
         result = update_ema_array([10.0] * n, 100.0)
         # alpha=1.0 at the last index → new value is the observation
         assert result[-1] == 100.0
+
+
+class TestSamplerState:
+    def test_default_state_has_unset_emas_and_zero_counts(self):
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, SamplerState,
+        )
+        s = SamplerState()
+        n = len(ALPHA_GRID)
+        assert s.log_success_time_emas == [None] * n
+        assert s.log_death_time_emas == [None] * n
+        assert s.p_die_emas == [None] * n
+        assert s.n_successes == 0
+        assert s.n_deaths == 0
+        assert s.n_attempts_total == 0
+
+    def test_to_dict_from_dict_roundtrip(self):
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, SamplerState,
+        )
+        n = len(ALPHA_GRID)
+        s = SamplerState(
+            log_success_time_emas=[1.0] * n,
+            log_death_time_emas=[2.0] * n,
+            p_die_emas=[0.3] * n,
+            n_successes=5,
+            n_deaths=2,
+            n_attempts_total=7,
+        )
+        d = s.to_dict()
+        s2 = SamplerState.from_dict(d)
+        assert s2 == s
+
+    def test_registered_with_estimator_state(self):
+        from spinlab.estimators import EstimatorState
+        # Importing the module registers SamplerState
+        import spinlab.estimators.em_suite_sampler  # noqa: F401
+        # Should be in the registry now (attribute is _state_classes; see
+        # EstimatorState.register_state in python/spinlab/estimators/__init__.py)
+        assert "em_suite_sampler" in EstimatorState._state_classes  # type: ignore[attr-defined]
