@@ -710,3 +710,72 @@ h3 {
 #model-body a:hover {
   text-decoration: underline;
 }
+
+/* EMA-suite matrix per-segment card */
+.em-suite-matrix-host {
+  margin-top: 16px;
+}
+
+.em-suite-matrix {
+  padding: 12px;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 4px;
+  background: var(--card-bg, #1a1a1a);
+}
+
+.em-suite-matrix__header {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.em-suite-matrix__baseline {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--border-color, #444);
+  align-items: center;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.em-suite-matrix__label {
+  font-weight: 600;
+  padding-right: 8px;
+}
+
+.em-suite-matrix__grid {
+  display: grid;
+  gap: 2px;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.em-suite-matrix__corner,
+.em-suite-matrix__col-header,
+.em-suite-matrix__row-header {
+  font-weight: 600;
+  text-align: center;
+  padding: 4px;
+  background: #2a2a2a;
+}
+
+.em-suite-matrix__cell {
+  text-align: center;
+  padding: 4px;
+  background: #222;
+}
+
+.em-suite-matrix__cell--baseline {
+  background: #1e2a1e;
+}
+
+.em-suite-matrix__cell--blank {
+  background: transparent;
+}
+
+.em-suite-matrix__error {
+  padding: 8px;
+  color: #ff8a65;
+  font-style: italic;
+}

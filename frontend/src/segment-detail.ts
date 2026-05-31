@@ -9,8 +9,9 @@ import {
   Tooltip,
 } from "chart.js";
 import { fetchJSON } from "./api";
+import { renderEmSuiteMatrix } from "./em-suite-matrix";
 import { segmentName, formatTime } from "./format";
-import type { SegmentHistory } from "./types";
+import type { EmSuiteMatrixResponse, SegmentHistory } from "./types";
 import { renderColdHistogram } from "./death-distribution";
 import { renderHazard } from "./hazard-render";
 
@@ -258,6 +259,29 @@ export async function renderSegmentDetail(
     msg.className = "dim";
     msg.textContent = "No cold data for this segment.";
     histSection.appendChild(msg);
+  }
+
+  // EMA-suite matrix host. Fetched separately from the segment history.
+  const matrixHost = document.createElement("div");
+  matrixHost.className = "em-suite-matrix-host";
+  container.appendChild(matrixHost);
+  await loadAndRenderEmSuiteMatrix(segmentId, matrixHost);
+}
+
+async function loadAndRenderEmSuiteMatrix(
+  segmentId: string, host: HTMLElement,
+): Promise<void> {
+  try {
+    const data = await fetchJSON<EmSuiteMatrixResponse>(
+      `/api/segments/${encodeURIComponent(segmentId)}/em-suite-matrix`,
+    );
+    if (!data) {
+      host.innerHTML = `<div class="em-suite-matrix__error">Matrix unavailable</div>`;
+      return;
+    }
+    renderEmSuiteMatrix(host, data);
+  } catch (err) {
+    host.innerHTML = `<div class="em-suite-matrix__error">Matrix fetch failed: ${err}</div>`;
   }
 }
 
