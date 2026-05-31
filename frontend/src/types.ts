@@ -49,6 +49,8 @@ export type EstimatorSeries = S["EstimatorSeries"];
 export type ColdDistribution = S["ColdDistribution"];
 export type ColdBin = S["ColdBin"];
 
+export type EmSuiteMatrixResponse = S["EmSuiteMatrixResponse"];
+
 // ---- Request bodies (auto-generated) --------------------------------------
 
 export type AttemptPatch = S["AttemptPatchRequest"];
