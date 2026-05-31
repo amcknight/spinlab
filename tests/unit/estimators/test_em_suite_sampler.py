@@ -97,3 +97,85 @@ class TestSamplerState:
         # Should be in the registry now (attribute is _state_classes; see
         # EstimatorState.register_state in python/spinlab/estimators/__init__.py)
         assert "em_suite_sampler" in EstimatorState._state_classes  # type: ignore[attr-defined]
+
+
+class TestProcessEvent:
+    def test_success_updates_success_time_and_p_die_only(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, process_event,
+        )
+        from tests.factories import make_event_attempt
+
+        state = SamplerState()
+        ev = make_event_attempt(outcome="survived", time_ms=20_000)
+        new_state = process_event(state, ev)
+        # success_time and p_die seeded; death_time unchanged
+        assert all(v is not None for v in new_state.log_success_time_emas)
+        assert all(v is not None for v in new_state.p_die_emas)
+        assert all(v is None for v in new_state.log_death_time_emas)
+        assert new_state.n_successes == 1
+        assert new_state.n_deaths == 0
+        assert new_state.n_attempts_total == 1
+        # outcome bit for success = 0 (death=1)
+        assert new_state.p_die_emas[5] == 0.0
+
+    def test_death_updates_death_time_and_p_die_only(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, process_event,
+        )
+        from tests.factories import make_event_attempt
+
+        state = SamplerState()
+        ev = make_event_attempt(outcome="died", time_ms=5_000)
+        new_state = process_event(state, ev)
+        assert all(v is not None for v in new_state.log_death_time_emas)
+        assert all(v is not None for v in new_state.p_die_emas)
+        assert all(v is None for v in new_state.log_success_time_emas)
+        assert new_state.n_successes == 0
+        assert new_state.n_deaths == 1
+        # outcome bit for death = 1
+        assert new_state.p_die_emas[5] == 1.0
+
+    def test_invalidated_event_does_not_update_state(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, process_event,
+        )
+        from tests.factories import make_event_attempt
+
+        state = SamplerState()
+        ev = make_event_attempt(outcome="survived", time_ms=20_000, invalidated=True)
+        new_state = process_event(state, ev)
+        assert new_state == state
+
+    def test_log_time_stored_in_log_space(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, process_event,
+        )
+        from tests.factories import make_event_attempt
+
+        state = SamplerState()
+        ev = make_event_attempt(outcome="survived", time_ms=20_000)
+        new_state = process_event(state, ev)
+        # Seeded value is log(20000)
+        expected = math.log(20_000)
+        assert math.isclose(new_state.log_success_time_emas[5], expected)
+
+    def test_two_successes_apply_ema_update_on_second(self):
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, SamplerState, process_event,
+        )
+        from tests.factories import make_event_attempt
+
+        state = SamplerState()
+        state = process_event(
+            state, make_event_attempt(outcome="survived", time_ms=10_000),
+        )
+        state = process_event(
+            state, make_event_attempt(outcome="survived", time_ms=40_000),
+        )
+        # At alpha=0.5: new = 0.5*log(40000) + 0.5*log(10000)
+        idx = ALPHA_GRID.index(0.5)
+        expected = 0.5 * math.log(40_000) + 0.5 * math.log(10_000)
+        assert math.isclose(state.log_success_time_emas[idx], expected)
+        assert state.n_successes == 2
+        assert state.n_attempts_total == 2

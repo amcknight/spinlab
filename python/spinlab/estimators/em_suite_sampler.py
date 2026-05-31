@@ -14,9 +14,11 @@ process: E[episode_time] = success_time + (p/(1−p)) * (death_time + reload).
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from spinlab.estimators import EstimatorState
+from spinlab.models import EventAttempt
 
 # Decay-rate grid (locked, strictly ascending). Endpoints (0.0, 1.0) are
 # sanity-check anchors that should look obviously broken on the matrix.
@@ -107,3 +109,42 @@ class SamplerState(EstimatorState):
 
 
 EstimatorState.register_state("em_suite_sampler", SamplerState)
+
+
+def process_event(state: SamplerState, event: EventAttempt) -> SamplerState:
+    """Update sampler state with one observed event.
+
+    - Invalidated events are no-ops (returned state == input state).
+    - p_die updates on every attempt (outcome_bit = 1 if died else 0).
+    - The matching time EMA updates only on attempts of that outcome.
+    - n_attempts_total / n_successes / n_deaths advance accordingly.
+
+    Returns a new state; does not mutate the input.
+    """
+    if event.invalidated:
+        return state
+
+    is_death = event.outcome.value == "died"
+    outcome_bit = 1.0 if is_death else 0.0
+    log_time = math.log(max(event.time_ms, 1))
+
+    new_p_die = update_ema_array(state.p_die_emas, outcome_bit)
+    if is_death:
+        new_log_death = update_ema_array(state.log_death_time_emas, log_time)
+        new_log_success = state.log_success_time_emas
+        new_n_deaths = state.n_deaths + 1
+        new_n_successes = state.n_successes
+    else:
+        new_log_success = update_ema_array(state.log_success_time_emas, log_time)
+        new_log_death = state.log_death_time_emas
+        new_n_successes = state.n_successes + 1
+        new_n_deaths = state.n_deaths
+
+    return SamplerState(
+        log_success_time_emas=new_log_success,
+        log_death_time_emas=new_log_death,
+        p_die_emas=new_p_die,
+        n_successes=new_n_successes,
+        n_deaths=new_n_deaths,
+        n_attempts_total=state.n_attempts_total + 1,
+    )
