@@ -17,8 +17,19 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from spinlab.estimators import EstimatorState
-from spinlab.models import DEFAULT_DEATH_PENALTY_MS, EventAttempt
+from spinlab.estimators import (
+    Estimator,
+    EstimatorState,
+    ParamDef,
+    register_estimator,
+)
+from spinlab.models import (
+    DEFAULT_DEATH_PENALTY_MS,
+    AttemptRecord,
+    Estimate,
+    EventAttempt,
+    ModelOutput,
+)
 
 # Decay-rate grid (locked, strictly ascending). Endpoints (0.0, 1.0) are
 # sanity-check anchors that should look obviously broken on the matrix.
@@ -287,3 +298,71 @@ def build_matrix(
         "baseline": baseline,
         "matrix": matrix,
     }
+
+
+@register_estimator
+class EmSuiteSamplerEstimator(Estimator):
+    """ABC adapter — registers the EMA-suite sampler with the estimator pipeline.
+
+    v0: this estimator does NOT populate ModelOutput.total/clean
+    (it doesn't drive the legacy expected_ms display in the existing UI).
+    The per-segment matrix is served via a dedicated route. ModelOutput
+    fields are kept None to make this explicit.
+
+    Why register at all: rebuild_state is the canonical entry point for
+    replaying historical events through the sampler — used by both the
+    matrix endpoint and the offline replay script.
+    """
+
+    name = "em_suite_sampler"
+    display_name = "EMA-Suite Sampler"
+
+    def declared_params(self) -> list[ParamDef]:
+        # No tunable params for v0; the alpha suite is fixed.
+        return []
+
+    def init_state(
+        self, first_attempt: AttemptRecord, priors: dict,
+        params: dict | None = None,
+    ) -> SamplerState:
+        return SamplerState()
+
+    def process_attempt(  # type: ignore[override]
+        self, state: SamplerState, new_attempt: AttemptRecord,
+        all_attempts: list[AttemptRecord],
+        params: dict | None = None,
+        events: list[EventAttempt] | None = None,
+    ) -> SamplerState:
+        # Rebuild from full event list on every call. Matches the
+        # death_aware_rolling pattern: state contains no history, all
+        # computation is on the event log.
+        if events is None:
+            return state
+        return self.rebuild_state(all_attempts, params=params, events=events)
+
+    def model_output(  # type: ignore[override]
+        self, state: SamplerState, all_attempts: list[AttemptRecord],
+        params: dict | None = None,
+        events: list[EventAttempt] | None = None,
+    ) -> ModelOutput:
+        none_estimate = Estimate(
+            expected_ms=None, ms_per_attempt=None, floor_ms=None,
+        )
+        return ModelOutput(total=none_estimate, clean=none_estimate, extras=None)
+
+    def rebuild_state(  # type: ignore[override]
+        self, attempts: list[AttemptRecord],
+        params: dict | None = None,
+        events: list[EventAttempt] | None = None,
+    ) -> SamplerState:
+        # Event-level EMAs come from replaying events.
+        state = SamplerState()
+        if events is not None:
+            for event in events:
+                state = process_event(state, event)
+        # Episode-level inherited counters come from the AttemptRecord list —
+        # these are the fields the scheduler reads generically. Pattern matches
+        # DeathAwareRollingEstimator.rebuild_state.
+        state.n_completed = sum(1 for a in attempts if a.completed)
+        state.n_attempts = len(attempts)
+        return state

@@ -389,3 +389,76 @@ class TestBuildMatrix:
         result = build_matrix(SamplerState())
         assert all(v is None for v in result["baseline"])
         assert all(all(v is None for v in row) for row in result["matrix"])
+
+
+class TestEstimatorIntegration:
+    def test_registered_in_estimator_registry(self):
+        from spinlab.estimators import list_estimators, get_estimator
+        assert "em_suite_sampler" in list_estimators()
+        est = get_estimator("em_suite_sampler")
+        assert est.name == "em_suite_sampler"
+        assert est.display_name == "EMA-Suite Sampler"
+
+    def test_declared_params_is_empty(self):
+        from spinlab.estimators import get_estimator
+        est = get_estimator("em_suite_sampler")
+        assert est.declared_params() == []
+
+    def test_rebuild_state_replays_all_events(self):
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_event_attempt
+
+        events = [
+            make_event_attempt(outcome="survived", time_ms=20_000),
+            make_event_attempt(outcome="died", time_ms=5_000),
+            make_event_attempt(outcome="survived", time_ms=21_000),
+            make_event_attempt(outcome="died", time_ms=4_500),
+        ]
+        est = get_estimator("em_suite_sampler")
+        state = est.rebuild_state(attempts=[], events=events)
+        assert state.n_attempts_total == 4
+        assert state.n_successes == 2
+        assert state.n_deaths == 2
+
+    def test_rebuild_state_updates_inherited_counters_from_attempts(self):
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record, make_event_attempt
+
+        attempts = [
+            make_attempt_record(time_ms=10_000, completed=True),
+            make_attempt_record(time_ms=12_000, completed=False, deaths=2),
+            make_attempt_record(time_ms=9_000, completed=True),
+        ]
+        events = [make_event_attempt(outcome="survived", time_ms=10_000)]
+        est = get_estimator("em_suite_sampler")
+        state = est.rebuild_state(attempts=attempts, events=events)
+        # Inherited fields reflect episode-level totals
+        assert state.n_completed == 2  # 2 of 3 attempts completed
+        assert state.n_attempts == 3
+
+    def test_init_state_returns_empty(self):
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_attempt_record
+
+        est = get_estimator("em_suite_sampler")
+        state = est.init_state(
+            first_attempt=make_attempt_record(time_ms=10_000, completed=True),
+            priors={},
+        )
+        assert state.n_attempts_total == 0
+
+    def test_model_output_returns_none_estimates_for_now(self):
+        from spinlab.estimators import get_estimator
+        from tests.factories import make_event_attempt
+
+        events = [
+            make_event_attempt(outcome="survived", time_ms=20_000),
+            make_event_attempt(outcome="died", time_ms=5_000),
+        ]
+        est = get_estimator("em_suite_sampler")
+        state = est.rebuild_state(attempts=[], events=events)
+        output = est.model_output(state, all_attempts=[], events=events)
+        # v0: this estimator does not drive the legacy expected_ms display;
+        # the matrix is served via a dedicated endpoint.
+        assert output.total.expected_ms is None
+        assert output.clean.expected_ms is None
