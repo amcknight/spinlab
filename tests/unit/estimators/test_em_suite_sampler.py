@@ -4,7 +4,7 @@ Spec: docs/superpowers/specs/2026-05-30-em-suite-sampler-design.md
 """
 import math
 
-import pytest  # noqa: F401  — kept for later tests that use pytest.raises
+import pytest
 
 
 class TestAlphaGrid:
@@ -17,61 +17,77 @@ class TestAlphaGrid:
         assert list(ALPHA_GRID) == sorted(ALPHA_GRID)
 
 
-class TestUpdateEmaArray:
-    def test_seeds_unset_values_at_observation(self):
+class TestEmaStep:
+    def test_applies_formula_per_alpha(self):
         from spinlab.estimators.em_suite_sampler import (
-            ALPHA_GRID, update_ema_array,
-        )
-        result = update_ema_array([None] * len(ALPHA_GRID), 5.0)
-        assert all(v == 5.0 for v in result)
-
-    def test_applies_ema_formula_per_alpha(self):
-        from spinlab.estimators.em_suite_sampler import (
-            ALPHA_GRID, update_ema_array,
+            ALPHA_GRID, ema_step,
         )
         prior = [10.0] * len(ALPHA_GRID)
-        result = update_ema_array(prior, 0.0)
+        result = ema_step(prior, 0.0)
         # For each alpha: new = alpha*0 + (1-alpha)*10 = 10*(1-alpha)
         for v, alpha in zip(result, ALPHA_GRID):
             assert math.isclose(v, 10.0 * (1.0 - alpha))
 
     def test_alpha_zero_never_updates(self):
         from spinlab.estimators.em_suite_sampler import (
-            ALPHA_GRID, update_ema_array,
+            ALPHA_GRID, ema_step,
         )
         n = len(ALPHA_GRID)
-        result = update_ema_array([10.0] * n, 100.0)
+        result = ema_step([10.0] * n, 100.0)
         # alpha=0.0 at index 0 means observation is ignored; value sticks.
         assert result[0] == 10.0
 
-    def test_rejects_wrong_length_values(self):
-        from spinlab.estimators.em_suite_sampler import update_ema_array
-        with pytest.raises(ValueError, match="length"):
-            update_ema_array([10.0, 10.0], 100.0)
-
     def test_alpha_one_replaces_entirely(self):
         from spinlab.estimators.em_suite_sampler import (
-            ALPHA_GRID, update_ema_array,
+            ALPHA_GRID, ema_step,
         )
         n = len(ALPHA_GRID)
-        result = update_ema_array([10.0] * n, 100.0)
+        result = ema_step([10.0] * n, 100.0)
         # alpha=1.0 at the last index → new value is the observation
         assert result[-1] == 100.0
 
+    def test_denom_accumulation_pattern(self):
+        # Denom = ema_step with driver=1.0 starting from [0.0]*n
+        # gives D_N = 1 - (1-α)^N. Spot-check after 1 step.
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, ema_step,
+        )
+        n = len(ALPHA_GRID)
+        d_after_1 = ema_step([0.0] * n, 1.0)
+        # D_1 = α * 1 + (1-α) * 0 = α
+        for d, alpha in zip(d_after_1, ALPHA_GRID):
+            assert math.isclose(d, alpha)
+
+    def test_rejects_wrong_length_values(self):
+        from spinlab.estimators.em_suite_sampler import ema_step
+        with pytest.raises(ValueError, match="length"):
+            ema_step([10.0, 10.0], 100.0)
+
 
 class TestSamplerState:
-    def test_default_state_has_unset_emas_and_zero_counts(self):
+    def test_default_state_has_zero_accumulators_and_counts(self):
         from spinlab.estimators.em_suite_sampler import (
             ALPHA_GRID, SamplerState,
         )
         s = SamplerState()
         n = len(ALPHA_GRID)
-        assert s.log_success_time_emas == [None] * n
-        assert s.log_death_time_emas == [None] * n
-        assert s.p_die_emas == [None] * n
+        assert s.log_success_time_sums == [0.0] * n
+        assert s.log_success_time_denoms == [0.0] * n
+        assert s.log_death_time_sums == [0.0] * n
+        assert s.log_death_time_denoms == [0.0] * n
+        assert s.p_die_sums == [0.0] * n
+        assert s.p_die_denoms == [0.0] * n
         assert s.n_successes == 0
         assert s.n_deaths == 0
         assert s.n_attempts_total == 0
+
+    def test_ema_accessors_return_none_when_denom_zero(self):
+        from spinlab.estimators.em_suite_sampler import SamplerState
+        s = SamplerState()
+        # All accessors return None when no data has been observed.
+        assert s.log_success_time_ema(5) is None
+        assert s.log_death_time_ema(5) is None
+        assert s.p_die_ema(5) is None
 
     def test_to_dict_from_dict_roundtrip(self):
         from spinlab.estimators.em_suite_sampler import (
@@ -79,9 +95,12 @@ class TestSamplerState:
         )
         n = len(ALPHA_GRID)
         s = SamplerState(
-            log_success_time_emas=[1.0] * n,
-            log_death_time_emas=[2.0] * n,
-            p_die_emas=[0.3] * n,
+            log_success_time_sums=[1.0] * n,
+            log_success_time_denoms=[0.5] * n,
+            log_death_time_sums=[2.0] * n,
+            log_death_time_denoms=[0.4] * n,
+            p_die_sums=[0.15] * n,
+            p_die_denoms=[0.5] * n,
             n_successes=5,
             n_deaths=2,
             n_attempts_total=7,
@@ -102,39 +121,50 @@ class TestSamplerState:
 class TestProcessEvent:
     def test_success_updates_success_time_and_p_die_only(self):
         from spinlab.estimators.em_suite_sampler import (
-            SamplerState, process_event,
+            ALPHA_GRID, SamplerState, process_event,
         )
         from tests.factories import make_event_attempt
 
         state = SamplerState()
         ev = make_event_attempt(outcome="survived", time_ms=20_000)
         new_state = process_event(state, ev)
-        # success_time and p_die seeded; death_time unchanged
-        assert all(v is not None for v in new_state.log_success_time_emas)
-        assert all(v is not None for v in new_state.p_die_emas)
-        assert all(v is None for v in new_state.log_death_time_emas)
+        # success_time and p_die have non-zero denoms at every alpha > 0;
+        # death_time denoms remain at 0 (no death observed).
+        for i, alpha in enumerate(ALPHA_GRID):
+            if alpha > 0.0:
+                assert new_state.log_success_time_denoms[i] > 0.0
+                assert new_state.p_die_denoms[i] > 0.0
+            else:
+                assert new_state.log_success_time_denoms[i] == 0.0
+                assert new_state.p_die_denoms[i] == 0.0
+            assert new_state.log_death_time_denoms[i] == 0.0
         assert new_state.n_successes == 1
         assert new_state.n_deaths == 0
         assert new_state.n_attempts_total == 1
-        # outcome bit for success = 0 (death=1)
-        assert new_state.p_die_emas[5] == 0.0
+        # p_die EMA for success = 0 (Bernoulli bit = 0 / denom)
+        assert new_state.p_die_ema(5) == 0.0
 
     def test_death_updates_death_time_and_p_die_only(self):
         from spinlab.estimators.em_suite_sampler import (
-            SamplerState, process_event,
+            ALPHA_GRID, SamplerState, process_event,
         )
         from tests.factories import make_event_attempt
 
         state = SamplerState()
         ev = make_event_attempt(outcome="died", time_ms=5_000)
         new_state = process_event(state, ev)
-        assert all(v is not None for v in new_state.log_death_time_emas)
-        assert all(v is not None for v in new_state.p_die_emas)
-        assert all(v is None for v in new_state.log_success_time_emas)
+        for i, alpha in enumerate(ALPHA_GRID):
+            if alpha > 0.0:
+                assert new_state.log_death_time_denoms[i] > 0.0
+                assert new_state.p_die_denoms[i] > 0.0
+            else:
+                assert new_state.log_death_time_denoms[i] == 0.0
+                assert new_state.p_die_denoms[i] == 0.0
+            assert new_state.log_success_time_denoms[i] == 0.0
         assert new_state.n_successes == 0
         assert new_state.n_deaths == 1
-        # outcome bit for death = 1
-        assert new_state.p_die_emas[5] == 1.0
+        # p_die EMA for death = 1.0 (Bernoulli bit = 1 / denom)
+        assert new_state.p_die_ema(5) == 1.0
 
     def test_invalidated_event_does_not_update_state(self):
         from spinlab.estimators.em_suite_sampler import (
@@ -147,7 +177,7 @@ class TestProcessEvent:
         new_state = process_event(state, ev)
         assert new_state == state
 
-    def test_log_time_stored_in_log_space(self):
+    def test_log_time_first_observation_seeds_ema_at_observed_log(self):
         from spinlab.estimators.em_suite_sampler import (
             SamplerState, process_event,
         )
@@ -156,11 +186,14 @@ class TestProcessEvent:
         state = SamplerState()
         ev = make_event_attempt(outcome="survived", time_ms=20_000)
         new_state = process_event(state, ev)
-        # Seeded value is log(20000)
+        # First observation → EMA = log(20000) at every alpha > 0.
         expected = math.log(20_000)
-        assert math.isclose(new_state.log_success_time_emas[5], expected)
+        assert math.isclose(new_state.log_success_time_ema(5), expected)
 
-    def test_two_successes_apply_ema_update_on_second(self):
+    def test_two_successes_apply_normalized_ema_on_second(self):
+        # With S_0=0, D_0=0, after two observations the normalized weights
+        # are NOT equal at α=0.5 (recent observation gets more weight than
+        # the prior because we don't bake in a "X_0 = X_1" synthetic).
         from spinlab.estimators.em_suite_sampler import (
             ALPHA_GRID, SamplerState, process_event,
         )
@@ -173,12 +206,58 @@ class TestProcessEvent:
         state = process_event(
             state, make_event_attempt(outcome="survived", time_ms=40_000),
         )
-        # At alpha=0.5: new = 0.5*log(40000) + 0.5*log(10000)
+        # At alpha=0.5 normalized:
+        #   S_2 = 0.5*log(40000) + 0.5*0.5*log(10000) = 0.5*L40 + 0.25*L10
+        #   D_2 = 0.5 + 0.5*0.5 = 0.75
+        #   EMA = (0.5*L40 + 0.25*L10) / 0.75 = (2*L40 + L10) / 3
         idx = ALPHA_GRID.index(0.5)
-        expected = 0.5 * math.log(40_000) + 0.5 * math.log(10_000)
-        assert math.isclose(state.log_success_time_emas[idx], expected)
+        L40 = math.log(40_000)
+        L10 = math.log(10_000)
+        expected = (2.0 * L40 + L10) / 3.0
+        assert math.isclose(state.log_success_time_ema(idx), expected)
         assert state.n_successes == 2
         assert state.n_attempts_total == 2
+
+    def test_normalization_fixes_anchoring_at_low_alpha(self):
+        # The cure for the bug Andrew identified: with all five observations
+        # equal to a constant K, the normalized EMA at α=0.01 should be K
+        # (matching the empirical mean) — NOT anchored 96% to X_1.
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, SamplerState, process_event,
+        )
+        from tests.factories import make_event_attempt
+
+        state = SamplerState()
+        for _ in range(5):
+            state = process_event(
+                state, make_event_attempt(outcome="survived", time_ms=12_345),
+            )
+        idx_slow = ALPHA_GRID.index(0.01)
+        assert math.isclose(state.log_success_time_ema(idx_slow), math.log(12_345))
+
+    def test_p_die_normalized_matches_empirical_under_low_alpha(self):
+        # 1 death then 4 survives. Under the standard EMA at α=0.01 the
+        # p_die value would stay near 1.0 (heavily anchored to the first
+        # observation). Under the normalized EMA it should drop toward the
+        # empirical rate 1/5 = 0.20.
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, SamplerState, process_event,
+        )
+        from tests.factories import make_event_attempt
+
+        state = SamplerState()
+        state = process_event(state, make_event_attempt(outcome="died", time_ms=5_000))
+        for _ in range(4):
+            state = process_event(
+                state, make_event_attempt(outcome="survived", time_ms=20_000),
+            )
+        idx_slow = ALPHA_GRID.index(0.01)
+        p = state.p_die_ema(idx_slow)
+        # Should be near 0.20 (within a couple percentage points; the
+        # recency weighting still tilts a little toward the recent four
+        # survives, pulling p slightly below 1/5).
+        assert p is not None
+        assert 0.15 < p < 0.25
 
 
 class TestTrendSignalSlopes:
@@ -210,7 +289,27 @@ class TestTrendSignalSlopes:
         state = process_event(state, make_event_attempt(outcome="died", time_ms=5_000))
         assert trend_signal_slopes(state, fast_idx=5, slow_idx=2) is None
 
-    def test_returns_slopes_when_gate_passes(self):
+    def test_returns_none_when_alpha_is_zero(self):
+        # α=0.0 never gains a denom, so its EMA is None even after the gate
+        # clears. Any pair involving idx=0 must return None.
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, process_event, trend_signal_slopes,
+        )
+        from tests.factories import make_event_attempt
+
+        state = SamplerState()
+        for t in (10_000, 8_000):
+            state = process_event(
+                state, make_event_attempt(outcome="survived", time_ms=t),
+            )
+        for t in (5_000, 4_000):
+            state = process_event(
+                state, make_event_attempt(outcome="died", time_ms=t),
+            )
+        # Pair (fast=8, slow=0) → slow has no EMA, slope undefined.
+        assert trend_signal_slopes(state, fast_idx=8, slow_idx=0) is None
+
+    def test_returns_slopes_when_gate_passes_and_both_alphas_have_data(self):
         from spinlab.estimators.em_suite_sampler import (
             SamplerState, process_event, trend_signal_slopes,
         )
@@ -259,6 +358,14 @@ class TestExpectedEpisodeTime:
         assert expected_episode_time_ms(state, 5, 2, apply_slope=False) is None
         assert expected_episode_time_ms(state, 5, 2, apply_slope=True) is None
 
+    def test_returns_none_for_alpha_zero_baseline(self):
+        # α=0 cell can't produce a baseline EMA — denom is always 0.
+        from spinlab.estimators.em_suite_sampler import (
+            expected_episode_time_ms,
+        )
+        state = self._populated_state()
+        assert expected_episode_time_ms(state, 0, 0, apply_slope=False) is None
+
     def test_baseline_matches_geometric_formula(self):
         from spinlab.estimators.em_suite_sampler import (
             expected_episode_time_ms,
@@ -270,10 +377,10 @@ class TestExpectedEpisodeTime:
             state, fast_idx, fast_idx, apply_slope=False,
         )
         assert result is not None
-        # Reconstruct the formula to compare
-        s = math.exp(state.log_success_time_emas[fast_idx])
-        d = math.exp(state.log_death_time_emas[fast_idx])
-        p = state.p_die_emas[fast_idx]
+        # Reconstruct the formula from the accessor EMAs.
+        s = math.exp(state.log_success_time_ema(fast_idx))
+        d = math.exp(state.log_death_time_ema(fast_idx))
+        p = state.p_die_ema(fast_idx)
         expected = s + (p / (1.0 - p)) * (d + DEFAULT_DEATH_PENALTY_MS)
         assert math.isclose(result, expected, rel_tol=1e-9)
 
@@ -294,6 +401,7 @@ class TestExpectedEpisodeTime:
         assert not math.isclose(baseline, sloped, rel_tol=1e-9)
 
     def test_returns_none_when_p_die_too_close_to_one(self):
+        # Force the p_die EMA at index 8 to ≈ 1 via direct Sum/Denom set.
         from spinlab.estimators.em_suite_sampler import (
             SamplerState, expected_episode_time_ms, process_event,
         )
@@ -304,13 +412,14 @@ class TestExpectedEpisodeTime:
             state = process_event(
                 state, make_event_attempt(outcome="survived", time_ms=t),
             )
-        # Manually push p_die EMA at index 8 to ~1.0 to simulate the divergent case
-        state.p_die_emas[8] = 1.0 - 1e-9
         for t in (5_000, 4_500):
             state = process_event(
                 state, make_event_attempt(outcome="died", time_ms=t),
             )
-        # The deaths will push p_die up further; baseline at idx 8 should still diverge
+        # Force EMA = 1.0 by setting Sum == Denom at idx 8
+        state.p_die_sums[8] = 0.5
+        state.p_die_denoms[8] = 0.5
+        # Now p_die_ema(8) = 1.0 ≥ 1 - LOGIT_EPS → diverges
         assert expected_episode_time_ms(state, 8, 2, apply_slope=False) is None
 
 
@@ -343,11 +452,9 @@ class TestBuildMatrix:
         assert all(len(row) == n for row in result["matrix"])
 
     def test_matrix_is_upper_triangular(self):
-        # Cells where fast_idx <= slow_idx are always None by construction;
-        # cells where fast > slow may legitimately be None at the α=1.0
-        # endpoint when recent attempts are an all-death streak (p_die → 1
-        # diverges the geometric mean). What we assert: lower triangle +
-        # diagonal are None; upper triangle has at least one non-None cell.
+        # Lower triangle + diagonal are None by construction; upper triangle
+        # has at least one non-None cell. α=0 endpoints and α=1 + death-streak
+        # can legitimately produce None even in the upper triangle.
         from spinlab.estimators.em_suite_sampler import (
             ALPHA_GRID, build_matrix,
         )
@@ -365,6 +472,13 @@ class TestBuildMatrix:
                         result["matrix"][fast_idx][slow_idx]
                     )
         assert any(v is not None for v in upper_triangle_values)
+
+    def test_alpha_zero_baseline_row_is_none(self):
+        # The α=0.0 anchor never gains a denominator, so its sample(0) row
+        # must read None regardless of how much data has landed.
+        from spinlab.estimators.em_suite_sampler import build_matrix
+        result = build_matrix(self._populated_state())
+        assert result["baseline"][0] is None
 
     def test_baseline_contains_no_slope_predictions(self):
         from spinlab.estimators.em_suite_sampler import (

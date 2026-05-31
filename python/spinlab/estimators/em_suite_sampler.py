@@ -11,6 +11,20 @@ of three quantities per segment:
 Trend signal = E_fast − E_slow per quantity, in log-space for times and
 logit-space for p_die. Predictions are closed-form mean of the geometric
 process: E[episode_time] = success_time + (p/(1−p)) * (death_time + reload).
+
+**Normalized EMA.** Each EMA is stored as a (Sum, Denom) pair, updated by
+
+    new_S = alpha * obs + (1 - alpha) * S      (S_0 = 0)
+    new_D = alpha       + (1 - alpha) * D      (D_0 = 0)
+    EMA   = S / D                              (None when D == 0)
+
+This is the finite-sample correction over the standard `new = α·obs + (1-α)·old`
+update with a "seed at first observation" hack. The standard form implicitly
+assumes a synthetic prior `X_0 = X_1`, which gives the first observation
+weight `(1-α)^(N-1)` after N samples — ~96% for α=0.01 at N=5. The normalized
+form divides by the actually-observed weight mass `1 − (1-α)^N` so the
+weights on real observations sum to 1. Both converge to the same value as
+N → ∞; the normalized form is materially more honest at small N.
 """
 from __future__ import annotations
 
@@ -33,75 +47,92 @@ from spinlab.models import (
 
 # Decay-rate grid (locked, strictly ascending). Endpoints (0.0, 1.0) are
 # sanity-check anchors that should look obviously broken on the matrix.
+# Note: under the normalized scheme, α=0.0 produces D = 0 forever and so
+# never yields a valid EMA — the cell will remain "—" no matter how much
+# data lands. That's the honest reading of "never incorporate observations."
 ALPHA_GRID: tuple[float, ...] = (
     0.0, 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0,
 )
 
 
-def update_ema_array(
-    values: list[float | None], observation: float,
-) -> list[float | None]:
-    """Apply one EMA update to all alphas in the suite, in parallel.
+def ema_step(values: list[float], driver: float) -> list[float]:
+    """Apply one EMA-style update to all alphas in parallel.
 
-    For each alpha:
-      - If existing value is None, seed at observation (no decay yet).
-      - Else, value' = alpha * observation + (1 - alpha) * value.
+    For each alpha: new[i] = alpha * driver + (1 - alpha) * values[i].
 
-    ``values`` MUST have length ``len(ALPHA_GRID)``; passing a shorter list
-    is a programming error (results would be silently truncated by ``zip``).
-    Returns a new list; does not mutate input.
+    Used for both the Sum (driver = observation) and Denom (driver = 1.0)
+    accumulators inside the normalized EMA. Lengths must match ALPHA_GRID;
+    a mismatch is a programming error (silent zip truncation otherwise).
     """
     if len(values) != len(ALPHA_GRID):
         raise ValueError(
             f"values has length {len(values)}, expected {len(ALPHA_GRID)}",
         )
-    return [
-        observation if v is None
-        else (alpha * observation + (1.0 - alpha) * v)
-        for v, alpha in zip(values, ALPHA_GRID)
-    ]
+    return [a * driver + (1.0 - a) * v for v, a in zip(values, ALPHA_GRID)]
+
+
+def _ema(s: float, d: float) -> float | None:
+    """Compute EMA from a (Sum, Denom) pair. None when D == 0 (no data yet)."""
+    return None if d == 0.0 else s / d
 
 
 @dataclass
 class SamplerState(EstimatorState):
-    """Per-segment EMA-suite state.
+    """Per-segment EMA-suite state, normalized form.
 
-    Each EMA array is indexed by ALPHA_GRID position. Values are None until
-    the segment observes its first attempt of the matching kind. Subsequent
-    attempts apply the normal update rule (see update_ema_array).
+    Each tracked quantity is two parallel arrays indexed by ALPHA_GRID
+    position: a Sum accumulator and a Denom accumulator. The EMA is
+    Sum / Denom; an unused alpha (D == 0) reads as None.
 
-    log_success_time_emas: EMA of log(gameplay_ms) for successful completions.
-      Seeded on first success; None until then.
-    log_death_time_emas: EMA of log(gameplay_ms) for fatal attempts.
-      Seeded on first death; None until then.
-    p_die_emas: EMA of Bernoulli outcome (1=death, 0=success) per attempt.
-      Seeded on first attempt of any kind.
+    For times we accumulate log(time_ms); for p_die we accumulate the
+    Bernoulli outcome bit (1 if died else 0).
 
     n_successes / n_deaths / n_attempts_total drive the prediction-gate
-    check (nil-until-2 of each).
+    check (nil-until-2 of each kind).
 
     Inherits n_completed / n_attempts from EstimatorState (the scheduler
     reads those generically; do not redefine them here).
     """
 
-    log_success_time_emas: list[float | None] = field(
-        default_factory=lambda: [None] * len(ALPHA_GRID),
+    log_success_time_sums: list[float] = field(
+        default_factory=lambda: [0.0] * len(ALPHA_GRID),
     )
-    log_death_time_emas: list[float | None] = field(
-        default_factory=lambda: [None] * len(ALPHA_GRID),
+    log_success_time_denoms: list[float] = field(
+        default_factory=lambda: [0.0] * len(ALPHA_GRID),
     )
-    p_die_emas: list[float | None] = field(
-        default_factory=lambda: [None] * len(ALPHA_GRID),
+    log_death_time_sums: list[float] = field(
+        default_factory=lambda: [0.0] * len(ALPHA_GRID),
+    )
+    log_death_time_denoms: list[float] = field(
+        default_factory=lambda: [0.0] * len(ALPHA_GRID),
+    )
+    p_die_sums: list[float] = field(
+        default_factory=lambda: [0.0] * len(ALPHA_GRID),
+    )
+    p_die_denoms: list[float] = field(
+        default_factory=lambda: [0.0] * len(ALPHA_GRID),
     )
     n_successes: int = 0
     n_deaths: int = 0
     n_attempts_total: int = 0
 
+    def log_success_time_ema(self, idx: int) -> float | None:
+        return _ema(self.log_success_time_sums[idx], self.log_success_time_denoms[idx])
+
+    def log_death_time_ema(self, idx: int) -> float | None:
+        return _ema(self.log_death_time_sums[idx], self.log_death_time_denoms[idx])
+
+    def p_die_ema(self, idx: int) -> float | None:
+        return _ema(self.p_die_sums[idx], self.p_die_denoms[idx])
+
     def to_dict(self) -> dict:
         return {
-            "log_success_time_emas": list(self.log_success_time_emas),
-            "log_death_time_emas": list(self.log_death_time_emas),
-            "p_die_emas": list(self.p_die_emas),
+            "log_success_time_sums": list(self.log_success_time_sums),
+            "log_success_time_denoms": list(self.log_success_time_denoms),
+            "log_death_time_sums": list(self.log_death_time_sums),
+            "log_death_time_denoms": list(self.log_death_time_denoms),
+            "p_die_sums": list(self.p_die_sums),
+            "p_die_denoms": list(self.p_die_denoms),
             "n_successes": self.n_successes,
             "n_deaths": self.n_deaths,
             "n_attempts_total": self.n_attempts_total,
@@ -110,9 +141,12 @@ class SamplerState(EstimatorState):
     @classmethod
     def from_dict(cls, d: dict) -> "SamplerState":
         return cls(
-            log_success_time_emas=list(d["log_success_time_emas"]),
-            log_death_time_emas=list(d["log_death_time_emas"]),
-            p_die_emas=list(d["p_die_emas"]),
+            log_success_time_sums=list(d["log_success_time_sums"]),
+            log_success_time_denoms=list(d["log_success_time_denoms"]),
+            log_death_time_sums=list(d["log_death_time_sums"]),
+            log_death_time_denoms=list(d["log_death_time_denoms"]),
+            p_die_sums=list(d["p_die_sums"]),
+            p_die_denoms=list(d["p_die_denoms"]),
             n_successes=d["n_successes"],
             n_deaths=d["n_deaths"],
             n_attempts_total=d["n_attempts_total"],
@@ -128,6 +162,7 @@ def process_event(state: SamplerState, event: EventAttempt) -> SamplerState:
     - Invalidated events are no-ops (returned state == input state).
     - p_die updates on every attempt (outcome_bit = 1 if died else 0).
     - The matching time EMA updates only on attempts of that outcome.
+    - Each EMA update advances BOTH the Sum and Denom accumulators.
     - n_attempts_total / n_successes / n_deaths advance accordingly.
 
     Returns a new state; does not mutate the input.
@@ -139,22 +174,31 @@ def process_event(state: SamplerState, event: EventAttempt) -> SamplerState:
     outcome_bit = 1.0 if is_death else 0.0
     log_time = math.log(max(event.time_ms, 1))
 
-    new_p_die = update_ema_array(state.p_die_emas, outcome_bit)
+    new_p_die_sums = ema_step(state.p_die_sums, outcome_bit)
+    new_p_die_denoms = ema_step(state.p_die_denoms, 1.0)
+
     if is_death:
-        new_log_death = update_ema_array(state.log_death_time_emas, log_time)
-        new_log_success = state.log_success_time_emas
+        new_log_death_sums = ema_step(state.log_death_time_sums, log_time)
+        new_log_death_denoms = ema_step(state.log_death_time_denoms, 1.0)
+        new_log_success_sums = state.log_success_time_sums
+        new_log_success_denoms = state.log_success_time_denoms
         new_n_deaths = state.n_deaths + 1
         new_n_successes = state.n_successes
     else:
-        new_log_success = update_ema_array(state.log_success_time_emas, log_time)
-        new_log_death = state.log_death_time_emas
+        new_log_success_sums = ema_step(state.log_success_time_sums, log_time)
+        new_log_success_denoms = ema_step(state.log_success_time_denoms, 1.0)
+        new_log_death_sums = state.log_death_time_sums
+        new_log_death_denoms = state.log_death_time_denoms
         new_n_successes = state.n_successes + 1
         new_n_deaths = state.n_deaths
 
     return SamplerState(
-        log_success_time_emas=new_log_success,
-        log_death_time_emas=new_log_death,
-        p_die_emas=new_p_die,
+        log_success_time_sums=new_log_success_sums,
+        log_success_time_denoms=new_log_success_denoms,
+        log_death_time_sums=new_log_death_sums,
+        log_death_time_denoms=new_log_death_denoms,
+        p_die_sums=new_p_die_sums,
+        p_die_denoms=new_p_die_denoms,
         n_successes=new_n_successes,
         n_deaths=new_n_deaths,
         n_attempts_total=state.n_attempts_total + 1,
@@ -188,7 +232,9 @@ def trend_signal_slopes(
 ) -> tuple[float, float, float] | None:
     """Compute (slope_log_success, slope_log_death, slope_logit_p_die).
 
-    Returns None when the prediction gate fails (nil-until-2 of each kind).
+    Returns None when the prediction gate fails, OR when either alpha is
+    the α=0.0 anchor (its EMA never gains a denominator, so no slope is
+    available against it).
 
     Each slope is E_fast − E_slow, in log-space for times and logit-space
     for p_die. The logit values are clamped to [LOGIT_EPS, 1−LOGIT_EPS] to
@@ -196,16 +242,16 @@ def trend_signal_slopes(
     """
     if not _gate_passes(state):
         return None
-    s_fast = state.log_success_time_emas[fast_idx]
-    s_slow = state.log_success_time_emas[slow_idx]
-    d_fast = state.log_death_time_emas[fast_idx]
-    d_slow = state.log_death_time_emas[slow_idx]
-    p_fast = state.p_die_emas[fast_idx]
-    p_slow = state.p_die_emas[slow_idx]
-    # Gate guarantees ≥ 2 of each outcome, so the matching EMAs are seeded.
-    assert s_fast is not None and s_slow is not None
-    assert d_fast is not None and d_slow is not None
-    assert p_fast is not None and p_slow is not None
+    s_fast = state.log_success_time_ema(fast_idx)
+    s_slow = state.log_success_time_ema(slow_idx)
+    d_fast = state.log_death_time_ema(fast_idx)
+    d_slow = state.log_death_time_ema(slow_idx)
+    p_fast = state.p_die_ema(fast_idx)
+    p_slow = state.p_die_ema(slow_idx)
+    if (s_fast is None or s_slow is None
+            or d_fast is None or d_slow is None
+            or p_fast is None or p_slow is None):
+        return None
     return (
         s_fast - s_slow,
         d_fast - d_slow,
@@ -228,20 +274,23 @@ def expected_episode_time_ms(
       death_time   = exp(log_E_fast_death   [+ slope_log_death   if apply_slope])
       p            = p_E_fast               [shifted in logit space if apply_slope]
 
-    Returns None when the prediction gate fails or when p is too close to 1
-    (the geometric mean diverges as p → 1).
+    Returns None when the prediction gate fails, when the chosen alpha has
+    no observations yet (denom == 0), or when p is too close to 1 (the
+    geometric mean diverges as p → 1).
     """
     if not _gate_passes(state):
         return None
 
-    s_fast = state.log_success_time_emas[fast_idx]
-    d_fast = state.log_death_time_emas[fast_idx]
-    p_fast = state.p_die_emas[fast_idx]
-    assert s_fast is not None and d_fast is not None and p_fast is not None
+    s_fast = state.log_success_time_ema(fast_idx)
+    d_fast = state.log_death_time_ema(fast_idx)
+    p_fast = state.p_die_ema(fast_idx)
+    if s_fast is None or d_fast is None or p_fast is None:
+        return None
 
     if apply_slope:
         slopes = trend_signal_slopes(state, fast_idx, slow_idx)
-        assert slopes is not None  # gate already passed
+        if slopes is None:
+            return None
         slope_log_success, slope_log_death, slope_logit_p_die = slopes
         success_time = math.exp(s_fast + slope_log_success)
         death_time = math.exp(d_fast + slope_log_death)
@@ -268,7 +317,8 @@ def build_matrix(
       - matrix: list[list[float|None]] — sample(1) per (fast_idx, slow_idx).
         Upper-triangular: cell [fast][slow] is non-None iff fast > slow.
 
-    None cells appear when either the prediction gate fails (insufficient data)
+    None cells appear when either the prediction gate fails (insufficient data),
+    when an alpha hasn't accumulated any observations (α=0.0 forever),
     or when fast_idx <= slow_idx.
     """
     n = len(ALPHA_GRID)
