@@ -90,7 +90,10 @@ class TestSchedulerProcessAttempt:
         for r in rows:
             out = ModelOutput.from_dict(json.loads(r["output_json"]))
             # exp_decay returns all None with < 3 points — that's correct.
-            if r["estimator"] not in ("exp_decay",):
+            # em_suite_sampler intentionally returns None for legacy
+            # ModelOutput fields (it serves predictions via a dedicated
+            # /em-suite-matrix route, not via the expected_ms field).
+            if r["estimator"] not in ("exp_decay", "em_suite_sampler"):
                 assert out.total.expected_ms is not None or out.clean.expected_ms is not None
 
     def test_process_attempt_incomplete(self, db_with_segments):
