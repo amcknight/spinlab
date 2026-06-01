@@ -641,6 +641,9 @@ class EmSuiteSamplerEstimator(Estimator):
         # calls once events are in the DB. n_completed=1 here ensures the 2nd
         # attempt routes to process_attempt → rebuild_state rather than looping
         # back through init_state (which would discard event history every call).
+        # Transient: the bare-state init_state/process_attempt routing is removed
+        # when the scheduler collapses to a single sampler (Plan 2 Task 4); after
+        # that em_suite always goes through rebuild_state and init_state is unused.
         state = SamplerState()
         state.n_completed = 1
         state.n_attempts = 1

@@ -129,6 +129,23 @@ class TestSamplerState:
         s2 = SamplerState.from_dict(d)
         assert s2 == s
 
+    def test_serialization_roundtrips_base_counters(self):
+        # Regression: n_completed / n_attempts are inherited from EstimatorState
+        # and were omitted from to_dict/from_dict, so they reset to 0 on reload —
+        # which broke the scheduler's bare-state routing AND the table's "Runs"
+        # column (SegmentWithModel reads n_completed from state_json).
+        st = SamplerState()
+        st = process_event(st, _evt("survived", 2000))
+        st = process_event(st, _evt("died", 500))
+        st.n_completed = 3
+        st.n_attempts = 7
+        restored = SamplerState.from_dict(st.to_dict())
+        assert restored.n_completed == 3
+        assert restored.n_attempts == 7
+        # and the rest still round-trips
+        assert restored.n_successes == st.n_successes
+        assert restored.success_time_pool == st.success_time_pool
+
     def test_registered_with_estimator_state(self):
         from spinlab.estimators import EstimatorState
         # Importing the module registers SamplerState
