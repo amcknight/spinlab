@@ -74,7 +74,7 @@ class SegmentRecorder:
         # Source tag stamped on every EventAttempt written by this recorder.
         # Live reference runs use REFERENCE; replay runs use REPLAY so their
         # wall-clock-collapsed frame deltas never pollute the model's time pools.
-        # Set at arm time via _enter_recording — never mutated from outside.
+        # Set at arm time via set_source() — never mutated from outside.
         self._source: AttemptSource = AttemptSource.REFERENCE
         self.capture_run_id: str | None = None
         self.current_capture_session_id: str | None = None
@@ -107,6 +107,10 @@ class SegmentRecorder:
         """Swap the active condition registry (called on game-switch)."""
         self._condition_registry = registry
 
+    def set_source(self, source: AttemptSource) -> None:
+        """Set the source tag stamped on subsequent EventAttempt writes (arm-time)."""
+        self._source = source
+
     def clear(self) -> None:
         """Reset per-session state. Does NOT clear DB rows."""
         self.capture_run_id = None
@@ -121,6 +125,7 @@ class SegmentRecorder:
         self._pending_events = []
         self._next_event_is_first = False
         self._next_first_is_hot = False
+        self._source = AttemptSource.REFERENCE
 
     def _arm_new_episode(self, start_ts_ms: int, *, is_hot: bool = False) -> None:
         """Mint a fresh episode_id for the upcoming segment and reset

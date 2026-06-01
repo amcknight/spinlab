@@ -143,7 +143,7 @@ class ReferenceController:
         self.paused_run_id = None
         self.recorder.capture_run_id = run_id
         self.recorder.current_capture_session_id = session_id
-        self.recorder._source = source
+        self.recorder.set_source(source)
         self._assert_run_state_invariant()
 
     def _enter_paused(self, run_id: str) -> None:
