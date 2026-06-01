@@ -155,8 +155,16 @@ The "re-seed a deleted run from a replay" idea Andrew floated is **explicitly de
 
 ## Migration / data
 
-- No new schema migration is strictly required: the `model_state` table can continue to hold the single sampler's serialized state. If the `output_json` column becomes vestigial (no more `ModelOutput`), it may be left unused or cleaned up via a migration — decide at plan time; immutable-migration rules apply.
-- Existing per-estimator rows for the five deleted models become dead rows; a one-shot cleanup (or a `db reset` in local dev) clears them. Not destructive to source-of-truth event data.
+**Zero schema migrations.** This spec deletes *code*, not table shapes. The `model_state` and `allocator_config` table schemas are untouched; `output_json` simply goes unused (dropping a SQLite column is a table-rebuild for no benefit — leave it). So no `migrations/NNNN_*.sql` file is added.
+
+**Two data classes, treated oppositely:**
+- **Event data (`attempts` table) is source of truth and is never touched.** Beto's collection and all recorded events survive intact. Wiping the database wholesale would be wrong — it is the only non-regenerable data.
+- **Derived data (`model_state` rows, stale `allocator_config` keys, optionally `segment_fits`) is fully recomputable from the event log** and is wiped + rebuilt. This is a one-shot runtime cleanup, not a migration:
+  - `DELETE FROM model_state` (clears the 5 deleted models' orphan rows *and* em_suite's old-format rows — its `SamplerState` gains the two pools, so old serialized state is stale anyway).
+  - Delete `allocator_config` keys `estimator` and `estimator_params:*`.
+  - Rebuild em_suite `model_state` from events (the existing replay path), lazily on next read or eagerly via a `rebuild_all_states`-style pass.
+
+This makes "start over" safe: only the derived cache resets; the precious event data is inviolate.
 
 ## Testing
 
