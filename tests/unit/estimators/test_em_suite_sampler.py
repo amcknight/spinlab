@@ -855,8 +855,8 @@ class TestSampleEpisode:
         draws = [sample_episode(st, fast_idx=6, slow_idx=4, k=0, rng=rng)
                  for _ in range(200)]
         assert all(d is not None and d > 0 for d in draws)
-        # A draw with >=1 death must exceed the minimum success time alone.
-        assert max(draws) > 2000
+        # Max pure-success draw is 2100 (success pool max); exceeding it proves >=1 death contributed.
+        assert max(draws) > 2100
 
     def test_sample_episode_gated_out_when_no_deaths(self):
         import random
@@ -880,6 +880,32 @@ class TestSampleEpisode:
                 return [seq[-1]]
 
         assert sample_episode(st, fast_idx=6, slow_idx=4, rng=AlwaysDie()) is None
+
+    def test_sample_episode_k1_applies_success_slide_deterministically(self):
+        from spinlab.estimators.em_suite_sampler import sample_episode, trend_signal_slopes
+        # Clear improving trend so the success slope is non-trivial.
+        st = SamplerState()
+        for outcome, t in [("died", 1000), ("survived", 3000), ("died", 900),
+                           ("survived", 2500), ("died", 800), ("survived", 2000),
+                           ("survived", 1500)]:
+            st = process_event(st, _evt(outcome, t))
+
+        class SurviveNewest:
+            def random(self):
+                return 1.0  # never < p in [0,1) -> always survives first attempt
+
+            def choices(self, seq, weights, k):
+                return [seq[-1]]  # always the newest pool entry
+
+        rng = SurviveNewest()
+        r0 = sample_episode(st, fast_idx=6, slow_idx=4, k=0, rng=rng)
+        r1 = sample_episode(st, fast_idx=6, slow_idx=4, k=1, rng=rng)
+        slopes = trend_signal_slopes(st, 6, 4)
+        assert slopes is not None
+        slope_log_success = slopes[0]
+        # k=1 = one trend-step of the improving trend applied multiplicatively.
+        assert r0 is not None and r1 is not None
+        assert math.isclose(r1 / r0, math.exp(slope_log_success), rel_tol=1e-9)
 
 
 class TestRecencyDrawPools:
