@@ -360,14 +360,23 @@ class TestExpectedEpisodeTime:
 
     def test_alpha_zero_baseline_produces_uniform_mean_prediction(self):
         # α=0 is the zero-decay anchor (uniform all-time mean). After
-        # sufficient data it produces a valid baseline prediction.
+        # sufficient data it must equal the geometric-process formula evaluated
+        # at the uniform means: success_time=exp(mean_log_success),
+        # death_time=exp(mean_log_death), p=3/6=0.5.
+        # _populated_state: successes (20000, 21000, 19000), deaths (5000, 4500, 5500).
         from spinlab.estimators.em_suite_sampler import (
             expected_episode_time_ms,
         )
+        from spinlab.models import DEFAULT_DEATH_PENALTY_MS
         state = self._populated_state()
         result = expected_episode_time_ms(state, 0, 0, apply_slope=False)
         assert result is not None
-        assert result > 0.0
+        # Uniform mean of log-times -> state.log_success_time_ema(0) and log_death_time_ema(0).
+        s = math.exp(state.log_success_time_ema(0))
+        d = math.exp(state.log_death_time_ema(0))
+        p = state.p_die_ema(0)  # = 0.5 (3 deaths / 6 attempts)
+        expected = s + (p / (1.0 - p)) * (d + DEFAULT_DEATH_PENALTY_MS)
+        assert math.isclose(result, expected, rel_tol=1e-9)
 
     def test_baseline_matches_geometric_formula(self):
         from spinlab.estimators.em_suite_sampler import (
@@ -478,11 +487,18 @@ class TestBuildMatrix:
 
     def test_alpha_zero_baseline_row_produces_uniform_mean_prediction(self):
         # The α=0.0 anchor is the zero-decay (uniform all-time mean) slot.
-        # After sufficient data it produces a valid baseline prediction.
+        # baseline[0] must equal the geometric-process formula at the uniform
+        # means, mirroring test_baseline_matches_geometric_formula for α=0.5.
         from spinlab.estimators.em_suite_sampler import build_matrix
-        result = build_matrix(self._populated_state())
+        from spinlab.models import DEFAULT_DEATH_PENALTY_MS
+        state = self._populated_state()
+        result = build_matrix(state)
         assert result["baseline"][0] is not None
-        assert result["baseline"][0] > 0.0
+        s = math.exp(state.log_success_time_ema(0))
+        d = math.exp(state.log_death_time_ema(0))
+        p = state.p_die_ema(0)  # = 0.5 (3 deaths / 6 attempts)
+        expected = s + (p / (1.0 - p)) * (d + DEFAULT_DEATH_PENALTY_MS)
+        assert math.isclose(result["baseline"][0], expected, rel_tol=1e-9)
 
     def test_baseline_contains_no_slope_predictions(self):
         from spinlab.estimators.em_suite_sampler import (

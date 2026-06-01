@@ -95,8 +95,12 @@ def test_returns_populated_matrix_after_enough_events(db, client):
     for key, grid in body["param_history"].items():
         assert len(grid) == 10, f"{key} alpha rows"
         assert all(len(row) == 5 for row in grid), f"{key} snapshot length"
-        # α=0.0 anchor stays None at every snapshot
-        assert all(v is None for v in grid[0])
+        # α=0.0 anchor: snapshot 0 (empty state) is None; after observations
+        # it accumulates the uniform all-time mean, so the row is NOT all-None.
+        assert grid[0][0] is None, f"{key}: α=0 snapshot-0 should be None"
+        assert any(v is not None for v in grid[0][1:]), (
+            f"{key}: α=0 row should have non-None values after events"
+        )
     # slope_matrices: three 10x10 upper-triangular grids
     assert set(body["slope_matrices"].keys()) == {
         "slope_log_success", "slope_log_death", "slope_logit_p",
