@@ -179,50 +179,9 @@ def test_sse_broadcaster_logs_dropped_subscriber(caplog):
 
 # ---------------------------------------------------------------------------
 # M15 — estimators.load_mature_states logs corrupt state_json
+#   Removed in the model-purge (Plan 2 Task 8): load_mature_states was used
+#   only by the now-deleted Kalman and Exp-Decay priors paths.
 # ---------------------------------------------------------------------------
-
-def test_load_mature_states_logs_corrupt_json(caplog):
-    """Corrupt state_json row must produce a warn with seg/estimator/game context."""
-    from dataclasses import dataclass
-
-    from spinlab.estimators import EstimatorState, load_mature_states
-
-    @dataclass
-    class _DummyState(EstimatorState):
-        def to_dict(self) -> dict:
-            return {"n_completed": self.n_completed}
-
-        @classmethod
-        def from_dict(cls, d: dict) -> "_DummyState":
-            return cls(n_completed=d["n_completed"])
-
-    class _StubDB:
-        def load_all_model_states(self, game_id: str) -> list[dict]:
-            return [
-                {"segment_id": "seg-corrupt", "estimator": "dummy", "state_json": "{not json"},
-                {"segment_id": "seg-ok",      "estimator": "dummy", "state_json": '{"n_completed": 10}'},
-            ]
-
-    caplog.set_level(logging.WARNING, logger="spinlab.estimators")
-    results = load_mature_states(
-        db=_StubDB(),  # type: ignore[arg-type]
-        game_id="game-x",
-        estimator_name="dummy",
-        state_cls=_DummyState,
-        maturity_threshold=5,
-    )
-
-    # The good row should survive
-    assert len(results) == 1
-    assert results[0].n_completed == 10
-
-    # The bad row should have produced a log line with context
-    records = [r for r in caplog.records if "corrupt estimator state" in r.getMessage().lower()]
-    assert records, "expected corrupt-state-json log line"
-    msg = records[0].getMessage()
-    assert "segment_id='seg-corrupt'" in msg, msg
-    assert "estimator='dummy'" in msg, msg
-    assert "game_id='game-x'" in msg, msg
 
 
 # ---------------------------------------------------------------------------

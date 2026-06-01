@@ -38,12 +38,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import random
 
-from spinlab.estimators import (
-    Estimator,
-    EstimatorState,
-    ParamDef,
-    register_estimator,
-)
+from spinlab.estimators import Estimator, EstimatorState
 from spinlab.models import (
     DEFAULT_DEATH_PENALTY_MS,
     AttemptRecord,
@@ -206,11 +201,10 @@ class SamplerState(EstimatorState):
             "n_successes": self.n_successes,
             "n_deaths": self.n_deaths,
             "n_attempts_total": self.n_attempts_total,
-            # Base-class counters — included so the scheduler's n_completed==0
-            # routing guard can distinguish a brand-new state from one that has
-            # been updated at least once. Without these, deserialization resets
-            # both to 0 and the guard permanently routes em_suite through
-            # init_state instead of process_attempt → rebuild_state.
+            # Base-class counters — episode-level totals consumed by the
+            # segments table (SegmentWithModel reads n_completed for the "Runs"
+            # column). Pinned by test_serialization_roundtrips_base_counters
+            # to prevent regressions like the old reset-to-zero-on-load bug.
             "n_completed": self.n_completed,
             "n_attempts": self.n_attempts,
         }
@@ -239,9 +233,6 @@ class SamplerState(EstimatorState):
         state.n_completed = d.get("n_completed", 0)
         state.n_attempts = d.get("n_attempts", 0)
         return state
-
-
-EstimatorState.register_state("em_suite_sampler", SamplerState)
 
 
 def process_event(state: SamplerState, event: EventAttempt) -> SamplerState:
@@ -606,9 +597,8 @@ def build_matrix(
     }
 
 
-@register_estimator
 class EmSuiteSamplerEstimator(Estimator):
-    """ABC adapter — registers the EMA-suite sampler with the estimator pipeline.
+    """ABC adapter — the sole surviving model after the Plan 2 purge.
 
     ModelOutput.total carries the closed-form headline scalar
     (expected_ms / ms_per_attempt) at the DEFAULT_ALPHA_FAST rate with no
@@ -619,48 +609,12 @@ class EmSuiteSamplerEstimator(Estimator):
     The full per-segment prediction matrix is still served via a dedicated
     /em-suite-matrix route, which is independent of this scalar.
 
-    Why register at all: rebuild_state is the canonical entry point for
-    replaying historical events through the sampler — used by both the
-    matrix endpoint and the offline replay script.
+    The scheduler and ``/api/model`` route instantiate this class directly;
+    there is no name-keyed registry indirection any more.
     """
 
     name = "em_suite_sampler"
     display_name = "EMA-Suite Sampler"
-
-    def declared_params(self) -> list[ParamDef]:
-        # No tunable params for v0; the alpha suite is fixed.
-        return []
-
-    def init_state(
-        self, first_attempt: AttemptRecord, priors: dict,
-        params: dict | None = None,
-    ) -> SamplerState:
-        # Return a bare state with n_completed=1 to signal to the scheduler that
-        # this segment has seen at least one completed attempt. The real EMA state
-        # is built by rebuild_state (called from process_attempt) on subsequent
-        # calls once events are in the DB. n_completed=1 here ensures the 2nd
-        # attempt routes to process_attempt → rebuild_state rather than looping
-        # back through init_state (which would discard event history every call).
-        # Transient: the bare-state init_state/process_attempt routing is removed
-        # when the scheduler collapses to a single sampler (Plan 2 Task 4); after
-        # that em_suite always goes through rebuild_state and init_state is unused.
-        state = SamplerState()
-        state.n_completed = 1
-        state.n_attempts = 1
-        return state
-
-    def process_attempt(  # type: ignore[override]
-        self, state: SamplerState, new_attempt: AttemptRecord,
-        all_attempts: list[AttemptRecord],
-        params: dict | None = None,
-        events: list[EventAttempt] | None = None,
-    ) -> SamplerState:
-        # Rebuild from full event list on every call. Matches the
-        # death_aware_rolling pattern: state contains no history, all
-        # computation is on the event log.
-        if events is None:
-            return state
-        return self.rebuild_state(all_attempts, params=params, events=events)
 
     def model_output(  # type: ignore[override]
         self, state: SamplerState, all_attempts: list[AttemptRecord],

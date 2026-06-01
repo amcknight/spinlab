@@ -116,10 +116,10 @@ class TestModelStateDB:
         db.upsert_game("g1", "Game", "any%")
         seg = _make_segment(db, "g1", 1)
 
-        db.save_model_state(seg.id, "kalman", '{"mu": 15.0}', '{"expected_time_ms": 15000.0}')
-        row = db.load_model_state(seg.id, "kalman")
+        db.save_model_state(seg.id, "em_suite_sampler", '{"mu": 15.0}', '{"expected_time_ms": 15000.0}')
+        row = db.load_model_state(seg.id, "em_suite_sampler")
         assert row is not None
-        assert row["estimator"] == "kalman"
+        assert row["estimator"] == "em_suite_sampler"
         assert row["state_json"] == '{"mu": 15.0}'
         assert row["output_json"] == '{"expected_time_ms": 15000.0}'
 

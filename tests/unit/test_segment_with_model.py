@@ -76,12 +76,12 @@ class TestLoadAll:
             clean=Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None),
         )
         state_json = json.dumps({"mu": 12.0, "d": -0.5, "n_completed": 5, "n_attempts": 7})
-        db_with_segments.save_model_state(seg_id, "kalman", state_json, json.dumps(out.to_dict()))
+        db_with_segments.save_model_state(seg_id, "em_suite_sampler", state_json, json.dumps(out.to_dict()))
 
         results = SegmentWithModel.load_all(db_with_segments, "g1")
         seg1 = next(s for s in results if s.segment_id == seg_id)
-        assert "kalman" in seg1.model_outputs
-        assert seg1.model_outputs["kalman"].total.expected_ms == 12000.0
+        assert "em_suite_sampler" in seg1.model_outputs
+        assert seg1.model_outputs["em_suite_sampler"].total.expected_ms == 12000.0
         assert seg1.n_completed == 5
         assert seg1.n_attempts == 7
 
@@ -104,12 +104,12 @@ class TestLoadAll:
         rows = db_with_segments.get_all_segments_with_model("g1")
         seg_id = rows[0]["id"]
         state_json = json.dumps({"n_completed": 1, "n_attempts": 1})
-        db_with_segments.save_model_state(seg_id, "kalman", state_json, "{bad json")
+        db_with_segments.save_model_state(seg_id, "em_suite_sampler", state_json, "{bad json")
         results = SegmentWithModel.load_all(db_with_segments, "g1")
         seg1 = next(s for s in results if s.segment_id == seg_id)
-        assert "kalman" not in seg1.model_outputs
+        assert "em_suite_sampler" not in seg1.model_outputs
 
     def test_selected_model_passthrough(self, db_with_segments):
-        results = SegmentWithModel.load_all(db_with_segments, "g1", selected_model="rolling_mean")
+        results = SegmentWithModel.load_all(db_with_segments, "g1", selected_model="em_suite_sampler")
         for s in results:
-            assert s.selected_model == "rolling_mean"
+            assert s.selected_model == "em_suite_sampler"

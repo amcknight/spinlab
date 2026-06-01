@@ -244,10 +244,10 @@ class EstimatorCurves(_BaseResponse):
     total: EstimatorSeries
     clean: EstimatorSeries
     # DeathExtras from the estimator's final state (after every completed
-    # attempt). None when the estimator doesn't publish death-aware extras
-    # (every estimator other than death_aware_rolling today) or when the
-    # segment has no completed attempts. Drives the death-histogram panel
-    # on the segment detail page.
+    # attempt). None when the segment has no completed attempts. The current
+    # EMA-suite sampler does not publish death-aware extras, so this is
+    # presently always None — the field is held in the schema until Spec #2
+    # redesigns the segment-detail payload.
     final_extras: DeathExtras | None = None
 
 

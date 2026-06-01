@@ -76,21 +76,26 @@ class TestDBMultiModel:
         return db
 
     def test_save_and_load_multi_model_state(self):
+        """The DB stores model_state rows keyed by (segment_id, estimator).
+        Production now writes only `em_suite_sampler` rows, but the DB primitive
+        still supports multiple estimator names per segment — this test pins that
+        capability for future multi-model coexistence (e.g. Spec #3 PGM rollout).
+        """
         db = self._setup_db()
-        out_k = ModelOutput(
+        out_a = ModelOutput(
             total=Estimate(expected_ms=12000.0, ms_per_attempt=500.0, floor_ms=None),
             clean=Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None),
         )
-        out_r = ModelOutput(
+        out_b = ModelOutput(
             total=Estimate(expected_ms=12500.0, ms_per_attempt=300.0, floor_ms=11000.0),
             clean=Estimate(expected_ms=12500.0, ms_per_attempt=300.0, floor_ms=11000.0),
         )
-        db.save_model_state("s1", "kalman", '{"mu": 12.0}', json.dumps(out_k.to_dict()))
-        db.save_model_state("s1", "rolling_mean", '{"n_completed": 5}', json.dumps(out_r.to_dict()))
+        db.save_model_state("s1", "em_suite_sampler", '{"mu": 12.0}', json.dumps(out_a.to_dict()))
+        db.save_model_state("s1", "em_suite_alt", '{"n_completed": 5}', json.dumps(out_b.to_dict()))
         rows = db.load_all_model_states_for_segment("s1")
         assert len(rows) == 2
         names = {r["estimator"] for r in rows}
-        assert names == {"kalman", "rolling_mean"}
+        assert names == {"em_suite_sampler", "em_suite_alt"}
 
     def test_load_model_state_by_estimator(self):
         db = self._setup_db()
@@ -98,10 +103,10 @@ class TestDBMultiModel:
             total=Estimate(expected_ms=12000.0, ms_per_attempt=500.0, floor_ms=None),
             clean=Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None),
         )
-        db.save_model_state("s1", "kalman", '{"mu": 12.0}', json.dumps(out.to_dict()))
-        row = db.load_model_state("s1", "kalman")
+        db.save_model_state("s1", "em_suite_sampler", '{"mu": 12.0}', json.dumps(out.to_dict()))
+        row = db.load_model_state("s1", "em_suite_sampler")
         assert row is not None
-        assert row["estimator"] == "kalman"
+        assert row["estimator"] == "em_suite_sampler"
         loaded_out = ModelOutput.from_dict(json.loads(row["output_json"]))
         assert loaded_out.total.expected_ms == 12000.0
 

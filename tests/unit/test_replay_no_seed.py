@@ -114,7 +114,7 @@ class TestReplayEventsNotSeeded:
         from datetime import datetime
 
         from spinlab.db import Database
-        from spinlab.estimators import get_estimator
+        from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
         from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
         from spinlab.scheduler import _events_from_rows
 
@@ -159,7 +159,7 @@ class TestReplayEventsNotSeeded:
             f"Expected 2 events after replay filter, got {len(events)}"
         )
 
-        est = get_estimator("em_suite_sampler")
+        est = EmSuiteSamplerEstimator()
         state = est.rebuild_state([], params=None, events=events)
 
         # Sampler should count exactly 2 attempts (the 2 REFERENCE events).

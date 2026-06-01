@@ -83,9 +83,7 @@ def segment_history(
     all_records = _attempts_from_rows(raw_rows)
     completed = [a for a in all_records if a.completed and a.time_ms is not None]
 
-    # Load events once for death-aware estimators. They produce DeathExtras
-    # from events, not from AttemptRecords. Estimators that ignore events
-    # (rolling_mean, kalman) get this argument harmlessly.
+    # Load events once for the sampler.
     event_rows = db.get_segment_event_rows(segment_id)
     events = _events_from_rows(event_rows)
 

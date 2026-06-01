@@ -146,13 +146,18 @@ class TestSamplerState:
         assert restored.n_successes == st.n_successes
         assert restored.success_time_pool == st.success_time_pool
 
-    def test_registered_with_estimator_state(self):
+    def test_state_class_is_a_valid_estimator_state(self):
+        """SamplerState must satisfy the EstimatorState ABC (the scheduler/route
+        rely on the to_dict/from_dict ingestion seam). The legacy registry
+        lookup (EstimatorState._state_classes) was removed in the model purge —
+        the scheduler instantiates SamplerState directly via the estimator."""
         from spinlab.estimators import EstimatorState
-        # Importing the module registers SamplerState
-        import spinlab.estimators.em_suite_sampler  # noqa: F401
-        # Should be in the registry now (attribute is _state_classes; see
-        # EstimatorState.register_state in python/spinlab/estimators/__init__.py)
-        assert "em_suite_sampler" in EstimatorState._state_classes  # type: ignore[attr-defined]
+        from spinlab.estimators.em_suite_sampler import SamplerState
+        assert issubclass(SamplerState, EstimatorState)
+        # Round-trip a default state to confirm the seam works.
+        st = SamplerState()
+        restored = SamplerState.from_dict(st.to_dict())
+        assert restored == st
 
 
 class TestProcessEvent:
@@ -563,20 +568,14 @@ class TestBuildMatrix:
 
 
 class TestEstimatorIntegration:
-    def test_registered_in_estimator_registry(self):
-        from spinlab.estimators import list_estimators, get_estimator
-        assert "em_suite_sampler" in list_estimators()
-        est = get_estimator("em_suite_sampler")
+    def test_identity(self):
+        from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
+        est = EmSuiteSamplerEstimator()
         assert est.name == "em_suite_sampler"
         assert est.display_name == "EMA-Suite Sampler"
 
-    def test_declared_params_is_empty(self):
-        from spinlab.estimators import get_estimator
-        est = get_estimator("em_suite_sampler")
-        assert est.declared_params() == []
-
     def test_rebuild_state_replays_all_events(self):
-        from spinlab.estimators import get_estimator
+        from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
         from tests.factories import make_event_attempt
 
         events = [
@@ -585,14 +584,14 @@ class TestEstimatorIntegration:
             make_event_attempt(outcome="survived", time_ms=21_000),
             make_event_attempt(outcome="died", time_ms=4_500),
         ]
-        est = get_estimator("em_suite_sampler")
+        est = EmSuiteSamplerEstimator()
         state = est.rebuild_state(attempts=[], events=events)
         assert state.n_attempts_total == 4
         assert state.n_successes == 2
         assert state.n_deaths == 2
 
     def test_rebuild_state_updates_inherited_counters_from_attempts(self):
-        from spinlab.estimators import get_estimator
+        from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
         from tests.factories import make_attempt_record, make_event_attempt
 
         attempts = [
@@ -601,34 +600,23 @@ class TestEstimatorIntegration:
             make_attempt_record(time_ms=9_000, completed=True),
         ]
         events = [make_event_attempt(outcome="survived", time_ms=10_000)]
-        est = get_estimator("em_suite_sampler")
+        est = EmSuiteSamplerEstimator()
         state = est.rebuild_state(attempts=attempts, events=events)
         # Inherited fields reflect episode-level totals
         assert state.n_completed == 2  # 2 of 3 attempts completed
         assert state.n_attempts == 3
 
-    def test_init_state_returns_empty(self):
-        from spinlab.estimators import get_estimator
-        from tests.factories import make_attempt_record
-
-        est = get_estimator("em_suite_sampler")
-        state = est.init_state(
-            first_attempt=make_attempt_record(time_ms=10_000, completed=True),
-            priors={},
-        )
-        assert state.n_attempts_total == 0
-
     def test_model_output_clean_is_unmodeled(self):
         # clean stays None in Plan 1; the "Success Attempt" distribution lands
         # with the UI work (Spec #2). This test documents that invariant.
-        from spinlab.estimators import get_estimator
+        from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
         from tests.factories import make_event_attempt
 
         events = [
             make_event_attempt(outcome="survived", time_ms=20_000),
             make_event_attempt(outcome="died", time_ms=5_000),
         ]
-        est = get_estimator("em_suite_sampler")
+        est = EmSuiteSamplerEstimator()
         state = est.rebuild_state(attempts=[], events=events)
         output = est.model_output(state, all_attempts=[], events=events)
         assert output.clean.expected_ms is None

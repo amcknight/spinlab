@@ -6,7 +6,6 @@ import pytest
 
 from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
 from spinlab.db import Database
-from spinlab.estimators import Estimator, get_estimator, list_estimators
 from spinlab.models import Segment, Waypoint, WaypointSaveState
 
 
@@ -39,18 +38,6 @@ def mock_emu():
     emu.save_state = AsyncMock()
     emu.load_state = AsyncMock()
     return emu
-
-
-@pytest.fixture(params=list_estimators())
-def estimator_name(request) -> str:
-    """Parametrized fixture that yields each registered estimator name."""
-    return request.param
-
-
-@pytest.fixture
-def estimator(estimator_name: str) -> Estimator:
-    """Instantiated estimator from parametrized name."""
-    return get_estimator(estimator_name)
 
 
 class FakeEmuBackend:

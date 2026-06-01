@@ -9,21 +9,16 @@ const MOCK_HISTORY: SegmentHistory = {
   start_ordinal: 0,
   end_type: "goal",
   end_ordinal: 0,
-  selected_model: "kalman",
+  selected_model: "em_suite_sampler",
   attempts: [
     { attempt_number: 1, time_ms: 4500, clean_tail_ms: 4500, deaths: 0, created_at: "2026-04-01T12:00:00Z" },
     { attempt_number: 2, time_ms: 3800, clean_tail_ms: 3200, deaths: 0, created_at: "2026-04-01T12:05:00Z" },
     { attempt_number: 3, time_ms: 3200, clean_tail_ms: 3200, deaths: 0, created_at: "2026-04-01T12:10:00Z" },
   ],
   estimator_curves: {
-    kalman: {
+    em_suite_sampler: {
       total: { expected_ms: [4500, 4150, 3700], floor_ms: [null, null, null] },
       clean: { expected_ms: [4500, 3850, 3500], floor_ms: [null, null, null] },
-      final_extras: null,
-    },
-    rolling_mean: {
-      total: { expected_ms: [4500, 4150, 3833], floor_ms: [null, null, null] },
-      clean: { expected_ms: [4500, 3850, 3633], floor_ms: [null, null, null] },
       final_extras: null,
     },
   },

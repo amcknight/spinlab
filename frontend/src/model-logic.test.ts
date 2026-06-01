@@ -20,8 +20,8 @@ describe("selectedEstimate", () => {
       start_ordinal: 0,
       end_type: "goal",
       end_ordinal: 0,
-      selected_model: "kalman",
-      model_outputs: { kalman: MODEL_OUTPUT },
+      selected_model: "em_suite_sampler",
+      model_outputs: { em_suite_sampler: MODEL_OUTPUT },
       n_completed: 5,
       n_attempts: 10,
       gold_ms: 2000,
@@ -39,7 +39,7 @@ describe("selectedEstimate", () => {
       start_ordinal: 0,
       end_type: "goal",
       end_ordinal: 0,
-      selected_model: "kalman",
+      selected_model: "em_suite_sampler",
       model_outputs: {},
       n_completed: 0,
       n_attempts: 0,
@@ -110,13 +110,13 @@ describe("selectedEstimate edge cases", () => {
       start_ordinal: 0,
       end_type: "goal",
       end_ordinal: 0,
-      selected_model: "rolling_mean",
+      selected_model: "model_b",
       model_outputs: {
-        kalman: {
+        model_a: {
           total: { expected_ms: 5000, ms_per_attempt: -10, floor_ms: 3000 },
           clean: { expected_ms: null, ms_per_attempt: null, floor_ms: null },
         },
-        rolling_mean: {
+        model_b: {
           total: { expected_ms: 6000, ms_per_attempt: -5, floor_ms: 4000 },
           clean: { expected_ms: null, ms_per_attempt: null, floor_ms: null },
         },
@@ -127,7 +127,7 @@ describe("selectedEstimate edge cases", () => {
       clean_gold_ms: null,
     };
     const est = selectedEstimate(seg);
-    // Should return rolling_mean's total, not kalman's
+    // Should return model_b's total (the selected model), not model_a's.
     expect(est?.expected_ms).toBe(6000);
   });
 
@@ -140,9 +140,9 @@ describe("selectedEstimate edge cases", () => {
       start_ordinal: 0,
       end_type: "goal",
       end_ordinal: 0,
-      selected_model: "kalman",
+      selected_model: "em_suite_sampler",
       model_outputs: {
-        kalman: {
+        em_suite_sampler: {
           total: { expected_ms: null, ms_per_attempt: null, floor_ms: null },
           clean: { expected_ms: null, ms_per_attempt: null, floor_ms: null },
         },

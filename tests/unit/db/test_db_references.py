@@ -232,7 +232,7 @@ class TestHardDelete:
         # Add a model_state row
         tmp_db.conn.execute(
             "INSERT INTO model_state (segment_id, estimator, state_json, updated_at) "
-            f"VALUES ('{seg_id}', 'kalman', '{{}}', '2026-01-01')"
+            f"VALUES ('{seg_id}', 'em_suite_sampler', '{{}}', '2026-01-01')"
         )
         # Add an attempt event row (Phase 0 event-level shape).
         tmp_db.create_session("sess1", "g1")

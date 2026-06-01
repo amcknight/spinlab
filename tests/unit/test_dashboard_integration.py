@@ -89,7 +89,7 @@ def seeded_db(tmp_path):
             "total": {"expected_ms": mu * 1000, "ms_per_attempt": mr * 1000, "floor_ms": mu * 800},
             "clean": {"expected_ms": None, "ms_per_attempt": None, "floor_ms": None},
         }
-        db.save_model_state(segment_id, "kalman", json.dumps(state), json.dumps(output))
+        db.save_model_state(segment_id, "em_suite_sampler", json.dumps(state), json.dumps(output))
 
     return db
 
@@ -188,7 +188,7 @@ class TestApiState:
         assert data["current_segment"]["id"] == "s1"
         assert data["current_segment"]["description"] == "Yoshi's Island 1"
         assert data["current_segment"]["attempt_count"] == 3
-        assert "kalman" in data["current_segment"]["model_outputs"]
+        assert "em_suite_sampler" in data["current_segment"]["model_outputs"]
 
     def test_recent_attempts_ordered_newest_first(self, active_client):
         from spinlab.db.attempts import RECENT_ATTEMPTS_DB_LIMIT
@@ -218,9 +218,9 @@ class TestModelEndpoint:
         assert data["estimator"] == "em_suite_sampler"
 
         s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
-        kalman = s1["model_outputs"]["kalman"]
-        assert kalman["total"]["expected_ms"] == pytest.approx(3800, abs=100)
-        assert kalman["total"]["ms_per_attempt"] is not None
+        out = s1["model_outputs"]["em_suite_sampler"]
+        assert out["total"]["expected_ms"] == pytest.approx(3800, abs=100)
+        assert out["total"]["ms_per_attempt"] is not None
 
     def test_segment_without_model_has_empty_outputs(self, active_client):
         data = active_client.get("/api/model").json()

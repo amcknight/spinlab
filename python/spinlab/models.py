@@ -286,10 +286,12 @@ class Estimate:
 
 @pydantic_dataclass(config=ConfigDict(extra="allow"))
 class DeathExtras:
-    """Death-aware fields published by death_aware_rolling.
+    """Death-aware extras (deprecated; no producer in the current model layer).
 
-    Carried on ModelOutput.extras when the active estimator is death-aware.
-    Legacy estimators leave ModelOutput.extras = None.
+    Kept on the ``ModelOutput.extras`` schema so old persisted rows can still
+    deserialize without a migration. The surviving EMA-suite sampler leaves
+    ``ModelOutput.extras = None``; this dataclass survives only as a passive
+    carrier until Spec #2 redesigns the segment-detail payload.
 
     Two granularities:
       * Life-level (n_lives_*, p_die_per_life): each EventAttempt is one life.

@@ -23,7 +23,7 @@ const IDLE_STATE: AppState = {
   session: null,
   sections_captured: 0,
   allocator_weights: { greedy: 60, random: 20, round_robin: 20 },
-  estimator: "kalman",
+  estimator: "em_suite_sampler",
   capture_run_id: null,
   paused_run: null,
   replay: null,
@@ -47,12 +47,12 @@ const PRACTICE_STATE: AppState = {
     description: "Iggy approach",
     attempt_count: 14,
     model_outputs: {
-      kalman: {
+      em_suite_sampler: {
         total: { expected_ms: 8500, ms_per_attempt: -45.2, floor_ms: 6200 },
         clean: { expected_ms: 7100, ms_per_attempt: -30.1, floor_ms: 5800 },
       },
     },
-    selected_model: "kalman",
+    selected_model: "em_suite_sampler",
     state_path: "/data/states/seg-001.state",
   },
   recent: [
@@ -81,7 +81,7 @@ const PRACTICE_STATE: AppState = {
   },
   sections_captured: 0,
   allocator_weights: { greedy: 60, random: 20, round_robin: 20 },
-  estimator: "kalman",
+  estimator: "em_suite_sampler",
   capture_run_id: null,
   paused_run: null,
   replay: null,
@@ -90,7 +90,7 @@ const PRACTICE_STATE: AppState = {
 };
 
 const MODEL_RESPONSE: ModelData = {
-  estimator: "kalman",
+  estimator: "em_suite_sampler",
   allocator_weights: { greedy: 60, random: 20, round_robin: 20 },
   segments: [
     {
@@ -101,9 +101,9 @@ const MODEL_RESPONSE: ModelData = {
       start_ordinal: 0,
       end_type: "checkpoint",
       end_ordinal: 1,
-      selected_model: "kalman",
+      selected_model: "em_suite_sampler",
       model_outputs: {
-        kalman: {
+        em_suite_sampler: {
           total: { expected_ms: 8500, ms_per_attempt: -45.2, floor_ms: 6200 },
           clean: { expected_ms: 7100, ms_per_attempt: -30.1, floor_ms: 5800 },
         },
@@ -181,13 +181,13 @@ describe("SegmentHistory contract", () => {
         { attempt_number: 2, time_ms: 3800, clean_tail_ms: 3800, deaths: 0, created_at: "2026-04-01T12:05:00Z" },
       ],
       estimator_curves: {
-        kalman: {
+        em_suite_sampler: {
           total: { expected_ms: [4500, 4150], floor_ms: [null, null] },
           clean: { expected_ms: [4500, 4150], floor_ms: [null, null] },
         },
       },
     };
     expect(history.attempts).toHaveLength(2);
-    expect(history.estimator_curves["kalman"]!.total.expected_ms).toHaveLength(2);
+    expect(history.estimator_curves["em_suite_sampler"]!.total.expected_ms).toHaveLength(2);
   });
 });
