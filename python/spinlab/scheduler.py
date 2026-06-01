@@ -11,8 +11,9 @@ logger = logging.getLogger(__name__)
 from spinlab.allocators import Allocator, SegmentWithModel, get_allocator, list_allocators
 from spinlab.allocators.mix import MixAllocator
 from spinlab.db.attempts import AttemptRow, EventAttemptRow
-from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
+from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator, SamplerState
 from spinlab.models import Attempt, AttemptRecord, AttemptSource
+from spinlab.practice_engine.engine import PracticeEngine
 
 if TYPE_CHECKING:
     from spinlab.db import Database
@@ -93,6 +94,7 @@ class Scheduler:
         self.estimator = EmSuiteSamplerEstimator()
         self.allocator: MixAllocator = self._build_mix_from_db()
         self._drop_legacy_allocator_config_key()
+        self._engine: PracticeEngine | None = None
 
     def _drop_legacy_allocator_config_key(self) -> None:
         if self.db.load_allocator_config("allocator") is not None:
@@ -202,6 +204,32 @@ class Scheduler:
         )
         self.record_attempt(attempt)
 
+    @property
+    def engine(self) -> PracticeEngine:
+        """Lazy practice simulation engine. Built on first access from current SamplerStates."""
+        if self._engine is None:
+            self._engine = PracticeEngine(
+                sampler_states=self._load_all_sampler_states(),
+                N=20000,
+                rng_seed=0,
+            )
+        return self._engine
+
+    def _load_all_sampler_states(self) -> dict[str, SamplerState]:
+        """Hydrate all SamplerState objects for this game's segments.
+
+        Returns only segments that have a saved em_suite_sampler model_state row.
+        Newly-gated segments (without a saved row yet) are absent until their first
+        update_state_after_episode call writes one.
+        """
+        rows = self.db.load_all_model_states(self.game_id)
+        out: dict[str, SamplerState] = {}
+        for r in rows:
+            if r["estimator"] != "em_suite_sampler" or not r["state_json"]:
+                continue
+            out[r["segment_id"]] = SamplerState.from_dict(json.loads(r["state_json"]))
+        return out
+
     def update_state_after_episode(self, segment_id: str) -> None:
         """Run the em_suite sampler over the latest persisted episode for ``segment_id``.
 
@@ -222,16 +250,20 @@ class Scheduler:
                 segment_id, self.estimator.name,
                 json.dumps(state.to_dict()), json.dumps(output.to_dict()),
             )
+            # Silent V07 fit. Off the request path but inline (~15ms p50
+            # per V1_ESSENCE, well within an end-of-episode budget). Skips
+            # cleanly when [fits] isn't installed or the segment has too
+            # few events to fit meaningfully.
+            self._maybe_refit_segment(segment_id)
+            # Invalidate the lazily-built practice engine's column for this
+            # segment. Skipped when no engine has been built yet — first access
+            # via the ``engine`` property will hydrate from fresh model_state.
+            if self._engine is not None:
+                self._engine.invalidate(segment_id)
         except Exception:
             logger.exception(
                 "update_state_after_episode failed for segment=%s", segment_id,
             )
-
-        # Silent V07 fit. Off the request path but inline (~15ms p50
-        # per V1_ESSENCE, well within an end-of-episode budget). Skips
-        # cleanly when [fits] isn't installed or the segment has too
-        # few events to fit meaningfully.
-        self._maybe_refit_segment(segment_id)
 
     def get_all_model_states(self) -> list[SegmentWithModel]:
         return SegmentWithModel.load_all(self.db, self.game_id, self.estimator.name)
