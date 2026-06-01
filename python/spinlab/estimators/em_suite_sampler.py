@@ -174,6 +174,9 @@ class SamplerState(EstimatorState):
             log_death_time_denoms=list(d["log_death_time_denoms"]),
             p_die_sums=list(d["p_die_sums"]),
             p_die_denoms=list(d["p_die_denoms"]),
+            # .get() ONLY here: cross-version tolerance — the pools are absent in
+            # pre-Task-2 persisted states and rebuild from events on next replay.
+            # Every other field stays direct-indexed so a malformed row surfaces.
             success_time_pool=list(d.get("success_time_pool", [])),
             death_time_pool=list(d.get("death_time_pool", [])),
             n_successes=d["n_successes"],
