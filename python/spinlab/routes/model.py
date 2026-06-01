@@ -1,7 +1,6 @@
 """Model state, allocator weights, and estimator routes."""
 from __future__ import annotations
 
-import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,7 +15,6 @@ from spinlab.api_schemas import (
 )
 from spinlab.cold_distribution import compute_cold_distribution
 from spinlab.db import Database
-from spinlab.estimators.death_aware_rolling import _resolve_halflife
 from spinlab.scheduler import _attempts_from_rows, _events_from_rows
 from spinlab.session_manager import SessionManager
 
@@ -119,16 +117,12 @@ def segment_history(
     selected_model = sched.estimator.name if sched is not None else None
 
     # Cold-only distribution for the segment-detail panel (histogram + hazard).
-    # Use the active death_aware_rolling halflife so the cold panel tracks the
-    # user's tuned smoothing knob (shared with DAR + bootstrap).
+    # v0: equal-weighted raw empirical view (no recency knob). See
+    # docs/superpowers/specs/2026-06-01-model-purge-sampler-core-design.md.
     cold_events = [ev for ev in events if not ev.is_hot]
-    if cold_events:
-        dar_params_raw = db.load_allocator_config("estimator_params:death_aware_rolling")
-        dar_params = json.loads(dar_params_raw) if dar_params_raw else None
-        halflife = _resolve_halflife(dar_params)
-        cold_distribution = compute_cold_distribution(cold_events, halflife=halflife)
-    else:
-        cold_distribution = None
+    cold_distribution = (
+        compute_cold_distribution(cold_events) if cold_events else None
+    )
 
     return {
         "segment_id": segment_id,

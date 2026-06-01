@@ -8,6 +8,11 @@ Operates on a flat list of cold EventAttempts — episode-level
 aggregation is irrelevant here (every attempt is its own risk
 timeline). Caller is responsible for the cold filter (is_hot=False);
 this module trusts its input.
+
+v0 (model-purge): every cold event contributes weight 1.0. There is
+no recency knob — the cold panel is the equal-weighted raw empirical
+view. See docs/superpowers/specs/2026-06-01-model-purge-sampler-core-design.md
+("Cold-distribution decoupling").
 """
 from __future__ import annotations
 
@@ -25,14 +30,14 @@ MAX_BINS = 20
 # summary and loses its shape-as-distribution affordance.
 MIN_BINS = 5
 
-# Truncation horizon in halflives. At 5*halflife back, an attempt's
-# weight is 2^-5 ≈ 3%, below the noise floor of the binning. Matches
-# EFFECTIVE_WINDOW_HALFLIVES in spinlab.estimators.death_aware_rolling.
-EFFECTIVE_WINDOW_HALFLIVES = 5
-
 # X-axis upper-edge rounding. One-second rounding gives clean axis
 # labels without manual tick configuration.
 HI_ROUND_MS = 1000
+
+# Echoed value of the (now-removed) recency halflife on the response.
+# Kept on the schema to minimize wire churn this task; will be revisited
+# in the schema-trim pass.
+ECHOED_HALFLIFE = 0
 
 
 @dataclass
@@ -47,19 +52,6 @@ class _EpisodeAccum:
     had_death: bool
 
 
-def _compute_attempt_weights(n: int, halflife: int) -> list[float]:
-    """Per-attempt exponential decay weights, chronological order.
-
-    weights[i] = 2 ** (-(n - 1 - i) / halflife)
-
-    The most-recent attempt (index n-1) has weight 1.0. An attempt one
-    halflife back has weight 0.5. Mirrors _episode_helpers._compute_weights
-    but operates at the attempt level (not episode level) since cold-
-    filtered analysis treats each attempt as its own risk timeline.
-    """
-    return [2.0 ** (-(n - 1 - i) / halflife) for i in range(n)]
-
-
 def _bin_count_for(n: int) -> int:
     """Adaptive bin count via the square-root rule, clamped to [MIN_BINS, MAX_BINS]."""
     if n <= 0:
@@ -68,36 +60,34 @@ def _bin_count_for(n: int) -> int:
 
 
 def compute_cold_distribution(
-    cold_events: list[EventAttempt], halflife: int,
+    cold_events: list[EventAttempt],
 ) -> ColdDistribution:
     """Bin + summarize cold attempts for the segment-detail panel.
 
     Caller filters to is_hot=False BEFORE calling this. The function
     does not re-filter; passing any hot event skews the result. Empty
     input is disallowed (caller substitutes None at the route layer).
+
+    Every cold event contributes weight 1.0 (v0: equal-weighted, no
+    recency knob). The full cold history is retained — no truncation.
     """
     if not cold_events:
         raise ValueError("compute_cold_distribution requires non-empty cold_events")
 
-    # 1. Truncate to last 5*halflife events. Recency-decay weights past
-    #    this horizon are < 3% — negligible vs. binning noise.
-    horizon = EFFECTIVE_WINDOW_HALFLIVES * halflife
-    truncated = cold_events[-horizon:] if len(cold_events) > horizon else list(cold_events)
-    n = len(truncated)
+    # All events retained; equal-weighted (weight = 1.0 each).
+    n = len(cold_events)
+    weights = [1.0] * n
 
-    # 2. Per-attempt decay weights.
-    weights = _compute_attempt_weights(n=n, halflife=halflife)
-
-    # 3. Bin count from sqrt rule.
+    # Bin count from sqrt rule.
     bin_count = _bin_count_for(n=n)
 
-    # 4. X-axis range: lo=0; hi = ceil(max_time/HI_ROUND_MS)*HI_ROUND_MS.
-    max_ms = max(ev.time_ms for ev in truncated)
+    # X-axis range: lo=0; hi = ceil(max_time/HI_ROUND_MS)*HI_ROUND_MS.
+    max_ms = max(ev.time_ms for ev in cold_events)
     hi = max(HI_ROUND_MS, ((max_ms + HI_ROUND_MS - 1) // HI_ROUND_MS) * HI_ROUND_MS)
     lo = 0
     bin_width = (hi - lo) / bin_count
 
-    # 5. Initialize bins.
+    # Initialize bins.
     bins: list[ColdBin] = [
         ColdBin(
             lo_ms=lo + i * bin_width,
@@ -108,7 +98,7 @@ def compute_cold_distribution(
         for i in range(bin_count)
     ]
 
-    # 6. Walk events, fill bin counts and weighted aggregates.
+    # Walk events, fill bin counts and weighted aggregates.
     def bin_idx(t: int) -> int:
         if bin_width == 0:
             return 0
@@ -142,7 +132,7 @@ def compute_cold_distribution(
     # event in that episode (a reasonable proxy for "episode recency").
     episodes_seen: dict[str, _EpisodeAccum] = {}
 
-    for ev, w in zip(truncated, weights):
+    for ev, w in zip(cold_events, weights):
         idx = bin_idx(ev.time_ms)
         ep_entry = episodes_seen.setdefault(ev.episode_id, _EpisodeAccum(weight=w, had_death=False))
         # Chronological order; later overrides earlier.
@@ -176,7 +166,7 @@ def compute_cold_distribution(
         else:
             b.hazard = None
 
-    # 7. Aggregates.
+    # Aggregates.
     mu_d_ms = sum_wt_d / sum_w_d if sum_w_d > 0 else None
     mu_c_ms = sum_wt_c / sum_w_c if sum_w_c > 0 else None
 
@@ -198,7 +188,7 @@ def compute_cold_distribution(
         sigma_c_ms=sigma_c_ms,
         mu_log_c=mu_log_c, sigma_log_c=sigma_log_c,
         p_die_per_attempt=p_die_per_attempt, p_die_per_life=p_die_per_life,
-        halflife=halflife,
+        halflife=ECHOED_HALFLIFE,
     )
 
 

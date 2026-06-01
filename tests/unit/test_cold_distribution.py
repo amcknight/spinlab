@@ -1,10 +1,8 @@
 from spinlab.cold_distribution import (
-    EFFECTIVE_WINDOW_HALFLIVES,
     HI_ROUND_MS,
     MAX_BINS,
     MIN_BINS,
     _bin_count_for,
-    _compute_attempt_weights,
     compute_cold_distribution,
 )
 from spinlab.models import AttemptOutcome
@@ -19,23 +17,7 @@ def test_bin_count_constants_are_sane():
     assert MIN_BINS == 5
     assert MAX_BINS == 20
     assert MAX_BINS > MIN_BINS
-    assert EFFECTIVE_WINDOW_HALFLIVES == 5
     assert HI_ROUND_MS == 1000
-
-
-def test_attempt_weights_most_recent_is_one():
-    # Five attempts in chronological order, halflife=2.
-    # Last (index 4) should weigh 1.0.
-    # Index 2 is 2 steps back = 1 halflife → weight 0.5.
-    # Index 0 is 4 steps back = 2 halflives → weight 0.25.
-    weights = _compute_attempt_weights(n=5, halflife=2)
-    assert weights[-1] == 1.0
-    assert weights[-3] == 0.5    # 1 halflife back ⇒ 2^-1
-    assert weights[-5] == 0.25   # 2 halflives back ⇒ 2^-2 = 0.25
-
-
-def test_attempt_weights_empty():
-    assert _compute_attempt_weights(n=0, halflife=20) == []
 
 
 def test_bin_count_clamps_low():
@@ -69,13 +51,13 @@ def test_compute_empty_inputs_disallowed():
     # ValueError specifically.
     import pytest
     with pytest.raises(ValueError, match="non-empty"):
-        compute_cold_distribution([], halflife=20)
+        compute_cold_distribution([])
 
 
 def test_compute_single_death_at_2s():
     # One cold attempt that died at 2000ms.
     events = [_ev(2000, AttemptOutcome.DIED)]
-    dist = compute_cold_distribution(events, halflife=20)
+    dist = compute_cold_distribution(events)
     # n_cold_attempts is post-truncation; with 1 event there is no truncation
     assert dist.n_cold_attempts == 1
     # bin count = max(5, ceil(sqrt(1))) = 5
@@ -96,7 +78,7 @@ def test_compute_two_attempts_mixed_outcomes():
         _ev(2000, AttemptOutcome.DIED, ep="e1"),
         _ev(8000, AttemptOutcome.SURVIVED, ep="e2"),
     ]
-    dist = compute_cold_distribution(events, halflife=20)
+    dist = compute_cold_distribution(events)
     assert dist.n_cold_attempts == 2
     assert len(dist.bins) == 5  # sqrt(2) -> ceil 2 -> clamped to 5
     # hi rounds up to ceil(8000/1000)*1000 = 8000
@@ -111,37 +93,34 @@ def test_compute_two_attempts_mixed_outcomes():
     assert dist.mu_c_ms == 8000.0
 
 
-def test_compute_truncates_to_5x_halflife():
-    # 200 cold attempts; halflife=20 -> window = 100 attempts.
+def test_compute_no_truncation():
+    # v0: equal-weight cold distribution retains every cold event — no
+    # halflife-based truncation. With 200 events, n_cold_attempts == 200.
     events = [
         _ev(time_ms=100 + i, outcome=AttemptOutcome.SURVIVED, ep=f"e{i}")
         for i in range(200)
     ]
-    dist = compute_cold_distribution(events, halflife=20)
-    # n_cold_attempts reflects POST-truncation count
-    assert dist.n_cold_attempts == 100
-    assert len(dist.bins) == min(20, max(5, 10))  # sqrt(100)=10
+    dist = compute_cold_distribution(events)
+    assert dist.n_cold_attempts == 200
+    # Bin count from sqrt(200) ≈ 14.14 → ceil 15, clamped under MAX_BINS=20.
+    assert len(dist.bins) == 15
 
 
-def test_compute_p_die_aggregates():
-    # Two episodes:
+def test_compute_p_die_aggregates_uniform_weights():
+    # Two episodes (cold-distribution v0: equal-weight, no recency knob):
     #   ep1: died at 2000  ->  1 death
     #   ep2: died at 1500, then survived at 5000  ->  episode "attempted" had a death
+    # With uniform weight=1.0 per event:
+    #   p_die_per_life = deaths / (deaths + survivals) = 2 / 3
+    #   p_die_per_attempt = episodes-with-death / total episodes = 2 / 2 = 1.0
+    import pytest
     events = [
         _ev(2000, AttemptOutcome.DIED, ep="e1"),
         _ev(1500, AttemptOutcome.DIED, ep="e2"),
         _ev(5000, AttemptOutcome.SURVIVED, ep="e2"),
     ]
-    dist = compute_cold_distribution(events, halflife=20)
-    import pytest
-    w0 = 2.0 ** (-2/20)
-    w1 = 2.0 ** (-1/20)
-    w2 = 1.0
-    expected_p_die_per_life = (w0 + w1) / (w0 + w1 + w2)
-    assert dist.p_die_per_life == pytest.approx(expected_p_die_per_life, rel=1e-9)
-    # Both episodes had a death; episode e2's representative weight is w2 (the
-    # latest event), episode e1's representative weight is w0. Numerator and
-    # denominator are identical, so p_die_per_attempt = 1.0 exactly.
+    dist = compute_cold_distribution(events)
+    assert dist.p_die_per_life == pytest.approx(2.0 / 3.0, rel=1e-9)
     assert dist.p_die_per_attempt == pytest.approx(1.0, rel=1e-9)
 
 
@@ -166,7 +145,7 @@ def test_hazard_single_death():
     # One cold attempt died at 2000ms. The bin containing 2000ms gets
     # hazard = 1/1 = 1.0; bins after the death have at_risk_w = 0, hazard = None.
     events = [_ev(2000, AttemptOutcome.DIED)]
-    dist = compute_cold_distribution(events, halflife=20)
+    dist = compute_cold_distribution(events)
     # Find the bin containing 2000ms
     target_idx = next(
         i for i, b in enumerate(dist.bins) if b.lo_ms <= 2000 <= b.hi_ms
@@ -184,31 +163,30 @@ def test_hazard_single_death():
 
 
 def test_hazard_one_death_one_completion():
-    # Died at 2000, survived at 8000.
-    # Use a very large halflife so both weights are effectively 1.0:
-    #   deaths_w_in_2s_bin ≈ 1, at_risk_w ≈ 2 → hazard ≈ 0.5
+    # Died at 2000, survived at 8000. Equal weights (1.0 each):
+    #   deaths_w_in_2s_bin = 1, at_risk_w = 2 → hazard = 0.5
     # Bins after 8000 have at_risk_w = 0 → hazard = None.
     events = [
         _ev(2000, AttemptOutcome.DIED, ep="e1"),
         _ev(8000, AttemptOutcome.SURVIVED, ep="e2"),
     ]
-    dist = compute_cold_distribution(events, halflife=10_000)
+    dist = compute_cold_distribution(events)
     bin_at_2s = next(b for b in dist.bins if b.lo_ms <= 2000 <= b.hi_ms)
-    # With halflife=10000, weight[0] = 2^(-1/10000) ≈ 0.99993; close enough.
-    assert abs(bin_at_2s.hazard - 0.5) < 1e-3
-    assert abs(bin_at_2s.at_risk_w - 2.0) < 1e-3
+    assert bin_at_2s.hazard == 0.5
+    assert bin_at_2s.at_risk_w == 2.0
 
 
-def test_hazard_curve_returns_halflife():
+def test_compute_echoes_zero_halflife():
+    # v0: there is no halflife knob; the schema field is echoed as 0.
     events = [_ev(2000, AttemptOutcome.DIED)]
-    dist = compute_cold_distribution(events, halflife=42)
-    assert dist.halflife == 42
+    dist = compute_cold_distribution(events)
+    assert dist.halflife == 0
 
 
 def test_completion_sigma_zero_for_single_survival():
     # One completion -> std is exactly 0.0 (single point has no spread).
     events = [_ev(5000, AttemptOutcome.SURVIVED)]
-    dist = compute_cold_distribution(events, halflife=20)
+    dist = compute_cold_distribution(events)
     assert dist.sigma_c_ms == 0.0
     # Log-moments populated for the single positive-t completion.
     assert dist.mu_log_c is not None
@@ -216,29 +194,29 @@ def test_completion_sigma_zero_for_single_survival():
 
 
 def test_completion_sigma_two_survivals_matches_population_formula():
-    # Two completions at 1000 and 3000 ms. Use a huge halflife so weights
-    # are effectively uniform; σ² = E[t²] − μ² with μ=2000:
+    # Two completions at 1000 and 3000 ms. Equal weights (1.0 each);
+    # σ² = E[t²] − μ² with μ=2000:
     #   E[t²] = (1e6 + 9e6)/2 = 5e6; var = 5e6 − 4e6 = 1e6; σ = 1000.
     import pytest
     events = [
         _ev(1000, AttemptOutcome.SURVIVED, ep="e1"),
         _ev(3000, AttemptOutcome.SURVIVED, ep="e2"),
     ]
-    dist = compute_cold_distribution(events, halflife=10_000)
+    dist = compute_cold_distribution(events)
     assert dist.mu_c_ms == pytest.approx(2000.0, rel=1e-3)
     assert dist.sigma_c_ms == pytest.approx(1000.0, rel=1e-3)
 
 
 def test_completion_log_moments_for_two_survivals():
     # ln(1000) ≈ 6.9078, ln(3000) ≈ 8.0064.
-    # Uniform weights => μ_log = mean of the two; σ_log = half the spread.
+    # Equal weights => μ_log = mean of the two; σ_log = half the spread.
     import math
     import pytest
     events = [
         _ev(1000, AttemptOutcome.SURVIVED, ep="e1"),
         _ev(3000, AttemptOutcome.SURVIVED, ep="e2"),
     ]
-    dist = compute_cold_distribution(events, halflife=10_000)
+    dist = compute_cold_distribution(events)
     l1, l2 = math.log(1000), math.log(3000)
     expected_mu = (l1 + l2) / 2
     expected_sigma = (l2 - l1) / 2  # |x - μ| for two-point population sample
@@ -246,24 +224,22 @@ def test_completion_log_moments_for_two_survivals():
     assert dist.sigma_log_c == pytest.approx(expected_sigma, rel=1e-3)
 
 
-def test_hazard_weighted_at_risk():
-    # Two events with halflife=1 → older event weight = 2^(-1/1) = 0.5,
-    # newer event weight = 1.0. If at_risk_w were computed as an unweighted
-    # count, both bins through 2000ms would show 2.0 instead of 1.5. This
-    # test pins the weighted division.
+def test_hazard_uniform_at_risk():
+    # Equal-weight regime: both events count for at_risk_w = 1.0 each.
+    # Bin containing 2000ms: both events at-risk (2000 >= bin.lo_ms),
+    # one death weighted 1.0 → hazard = 1 / 2 = 0.5; at_risk_w = 2.0.
+    # Bin containing 8000ms: only the SURVIVED event at-risk → at_risk_w = 1.0,
+    # no deaths in this bin → hazard = 0.0. This pins the hazard math under
+    # the v0 (uniform-weight) regime.
     import pytest
     events = [
-        _ev(2000, AttemptOutcome.DIED, ep="e1"),     # older — weight 0.5
-        _ev(8000, AttemptOutcome.SURVIVED, ep="e2"), # newer — weight 1.0
+        _ev(2000, AttemptOutcome.DIED, ep="e1"),
+        _ev(8000, AttemptOutcome.SURVIVED, ep="e2"),
     ]
-    dist = compute_cold_distribution(events, halflife=1)
-    # Bin containing 2000ms: both events at-risk (2000 >= bin.lo_ms),
-    # one death weighted 0.5 → hazard = 0.5 / (0.5 + 1.0) = 1/3 exactly.
+    dist = compute_cold_distribution(events)
     bin_at_2s = next(b for b in dist.bins if b.lo_ms <= 2000 <= b.hi_ms)
-    assert bin_at_2s.at_risk_w == pytest.approx(1.5, rel=1e-9)
-    assert bin_at_2s.hazard == pytest.approx(1.0/3.0, rel=1e-9)
-    # Bin containing 8000ms: only the SURVIVED event at-risk → at_risk_w = 1.0,
-    # no deaths in this bin → hazard = 0.0
+    assert bin_at_2s.at_risk_w == pytest.approx(2.0, rel=1e-9)
+    assert bin_at_2s.hazard == pytest.approx(0.5, rel=1e-9)
     bin_at_8s = next(b for b in dist.bins if b.lo_ms <= 8000 <= b.hi_ms)
     assert bin_at_8s.at_risk_w == pytest.approx(1.0, rel=1e-9)
     assert bin_at_8s.hazard == pytest.approx(0.0, rel=1e-9)
