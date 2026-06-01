@@ -36,7 +36,7 @@ def target_paced(
     over = cum > threshold[None, :]
     any_over = over.any(axis=1)
     abort_at = np.where(any_over, over.argmax(axis=1), -1).astype(np.int32)
-    finished = ~any_over
+    finished = np.logical_not(any_over)
     # safe_abort gives a valid index for the gather; for finished rows we
     # gather the last segment's cumulative time (full row sum).
     safe_abort = np.where(any_over, abort_at, K - 1)

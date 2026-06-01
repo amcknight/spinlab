@@ -124,6 +124,8 @@ Registered: `greedy` (highest expected improvement), `round_robin`, `random`, `l
 
 Per-allocator weights live in `allocator_config`, switchable at runtime via `POST /api/allocator-weights`.
 
+**Practice Simulation Engine (`practice_engine/`)** — `scheduler.engine` is a lazy `PracticeEngine` instance that builds a vectorized N×K rollout matrix from per-segment SamplerStates and exposes pluggable reset-policy + objective reductions plus per-segment value attribution (the §4 ranking primitive). Columns are invalidated on `update_state_after_episode` and rebuilt lazily. Read-only dashboard panel at `/api/practice-engine/{state,evaluate}`. Designed as engine-with-consumers; live practice allocator and run-advisor are downstream specs that consume it. See `docs/superpowers/specs/2026-06-01-practice-simulation-engine-design.md`.
+
 ## Save States
 
 - **Save states are files.** SpinLab triggers RA via NCI `SAVE_STATE`, discovers the output file by mtime diff, and moves it to a SpinLab-keyed `.state` path under `spinlab_state_dir`.
