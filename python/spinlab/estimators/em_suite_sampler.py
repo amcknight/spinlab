@@ -26,7 +26,8 @@ form divides by the actually-observed weight mass `1 − (1-α)^N` so the
 weights on real observations sum to 1. Both converge to the same value as
 N → ∞; the normalized form is materially more honest at small N.
 
-Exception: alpha=0 uses additive accumulation (new = old + driver) so its slot is the uniform all-time mean — see ema_step.
+Exception: alpha=0 uses additive accumulation (new = old + driver) so its
+slot is the uniform all-time mean — see ema_step.
 """
 from __future__ import annotations
 
@@ -416,9 +417,25 @@ def sample_episode(
 
     Returns None when the prediction gate fails, when either pool is empty,
     or when the draw does not survive within MAX_ATTEMPTS_PER_EPISODE.
+
+    Gating note (intentional asymmetry with the closed-form scalar): the scalar
+    (expected_episode_time_ms) refuses to compute when p >= 1 - LOGIT_EPS
+    because the geometric *mean* diverges as p -> 1. This sampler has no such
+    guard — at near-certain death it lets the empirical draw speak and instead
+    bounds work via MAX_ATTEMPTS_PER_EPISODE (returning None only if it never
+    survives in that many tries). So in the high-p corner the scalar may be None
+    while a draw still returns a (large) number. That is deliberate: a divergent
+    mean is dishonest, but an individual sampled episode is still well-defined.
+    Corollary: mean(many sample_episode draws) is NOT expected_episode_time_scalar
+    — the latter is a closed-form geometric mean of log-time; the former samples
+    the raw empirical distribution. Do not use one as a regression check on the
+    other.
     """
     if not _gate_passes(state):
         return None
+    # Post-gate (>=2 deaths and >=2 successes) both pools are non-empty in normal
+    # flow; this guard is load-bearing only for a cross-version state deserialized
+    # with empty pools (counters restored, pools default []) before events replay.
     if not state.success_time_pool or not state.death_time_pool:
         return None
     p_fast = state.p_die_ema(fast_idx)
@@ -631,8 +648,8 @@ class EmSuiteSamplerEstimator(Estimator):
         # absolute expected episode time, NOT an improvement slope (the other
         # trend estimators, being removed in the model purge, used it as a
         # rate); greedy just needs a rank-able magnitude. clean stays unmodeled
-        # in Plan 1 — the "Success
-        # Attempt" distribution lands with the UI work (Spec #2).
+        # in Plan 1 — the "Success Attempt" distribution lands with the UI work
+        # (Spec #2).
         total = Estimate(
             expected_ms=scalar, ms_per_attempt=scalar, floor_ms=None,
         )
