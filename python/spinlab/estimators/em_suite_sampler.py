@@ -55,6 +55,20 @@ ALPHA_GRID: tuple[float, ...] = (
     0.0, 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0,
 )
 
+# Draw-pool size per segment, per outcome. Sized to cover several effective
+# windows of the slowest recency-weighted rate (alpha=0.01 ~ 100-attempt
+# memory). Two SEPARATE pools (success, death) so a death-heavy segment never
+# starves the success pool. Bump if a segment needs a deeper success history
+# than this; it is a one-line change with no structural impact.
+POOL_SIZE = 300
+
+
+def _append_capped(pool: list[float], value: float) -> list[float]:
+    """Return a new list with `value` appended, keeping only the last POOL_SIZE
+    entries (oldest dropped first). Immutable to match process_event's
+    new-state-per-call convention."""
+    return (pool + [value])[-POOL_SIZE:]
+
 
 def ema_step(values: list[float], driver: float) -> list[float]:
     """Apply one EMA-style update to all alphas in parallel.
@@ -121,6 +135,8 @@ class SamplerState(EstimatorState):
     p_die_denoms: list[float] = field(
         default_factory=lambda: [0.0] * len(ALPHA_GRID),
     )
+    success_time_pool: list[float] = field(default_factory=list)
+    death_time_pool: list[float] = field(default_factory=list)
     n_successes: int = 0
     n_deaths: int = 0
     n_attempts_total: int = 0
@@ -142,6 +158,8 @@ class SamplerState(EstimatorState):
             "log_death_time_denoms": list(self.log_death_time_denoms),
             "p_die_sums": list(self.p_die_sums),
             "p_die_denoms": list(self.p_die_denoms),
+            "success_time_pool": list(self.success_time_pool),
+            "death_time_pool": list(self.death_time_pool),
             "n_successes": self.n_successes,
             "n_deaths": self.n_deaths,
             "n_attempts_total": self.n_attempts_total,
@@ -156,6 +174,8 @@ class SamplerState(EstimatorState):
             log_death_time_denoms=list(d["log_death_time_denoms"]),
             p_die_sums=list(d["p_die_sums"]),
             p_die_denoms=list(d["p_die_denoms"]),
+            success_time_pool=list(d.get("success_time_pool", [])),
+            death_time_pool=list(d.get("death_time_pool", [])),
             n_successes=d["n_successes"],
             n_deaths=d["n_deaths"],
             n_attempts_total=d["n_attempts_total"],
@@ -186,6 +206,9 @@ def process_event(state: SamplerState, event: EventAttempt) -> SamplerState:
     new_p_die_sums = ema_step(state.p_die_sums, outcome_bit)
     new_p_die_denoms = ema_step(state.p_die_denoms, 1.0)
 
+    new_success_pool = state.success_time_pool
+    new_death_pool = state.death_time_pool
+
     if is_death:
         new_log_death_sums = ema_step(state.log_death_time_sums, log_time)
         new_log_death_denoms = ema_step(state.log_death_time_denoms, 1.0)
@@ -193,6 +216,7 @@ def process_event(state: SamplerState, event: EventAttempt) -> SamplerState:
         new_log_success_denoms = state.log_success_time_denoms
         new_n_deaths = state.n_deaths + 1
         new_n_successes = state.n_successes
+        new_death_pool = _append_capped(state.death_time_pool, float(event.time_ms))
     else:
         new_log_success_sums = ema_step(state.log_success_time_sums, log_time)
         new_log_success_denoms = ema_step(state.log_success_time_denoms, 1.0)
@@ -200,6 +224,7 @@ def process_event(state: SamplerState, event: EventAttempt) -> SamplerState:
         new_log_death_denoms = state.log_death_time_denoms
         new_n_successes = state.n_successes + 1
         new_n_deaths = state.n_deaths
+        new_success_pool = _append_capped(state.success_time_pool, float(event.time_ms))
 
     return SamplerState(
         log_success_time_sums=new_log_success_sums,
@@ -208,6 +233,8 @@ def process_event(state: SamplerState, event: EventAttempt) -> SamplerState:
         log_death_time_denoms=new_log_death_denoms,
         p_die_sums=new_p_die_sums,
         p_die_denoms=new_p_die_denoms,
+        success_time_pool=new_success_pool,
+        death_time_pool=new_death_pool,
         n_successes=new_n_successes,
         n_deaths=new_n_deaths,
         n_attempts_total=state.n_attempts_total + 1,

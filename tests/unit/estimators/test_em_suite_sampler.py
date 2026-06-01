@@ -6,6 +6,14 @@ import math
 
 import pytest
 
+from spinlab.estimators.em_suite_sampler import POOL_SIZE, SamplerState, process_event
+
+
+def _evt(outcome: str, time_ms: int):
+    """Module-level helper: build a minimal EventAttempt for sampler tests."""
+    from tests.factories import make_event_attempt
+    return make_event_attempt(outcome=outcome, time_ms=time_ms)
+
 
 class TestAlphaGrid:
     def test_grid_has_ten_values_including_endpoints(self):
@@ -798,3 +806,30 @@ class TestBuildSlopeMatrices:
             for row in grid:
                 for cell in row:
                     assert cell is None
+
+
+class TestRecencyDrawPools:
+    def test_pools_split_by_outcome(self):
+        st = SamplerState()
+        st = process_event(st, _evt("survived", 1000))
+        st = process_event(st, _evt("died", 500))
+        st = process_event(st, _evt("survived", 1200))
+        assert st.success_time_pool == [1000.0, 1200.0]
+        assert st.death_time_pool == [500.0]
+
+    def test_pool_is_ring_buffered_to_pool_size(self):
+        st = SamplerState()
+        for i in range(POOL_SIZE + 50):
+            st = process_event(st, _evt("survived", 1000 + i))
+        # Oldest 50 dropped; newest POOL_SIZE kept, in order.
+        assert len(st.success_time_pool) == POOL_SIZE
+        assert st.success_time_pool[0] == float(1000 + 50)
+        assert st.success_time_pool[-1] == float(1000 + POOL_SIZE + 49)
+
+    def test_pools_roundtrip_through_serialization(self):
+        st = SamplerState()
+        st = process_event(st, _evt("survived", 1000))
+        st = process_event(st, _evt("died", 500))
+        restored = SamplerState.from_dict(st.to_dict())
+        assert restored.success_time_pool == [1000.0]
+        assert restored.death_time_pool == [500.0]
