@@ -193,3 +193,69 @@ def test_has_competing_active_segment(tmp_path):
         end_type="goal", end_ordinal=0,
         exclude_segment_id="new_seg",
     ) is False
+
+
+def test_count_segments_traversed_in_run_counts_segments_owned_by_other_runs(tmp_path):
+    """The run-segment counter must count every segment the run *traversed*
+    (recorded an event for), even ones still *owned* by an earlier run.
+
+    Ownership is first-writer-wins (see upsert_segment), so a re-record of an
+    already-captured level owns 0 segments — but it traversed them, and the
+    recorder still wrote event rows stamped with the new run id. The counter
+    must reflect those traversals, not ownership.
+    """
+    from spinlab.db import Database
+    from spinlab.models import (
+        AttemptOutcome, AttemptSource, EventAttempt, Segment,
+    )
+
+    db = Database(tmp_path / "t.db")
+    db.upsert_game("g", "G", "any%")
+    db.create_capture_run("old", "g", "Old", kind="live")
+    db.promote_draft("old", "Old")          # free the single-live-draft slot
+    db.create_capture_run("new", "g", "New", kind="live")
+
+    # seg1 is OWNED by the old run.
+    db.upsert_segment(Segment(
+        id="seg1", game_id="g", level_number=1,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
+        capture_run_id="old",
+    ))
+
+    # The new run re-traverses seg1: an event row stamped with the new run id.
+    db.log_event_attempt(EventAttempt(
+        segment_id="seg1", episode_id="ep1",
+        outcome=AttemptOutcome.SURVIVED, time_ms=1234,
+        capture_run_id="new", source=AttemptSource.REFERENCE,
+    ))
+
+    assert db.count_segments_for_run("new") == 0           # owns nothing
+    assert db.count_segments_traversed_in_run("new") == 1  # traversed seg1
+    db.close()
+
+
+def test_count_segments_traversed_in_run_is_distinct(tmp_path):
+    """Multiple events for one segment count once; distinct segments add up."""
+    from spinlab.db import Database
+    from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt, Segment
+
+    db = Database(tmp_path / "t.db")
+    db.upsert_game("g", "G", "any%")
+    db.create_capture_run("r", "g", "R", kind="live")
+    for sid in ("s1", "s2"):
+        db.upsert_segment(Segment(
+            id=sid, game_id="g", level_number=1,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0, capture_run_id="r",
+        ))
+
+    def ev(sid: str) -> None:
+        db.log_event_attempt(EventAttempt(
+            segment_id=sid, episode_id="ep", outcome=AttemptOutcome.SURVIVED,
+            time_ms=1, capture_run_id="r", source=AttemptSource.REFERENCE,
+        ))
+
+    ev("s1"); ev("s1"); ev("s2")   # 3 events, 2 distinct segments
+    assert db.count_segments_traversed_in_run("r") == 2
+    db.close()

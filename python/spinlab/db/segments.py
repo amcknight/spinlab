@@ -260,6 +260,27 @@ class SegmentsMixin:
             ).fetchone()
         return int(row[0])
 
+    def count_segments_traversed_in_run(self, run_id: str) -> int:
+        """Count distinct segments this run *traversed* — i.e. recorded at
+        least one non-invalidated event for — regardless of which run *owns*
+        the segment row.
+
+        Ownership (``capture_run_id`` on ``segments``) is first-writer-wins
+        (see ``upsert_segment``), so a re-record of an already-captured level
+        owns 0 segments. But the recorder still writes an event row stamped
+        with this run's id on every segment it closes, so the distinct
+        ``segment_id`` count over those rows is the honest "segments captured
+        this run" figure — what the live counter should show. Contrast
+        ``count_segments_for_run``, which counts *ownership* and is the right
+        tool for "did this run create anything new" (e.g. replay cleanup).
+        """
+        row = self.conn.execute(
+            "SELECT COUNT(DISTINCT segment_id) FROM attempts "
+            "WHERE capture_run_id = ? AND invalidated = 0",
+            (run_id,),
+        ).fetchone()
+        return int(row[0])
+
     def count_segments_for_capture_session(self, session_id: str) -> int:
         """Count segments belonging to a specific capture session."""
         row = self.conn.execute(

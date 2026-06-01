@@ -44,8 +44,12 @@ class StateBuilder:
 
         sections_captured: int | None = None
         if is_recording and active_run_id is not None:
-            sections_captured = self.db.count_segments_for_run(
-                active_run_id, active_only=True,
+            # Count segments this run *traversed* (recorded an event for), not
+            # just ones it *owns*. Ownership is first-writer-wins, so a re-record
+            # of an already-captured level owns 0 — but it still captured those
+            # segments this run. See count_segments_traversed_in_run.
+            sections_captured = self.db.count_segments_traversed_in_run(
+                active_run_id,
             )
 
         # Every key is set unconditionally below — the AppState contract is
