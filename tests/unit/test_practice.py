@@ -276,15 +276,14 @@ def test_current_expected_times_reflects_model_updates(practice_db):
     initial_total = ps.initial_expected_total_ms
     assert initial_total is not None
 
-    # Add another attempt; the model updates its EMA state.
-    ps.scheduler.process_attempt(seg_id, time_ms=3000, completed=True, deaths=1)
+    # A fast clean success (no death) pulls the success-time EMA down, so the
+    # expected episode time must drop. (Adds no death, so p_die/death_time are
+    # unchanged and the decrease is unambiguous.)
+    ps.scheduler.process_attempt(seg_id, time_ms=1000, completed=True, deaths=0)
 
     cur_total, cur_clean = ps.current_expected_times()
-    # The test's intent is that current_expected_times() reflects the new model
-    # state — not that it moves in a specific direction (direction depends on
-    # em_suite's EMA weighting and is not the focus here).
     assert cur_total is not None
-    assert cur_total != initial_total
+    assert cur_total < initial_total
 
 
 class TestReloadOnDeath:

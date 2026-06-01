@@ -34,12 +34,3 @@ def test_no_saved_estimator_uses_default(tmp_path):
 
     assert scheduler.estimator.name == "em_suite_sampler"
 
-
-def test_scheduler_defaults_to_em_suite_sampler(tmp_path):
-    """Scheduler with no saved estimator and no override uses em_suite_sampler."""
-    db = Database(str(tmp_path / "test.db"))
-    db.upsert_game("g1", "Test Game", "any%")
-
-    scheduler = Scheduler(db, "g1")
-
-    assert scheduler.estimator.name == "em_suite_sampler"
