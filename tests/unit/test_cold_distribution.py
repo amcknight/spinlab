@@ -58,7 +58,6 @@ def test_compute_single_death_at_2s():
     # One cold attempt that died at 2000ms.
     events = [_ev(2000, AttemptOutcome.DIED)]
     dist = compute_cold_distribution(events)
-    # n_cold_attempts is post-truncation; with 1 event there is no truncation
     assert dist.n_cold_attempts == 1
     # bin count = max(5, ceil(sqrt(1))) = 5
     assert len(dist.bins) == 5

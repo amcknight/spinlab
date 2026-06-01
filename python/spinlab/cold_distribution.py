@@ -34,11 +34,6 @@ MIN_BINS = 5
 # labels without manual tick configuration.
 HI_ROUND_MS = 1000
 
-# Echoed value of the (now-removed) recency halflife on the response.
-# Kept on the schema to minimize wire churn this task; will be revisited
-# in the schema-trim pass.
-ECHOED_HALFLIFE = 0
-
 
 @dataclass
 class _EpisodeAccum:
@@ -188,7 +183,6 @@ def compute_cold_distribution(
         sigma_c_ms=sigma_c_ms,
         mu_log_c=mu_log_c, sigma_log_c=sigma_log_c,
         p_die_per_attempt=p_die_per_attempt, p_die_per_life=p_die_per_life,
-        halflife=ECHOED_HALFLIFE,
     )
 
 
