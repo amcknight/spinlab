@@ -157,11 +157,6 @@ class OkResponse(_BaseResponse):
 # Model tab — /api/model
 # ---------------------------------------------------------------------------
 
-class EstimatorInfo(_BaseResponse):
-    name: str
-    display_name: str
-
-
 class ModelSegment(_BaseResponse):
     segment_id: str
     description: str
@@ -180,49 +175,16 @@ class ModelSegment(_BaseResponse):
 
 class ModelData(_BaseResponse):
     estimator: str | None = None
-    estimators: list[EstimatorInfo] = []
     allocator_weights: dict[str, int] | None = None
     segments: list[ModelSegment] = []
 
 
 # ---------------------------------------------------------------------------
-# Estimator tuning — /api/estimator-params
-# ---------------------------------------------------------------------------
-
-class ParamDef(_BaseResponse):
-    name: str
-    display_name: str
-    default: float
-    min: float
-    max: float
-    step: float
-    description: str
-    value: float
-
-
-class TuningData(_BaseResponse):
-    estimator: str | None = None
-    params: list[ParamDef] = []
-
-
-# ---------------------------------------------------------------------------
-# Allocator / estimator config endpoints
+# Allocator config endpoint
 # ---------------------------------------------------------------------------
 
 class AllocatorWeightsResponse(_BaseResponse):
     weights: dict[str, int]
-
-
-class EstimatorSwitchRequest(BaseModel):
-    name: str
-
-
-class EstimatorSwitchResponse(_BaseResponse):
-    estimator: str
-
-
-class EstimatorParamsRequest(BaseModel):
-    params: dict[str, float] = {}
 
 
 # ---------------------------------------------------------------------------

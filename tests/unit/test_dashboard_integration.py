@@ -249,7 +249,7 @@ class TestModelEndpoint:
         data = resp.json()
 
         # Top-level keys match ModelData interface
-        assert set(data.keys()) == {"estimator", "estimators", "allocator_weights", "segments"}
+        assert set(data.keys()) == {"estimator", "allocator_weights", "segments"}
 
         if data["segments"]:
             seg = data["segments"][0]

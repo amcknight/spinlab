@@ -31,10 +31,6 @@ export type ColdFillState = S["ColdFillState"];
 
 export type ModelData = S["ModelData"];
 export type ModelSegment = S["ModelSegment"];
-export type EstimatorInfo = S["EstimatorInfo"];
-
-export type TuningData = S["TuningData"];
-export type ParamDef = S["ParamDef"];
 
 export type ApiSegment = S["ApiSegment"];
 

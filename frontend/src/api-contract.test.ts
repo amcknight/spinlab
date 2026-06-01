@@ -91,10 +91,6 @@ const PRACTICE_STATE: AppState = {
 
 const MODEL_RESPONSE: ModelData = {
   estimator: "kalman",
-  estimators: [
-    { name: "kalman", display_name: "Kalman Filter" },
-    { name: "rolling_mean", display_name: "Rolling Mean" },
-  ],
   allocator_weights: { greedy: 60, random: 20, round_robin: 20 },
   segments: [
     {
