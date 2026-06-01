@@ -154,9 +154,10 @@ class ReferenceController:
         """Snapshot of the paused run for state_builder. None if no paused run."""
         if not self.paused_run_id:
             return None
-        seg_count = self.db.count_segments_for_run(
-            self.paused_run_id, active_only=True,
-        )
+        # Count segments traversed this run (events recorded), matching the
+        # live counter — not ownership, which is first-writer-wins and would
+        # read 0 for a re-record of an already-captured level.
+        seg_count = self.db.count_segments_traversed_in_run(self.paused_run_id)
         sessions = self.db.list_capture_sessions_for_run(self.paused_run_id)
         return {
             "run_id": self.paused_run_id,
@@ -269,7 +270,7 @@ class ReferenceController:
         if self.emu.is_connected:
             await self.emu.send_command(ReferenceStopCmd())
         seg_count_in_run = (
-            self.db.count_segments_for_run(self.recorder.capture_run_id)
+            self.db.count_segments_traversed_in_run(self.recorder.capture_run_id)
             if self.recorder.capture_run_id else 0
         )
         logger.info("reference: stopped — %d total segments in run", seg_count_in_run)

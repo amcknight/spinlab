@@ -101,8 +101,12 @@ class TestSectionsCaptured:
         assert state["sections_captured"] is None
 
     def test_sections_captured_count_when_recording(self, practice_db, mock_emu):
-        """sections_captured reflects DB segment count for the active capture run."""
-        from spinlab.models import Mode
+        """sections_captured reflects the segments the active run traversed
+        (recorded events for) — for a freshly captured segment that's the run
+        that both owns it and logged its event."""
+        from spinlab.models import (
+            AttemptOutcome, AttemptSource, EventAttempt, Mode,
+        )
 
         sm = _make_sm(practice_db, mock_emu)
         sm.game_id = "g"
@@ -129,8 +133,53 @@ class TestSectionsCaptured:
             capture_run_id=run_id,
         )
         practice_db.upsert_segment(seg)
+        # The recorder writes an event row for every segment it closes; the
+        # counter is driven by those traversal rows, not by ownership alone.
+        practice_db.log_event_attempt(EventAttempt(
+            segment_id=seg.id, episode_id="ep1",
+            outcome=AttemptOutcome.SURVIVED, time_ms=100,
+            capture_run_id=run_id, source=AttemptSource.REFERENCE,
+        ))
 
         sm.capture.recorder.capture_run_id = run_id
+        state = sm.get_state()
+        assert state["sections_captured"] == 1
+
+    def test_sections_captured_counts_traversed_segment_owned_by_prior_run(
+        self, practice_db, mock_emu,
+    ):
+        """The counter reflects segments the active run *traversed* (recorded
+        an event for), not only ones it *owns*. Re-recording an already-
+        captured level owns 0 segments (first-writer-wins) but still records
+        events for them — those must show in the counter."""
+        from spinlab.models import (
+            AttemptOutcome, AttemptSource, EventAttempt, Mode, Segment,
+        )
+
+        sm = _make_sm(practice_db, mock_emu)
+        sm.game_id = "g"
+        sm.game_name = "Game"
+        sm.mode = Mode.REFERENCE
+
+        practice_db.create_capture_run("old", "g", "Old", kind="live")
+        practice_db.promote_draft("old", "Old")
+        practice_db.create_capture_run("new", "g", "New", kind="live")
+
+        # Segment owned by the PRIOR run.
+        practice_db.upsert_segment(Segment(
+            id="segX", game_id="g", level_number=2,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0,
+            capture_run_id="old",
+        ))
+        # Active run re-traverses it: an event row stamped with the new run id.
+        practice_db.log_event_attempt(EventAttempt(
+            segment_id="segX", episode_id="ep1",
+            outcome=AttemptOutcome.SURVIVED, time_ms=100,
+            capture_run_id="new", source=AttemptSource.REFERENCE,
+        ))
+
+        sm.capture.recorder.capture_run_id = "new"
         state = sm.get_state()
         assert state["sections_captured"] == 1
 
@@ -148,3 +197,32 @@ class TestDraftBranch:
         state = sm.get_state()
         assert state["paused_run"]["run_id"] == "run-xyz"
         assert state["paused_run"]["segments_captured"] == 0
+
+    def test_paused_run_segments_captured_counts_traversed(self, practice_db, mock_emu):
+        """The paused-run badge counts segments the run traversed (events) —
+        matching the live counter — not ownership. A run that re-recorded an
+        already-owned level shows its traversals, not 0."""
+        from spinlab.models import (
+            AttemptOutcome, AttemptSource, EventAttempt, Segment,
+        )
+
+        sm = _make_sm(practice_db, mock_emu)
+        sm.game_id = "g"
+        sm.game_name = "Game"
+
+        practice_db.create_capture_run("owner", "g", "Owner", kind="live")
+        practice_db.promote_draft("owner", "Owner")
+        practice_db.create_capture_run("paused", "g", "Paused", kind="live")
+        practice_db.upsert_segment(Segment(
+            id="segP", game_id="g", level_number=3,
+            start_type="entrance", start_ordinal=0,
+            end_type="goal", end_ordinal=0, capture_run_id="owner",
+        ))
+        practice_db.log_event_attempt(EventAttempt(
+            segment_id="segP", episode_id="ep", outcome=AttemptOutcome.SURVIVED,
+            time_ms=50, capture_run_id="paused", source=AttemptSource.REFERENCE,
+        ))
+
+        sm.capture.paused_run_id = "paused"
+        state = sm.get_state()
+        assert state["paused_run"]["segments_captured"] == 1
