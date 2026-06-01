@@ -1,5 +1,9 @@
 import { canStartPractice, canStartHyperPlay } from "./model-logic";
 import type { AppState, ModelData, TuningData, SessionInfo } from "./types";
+import {
+  loadAndRenderEmSuitePanel,
+  destroyEmSuitePanel,
+} from "./em-suite-panel";
 import { renderSegmentDetail, destroySegmentDetail } from "./segment-detail";
 import {
   fetchModelData,
@@ -106,6 +110,7 @@ export function updatePracticeCard(data: AppState): void {
   const card = document.getElementById("practice-card") as HTMLElement;
   if ((data.mode !== "practice" && data.mode !== "hyper_play") || !data.current_segment) {
     card.style.display = "none";
+    destroyEmSuitePanel();
     return;
   }
   card.style.display = "";
@@ -125,6 +130,14 @@ export function updatePracticeCard(data: AppState): void {
       _currentWeights = next;
       postAllocatorWeights(next);
     });
+  }
+
+  // EMA-suite panel. Fired per SSE app-state push, so updates per attempt
+  // for free. Fire-and-forget — errors render an inline message inside the
+  // panel host without blocking the rest of the card.
+  const emSuiteHost = document.getElementById("em-suite-panel") as HTMLElement;
+  if (emSuiteHost) {
+    void loadAndRenderEmSuitePanel(data.current_segment.id, emSuiteHost);
   }
 }
 

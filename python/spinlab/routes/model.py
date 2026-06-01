@@ -259,7 +259,11 @@ def get_em_suite_matrix(
     computes the closed-form geometric mean per (alpha_fast, alpha_slow)
     pair. See docs/superpowers/specs/2026-05-30-em-suite-sampler-design.md.
     """
-    from spinlab.estimators.em_suite_sampler import build_matrix
+    from spinlab.estimators.em_suite_sampler import (
+        build_matrix,
+        build_slope_matrices,
+        replay_with_history,
+    )
 
     seg = db.get_segment_by_id(segment_id)
     if seg is None:
@@ -268,9 +272,11 @@ def get_em_suite_matrix(
 
     event_rows = db.get_segment_event_rows(segment_id)
     events = _events_from_rows(event_rows)
-    est = get_estimator("em_suite_sampler")
-    state = est.rebuild_state(attempts=[], events=events)
+    # replay_with_history both produces the final state and the per-snapshot
+    # history (drives the time-series view); no need to also call rebuild_state.
+    state, param_history = replay_with_history(events)
     grid = build_matrix(state)
+    slope_matrices = build_slope_matrices(state)
     return {
         "segment_id": segment_id,
         "alpha_grid": grid["alpha_grid"],
@@ -279,4 +285,6 @@ def get_em_suite_matrix(
         "n_attempts_total": state.n_attempts_total,
         "n_successes": state.n_successes,
         "n_deaths": state.n_deaths,
+        "param_history": param_history,
+        "slope_matrices": slope_matrices,
     }

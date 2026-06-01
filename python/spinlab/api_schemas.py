@@ -505,3 +505,15 @@ class EmSuiteMatrixResponse(_BaseResponse):
     n_attempts_total: int
     n_successes: int
     n_deaths: int
+    # Per-attempt history for the three underlying quantities. Each value is
+    # a 2D array shaped [n_alphas][n_snapshots] where n_snapshots ==
+    # n_attempts_total + 1 (snapshot 0 = empty initial state). Times are
+    # log(time_ms); the frontend exponentiates for display. Inner cells are
+    # None when that alpha has no data yet at that snapshot (denominator 0).
+    param_history: dict[str, list[list[float | None]]]
+    # Three 10x10 upper-triangular slope matrices keyed by
+    # `slope_log_success`, `slope_log_death`, `slope_logit_p`. Cell
+    # [fast][slow] is `E_fast - E_slow` in the quantity's working space.
+    # Cells are None when the prediction gate fails, when either EMA is
+    # undefined, or when fast_idx <= slow_idx.
+    slope_matrices: dict[str, list[list[float | None]]]

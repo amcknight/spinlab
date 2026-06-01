@@ -88,3 +88,23 @@ def test_returns_populated_matrix_after_enough_events(db, client):
         for row in body["matrix"]
         for v in row
     )
+    # param_history: three keys, each [10 alphas][n_events + 1 snapshots]
+    assert set(body["param_history"].keys()) == {
+        "p_die", "log_success_time", "log_death_time",
+    }
+    for key, grid in body["param_history"].items():
+        assert len(grid) == 10, f"{key} alpha rows"
+        assert all(len(row) == 5 for row in grid), f"{key} snapshot length"
+        # α=0.0 anchor stays None at every snapshot
+        assert all(v is None for v in grid[0])
+    # slope_matrices: three 10x10 upper-triangular grids
+    assert set(body["slope_matrices"].keys()) == {
+        "slope_log_success", "slope_log_death", "slope_logit_p",
+    }
+    for key, grid in body["slope_matrices"].items():
+        assert len(grid) == 10
+        assert all(len(row) == 10 for row in grid)
+        # diagonal + lower triangle are None
+        for fast_idx in range(10):
+            for slow_idx in range(fast_idx, 10):
+                assert grid[fast_idx][slow_idx] is None

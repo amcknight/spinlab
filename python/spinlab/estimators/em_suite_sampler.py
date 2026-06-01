@@ -305,6 +305,84 @@ def expected_episode_time_ms(
     return success_time + (p / (1.0 - p)) * (death_time + reload_penalty_ms)
 
 
+def replay_with_history(
+    events: list[EventAttempt],
+) -> tuple[SamplerState, dict[str, list[list[float | None]]]]:
+    """Replay events and emit a per-snapshot history of the three quantities.
+
+    Returns (final_state, history) where history is a dict with three keys:
+    `p_die`, `log_success_time`, `log_death_time`. Each maps to a 2D list
+    of shape ``[n_alphas][n_snapshots]`` with `n_snapshots = len(events) + 1`.
+    Snapshot 0 is the empty initial state (all None); snapshot k > 0 is the
+    state after processing event k-1. None marks an EMA that has no data yet
+    (denominator == 0) at that snapshot. Times are stored as log(time_ms);
+    the frontend exponentiates for display.
+
+    Invalidated events still advance the snapshot count (their snapshot is
+    identical to the prior one) so the snapshot index matches event-time
+    order in the segment's event log.
+    """
+    n_alphas = len(ALPHA_GRID)
+    n_snapshots = len(events) + 1
+    p_die_history: list[list[float | None]] = [
+        [None] * n_snapshots for _ in range(n_alphas)
+    ]
+    log_success_history: list[list[float | None]] = [
+        [None] * n_snapshots for _ in range(n_alphas)
+    ]
+    log_death_history: list[list[float | None]] = [
+        [None] * n_snapshots for _ in range(n_alphas)
+    ]
+
+    def snapshot(state: SamplerState, snap_idx: int) -> None:
+        for i in range(n_alphas):
+            p_die_history[i][snap_idx] = state.p_die_ema(i)
+            log_success_history[i][snap_idx] = state.log_success_time_ema(i)
+            log_death_history[i][snap_idx] = state.log_death_time_ema(i)
+
+    state = SamplerState()
+    snapshot(state, 0)
+    for k, event in enumerate(events, start=1):
+        state = process_event(state, event)
+        snapshot(state, k)
+    return state, {
+        "p_die": p_die_history,
+        "log_success_time": log_success_history,
+        "log_death_time": log_death_history,
+    }
+
+
+def build_slope_matrices(
+    state: SamplerState,
+) -> dict[str, list[list[float | None]]]:
+    """Three 10x10 upper-triangular slope matrices, one per quantity.
+
+    Returns a dict with `slope_log_success`, `slope_log_death`,
+    `slope_logit_p` keys. Each is a 10x10 list; cell [fast][slow] is the
+    `E_fast - E_slow` value in the quantity's working space (log for times,
+    logit for p_die). Cells where the prediction gate fails, where either
+    EMA is undefined, or where fast_idx <= slow_idx are None. Thin wrapper
+    around `trend_signal_slopes`; no math change.
+    """
+    n = len(ALPHA_GRID)
+    s_success: list[list[float | None]] = [[None] * n for _ in range(n)]
+    s_death: list[list[float | None]] = [[None] * n for _ in range(n)]
+    s_logit_p: list[list[float | None]] = [[None] * n for _ in range(n)]
+    for fast_idx in range(n):
+        for slow_idx in range(fast_idx):
+            slopes = trend_signal_slopes(state, fast_idx, slow_idx)
+            if slopes is None:
+                continue
+            s_success[fast_idx][slow_idx] = slopes[0]
+            s_death[fast_idx][slow_idx] = slopes[1]
+            s_logit_p[fast_idx][slow_idx] = slopes[2]
+    return {
+        "slope_log_success": s_success,
+        "slope_log_death": s_death,
+        "slope_logit_p": s_logit_p,
+    }
+
+
 def build_matrix(
     state: SamplerState, *,
     reload_penalty_ms: int = DEFAULT_DEATH_PENALTY_MS,

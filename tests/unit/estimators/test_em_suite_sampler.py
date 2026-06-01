@@ -576,3 +576,170 @@ class TestEstimatorIntegration:
         # the matrix is served via a dedicated endpoint.
         assert output.total.expected_ms is None
         assert output.clean.expected_ms is None
+
+
+class TestReplayWithHistory:
+    def _events(self):
+        from tests.factories import make_event_attempt
+        return [
+            make_event_attempt(outcome="survived", time_ms=20_000),
+            make_event_attempt(outcome="died", time_ms=5_000),
+            make_event_attempt(outcome="survived", time_ms=21_000),
+            make_event_attempt(outcome="died", time_ms=4_500),
+        ]
+
+    def test_history_shape_matches_alphas_and_snapshots(self):
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, replay_with_history,
+        )
+        events = self._events()
+        _, history = replay_with_history(events)
+        n_alphas = len(ALPHA_GRID)
+        n_snapshots = len(events) + 1
+        for key in ("p_die", "log_success_time", "log_death_time"):
+            assert key in history
+            assert len(history[key]) == n_alphas
+            for row in history[key]:
+                assert len(row) == n_snapshots
+
+    def test_snapshot_zero_is_all_none(self):
+        # The empty initial state has denom = 0 for every alpha; every cell
+        # at snapshot 0 must read None.
+        from spinlab.estimators.em_suite_sampler import replay_with_history
+        _, history = replay_with_history(self._events())
+        for key in ("p_die", "log_success_time", "log_death_time"):
+            for row in history[key]:
+                assert row[0] is None
+
+    def test_final_snapshot_matches_replayed_state(self):
+        # After replay, the last snapshot for each quantity at each alpha
+        # must equal what the state's accessor returns for that alpha.
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, replay_with_history,
+        )
+        state, history = replay_with_history(self._events())
+        last = len(self._events())
+        for i in range(len(ALPHA_GRID)):
+            assert history["p_die"][i][last] == state.p_die_ema(i)
+            assert (
+                history["log_success_time"][i][last]
+                == state.log_success_time_ema(i)
+            )
+            assert (
+                history["log_death_time"][i][last]
+                == state.log_death_time_ema(i)
+            )
+
+    def test_alpha_zero_row_is_all_none(self):
+        # The α=0.0 anchor never gains a denominator, so its row must read
+        # None at every snapshot regardless of data.
+        from spinlab.estimators.em_suite_sampler import replay_with_history
+        _, history = replay_with_history(self._events())
+        for key in ("p_die", "log_success_time", "log_death_time"):
+            assert all(v is None for v in history[key][0])
+
+    def test_invalidated_event_emits_same_snapshot_as_prior(self):
+        # An invalidated event is a no-op for state but still counts as a
+        # snapshot tick — its column must equal the previous column.
+        from spinlab.estimators.em_suite_sampler import replay_with_history
+        from tests.factories import make_event_attempt
+        events = [
+            make_event_attempt(outcome="survived", time_ms=20_000),
+            make_event_attempt(outcome="died", time_ms=5_000),
+            make_event_attempt(outcome="survived", time_ms=99_000, invalidated=True),
+        ]
+        _, history = replay_with_history(events)
+        for key in ("p_die", "log_success_time", "log_death_time"):
+            for row in history[key]:
+                assert row[2] == row[3]
+
+    def test_empty_event_list_yields_single_all_none_snapshot(self):
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, replay_with_history,
+        )
+        state, history = replay_with_history([])
+        assert state.n_attempts_total == 0
+        for key in ("p_die", "log_success_time", "log_death_time"):
+            assert len(history[key]) == len(ALPHA_GRID)
+            for row in history[key]:
+                assert row == [None]
+
+
+class TestBuildSlopeMatrices:
+    def _populated_state(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, process_event,
+        )
+        from tests.factories import make_event_attempt
+        state = SamplerState()
+        for t in (20_000, 21_000, 19_000):
+            state = process_event(
+                state, make_event_attempt(outcome="survived", time_ms=t),
+            )
+        for t in (5_000, 4_500, 5_500):
+            state = process_event(
+                state, make_event_attempt(outcome="died", time_ms=t),
+            )
+        return state
+
+    def test_returns_three_named_matrices(self):
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, build_slope_matrices,
+        )
+        result = build_slope_matrices(self._populated_state())
+        n = len(ALPHA_GRID)
+        for key in ("slope_log_success", "slope_log_death", "slope_logit_p"):
+            assert key in result
+            assert len(result[key]) == n
+            assert all(len(row) == n for row in result[key])
+
+    def test_only_upper_triangle_populated(self):
+        # Lower triangle + diagonal must be None; at least one upper-triangle
+        # cell must be non-None on populated data.
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, build_slope_matrices,
+        )
+        result = build_slope_matrices(self._populated_state())
+        n = len(ALPHA_GRID)
+        for key, grid in result.items():
+            upper_non_none = 0
+            for fast_idx in range(n):
+                for slow_idx in range(n):
+                    if slow_idx >= fast_idx:
+                        assert grid[fast_idx][slow_idx] is None, (
+                            f"{key}[{fast_idx}][{slow_idx}] should be None"
+                        )
+                    elif grid[fast_idx][slow_idx] is not None:
+                        upper_non_none += 1
+            assert upper_non_none > 0, f"{key} has no populated cells"
+
+    def test_cells_match_trend_signal_slopes(self):
+        # The matrices are a lifted view of trend_signal_slopes; cell-by-cell
+        # equality where the slope tuple is non-None.
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, build_slope_matrices, trend_signal_slopes,
+        )
+        state = self._populated_state()
+        result = build_slope_matrices(state)
+        n = len(ALPHA_GRID)
+        for fast_idx in range(n):
+            for slow_idx in range(fast_idx):
+                slopes = trend_signal_slopes(state, fast_idx, slow_idx)
+                if slopes is None:
+                    assert result["slope_log_success"][fast_idx][slow_idx] is None
+                    assert result["slope_log_death"][fast_idx][slow_idx] is None
+                    assert result["slope_logit_p"][fast_idx][slow_idx] is None
+                else:
+                    assert result["slope_log_success"][fast_idx][slow_idx] == slopes[0]
+                    assert result["slope_log_death"][fast_idx][slow_idx] == slopes[1]
+                    assert result["slope_logit_p"][fast_idx][slow_idx] == slopes[2]
+
+    def test_empty_state_returns_all_none(self):
+        from spinlab.estimators.em_suite_sampler import (
+            SamplerState, build_slope_matrices,
+        )
+        result = build_slope_matrices(SamplerState())
+        for grid in result.values():
+            for row in grid:
+                for cell in row:
+                    assert cell is None
