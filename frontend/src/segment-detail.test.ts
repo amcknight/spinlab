@@ -86,11 +86,11 @@ function mockFetch(history: SegmentHistory) {
 describe("buildChartDatasets", () => {
   it("builds total datasets from history data", () => {
     const datasets = buildChartDatasets(MOCK_HISTORY, "total");
-    // 1 for raw attempts + 1 per estimator
-    expect(datasets).toHaveLength(3);
-    // First dataset is the raw attempts
+    // 1 for raw attempts + 1 for the single em_suite curve
+    expect(datasets).toHaveLength(2);
     expect(datasets[0]!.label).toBe("Attempts");
     expect(datasets[0]!.data).toEqual([4.5, 3.8, 3.2]);
+    expect(datasets[1]!.label).toBe("em_suite_sampler");
   });
 
   it("builds clean datasets from history data", () => {

@@ -60,7 +60,7 @@ Vite (5173)  ──proxies /api──▶  FastAPI (15483)  ◀──NCI/UDP─�
 
 **HyperPlaySession (`hyper_play.py`)** — full-run mode that walks a `LevelPlan` end-to-end, recording per-level attempts against the active reference run.
 
-**Scheduler (`scheduler.py`)** — wires estimators and the allocator. All registered estimators run on every attempt; only the active estimator's `ModelOutput` feeds the allocator. The top-level allocator is always a `MixAllocator` built from per-allocator weights persisted in `allocator_config`.
+**Scheduler (`scheduler.py`)** — wires the single sampler (`EmSuiteSamplerEstimator`) and the allocator. Sampler output feeds the allocator; state persists per-segment in `model_state`. The top-level allocator is always a `MixAllocator` built from per-allocator weights persisted in `allocator_config`.
 
 **Dashboard (`dashboard.py`)** — FastAPI app on port 15483. SSE (`/api/events`) is the primary update mechanism; `/api/state` is the polling fallback. Routes are split across `routes/` modules (`reference.py`, `practice.py`, `hyper_play.py`, `model.py`, `segments.py`, `attempts.py`, `system.py`).
 
@@ -82,7 +82,7 @@ Vite (5173)  ──proxies /api──▶  FastAPI (15483)  ◀──NCI/UDP─�
 2. `PracticeLoadCmd` flows to the orchestrator → `RAClient.load_state(segment_state_path)` → RA loads the state, `state_version` bumps.
 3. Poller's next tick sees the version change, resyncs detectors, then resumes at 60 Hz.
 4. On `Death` or `LevelExit(goal='abort')` while armed: `PracticeSession.handle_death` → reload the same state.
-5. On `LevelExit(goal='normal')`: attempt complete → `Scheduler.record_attempt` runs every estimator, persists model_state, logs the attempt → pick next segment.
+5. On `LevelExit(goal='normal')`: attempt complete → `Scheduler.record_attempt` updates the sampler, persists model_state, logs the attempt → pick next segment.
 
 ## Reference Run State Machine
 
@@ -114,17 +114,15 @@ Schema-change workflow: create a new `NNNN_name.sql` file. Never edit an existin
 
 Transactional model: the SQLite connection runs in autocommit mode. Single-statement mixin methods commit on the spot; multi-statement work composes via `with db.transaction():`. The context manager uses `BEGIN IMMEDIATE` at the top level and `SAVEPOINT` when nested, so methods that wrap their own body in `self.transaction()` (e.g. `hard_delete_capture_run` in `db/capture_runs.py`) still join an outer caller transaction cleanly — and top-level callers like `atomic_save_and_finish_run` in `capture/finalizer.py` use `db.transaction()` directly. See `db/core.py` module docstring for the full rationale.
 
-## Scheduler: Estimator + Allocator Pipeline
+## Scheduler: Sampler + Allocator Pipeline
 
-**Estimators** (`estimators/`) track per-segment performance and produce `ModelOutput`. All registered estimators run on every attempt; only the active estimator's output feeds the allocator. `ModelOutput` fields are nullable — `None` means "not enough data", never a silent fallback. State persisted per-segment per-estimator in `model_state`.
-
-Registered: `kalman` (Kalman filter on `[mu, d]` state), `rolling_mean`, `exp_decay`.
+**Sampler** (`estimators/em_suite_sampler.py`) — the sole model. `EmSuiteSamplerEstimator` tracks per-segment EMA suites + recency-weighted draw pools (`success_time_pool` / `death_time_pool`) and produces a `ModelOutput` whose `total.expected_ms` is a closed-form geometric mean over the suite. `ModelOutput` fields are nullable — `None` means "not enough data" (gate: ≥2 successes AND ≥2 deaths), never a silent fallback. State persisted per-segment in `model_state`. The `Estimator` / `EstimatorState` ABCs in `estimators/__init__.py` are retained as the ingestion seam for a future value-of-practice allocator (Spec #3); there is no registry / name-keyed factory.
 
 **Allocators** (`allocators/`) pick the next segment from a list of `SegmentWithModel`. The scheduler always wraps them in a `MixAllocator` built from weights in `allocator_config` — including a sub-allocator means giving it a positive weight.
 
 Registered: `greedy` (highest expected improvement), `round_robin`, `random`, `least_played`, `mix`.
 
-Active estimator and per-allocator weights live in `allocator_config`, switchable at runtime via `POST /api/estimator` and `POST /api/allocator-weights`.
+Per-allocator weights live in `allocator_config`, switchable at runtime via `POST /api/allocator-weights`.
 
 ## Save States
 
