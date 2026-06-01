@@ -14,16 +14,6 @@ def test_stale_estimator_falls_back_to_default(tmp_path):
     assert scheduler.estimator.name == "em_suite_sampler"
 
 
-def test_valid_saved_estimator_is_used(tmp_path):
-    """Scheduler with a valid saved estimator name should use it."""
-    db = Database(str(tmp_path / "test.db"))
-    db.upsert_game("g1", "Test Game", "any%")
-    db.save_allocator_config("estimator", "rolling_mean")
-
-    scheduler = Scheduler(db, "g1")
-
-    assert scheduler.estimator.name == "rolling_mean"
-
 
 def test_no_saved_estimator_uses_default(tmp_path):
     """Scheduler with no saved estimator uses the constructor default (em_suite_sampler)."""

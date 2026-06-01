@@ -293,10 +293,6 @@ class TestAllocatorSwitch:
         resp = active_client.post("/api/allocator-weights", json={"name": "random"})
         assert resp.status_code == 422
 
-    def test_switch_estimator(self, active_client):
-        resp = active_client.post("/api/estimator", json={"name": "kalman"})
-        assert resp.status_code == 200
-        assert resp.json()["estimator"] == "kalman"
 
 
 # -- Error states (503/409) --------------------------------------------------
@@ -617,22 +613,6 @@ class TestEstimatorParams:
             assert "default" in p
             assert "value" in p
 
-    def test_post_estimator_params_roundtrip(self, active_client):
-        """POST /api/estimator-params saves params, GET reads them back."""
-        # Switch to kalman (which has D0) before testing param persistence.
-        active_client.post("/api/estimator", json={"name": "kalman"})
-
-        resp = active_client.post(
-            "/api/estimator-params",
-            json={"params": {"D0": 1.5}},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
-
-        resp2 = active_client.get("/api/estimator-params")
-        data = resp2.json()
-        d0 = next(p for p in data["params"] if p["name"] == "D0")
-        assert d0["value"] == 1.5
 
     def test_post_estimator_params_unknown_param(self, active_client):
         resp = active_client.post(

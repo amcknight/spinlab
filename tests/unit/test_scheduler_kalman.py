@@ -1,11 +1,10 @@
-"""Tests for the scheduler coordinator (multi-model)."""
+"""Tests for the scheduler coordinator."""
 import json
 
 import pytest
 
 from spinlab.db import Database
-from spinlab.estimators import list_estimators
-from spinlab.models import ModelOutput, Segment, Waypoint, WaypointSaveState
+from spinlab.models import Segment, Waypoint, WaypointSaveState
 from spinlab.scheduler import Scheduler
 
 
@@ -73,75 +72,6 @@ class TestSchedulerPickNext:
         assert sched.pick_next() is None
 
 
-class TestSchedulerProcessAttempt:
-    def test_process_attempt_creates_all_model_states(self, db_with_segments):
-        sched = Scheduler(db_with_segments, "g1")
-        segment_id = db_with_segments._test_segs[0].id
-        sched.process_attempt(segment_id, time_ms=12000, completed=True)
-        rows = db_with_segments.load_all_model_states_for_segment(segment_id)
-        estimator_names = {r["estimator"] for r in rows}
-        assert "kalman" in estimator_names
-        assert "rolling_mean" in estimator_names
-        try:
-            import numpy  # noqa: F401
-            assert "exp_decay" in estimator_names
-        except ImportError:
-            pass  # exp_decay unavailable without numpy
-        for r in rows:
-            out = ModelOutput.from_dict(json.loads(r["output_json"]))
-            # exp_decay returns all None with < 3 points — that's correct.
-            # em_suite_sampler intentionally returns None for legacy
-            # ModelOutput fields (it serves predictions via a dedicated
-            # /em-suite-matrix route, not via the expected_ms field).
-            if r["estimator"] not in ("exp_decay", "em_suite_sampler"):
-                assert out.total.expected_ms is not None or out.clean.expected_ms is not None
-
-    def test_process_attempt_incomplete(self, db_with_segments):
-        sched = Scheduler(db_with_segments, "g1")
-        segment_id = db_with_segments._test_segs[0].id
-        sched.process_attempt(segment_id, time_ms=12000, completed=True)
-        sched.process_attempt(segment_id, time_ms=5000, completed=False)
-        row = db_with_segments.load_model_state(segment_id, "kalman")
-        state = json.loads(row["state_json"])
-        assert state["n_completed"] == 1
-        assert state["n_attempts"] == 2
-
-    def test_process_attempt_with_deaths(self, db_with_segments):
-        sched = Scheduler(db_with_segments, "g1")
-        segment_id = db_with_segments._test_segs[0].id
-        sched.process_attempt(
-            segment_id, time_ms=12000, completed=True,
-            deaths=3, clean_tail_ms=4000,
-        )
-        rows = db_with_segments.load_all_model_states_for_segment(segment_id)
-        assert len(rows) == len(list_estimators())
-
-    def test_first_attempt_death_then_completion_seeds_kalman(self, db_with_segments):
-        # Regression: a death-first attempt creates a bare model state
-        # (n_completed=0).  When the next successful attempt arrives, the
-        # scheduler used to call process_attempt against that bare state,
-        # which produced expected_ms ~= 0.5 * observed_time (Kalman update
-        # from the default mu=0).  The fix routes through init_state with
-        # population priors when n_completed is still zero.
-        sched = Scheduler(db_with_segments, "g1")
-        segment_id = db_with_segments._test_segs[0].id
-
-        sched.process_attempt(segment_id, time_ms=0, completed=False)
-        sched.process_attempt(segment_id, time_ms=12000, completed=True)
-
-        row = db_with_segments.load_model_state(segment_id, "kalman")
-        state = json.loads(row["state_json"])
-        assert state["n_completed"] == 1
-        assert state["n_attempts"] == 2
-        # mu should equal the observed time (12s), not 6s — that's the
-        # signature of a bug-free init_state path.
-        assert state["mu"] == pytest.approx(12.0)
-        output = ModelOutput.from_dict(json.loads(row["output_json"]))
-        assert output.total.expected_ms is not None
-        # Loose bound: the estimate should be in the same ballpark as the
-        # only observation, not half of it.
-        assert 9000 < output.total.expected_ms < 15000
-
 
 class TestSchedulerWeights:
     def test_set_weights_persists_and_rebuilds(self, db_with_segments):
@@ -180,16 +110,6 @@ class TestSchedulerWeights:
         assert alloc.name == "random"
         assert weight == 100
 
-
-class TestSchedulerRebuild:
-    def test_rebuild_all_states(self, db_with_segments):
-        sched = Scheduler(db_with_segments, "g1")
-        segment_id = db_with_segments._test_segs[0].id
-        sched.process_attempt(segment_id, time_ms=12000, completed=True)
-        sched.process_attempt(segment_id, time_ms=11000, completed=True)
-        sched.rebuild_all_states()
-        rows = db_with_segments.load_all_model_states_for_segment(segment_id)
-        assert len(rows) == len(list_estimators())
 
 
 class TestOldConfigCleanup:
@@ -260,15 +180,3 @@ class TestSyncConfigFromDb:
         assert sched.all_weights != initial_weights
         assert sched.all_weights["greedy"] == 100
 
-    def test_estimator_change_detected(self, db_with_segments):
-        """Changing the estimator in the DB should update sched.estimator."""
-        sched = Scheduler(db_with_segments, "g1")
-        initial_name = sched.estimator.name
-
-        other = [n for n in list_estimators() if n != initial_name]
-        assert other, "test setup expects 2+ registered estimators"
-        new_name = other[0]
-
-        db_with_segments.save_allocator_config("estimator", new_name)
-        sched.pick_next()
-        assert sched.estimator.name == new_name

@@ -215,8 +215,8 @@ def test_record_attempt_persists_and_updates_model_in_lockstep(practice_db):
     assert rows[0]["time_ms"] == 10000
     assert rows[0]["completed"] == 1
 
-    # (b) model state updated
-    row = practice_db.load_model_state(seg_id, "rolling_mean")
+    # (b) model state updated — em_suite_sampler is the only active estimator
+    row = practice_db.load_model_state(seg_id, "em_suite_sampler")
     assert row is not None
     output_via_record = json.loads(row["output_json"])
 
@@ -229,17 +229,17 @@ def test_record_attempt_persists_and_updates_model_in_lockstep(practice_db):
     other_sched = Scheduler(other_db, "g")
     other_sched.process_attempt(other_seg.id, time_ms=10000, completed=True)
     output_via_direct = json.loads(
-        other_db.load_model_state(other_seg.id, "rolling_mean")["output_json"]
+        other_db.load_model_state(other_seg.id, "em_suite_sampler")["output_json"]
     )
     assert output_via_record == output_via_direct
 
 
 def test_process_result_does_not_double_count_attempts(practice_db):
-    """Regression: log_attempt was called before scheduler.process_attempt, so
-    the scheduler's `db.get_segment_attempts` already contained the new attempt
-    AND `all_attempts + [new_attempt]` appended a second copy. Estimators that
-    consume `all_attempts_with_new` in `model_output` (rolling_mean, exp_decay)
-    saw the most recent attempt twice and produced biased estimates."""
+    """Regression: log_attempt was called before scheduler.update_state_after_episode,
+    so the scheduler's `db.get_segment_attempts` already contained the new attempt
+    AND a second copy would have been added. After the fix, each episode is persisted
+    exactly once before model rebuild — so n_attempts must equal the number of
+    _process_result calls, not more."""
     seg_id = practice_db._test_seg_id
     emu = AsyncMock()
     emu.is_connected = True
@@ -252,13 +252,12 @@ def test_process_result_does_not_double_count_attempts(practice_db):
         AttemptResultEvent(segment_id=seg_id, completed=True, time_ms=20000),
     )
 
-    # rolling_mean's expected_ms is the mean of completed times. With two
-    # attempts of 10s and 20s the correct mean is 15000ms; double-counting the
-    # most recent attempt produces (10000 + 20000 + 20000) / 3 = 16666.67ms.
-    row = practice_db.load_model_state(seg_id, "rolling_mean")
+    # With double-counting the state would show n_attempts=3 (not 2).
+    row = practice_db.load_model_state(seg_id, "em_suite_sampler")
     assert row is not None
-    output = json.loads(row["output_json"])
-    assert output["total"]["expected_ms"] == pytest.approx(15000.0, abs=0.01)
+    state = json.loads(row["state_json"])
+    assert state["n_attempts"] == 2
+    assert state["n_completed"] == 2
 
 
 def test_current_expected_times_reflects_model_updates(practice_db):

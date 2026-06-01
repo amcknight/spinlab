@@ -1,8 +1,4 @@
-"""Scheduler coordinator: wires estimators + allocator together.
-
-Runs ALL registered estimators on each attempt. The "active" estimator
-selection only affects which ModelOutput the allocator reads.
-"""
+"""Scheduler coordinator: wires the em_suite sampler + allocator together."""
 from __future__ import annotations
 
 import json
@@ -15,12 +11,11 @@ logger = logging.getLogger(__name__)
 from spinlab.allocators import Allocator, SegmentWithModel, get_allocator, list_allocators
 from spinlab.allocators.mix import MixAllocator
 from spinlab.db.attempts import AttemptRow, EventAttemptRow
-from spinlab.estimators import EstimatorState, get_estimator, list_estimators
+from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
 from spinlab.models import Attempt, AttemptRecord, AttemptSource
 
 if TYPE_CHECKING:
     from spinlab.db import Database
-    from spinlab.estimators import Estimator
     from spinlab.models import EventAttempt
 
 
@@ -91,16 +86,11 @@ def _events_from_rows(rows: list[EventAttemptRow]) -> list[EventAttempt]:
 class Scheduler:
     def __init__(
         self, db: "Database", game_id: str,
-        estimator_name: str = "em_suite_sampler",
+        estimator_name: str = "em_suite_sampler",  # kept for call-site compat; ignored
     ) -> None:
         self.db = db
         self.game_id = game_id
-        saved_est = db.load_allocator_config("estimator")
-        est_name = saved_est or estimator_name
-        if est_name not in list_estimators():
-            logger.warning("Saved estimator %r not found, falling back to %r", est_name, estimator_name)
-            est_name = estimator_name
-        self.estimator: Estimator = get_estimator(est_name)
+        self.estimator = EmSuiteSamplerEstimator()
         self.allocator: MixAllocator = self._build_mix_from_db()
         self._drop_legacy_allocator_config_key()
 
@@ -143,9 +133,6 @@ class Scheduler:
             saved_weights = json.loads(raw)
             if saved_weights != self._all_weights:
                 self.allocator = self._build_mix_from_db()
-        saved_est = self.db.load_allocator_config("estimator")
-        if saved_est and saved_est != self.estimator.name:
-            self.estimator = get_estimator(saved_est)
 
     @property
     def last_chosen_allocator(self) -> str | None:
@@ -216,95 +203,30 @@ class Scheduler:
         self.record_attempt(attempt)
 
     def update_state_after_episode(self, segment_id: str) -> None:
-        """Run every estimator over the latest persisted episode for ``segment_id``.
+        """Run the em_suite sampler over the latest persisted episode for ``segment_id``.
 
-        Reads the rolled-up episode list from the event-level table, picks
-        the most recently closed episode as the "new" attempt, and feeds it
-        through each estimator's incremental update path.
-
-        Callers must guarantee that the new episode is fully persisted
-        before invoking this (the legacy adapter rolls events up, so partial
-        episodes — a death but no terminator — show up as
-        ``completed=False`` rows). Practice mode achieves that ordering via
-        the ``EventAttemptEmission → AttemptResultEvent`` event sequence.
+        Reads the rolled-up episode list from the event-level table and rebuilds
+        sampler state from events. Callers must guarantee the new episode is fully
+        persisted before invoking this.
         """
         attempt_rows = self.db.get_segment_attempts(segment_id)
         all_attempts = _attempts_from_rows(attempt_rows)
         if not all_attempts:
             return
-        new_attempt = all_attempts[-1]
-        for est in [get_estimator(n) for n in list_estimators()]:
-            try:
-                self._process_attempt_for_estimator(
-                    est, segment_id, new_attempt, all_attempts,
-                    completed=new_attempt.completed,
-                    time_ms=new_attempt.time_ms or 0,
-                )
-            except Exception:
-                logger.exception(
-                    "update_state_after_episode failed for segment=%s estimator=%s",
-                    segment_id, est.name,
-                )
+        event_rows = self.db.get_segment_event_rows(segment_id)
+        events = _events_from_rows(event_rows)
+        state = self.estimator.rebuild_state(all_attempts, events=events)
+        output = self.estimator.model_output(state, all_attempts, events=events)
+        self.db.save_model_state(
+            segment_id, self.estimator.name,
+            json.dumps(state.to_dict()), json.dumps(output.to_dict()),
+        )
 
         # Silent V07 fit. Off the request path but inline (~15ms p50
         # per V1_ESSENCE, well within an end-of-episode budget). Skips
         # cleanly when [fits] isn't installed or the segment has too
         # few events to fit meaningfully.
         self._maybe_refit_segment(segment_id)
-
-    def _process_attempt_for_estimator(
-        self, est: "Estimator", segment_id: str,
-        new_attempt: AttemptRecord, all_attempts: list[AttemptRecord],
-        *, completed: bool, time_ms: int,
-    ) -> None:
-        # ``all_attempts`` is the post-persistence snapshot from
-        # ``get_segment_attempts`` — it already contains ``new_attempt`` as
-        # its last entry. The pre-Phase-0 code appended ``new_attempt`` to
-        # an N-1 list; after Phase 0 the row is in the DB before this is
-        # called, so no append is needed.
-        params = self._load_estimator_params(est.name)
-        row = self.db.load_model_state(segment_id, est.name)
-        # Load per-event rows once; pass to the estimator. Legacy estimators
-        # ignore the kwarg; death_aware_rolling and future event-level
-        # estimators read it.
-        event_rows = self.db.get_segment_event_rows(segment_id)
-        events = _events_from_rows(event_rows)
-
-        if row and row["state_json"]:
-            state = EstimatorState.deserialize(est.name, row["state_json"])
-            # Bare state from a death-first attempt: no completed observations
-            # have been folded in yet, so process_attempt would update from
-            # the dataclass defaults (Kalman's mu=0, etc.) and produce a
-            # nonsense estimate.  Route through init_state with population
-            # priors and carry the prior failed-attempt count forward.
-            if state.n_completed == 0 and completed and time_ms is not None:
-                prior_n_attempts = state.n_attempts
-                priors = est.get_priors(self.db, self.game_id)
-                state = est.init_state(new_attempt, priors, params=params)
-                state.n_attempts += prior_n_attempts
-            else:
-                state = est.process_attempt(
-                    state, new_attempt, all_attempts,
-                    params=params, events=events,
-                )
-        else:
-            if completed and time_ms is not None:
-                priors = est.get_priors(self.db, self.game_id)
-                state = est.init_state(new_attempt, priors, params=params)
-            else:
-                state = est.rebuild_state([new_attempt], params=params, events=events)
-                output = est.model_output(state, all_attempts, params=params, events=events)
-                self.db.save_model_state(
-                    segment_id, est.name,
-                    json.dumps(state.to_dict()), json.dumps(output.to_dict()),
-                )
-                return
-
-        output = est.model_output(state, all_attempts, params=params, events=events)
-        self.db.save_model_state(
-            segment_id, est.name,
-            json.dumps(state.to_dict()), json.dumps(output.to_dict()),
-        )
 
     def get_all_model_states(self) -> list[SegmentWithModel]:
         return SegmentWithModel.load_all(self.db, self.game_id, self.estimator.name)
@@ -321,17 +243,6 @@ class Scheduler:
         self._all_weights = dict(weights)
         self.allocator = self._build_mix(weights)
 
-    def switch_estimator(self, name: str) -> None:
-        self.estimator = get_estimator(name)
-        self.db.save_allocator_config("estimator", name)
-
-    def _load_estimator_params(self, estimator_name: str) -> dict | None:
-        """Load tunable params from DB for an estimator, or None for defaults."""
-        raw = self.db.load_allocator_config(f"estimator_params:{estimator_name}")
-        if raw:
-            return json.loads(raw)
-        return None
-
     def rebuild_all_states(self) -> None:
         segments = self.db.get_all_segments_with_model(self.game_id)
         for row in segments:
@@ -342,20 +253,18 @@ class Scheduler:
             all_attempts = _attempts_from_rows(attempt_rows)
             event_rows = self.db.get_segment_event_rows(segment_id)
             events = _events_from_rows(event_rows)
-            for est in [get_estimator(n) for n in list_estimators()]:
-                try:
-                    params = self._load_estimator_params(est.name)
-                    state = est.rebuild_state(all_attempts, params=params, events=events)
-                    output = est.model_output(state, all_attempts, params=params, events=events)
-                    self.db.save_model_state(
-                        segment_id, est.name,
-                        json.dumps(state.to_dict()), json.dumps(output.to_dict()),
-                    )
-                except Exception:
-                    logger.exception(
-                        "rebuild_all_states failed for segment=%s estimator=%s",
-                        segment_id, est.name,
-                    )
+            try:
+                state = self.estimator.rebuild_state(all_attempts, events=events)
+                output = self.estimator.model_output(state, all_attempts, events=events)
+                self.db.save_model_state(
+                    segment_id, self.estimator.name,
+                    json.dumps(state.to_dict()), json.dumps(output.to_dict()),
+                )
+            except Exception:
+                logger.exception(
+                    "rebuild_all_states failed for segment=%s estimator=%s",
+                    segment_id, self.estimator.name,
+                )
 
     def _maybe_refit_segment(self, segment_id: str) -> None:
         """Run a streaming v07 refit for ``segment_id`` and persist the payload.

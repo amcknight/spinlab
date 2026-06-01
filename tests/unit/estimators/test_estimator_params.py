@@ -103,46 +103,6 @@ class TestKalmanRReestimateEveryAttempt:
         assert state.R != initial_R, "R should re-estimate before 10 attempts"
 
 
-class TestSchedulerParamsWiring:
-    def test_rebuild_all_states_passes_params(self, tmp_path):
-        """Scheduler.rebuild_all_states should load and pass estimator params."""
-        import json
-
-        from spinlab.db import Database
-        from spinlab.models import Attempt, Segment
-        from spinlab.scheduler import Scheduler
-
-        db = Database(str(tmp_path / "test.db"))
-        db.upsert_game("g1", "Game", "any%")
-        seg = Segment(
-            id="s1", game_id="g1", level_number=1,
-            start_type="entrance", start_ordinal=0,
-            end_type="checkpoint", end_ordinal=0,
-        )
-        db.upsert_segment(seg)
-        db.create_session("sess1", "g1")
-        for t in [12000, 11000, 10000]:
-            db.log_attempt(Attempt(
-                segment_id="s1", session_id="sess1", completed=True,
-                time_ms=t, deaths=0, clean_tail_ms=t,
-            ))
-
-        sched = Scheduler(db, "g1")
-
-        # Rebuild with default params
-        sched.rebuild_all_states()
-        row_default = db.load_model_state("s1", "kalman")
-        state_default = json.loads(row_default["state_json"])
-
-        # Save custom params and rebuild
-        db.save_allocator_config("estimator_params:kalman", json.dumps({"D0": -2.0}))
-        sched.rebuild_all_states()
-        row_custom = db.load_model_state("s1", "kalman")
-        state_custom = json.loads(row_custom["state_json"])
-
-        # Different D0 should produce different state
-        assert state_default["mu"] != state_custom["mu"]
-
 
 class TestEstimatorParamsAPI:
     def test_get_estimator_params_returns_schema(self, tmp_path):
@@ -166,29 +126,3 @@ class TestEstimatorParamsAPI:
         assert "params" in data
         assert isinstance(data["params"], list)
 
-    def test_post_estimator_params_saves(self, tmp_path):
-        from starlette.testclient import TestClient
-
-        from spinlab.dashboard import create_app
-        from spinlab.db import Database
-
-        db = Database(str(tmp_path / "test.db"))
-        db.upsert_game("g1", "TestGame", "any%")
-        from tests.conftest import make_test_config
-        app = create_app(db=db, config=make_test_config())
-        client = TestClient(app)
-        app.state.session.game_id = "g1"
-        app.state.session.game_name = "TestGame"
-
-        # Switch to kalman (which has D0) before posting kalman-specific params.
-        client.post("/api/estimator", json={"name": "kalman"})
-
-        resp = client.post("/api/estimator-params", json={"params": {"D0": 1.0}})
-        assert resp.status_code == 200
-
-        # Verify it was saved
-        raw = db.load_allocator_config("estimator_params:kalman")
-        assert raw is not None
-        import json
-        saved = json.loads(raw)
-        assert saved["D0"] == 1.0
