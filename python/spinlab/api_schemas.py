@@ -479,3 +479,68 @@ class EmSuiteMatrixResponse(_BaseResponse):
     # Cells are None when the prediction gate fails, when either EMA is
     # undefined, or when fast_idx <= slow_idx.
     slope_matrices: dict[str, list[list[float | None]]]
+
+
+# ---------------------------------------------------------------------------
+# Practice Simulation Engine — /api/practice-engine/*
+# ---------------------------------------------------------------------------
+
+class PracticeEngineSegmentState(_BaseResponse):
+    seg_id: str
+    description: str
+    level_number: int
+    e_sample_0_ms: float
+    e_sample_1_ms: float
+    pool_success: int
+    pool_death: int
+    gold_ms: int | None = None  # backs the "fill from gold" dashboard helper
+
+
+class PracticeEngineUngated(_BaseResponse):
+    seg_id: str
+    reason: str
+
+
+class PracticeEngineState(_BaseResponse):
+    gated_segments: list[PracticeEngineSegmentState] = []
+    ungated_segments: list[PracticeEngineUngated] = []
+    matrix_built_at: str | None = None
+    N: int
+
+
+class PracticeEngineEvaluateRequest(BaseModel):
+    policy: Literal["no_reset", "target_paced"]
+    policy_kwargs: dict = {}  # cum_splits_ms, slack — optional, validated server-side
+    objective: Literal[
+        "expected_wall_clock_per_attempt",
+        "expected_total_finished_time",
+        "q",
+        "quantile",
+        "p_pb_this_session",
+    ]
+    objective_ctx: dict = {}  # target_ms, p, session_remaining_ms — validated server-side
+
+
+class PracticeEnginePerSegmentValue(_BaseResponse):
+    seg_id: str
+    value: float
+    value_per_second: float | None
+    e_sample_0_ms: float
+    e_sample_1_ms: float
+
+
+class PracticeEngineTotalTimeSummary(_BaseResponse):
+    bins: list[float] = []
+    counts: list[int] = []
+    mean: float | None = None
+    median: float | None = None
+    p10: float | None = None
+    p90: float | None = None
+    finished_pct: float
+    aborted_by_segment: dict[str, int] = {}
+
+
+class PracticeEngineEvaluateResponse(_BaseResponse):
+    objective_value: float | None
+    per_segment_values: list[PracticeEnginePerSegmentValue] = []
+    total_time_summary: PracticeEngineTotalTimeSummary
