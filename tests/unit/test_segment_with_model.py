@@ -75,7 +75,7 @@ class TestLoadAll:
             total=Estimate(expected_ms=12000.0, ms_per_attempt=-500.0, floor_ms=None),
             clean=Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None),
         )
-        state_json = json.dumps({"mu": 12.0, "d": -0.5, "n_completed": 5, "n_attempts": 7})
+        state_json = json.dumps({"n_completed": 5, "n_attempts": 7})
         db_with_segments.save_model_state(seg_id, "em_suite_sampler", state_json, json.dumps(out.to_dict()))
 
         results = SegmentWithModel.load_all(db_with_segments, "g1")

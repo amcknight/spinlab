@@ -178,13 +178,6 @@ def test_sse_broadcaster_logs_dropped_subscriber(caplog):
 
 
 # ---------------------------------------------------------------------------
-# M15 — estimators.load_mature_states logs corrupt state_json
-#   Removed in the model-purge (Plan 2 Task 8): load_mature_states was used
-#   only by the now-deleted Kalman and Exp-Decay priors paths.
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # M9 — condition_registry.from_yaml error includes path
 # ---------------------------------------------------------------------------
 

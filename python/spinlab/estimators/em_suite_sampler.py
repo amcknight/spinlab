@@ -646,8 +646,7 @@ class EmSuiteSamplerEstimator(Estimator):
             for event in events:
                 state = process_event(state, event)
         # Episode-level inherited counters come from the AttemptRecord list —
-        # these are the fields the scheduler reads generically. Pattern matches
-        # DeathAwareRollingEstimator.rebuild_state.
+        # these are the fields the scheduler reads generically.
         state.n_completed = sum(1 for a in attempts if a.completed)
         state.n_attempts = len(attempts)
         return state

@@ -50,7 +50,8 @@ ATTEMPTS = [
     ("s3", 11500, True),
 ]
 
-MODEL_STATES = [
+MODEL_OUTPUTS = [
+    # (segment_id, expected_seconds, ms_per_attempt_seconds, floor_factor)
     ("s1", 3.8, -0.15, 0.35),
     ("s2", 6.8,  0.05, 0.45),
     ("s3", 11.7, -0.02, 0.48),
@@ -60,7 +61,12 @@ MODEL_STATES = [
 
 @pytest.fixture
 def seeded_db(tmp_path):
-    """DB with game, segments, a session, attempts, and Kalman model state."""
+    """DB with game, segments, a session, attempts, and seeded model_state rows.
+
+    state_json is intentionally opaque here — the /api/model route reads
+    output_json. Real production state shape is owned by SamplerState; tests
+    that care about state round-trips live in test_em_suite_sampler.py.
+    """
     db = Database(tmp_path / "test.db")
     db.upsert_game(GAME_ID, "SMW Kaizo", "any%")
 
@@ -70,8 +76,6 @@ def seeded_db(tmp_path):
         state_file = states_dir / f"{seg.id}.mss"
         state_file.write_bytes(b"\x00" * 100)
         db.upsert_segment(seg)
-        # TODO(Task 8): restore add_save_state on waypoint once get_all_segments_with_model
-        # joins waypoint_save_states. state_path is NULL for all segments until Task 8.
 
     db.create_session("sess1", GAME_ID)
 
@@ -81,12 +85,11 @@ def seeded_db(tmp_path):
             completed=completed, time_ms=time_ms,
         ))
 
-    gold_times = {"s1": 3.2, "s2": 6.5, "s3": 11.5, "s4": 9.1}
-    for segment_id, mu, d, mr in MODEL_STATES:
-        state = {"mu": mu, "P": 1.0, "d": d, "Q_mu": 0.5, "Q_d": 0.01, "R": 1.0, "n": 5,
-                 "gold": gold_times[segment_id], "n_completed": 3, "n_attempts": 3}
+    for segment_id, expected_s, mr_s, floor_factor in MODEL_OUTPUTS:
+        state = {"n_completed": 3, "n_attempts": 3}
         output = {
-            "total": {"expected_ms": mu * 1000, "ms_per_attempt": mr * 1000, "floor_ms": mu * 800},
+            "total": {"expected_ms": expected_s * 1000, "ms_per_attempt": mr_s * 1000,
+                      "floor_ms": expected_s * 1000 * floor_factor},
             "clean": {"expected_ms": None, "ms_per_attempt": None, "floor_ms": None},
         }
         db.save_model_state(segment_id, "em_suite_sampler", json.dumps(state), json.dumps(output))
