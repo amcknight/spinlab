@@ -13,7 +13,7 @@ Build the **Practice Simulation Engine**: a self-contained library that consumes
 - **Vectorized rollouts** of full runs (`§1`+`§2` from the allocator spec): the matrix `T[N, K]` of per-segment times for N imagined runs across K gated segments.
 - **Reset-policy reductions** over the matrix → per-rollout `(finished, abort_at, wall_ms)` masks.
 - **Objective reductions** → scalar quantities (expected total time, `q(T*)`, `p_pb_this_session`, etc.).
-- **Per-segment value attribution** under common random numbers — the `§4` ranking primitive.
+- **Per-segment value attribution** — the `§4` ranking primitive.
 
 Plus a **read-only dashboard panel** that surfaces all of the above for live inspection.
 
@@ -42,7 +42,7 @@ Each of these is a deliberate non-goal of this spec — each is a candidate for 
 │  RolloutMatrix    T[N, K]                              │
 │  • column-keyed cache invalidation                     │
 │  • always-full-length draws                            │
-│  • CRN-preserving redraws                              │
+│  • deterministic per-column seeding                    │
 └──────┬─────────────────────────────────────────────────┘
        ▼
 ┌────────────────────────────────────────────────────────┐
@@ -94,10 +94,7 @@ class PerSegmentValue:
     e_sample_1_ms: float
 ```
 
-**RNG seeding** is per-segment: column `k` uses `np.random.default_rng(rng_seed + k)`, then draws N rows in sequence. Two consequences:
-
-1. Reproducibility: the same engine seed produces the same matrix.
-2. Approximate CRN: rebuilding column `k` with `k_param=1` reseeds with the same `rng_seed + k`, so each row starts from the same RNG state in both baseline and counterfactual. `sample_episode` internally consumes a variable number of draws per row (one per death-before-survival), so the random trajectories diverge mid-row — but the per-row starting state is identical, which is enough for the variance reduction to hold empirically. Strict per-draw CRN would require pre-drawing N uniform random numbers per row and threading them into `sample_episode`; deferred as a refinement if measurements show insufficient variance reduction.
+**RNG seeding** is per-segment: column `k` uses `np.random.default_rng(rng_seed + k)`, then draws N rows in sequence. This gives reproducibility — the same engine seed produces the same matrix — but does not pair individual draws between baseline and counterfactual evaluations. The per-segment value computation just redraws the column with `k_param=1` and takes the diff against the baseline mean; both sides carry Monte Carlo noise of `~σ/√N`, and the diff carries roughly `√2·σ/√N`. See risk #1 in §13.
 
 ## 5. Reset policies
 
@@ -230,7 +227,7 @@ class PracticeEngine:
         objective: Objective,
         ctx: dict,
     ) -> dict[str, PerSegmentValue]:
-        """For each gated segment, baseline_obj − swap_i_to_k=1_obj under CRN."""
+        """For each gated segment, baseline_obj − swap_i_to_k=1_obj."""
 
     def total_time_distribution(
         self,
@@ -256,7 +253,7 @@ def per_segment_values(self, policy, threshold_kwargs, objective, ctx):
 
     results: dict[str, PerSegmentValue] = {}
     for i, seg_id in enumerate(self.matrix.seg_ids):
-        swap_col = self._draw_column(seg_id, k_param=1)  # CRN: reuses per-(n,i) seeds
+        swap_col = self._draw_column(seg_id, k_param=1)
         T_swap = self.matrix.T.copy()
         T_swap[:, i] = swap_col
 
@@ -279,7 +276,7 @@ def per_segment_values(self, policy, threshold_kwargs, objective, ctx):
     return results
 ```
 
-**Why CRN matters here:** without it, `baseline_obj` and `swap_obj` each carry `~σ_total/√N` Monte Carlo error. Their difference has `~√2 σ_total/√N` error — often larger than the per-segment Δ we're trying to measure. With CRN, only column `i` differs between the two matrices; the paired difference reduces to a function of column `i` alone, and the std-error drops by 1–2 orders of magnitude.
+**Variance:** `baseline_obj` and `swap_obj` each carry Monte Carlo noise of `~σ_total/√N`; the diff carries roughly `√2·σ_total/√N`. At N=20k and σ_total in the range of a few seconds, that's tens of ms of std-error on each per-segment value. Sufficient to rank segments whose true Δ is meaningfully above that floor; users wanting tighter measurements crank N. Common-random-numbers variance reduction is a defensible future addition (see §13 risk #1).
 
 ## 9. Scheduler integration
 
@@ -366,7 +363,7 @@ A new dashboard tab or a section under the existing Model tab. UX details are de
 - Per reset policy: deterministic `T` → expected `ResetMasks`. Cover never-aborts, always-aborts-at-0, mixed.
 - Per objective: deterministic `(T, masks, ctx)` → expected scalar; also each None-gate case.
 - Threshold helpers: cum-splits-from-user matches manual computation.
-- `per_segment_values` CRN property: with a controlled fake sampler whose `k=1` shifts a single segment's column by a known constant `δ`, `value[that_segment]` should equal `δ × (per-objective sensitivity)` to within `O(1/√N)` error; `value[other_segments]` should equal `0` exactly (CRN cancels them out).
+- `per_segment_values` correctness: with a controlled fake sampler whose `k=1` shifts a single segment's column by a known constant `δ` and other segments are unchanged, `value[that_segment]` should equal `δ × (per-objective sensitivity)` to within `O(1/√N)` error. Other segments' values fluctuate within Monte Carlo noise of zero.
 
 **Engine integration tests:**
 
@@ -383,21 +380,23 @@ A new dashboard tab or a section under the existing Model tab. UX details are de
 
 ## 13. Risks / open items
 
-1. **`sample_episode` performance** — assumed ~1µs/call. If 10× slower, column rebuild grows from ~20ms to ~200ms at N=20k. Mitigation: profile in the implementation plan's first task; drop default N if needed. Architecture is unchanged.
+1. **Per-segment value Monte Carlo noise.** Each per-segment value carries `~√2·σ_total/√N` std-error from independent re-draws of the swap column. At N=20k that's tens of ms — fine for ranking segments whose true Δ is meaningfully above that floor, marginal for splitting hairs. Mitigations available if it bites: (a) crank N via config (linear cost), (b) add common-random-numbers variance reduction in a follow-up (thread N pre-drawn uniforms into `sample_episode`; structural change to the sampler API). Pick (a) until measurements force (b).
 
-2. **Scheduler.engine cold-start cost** — building the matrix on first access loads K SamplerStates + draws K columns. For K=50, N=20k: ~1s. Acceptable; the dashboard panel's first call wears it.
+2. **`sample_episode` performance** — assumed ~1µs/call. If 10× slower, column rebuild grows from ~20ms to ~200ms at N=20k. Mitigation: profile in the implementation plan's first task; drop default N if needed. Architecture is unchanged.
 
-3. **`session_remaining_ms` has no producer today** — for `p_pb_this_session` objective, ctx requires this. v0: dashboard panel takes it as a user input. Future: a session-tracking subsystem produces it for live consumers.
+3. **Scheduler.engine cold-start cost** — building the matrix on first access loads K SamplerStates + draws K columns. For K=50, N=20k: ~1s. Acceptable; the dashboard panel's first call wears it.
 
-4. **Mid-session segment gating** — handled by the dirty-set mechanism but adds a code path. Tested explicitly.
+4. **`session_remaining_ms` has no producer today** — for `p_pb_this_session` objective, ctx requires this. v0: dashboard panel takes it as a user input. Future: a session-tracking subsystem produces it for live consumers.
 
-5. **N=20k correctness with pool-size=300** — every `sample_episode` draws independently from the ring buffer with replacement. ~67 expected uses per ring entry across the column. Adequate for distributional representativeness; tighter N or stratified sampling is a future optimization.
+5. **Mid-session segment gating** — handled by the dirty-set mechanism but adds a code path. Tested explicitly.
 
-6. **Dashboard panel UX polish** — v0 ships functional but lightly styled. Iteration happens once Andrew is at the desktop and sees it.
+6. **N=20k correctness with pool-size=300** — every `sample_episode` draws independently from the ring buffer with replacement. ~67 expected uses per ring entry across the column. Adequate for distributional representativeness; tighter N or stratified sampling is a future optimization.
+
+7. **Dashboard panel UX polish** — v0 ships functional but lightly styled. Iteration happens once Andrew is at the desktop and sees it.
 
 ## 14. Summary
 
-This spec builds an engine, not an allocator. The engine produces vectorized rollouts (always full length), evaluates pluggable reset policies and objectives over them, and computes per-segment improvement values under common random numbers. Downstream consumers — practice allocator, run-time advisor, dashboard stats — are explicit non-goals here; they consume the engine in their own specs.
+This spec builds an engine, not an allocator. The engine produces vectorized rollouts (always full length), evaluates pluggable reset policies and objectives over them, and computes per-segment improvement values by re-drawing one column at a time. Downstream consumers — practice allocator, run-time advisor, dashboard stats — are explicit non-goals here; they consume the engine in their own specs.
 
 The architecture is conservatively scoped so it can grow:
 - More reset policies (best-recent-N, PB-anchored, WR-anchored) are one-function additions.
