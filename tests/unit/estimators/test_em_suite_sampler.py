@@ -15,6 +15,15 @@ def _evt(outcome: str, time_ms: int):
     return make_event_attempt(outcome=outcome, time_ms=time_ms)
 
 
+def _seed_balanced(st: SamplerState) -> SamplerState:
+    """Module-level helper: seed a state with >=2 successes and >=2 deaths
+    so the prediction gate passes. Used by TestSampleEpisode and TestModelOutput."""
+    for outcome, t in [("survived", 2000), ("died", 500), ("survived", 2100),
+                       ("died", 600), ("survived", 1900), ("died", 550)]:
+        st = process_event(st, _evt(outcome, t))
+    return st
+
+
 class TestAlphaGrid:
     def test_grid_has_ten_values_including_endpoints(self):
         from spinlab.estimators.em_suite_sampler import ALPHA_GRID
@@ -592,7 +601,9 @@ class TestEstimatorIntegration:
         )
         assert state.n_attempts_total == 0
 
-    def test_model_output_returns_none_estimates_for_now(self):
+    def test_model_output_clean_is_unmodeled(self):
+        # clean stays None in Plan 1; the "Success Attempt" distribution lands
+        # with the UI work (Spec #2). This test documents that invariant.
         from spinlab.estimators import get_estimator
         from tests.factories import make_event_attempt
 
@@ -603,10 +614,8 @@ class TestEstimatorIntegration:
         est = get_estimator("em_suite_sampler")
         state = est.rebuild_state(attempts=[], events=events)
         output = est.model_output(state, all_attempts=[], events=events)
-        # v0: this estimator does not drive the legacy expected_ms display;
-        # the matrix is served via a dedicated endpoint.
-        assert output.total.expected_ms is None
         assert output.clean.expected_ms is None
+        assert output.clean.ms_per_attempt is None
 
 
 class TestReplayWithHistory:
@@ -834,11 +843,8 @@ class TestDrawFromPool:
 
 class TestSampleEpisode:
     def _seed_balanced(self, st: SamplerState) -> SamplerState:
-        # >=2 successes and >=2 deaths so the prediction gate passes.
-        for outcome, t in [("survived", 2000), ("died", 500), ("survived", 2100),
-                           ("died", 600), ("survived", 1900), ("died", 550)]:
-            st = process_event(st, _evt(outcome, t))
-        return st
+        # Delegate to module-level helper shared with TestModelOutput.
+        return _seed_balanced(st)
 
     def test_sample_episode_returns_none_below_gate(self):
         import random
@@ -933,3 +939,45 @@ class TestRecencyDrawPools:
         restored = SamplerState.from_dict(st.to_dict())
         assert restored.success_time_pool == [1000.0]
         assert restored.death_time_pool == [500.0]
+
+
+class TestModelOutput:
+    """Task 5: model_output emits a closed-form scalar at the default α pair."""
+
+    def test_default_alpha_pair_indices_map_to_expected_rates(self):
+        from spinlab.estimators.em_suite_sampler import (
+            ALPHA_GRID, DEFAULT_FAST_IDX, DEFAULT_SLOW_IDX,
+        )
+        assert ALPHA_GRID[DEFAULT_FAST_IDX] == 0.2
+        assert ALPHA_GRID[DEFAULT_SLOW_IDX] == 0.05
+
+    def test_scalar_matches_closed_form_no_slope_at_default_fast(self):
+        from spinlab.estimators.em_suite_sampler import (
+            DEFAULT_FAST_IDX, DEFAULT_SLOW_IDX,
+            expected_episode_time_ms, expected_episode_time_scalar,
+        )
+        st = _seed_balanced(SamplerState())
+        expected = expected_episode_time_ms(
+            st, DEFAULT_FAST_IDX, DEFAULT_SLOW_IDX, apply_slope=False,
+        )
+        assert expected_episode_time_scalar(st) == expected
+        assert expected is not None and expected > 0
+
+    def test_model_output_total_carries_the_scalar(self):
+        from spinlab.estimators.em_suite_sampler import (
+            EmSuiteSamplerEstimator, expected_episode_time_scalar,
+        )
+        st = _seed_balanced(SamplerState())
+        est = EmSuiteSamplerEstimator()
+        out = est.model_output(st, [])
+        scalar = expected_episode_time_scalar(st)
+        assert out.total.expected_ms == scalar
+        assert out.total.ms_per_attempt == scalar  # greedy reads this
+        assert out.clean.expected_ms is None       # clean unmodeled in Plan 1
+
+    def test_model_output_is_none_scalar_below_gate(self):
+        from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
+        st = SamplerState()  # no data
+        out = EmSuiteSamplerEstimator().model_output(st, [])
+        assert out.total.expected_ms is None
+        assert out.total.ms_per_attempt is None

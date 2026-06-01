@@ -59,6 +59,17 @@ ALPHA_GRID: tuple[float, ...] = (
     0.0, 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0,
 )
 
+# Default decay pair for the single headline scalar (the segment table's
+# "Episode Time" and the greedy allocator's ranking number). fast=0.2 is
+# ~5-attempt current skill; slow=0.05 is a ~20-attempt baseline. A named,
+# tunable modeling default — NOT a magic pair. The scalar uses the no-slope
+# sample(0) value, so only the fast rate affects it; the pair is kept whole so
+# the same default feeds slope-aware diagnostics unchanged.
+DEFAULT_ALPHA_FAST = 0.2
+DEFAULT_ALPHA_SLOW = 0.05
+DEFAULT_FAST_IDX = ALPHA_GRID.index(DEFAULT_ALPHA_FAST)
+DEFAULT_SLOW_IDX = ALPHA_GRID.index(DEFAULT_ALPHA_SLOW)
+
 # Draw-pool size per segment, per outcome. Sized to cover several effective
 # windows of the slowest recency-weighted rate (alpha=0.01 ~ 100-attempt
 # memory). Two SEPARATE pools (success, death) so a death-heavy segment never
@@ -376,6 +387,16 @@ def expected_episode_time_ms(
     return success_time + (p / (1.0 - p)) * (death_time + reload_penalty_ms)
 
 
+def expected_episode_time_scalar(state: SamplerState) -> float | None:
+    """The single headline expected-episode-time (ms) for a segment, or None
+    below the prediction gate. Closed-form mean, no trend slide (sample(0)),
+    at the default fast rate — the variance-free number for the table and the
+    greedy allocator."""
+    return expected_episode_time_ms(
+        state, DEFAULT_FAST_IDX, DEFAULT_SLOW_IDX, apply_slope=False,
+    )
+
+
 def sample_episode(
     state: SamplerState, fast_idx: int, slow_idx: int, k: int = 0,
     *, rng: "random.Random",
@@ -555,10 +576,14 @@ def build_matrix(
 class EmSuiteSamplerEstimator(Estimator):
     """ABC adapter — registers the EMA-suite sampler with the estimator pipeline.
 
-    v0: this estimator does NOT populate ModelOutput.total/clean
-    (it doesn't drive the legacy expected_ms display in the existing UI).
-    The per-segment matrix is served via a dedicated route. ModelOutput
-    fields are kept None to make this explicit.
+    ModelOutput.total carries the closed-form headline scalar
+    (expected_ms / ms_per_attempt) at the DEFAULT_ALPHA_FAST rate with no
+    trend slide — the number shown in the segment table and used by the greedy
+    allocator. clean and extras remain unset pending the "Success Attempt"
+    distribution work in Spec #2.
+
+    The full per-segment prediction matrix is still served via a dedicated
+    /em-suite-matrix route, which is independent of this scalar.
 
     Why register at all: rebuild_state is the canonical entry point for
     replaying historical events through the sampler — used by both the
@@ -596,10 +621,15 @@ class EmSuiteSamplerEstimator(Estimator):
         params: dict | None = None,
         events: list[EventAttempt] | None = None,
     ) -> ModelOutput:
-        none_estimate = Estimate(
-            expected_ms=None, ms_per_attempt=None, floor_ms=None,
+        scalar = expected_episode_time_scalar(state)
+        # total carries the headline scalar in BOTH expected_ms (table) and
+        # ms_per_attempt (greedy allocator). clean stays unmodeled in Plan 1 —
+        # the "Success Attempt" distribution lands with the UI work (Spec #2).
+        total = Estimate(
+            expected_ms=scalar, ms_per_attempt=scalar, floor_ms=None,
         )
-        return ModelOutput(total=none_estimate, clean=none_estimate, extras=None)
+        clean = Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None)
+        return ModelOutput(total=total, clean=clean, extras=None)
 
     def rebuild_state(  # type: ignore[override]
         self, attempts: list[AttemptRecord],
