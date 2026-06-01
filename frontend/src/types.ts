@@ -47,6 +47,15 @@ export type ColdBin = S["ColdBin"];
 
 export type EmSuiteMatrixResponse = S["EmSuiteMatrixResponse"];
 
+// Practice Simulation Engine
+export type PracticeEngineState = S["PracticeEngineState"];
+export type PracticeEngineSegmentState = S["PracticeEngineSegmentState"];
+export type PracticeEngineUngated = S["PracticeEngineUngated"];
+export type PracticeEngineEvaluateRequest = S["PracticeEngineEvaluateRequest"];
+export type PracticeEngineEvaluateResponse = S["PracticeEngineEvaluateResponse"];
+export type PracticeEnginePerSegmentValue = S["PracticeEnginePerSegmentValue"];
+export type PracticeEngineTotalTimeSummary = S["PracticeEngineTotalTimeSummary"];
+
 // ---- Request bodies (auto-generated) --------------------------------------
 
 export type AttemptPatch = S["AttemptPatchRequest"];
