@@ -391,7 +391,11 @@ def expected_episode_time_scalar(state: SamplerState) -> float | None:
     """The single headline expected-episode-time (ms) for a segment, or None
     below the prediction gate. Closed-form mean, no trend slide (sample(0)),
     at the default fast rate — the variance-free number for the table and the
-    greedy allocator."""
+    greedy allocator.
+
+    Note: with apply_slope=False, slow_idx is inert (no slope is computed), so
+    only DEFAULT_FAST_IDX affects the value. DEFAULT_SLOW_IDX is passed for API
+    consistency with the slope-aware path, which the same default feeds later."""
     return expected_episode_time_ms(
         state, DEFAULT_FAST_IDX, DEFAULT_SLOW_IDX, apply_slope=False,
     )
@@ -623,8 +627,12 @@ class EmSuiteSamplerEstimator(Estimator):
     ) -> ModelOutput:
         scalar = expected_episode_time_scalar(state)
         # total carries the headline scalar in BOTH expected_ms (table) and
-        # ms_per_attempt (greedy allocator). clean stays unmodeled in Plan 1 —
-        # the "Success Attempt" distribution lands with the UI work (Spec #2).
+        # ms_per_attempt (greedy allocator). Note: ms_per_attempt here is the
+        # absolute expected episode time, NOT an improvement slope (the other
+        # trend estimators, being removed in the model purge, used it as a
+        # rate); greedy just needs a rank-able magnitude. clean stays unmodeled
+        # in Plan 1 — the "Success
+        # Attempt" distribution lands with the UI work (Spec #2).
         total = Estimate(
             expected_ms=scalar, ms_per_attempt=scalar, floor_ms=None,
         )
