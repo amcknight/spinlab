@@ -16,7 +16,7 @@ from spinlab.allocators import Allocator, SegmentWithModel, get_allocator, list_
 from spinlab.allocators.mix import MixAllocator
 from spinlab.db.attempts import AttemptRow, EventAttemptRow
 from spinlab.estimators import EstimatorState, get_estimator, list_estimators
-from spinlab.models import Attempt, AttemptRecord
+from spinlab.models import Attempt, AttemptRecord, AttemptSource
 
 if TYPE_CHECKING:
     from spinlab.db import Database
@@ -55,18 +55,19 @@ def _attempts_from_rows(rows: list[AttemptRow]) -> list[AttemptRecord]:
 
 
 def _events_from_rows(rows: list[EventAttemptRow]) -> list[EventAttempt]:
-    """Convert raw event_attempt rows (dicts from get_segment_event_rows)
-    into EventAttempt dataclass instances for estimator consumption.
+    """Shared model-ingestion hydration: convert raw event_attempt rows into
+    EventAttempt dataclass instances for estimator consumption.
 
-    Replay/fast-replay events are recorded for provenance but never seed the
-    model: their wall-clock-collapsed frame deltas are meaningless for the
-    sampler's time pools. Filter them here — the only sampler-ingestion seam —
-    so that get_segment_event_rows callers (matrix, cold-distribution, provenance
-    views) still receive all rows unfiltered.
+    REPLAY events are excluded from EVERY model view that flows through this
+    function — the sampler, the matrix route, the cold-distribution route —
+    because replay times are fast-forward-collapsed and would corrupt all of
+    them. This is the single sampler-ingestion seam where that filter lives.
+    Only the raw ``db.get_segment_event_rows`` call remains unfiltered, for
+    any future pure-provenance need that explicitly wants all rows.
     """
     from datetime import datetime
 
-    from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
+    from spinlab.models import AttemptOutcome, EventAttempt
     out: list[EventAttempt] = []
     for r in rows:
         if AttemptSource(r["source"]) is AttemptSource.REPLAY:
@@ -373,6 +374,7 @@ class Scheduler:
             {"outcome": e["outcome"], "time_ms": int(e["time_ms"])}
             for e in events
             if not int(e["invalidated"])
+            and AttemptSource(e["source"]) is not AttemptSource.REPLAY
         ]
         if len(attempts) < _MIN_EVENTS_FOR_FIT:
             return

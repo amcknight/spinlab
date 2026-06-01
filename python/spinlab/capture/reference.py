@@ -128,11 +128,22 @@ class ReferenceController:
                 f"{self.recorder.capture_run_id!r} are both set."
             )
 
-    def _enter_recording(self, run_id: str, session_id: str) -> None:
-        """Transition to RECORDING phase: arm the recorder, clear paused state."""
+    def _enter_recording(
+        self,
+        run_id: str,
+        session_id: str,
+        source: AttemptSource = AttemptSource.REFERENCE,
+    ) -> None:
+        """Transition to RECORDING phase: arm the recorder, clear paused state.
+
+        ``source`` is stamped on every EventAttempt written during this recording.
+        Pass ``AttemptSource.REPLAY`` when starting a replay capture so that
+        fast-forward-collapsed frame times are never ingested by the model.
+        """
         self.paused_run_id = None
         self.recorder.capture_run_id = run_id
         self.recorder.current_capture_session_id = session_id
+        self.recorder._source = source
         self._assert_run_state_invariant()
 
     def _enter_paused(self, run_id: str) -> None:
@@ -238,8 +249,7 @@ class ReferenceController:
         sess_id, ordinal = self._create_new_session(run_id, data_dir, game_id)
         replay_path = self._game_rec_dir(data_dir, game_id) / f"{run_id}__sess{ordinal:03d}.replay"
 
-        self._enter_recording(run_id, sess_id)
-        self.recorder._source = AttemptSource.REFERENCE
+        self._enter_recording(run_id, sess_id, source=AttemptSource.REFERENCE)
 
         logger.info("reference: started run=%s name=%r", run_id, run_name)
         await self.emu.send_command(ReferenceStartCmd(path=str(replay_path)))
@@ -260,8 +270,7 @@ class ReferenceController:
         run_id = self.paused_run_id
         sess_id, ordinal = self._create_new_session(run_id, data_dir, game_id)
         replay_path = self._game_rec_dir(data_dir, game_id) / f"{run_id}__sess{ordinal:03d}.replay"
-        self._enter_recording(run_id, sess_id)
-        self.recorder._source = AttemptSource.REFERENCE
+        self._enter_recording(run_id, sess_id, source=AttemptSource.REFERENCE)
 
         logger.info("reference: resumed run=%s sess=%s", run_id, sess_id)
         await self.emu.send_command(ReferenceStartCmd(path=str(replay_path)))
@@ -389,12 +398,11 @@ class ReferenceController:
             session_id=sess_id, capture_run_id=run_id,
             ordinal=1,
         )
-        self._enter_recording(run_id, sess_id)
         # Tag all events recorded during replay with REPLAY so they are stored
         # for provenance but excluded from model ingestion in the scheduler.
         # Replay wall-clock times are collapsed by fast-forward and must never
         # seed the sampler's time pools.
-        self.recorder._source = AttemptSource.REPLAY
+        self._enter_recording(run_id, sess_id, source=AttemptSource.REPLAY)
 
         await self.emu.send_command(ReplayCmd(path=replay_path, speed=speed))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REPLAY)

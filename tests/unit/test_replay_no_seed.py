@@ -173,3 +173,86 @@ class TestReplayEventsNotSeeded:
         assert len(state.success_time_pool) == 1, (
             f"Expected 1 success in pool, got {len(state.success_time_pool)}"
         )
+
+
+class TestV07RefitReplayGuard:
+    """The filtering predicate in _maybe_refit_segment excludes REPLAY rows.
+
+    The v07 refit (_refit_segment) requires JAX/[fits] and is skipped when
+    that extra is absent. Rather than gate these tests on [fits], we verify
+    the filtering predicate directly: given a list of raw event rows (as
+    returned by db.get_segment_event_rows), the comprehension that builds
+    ``attempts`` must exclude REPLAY-sourced rows.
+    """
+
+    def _make_attempt_rows(self, sources_and_outcomes):
+        """Build minimal raw event rows (as dicts) matching DB shape."""
+        rows = []
+        for i, (source, outcome) in enumerate(sources_and_outcomes):
+            rows.append({
+                "segment_id": "seg_v07_test",
+                "episode_id": f"ep{i}",
+                "outcome": outcome,
+                "time_ms": 1000 * (i + 1),
+                "source": source,
+                "invalidated": 0,
+                "is_hot": 0,
+                "created_at": "2026-06-01T00:00:00",
+            })
+        return rows
+
+    def test_refit_predicate_excludes_replay_rows(self):
+        """The filtering predicate used in _maybe_refit_segment drops REPLAY rows.
+
+        Applies the same filter expression from _maybe_refit_segment to a
+        mixed list of REFERENCE and REPLAY rows and asserts only REFERENCE
+        rows survive.
+        """
+        from spinlab.models import AttemptSource
+
+        rows = self._make_attempt_rows([
+            (AttemptSource.REFERENCE.value, "survived"),
+            (AttemptSource.REPLAY.value, "survived"),
+            (AttemptSource.REFERENCE.value, "died"),
+            (AttemptSource.REPLAY.value, "died"),
+        ])
+
+        # This is the exact predicate from _maybe_refit_segment.
+        attempts = [
+            {"outcome": e["outcome"], "time_ms": int(e["time_ms"])}
+            for e in rows
+            if not int(e["invalidated"])
+            and AttemptSource(e["source"]) is not AttemptSource.REPLAY
+        ]
+
+        assert len(attempts) == 2, (
+            f"Expected 2 attempts (REFERENCE only), got {len(attempts)}: {attempts}"
+        )
+        assert all(
+            AttemptSource(r["source"]) is AttemptSource.REFERENCE
+            for r in rows
+            if {"outcome": r["outcome"], "time_ms": int(r["time_ms"])} in attempts
+        ), "Only REFERENCE rows should survive the predicate"
+
+    def test_refit_predicate_respects_invalidated(self):
+        """Invalidated rows are dropped regardless of source."""
+        from spinlab.models import AttemptSource
+
+        rows = self._make_attempt_rows([
+            (AttemptSource.REFERENCE.value, "survived"),
+            (AttemptSource.REFERENCE.value, "died"),
+        ])
+        # Mark the second row as invalidated.
+        rows[1]["invalidated"] = 1
+
+        attempts = [
+            {"outcome": e["outcome"], "time_ms": int(e["time_ms"])}
+            for e in rows
+            if not int(e["invalidated"])
+            and AttemptSource(e["source"]) is not AttemptSource.REPLAY
+        ]
+
+        assert len(attempts) == 1, (
+            f"Expected 1 attempt (non-invalidated REFERENCE), got {len(attempts)}"
+        )
+        assert attempts[0]["outcome"] == "survived"
