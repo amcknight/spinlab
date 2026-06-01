@@ -8,6 +8,7 @@ import {
 } from "./model";
 import { fetchManage, initManageTab, updateManageState } from "./manage";
 import { fetchSegments, renderSegmentsView, coldCaptureButtonEnabled } from "./segments-view";
+import { initPracticeEnginePanel } from "./practice-engine";
 import type { AppState } from "./types";
 
 let _currentGameId: string | null = null;
@@ -54,6 +55,7 @@ document.querySelectorAll(".tab").forEach((btn) => {
     if ((btn as HTMLElement).dataset.tab === "model") fetchModel();
     if ((btn as HTMLElement).dataset.tab === "manage") fetchManage();
     if ((btn as HTMLElement).dataset.tab === "segments") fetchAndRenderSegments();
+    if ((btn as HTMLElement).dataset.tab === "practice-engine") initPracticeEnginePanel();
   });
 });
 
