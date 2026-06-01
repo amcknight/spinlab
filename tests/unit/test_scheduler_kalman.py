@@ -157,6 +157,39 @@ class TestStateFileFilter:
         assert picked.segment_id == seg1.id
 
 
+class TestSchedulerRebuild:
+    """Coverage for Scheduler.rebuild_all_states — production code reachable from
+    finalize_run / save_and_finish_run and the /api/estimator-params route."""
+
+    def test_rebuild_all_states_regenerates_em_suite_state(self, db_with_segments):
+        """rebuild_all_states must rewrite the em_suite_sampler model_state row
+        with correct counters even if the row was wiped beforehand."""
+        sched = Scheduler(db_with_segments, "g1")
+        seg_id = db_with_segments._test_segs[0].id
+
+        # Seed two completed attempts so the state has real counters.
+        sched.process_attempt(seg_id, time_ms=12000, completed=True, deaths=1)
+        sched.process_attempt(seg_id, time_ms=11000, completed=True, deaths=1)
+
+        # Corrupt the persisted state so we can prove rebuild_all_states
+        # (not process_attempt) is what writes the correct result.
+        db_with_segments.save_model_state(seg_id, "em_suite_sampler", "{}", "{}")
+
+        # The corrupt row is now in place — rebuild must overwrite it.
+        sched.rebuild_all_states()
+
+        row = db_with_segments.load_model_state(seg_id, "em_suite_sampler")
+        assert row is not None
+        state = json.loads(row["state_json"])
+        assert state["n_attempts"] == 2
+        assert state["n_completed"] == 2
+
+        # Only em_suite_sampler rows — no ghost estimators from a former
+        # multi-estimator world.
+        rows = db_with_segments.load_all_model_states_for_segment(seg_id)
+        assert {r["estimator"] for r in rows} == {"em_suite_sampler"}
+
+
 class TestSyncConfigFromDb:
     """Tests for _sync_config_from_db triggered via pick_next().
 
