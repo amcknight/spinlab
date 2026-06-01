@@ -808,6 +808,30 @@ class TestBuildSlopeMatrices:
                     assert cell is None
 
 
+class TestDrawFromPool:
+    def test_draw_alpha_one_always_returns_newest(self):
+        import random
+        from spinlab.estimators.em_suite_sampler import draw_from_pool
+        pool = [10.0, 20.0, 30.0]  # newest is last
+        rng = random.Random(0)
+        assert all(draw_from_pool(pool, 1.0, rng) == 30.0 for _ in range(20))
+
+    def test_draw_alpha_zero_is_roughly_uniform(self):
+        import random
+        from spinlab.estimators.em_suite_sampler import draw_from_pool
+        pool = [10.0, 20.0, 30.0]
+        rng = random.Random(1)
+        draws = [draw_from_pool(pool, 0.0, rng) for _ in range(3000)]
+        counts = {v: draws.count(v) for v in pool}
+        # Uniform: each ~1000 of 3000. Loose bounds for sampling noise.
+        assert all(800 < c < 1200 for c in counts.values())
+
+    def test_draw_empty_pool_returns_none(self):
+        import random
+        from spinlab.estimators.em_suite_sampler import draw_from_pool
+        assert draw_from_pool([], 0.2, random.Random(0)) is None
+
+
 class TestRecencyDrawPools:
     def test_pools_split_by_outcome(self):
         st = SamplerState()

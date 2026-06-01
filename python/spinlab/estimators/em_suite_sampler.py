@@ -32,6 +32,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import random
 
 from spinlab.estimators import (
     Estimator,
@@ -68,6 +72,27 @@ def _append_capped(pool: list[float], value: float) -> list[float]:
     entries (oldest dropped first). Immutable to match process_event's
     new-state-per-call convention."""
     return (pool + [value])[-POOL_SIZE:]
+
+
+def draw_from_pool(
+    pool: list[float], alpha: float, rng: "random.Random",
+) -> float | None:
+    """Draw one value from `pool`, recency-weighted by `alpha`.
+
+    Weight on the entry of age k (k=0 is the newest, the last element) is
+    proportional to alpha*(1-alpha)^k, matching the EMA's decay. alpha=0
+    gives uniform weights (zero decay); alpha=1 puts all mass on the newest.
+    Returns None for an empty pool (callers gate on non-empty pools first).
+    """
+    n = len(pool)
+    if n == 0:
+        return None
+    if alpha <= 0.0:
+        weights = [1.0] * n
+    else:
+        # Index j has age (n-1-j): the last element (j=n-1) has age 0.
+        weights = [alpha * (1.0 - alpha) ** (n - 1 - j) for j in range(n)]
+    return rng.choices(pool, weights=weights, k=1)[0]
 
 
 def ema_step(values: list[float], driver: float) -> list[float]:
