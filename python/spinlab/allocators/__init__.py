@@ -35,7 +35,7 @@ class SegmentWithModel:
     state_path: str | None
     active: bool
     model_outputs: dict[str, ModelOutput] = field(default_factory=dict)
-    selected_model: str = "kalman"
+    selected_model: str = "em_suite_sampler"
     n_completed: int = 0
     n_attempts: int = 0
     gold_ms: int | None = None
@@ -46,7 +46,7 @@ class SegmentWithModel:
         cls,
         db: "Database",
         game_id: str,
-        selected_model: str = "kalman",
+        selected_model: str = "em_suite_sampler",
     ) -> list["SegmentWithModel"]:
         """Load all segments for a game with model outputs, golds, and stats."""
         rows = db.get_all_segments_with_model(game_id)

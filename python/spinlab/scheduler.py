@@ -81,7 +81,7 @@ def _events_from_rows(rows: list[EventAttemptRow]) -> list[EventAttempt]:
 class Scheduler:
     def __init__(
         self, db: "Database", game_id: str,
-        estimator_name: str = "kalman",
+        estimator_name: str = "em_suite_sampler",
     ) -> None:
         self.db = db
         self.game_id = game_id

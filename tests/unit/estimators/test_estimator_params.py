@@ -180,6 +180,9 @@ class TestEstimatorParamsAPI:
         app.state.session.game_id = "g1"
         app.state.session.game_name = "TestGame"
 
+        # Switch to kalman (which has D0) before posting kalman-specific params.
+        client.post("/api/estimator", json={"name": "kalman"})
+
         resp = client.post("/api/estimator-params", json={"params": {"D0": 1.0}})
         assert resp.status_code == 200
 

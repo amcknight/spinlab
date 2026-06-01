@@ -169,7 +169,7 @@ def make_segment_with_model(
     state_path: str | None = "/fake/state.mss",
     n_completed: int = 5,
     n_attempts: int = 5,
-    selected_model: str = "kalman",
+    selected_model: str = "em_suite_sampler",
     level_number: int = 105,
     start_type: str = "entrance",
     start_ordinal: int = 0,

@@ -206,19 +206,29 @@ class SamplerState(EstimatorState):
             "n_successes": self.n_successes,
             "n_deaths": self.n_deaths,
             "n_attempts_total": self.n_attempts_total,
+            # Base-class counters — included so the scheduler's n_completed==0
+            # routing guard can distinguish a brand-new state from one that has
+            # been updated at least once. Without these, deserialization resets
+            # both to 0 and the guard permanently routes em_suite through
+            # init_state instead of process_attempt → rebuild_state.
+            "n_completed": self.n_completed,
+            "n_attempts": self.n_attempts,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "SamplerState":
-        return cls(
+        state = cls(
             log_success_time_sums=list(d["log_success_time_sums"]),
             log_success_time_denoms=list(d["log_success_time_denoms"]),
             log_death_time_sums=list(d["log_death_time_sums"]),
             log_death_time_denoms=list(d["log_death_time_denoms"]),
             p_die_sums=list(d["p_die_sums"]),
             p_die_denoms=list(d["p_die_denoms"]),
-            # .get() ONLY here: cross-version tolerance — the pools are absent in
-            # pre-Task-2 persisted states and rebuild from events on next replay.
+            # .get() ONLY for pools and base counters: cross-version tolerance.
+            # Pools: absent in pre-Task-2 persisted states; rebuild from events
+            # on next replay. Base counters: absent in pre-n_completed-fix
+            # states; default to 0 so old states route through rebuild_state
+            # on next update (same behavior as before the fix).
             # Every other field stays direct-indexed so a malformed row surfaces.
             success_time_pool=list(d.get("success_time_pool", [])),
             death_time_pool=list(d.get("death_time_pool", [])),
@@ -226,6 +236,9 @@ class SamplerState(EstimatorState):
             n_deaths=d["n_deaths"],
             n_attempts_total=d["n_attempts_total"],
         )
+        state.n_completed = d.get("n_completed", 0)
+        state.n_attempts = d.get("n_attempts", 0)
+        return state
 
 
 EstimatorState.register_state("em_suite_sampler", SamplerState)
@@ -622,7 +635,16 @@ class EmSuiteSamplerEstimator(Estimator):
         self, first_attempt: AttemptRecord, priors: dict,
         params: dict | None = None,
     ) -> SamplerState:
-        return SamplerState()
+        # Return a bare state with n_completed=1 to signal to the scheduler that
+        # this segment has seen at least one completed attempt. The real EMA state
+        # is built by rebuild_state (called from process_attempt) on subsequent
+        # calls once events are in the DB. n_completed=1 here ensures the 2nd
+        # attempt routes to process_attempt → rebuild_state rather than looping
+        # back through init_state (which would discard event history every call).
+        state = SamplerState()
+        state.n_completed = 1
+        state.n_attempts = 1
+        return state
 
     def process_attempt(  # type: ignore[override]
         self, state: SamplerState, new_attempt: AttemptRecord,

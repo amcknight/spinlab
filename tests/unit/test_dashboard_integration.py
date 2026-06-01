@@ -206,7 +206,7 @@ class TestApiState:
         data = active_client.get("/api/state").json()
         assert isinstance(data["allocator_weights"], dict)
         assert sum(data["allocator_weights"].values()) == 100
-        assert data["estimator"] == "kalman"
+        assert data["estimator"] == "em_suite_sampler"
 
 
 # -- Model tab ---------------------------------------------------------------
@@ -215,7 +215,7 @@ class TestModelEndpoint:
     def test_returns_all_segments_with_model(self, active_client):
         data = active_client.get("/api/model").json()
         assert len(data["segments"]) == 5
-        assert data["estimator"] == "kalman"
+        assert data["estimator"] == "em_suite_sampler"
 
         s1 = next(s for s in data["segments"] if s["segment_id"] == "s1")
         kalman = s1["model_outputs"]["kalman"]
@@ -456,9 +456,9 @@ def test_segment_history_returns_selected_model(client):
     resp = client.get("/api/segments/s1/history")
     assert resp.status_code == 200
     data = resp.json()
-    # The seeded client uses the default scheduler — "kalman" is the
+    # The seeded client uses the default scheduler — "em_suite_sampler" is the
     # default estimator, matching test_recent_attempts_ordered* assertions.
-    assert data["selected_model"] == "kalman"
+    assert data["selected_model"] == "em_suite_sampler"
 
 
 def test_segment_history_returns_null_selected_model_when_no_game(seeded_db):
@@ -608,9 +608,10 @@ class TestEstimatorParams:
         resp = active_client.get("/api/estimator-params")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["estimator"] == "kalman"
-        assert len(data["params"]) > 0
-        # Each param has required fields
+        assert data["estimator"] == "em_suite_sampler"
+        # em_suite_sampler v0 exposes no tunable params.
+        assert isinstance(data["params"], list)
+        # Each param has required fields (invariant; vacuously true for empty list)
         for p in data["params"]:
             assert "name" in p
             assert "default" in p
@@ -618,6 +619,9 @@ class TestEstimatorParams:
 
     def test_post_estimator_params_roundtrip(self, active_client):
         """POST /api/estimator-params saves params, GET reads them back."""
+        # Switch to kalman (which has D0) before testing param persistence.
+        active_client.post("/api/estimator", json={"name": "kalman"})
+
         resp = active_client.post(
             "/api/estimator-params",
             json={"params": {"D0": 1.5}},
