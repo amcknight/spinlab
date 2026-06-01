@@ -250,11 +250,6 @@ class Scheduler:
                 segment_id, self.estimator.name,
                 json.dumps(state.to_dict()), json.dumps(output.to_dict()),
             )
-            # Silent V07 fit. Off the request path but inline (~15ms p50
-            # per V1_ESSENCE, well within an end-of-episode budget). Skips
-            # cleanly when [fits] isn't installed or the segment has too
-            # few events to fit meaningfully.
-            self._maybe_refit_segment(segment_id)
             # Invalidate the lazily-built practice engine's column for this
             # segment. Skipped when no engine has been built yet — first access
             # via the ``engine`` property will hydrate from fresh model_state.
@@ -264,6 +259,12 @@ class Scheduler:
             logger.exception(
                 "update_state_after_episode failed for segment=%s", segment_id,
             )
+
+        # Silent V07 fit. Off the request path but inline (~15ms p50
+        # per V1_ESSENCE, well within an end-of-episode budget). Skips
+        # cleanly when [fits] isn't installed or the segment has too
+        # few events to fit meaningfully.
+        self._maybe_refit_segment(segment_id)
 
     def get_all_model_states(self) -> list[SegmentWithModel]:
         return SegmentWithModel.load_all(self.db, self.game_id, self.estimator.name)
