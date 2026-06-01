@@ -308,6 +308,7 @@ class TestTrendSignalSlopes:
         slopes = trend_signal_slopes(state, fast_idx=8, slow_idx=0)
         assert slopes is not None
         assert len(slopes) == 3
+        assert all(isinstance(x, float) and math.isfinite(x) for x in slopes)
 
     def test_returns_slopes_when_gate_passes_and_both_alphas_have_data(self):
         from spinlab.estimators.em_suite_sampler import (
@@ -375,6 +376,7 @@ class TestExpectedEpisodeTime:
         s = math.exp(state.log_success_time_ema(0))
         d = math.exp(state.log_death_time_ema(0))
         p = state.p_die_ema(0)  # = 0.5 (3 deaths / 6 attempts)
+        assert math.isclose(p, 0.5, rel_tol=1e-9)
         expected = s + (p / (1.0 - p)) * (d + DEFAULT_DEATH_PENALTY_MS)
         assert math.isclose(result, expected, rel_tol=1e-9)
 
@@ -497,6 +499,7 @@ class TestBuildMatrix:
         s = math.exp(state.log_success_time_ema(0))
         d = math.exp(state.log_death_time_ema(0))
         p = state.p_die_ema(0)  # = 0.5 (3 deaths / 6 attempts)
+        assert math.isclose(p, 0.5, rel_tol=1e-9)
         expected = s + (p / (1.0 - p)) * (d + DEFAULT_DEATH_PENALTY_MS)
         assert math.isclose(result["baseline"][0], expected, rel_tol=1e-9)
 

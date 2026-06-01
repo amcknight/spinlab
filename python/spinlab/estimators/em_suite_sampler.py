@@ -25,6 +25,8 @@ weight `(1-α)^(N-1)` after N samples — ~96% for α=0.01 at N=5. The normalize
 form divides by the actually-observed weight mass `1 − (1-α)^N` so the
 weights on real observations sum to 1. Both converge to the same value as
 N → ∞; the normalized form is materially more honest at small N.
+
+Exception: alpha=0 uses additive accumulation (new = old + driver) so its slot is the uniform all-time mean — see ema_step.
 """
 from __future__ import annotations
 
