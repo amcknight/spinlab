@@ -1,6 +1,5 @@
 """Tests for reset policies."""
 import numpy as np
-import pytest
 
 from spinlab.practice_engine.reset_policies import no_reset
 from spinlab.practice_engine.types import ResetMasks
