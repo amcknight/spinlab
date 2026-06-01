@@ -205,6 +205,47 @@ def test_hazard_curve_returns_halflife():
     assert dist.halflife == 42
 
 
+def test_completion_sigma_zero_for_single_survival():
+    # One completion -> std is exactly 0.0 (single point has no spread).
+    events = [_ev(5000, AttemptOutcome.SURVIVED)]
+    dist = compute_cold_distribution(events, halflife=20)
+    assert dist.sigma_c_ms == 0.0
+    # Log-moments populated for the single positive-t completion.
+    assert dist.mu_log_c is not None
+    assert dist.sigma_log_c == 0.0
+
+
+def test_completion_sigma_two_survivals_matches_population_formula():
+    # Two completions at 1000 and 3000 ms. Use a huge halflife so weights
+    # are effectively uniform; σ² = E[t²] − μ² with μ=2000:
+    #   E[t²] = (1e6 + 9e6)/2 = 5e6; var = 5e6 − 4e6 = 1e6; σ = 1000.
+    import pytest
+    events = [
+        _ev(1000, AttemptOutcome.SURVIVED, ep="e1"),
+        _ev(3000, AttemptOutcome.SURVIVED, ep="e2"),
+    ]
+    dist = compute_cold_distribution(events, halflife=10_000)
+    assert dist.mu_c_ms == pytest.approx(2000.0, rel=1e-3)
+    assert dist.sigma_c_ms == pytest.approx(1000.0, rel=1e-3)
+
+
+def test_completion_log_moments_for_two_survivals():
+    # ln(1000) ≈ 6.9078, ln(3000) ≈ 8.0064.
+    # Uniform weights => μ_log = mean of the two; σ_log = half the spread.
+    import math
+    import pytest
+    events = [
+        _ev(1000, AttemptOutcome.SURVIVED, ep="e1"),
+        _ev(3000, AttemptOutcome.SURVIVED, ep="e2"),
+    ]
+    dist = compute_cold_distribution(events, halflife=10_000)
+    l1, l2 = math.log(1000), math.log(3000)
+    expected_mu = (l1 + l2) / 2
+    expected_sigma = (l2 - l1) / 2  # |x - μ| for two-point population sample
+    assert dist.mu_log_c == pytest.approx(expected_mu, rel=1e-3)
+    assert dist.sigma_log_c == pytest.approx(expected_sigma, rel=1e-3)
+
+
 def test_hazard_weighted_at_risk():
     # Two events with halflife=1 → older event weight = 2^(-1/1) = 0.5,
     # newer event weight = 1.0. If at_risk_w were computed as an unweighted

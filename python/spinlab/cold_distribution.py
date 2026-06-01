@@ -123,6 +123,13 @@ def compute_cold_distribution(
     sum_w_c = 0.0   # weighted completion count
     sum_wt_d = 0.0  # weighted sum of death times
     sum_wt_c = 0.0  # weighted sum of completion times
+    # Completion-only σ + log-moment accumulators back the Normal/Lognormal
+    # overlays on the histogram. Death times don't get a parametric fit —
+    # see ColdDistribution docstring.
+    sum_wtt_c = 0.0       # weighted sum of completion times squared (for σ)
+    sum_w_log_c = 0.0     # weight of cold completions with t>0
+    sum_wlogt_c = 0.0     # Σ w * ln(t)
+    sum_wlogtlogt_c = 0.0  # Σ w * ln(t)²
 
     # Hazard accumulators: per-bin weighted death count, and all
     # (time_ms, weight) pairs for at_risk_w computation below.
@@ -151,6 +158,12 @@ def compute_cold_distribution(
             bins[idx].n_completions += 1
             sum_w_c += w
             sum_wt_c += w * ev.time_ms
+            sum_wtt_c += w * ev.time_ms * ev.time_ms
+            if ev.time_ms > 0:
+                lt = math.log(ev.time_ms)
+                sum_w_log_c += w
+                sum_wlogt_c += w * lt
+                sum_wlogtlogt_c += w * lt * lt
 
     # Hazard: at_risk_w[i] = sum of weights of all events whose time_ms
     # >= lo_i (the attempt was still "alive" at the start of this bin).
@@ -166,6 +179,12 @@ def compute_cold_distribution(
     # 7. Aggregates.
     mu_d_ms = sum_wt_d / sum_w_d if sum_w_d > 0 else None
     mu_c_ms = sum_wt_c / sum_w_c if sum_w_c > 0 else None
+
+    # Completion-only σ + log-moments (see ColdDistribution docstring for why
+    # the death side gets no parametric fit).
+    sigma_c_ms = _weighted_std(sum_w_c, sum_wt_c, sum_wtt_c)
+    mu_log_c, sigma_log_c = _weighted_log_moments(sum_w_log_c, sum_wlogt_c, sum_wlogtlogt_c)
+
     total_w_life = sum_w_d + sum_w_c
     p_die_per_life = sum_w_d / total_w_life if total_w_life > 0 else None
 
@@ -176,6 +195,45 @@ def compute_cold_distribution(
     return ColdDistribution(
         bins=bins, n_cold_attempts=n,
         mu_d_ms=mu_d_ms, mu_c_ms=mu_c_ms,
+        sigma_c_ms=sigma_c_ms,
+        mu_log_c=mu_log_c, sigma_log_c=sigma_log_c,
         p_die_per_attempt=p_die_per_attempt, p_die_per_life=p_die_per_life,
         halflife=halflife,
     )
+
+
+def _weighted_std(
+    sum_w: float, sum_wt: float, sum_wtt: float,
+) -> float | None:
+    """Weighted population standard deviation, or None when undefined.
+
+    Uses the population (biased) form: σ² = E[t²] − μ². With a single
+    weighted sample the variance is 0; we still return 0.0 so callers can
+    detect "no spread" rather than "no sample." Returns None only when
+    there were no contributing events (sum_w == 0).
+    """
+    if sum_w <= 0:
+        return None
+    mu = sum_wt / sum_w
+    var = sum_wtt / sum_w - mu * mu
+    if var < 0:  # float roundoff near degenerate samples
+        var = 0.0
+    return math.sqrt(var)
+
+
+def _weighted_log_moments(
+    sum_w_log: float, sum_wlogt: float, sum_wlogtlogt: float,
+) -> tuple[float | None, float | None]:
+    """Weighted (mean, std) of ln(t) for the cold outcome.
+
+    Returns (None, None) when no positive-t events contributed. Inputs are
+    pre-accumulated from events with t > 0 only; t ≤ 0 events are silently
+    skipped at fill time since the lognormal model has no support there.
+    """
+    if sum_w_log <= 0:
+        return (None, None)
+    mu_log = sum_wlogt / sum_w_log
+    var_log = sum_wlogtlogt / sum_w_log - mu_log * mu_log
+    if var_log < 0:
+        var_log = 0.0
+    return (mu_log, math.sqrt(var_log))
