@@ -127,6 +127,36 @@ class TestModelStateDB:
         db = Database(str(tmp_path / "test.db"))
         assert db.load_model_state("nonexistent") is None
 
+    def test_purge_stale_model_state(self, tmp_path):
+        """purge drops rows for other estimators + stale config keys,
+        but leaves the keep_estimator row, unrelated allocator config, and
+        the attempts table untouched."""
+        db = Database(str(tmp_path / "test.db"))
+        db.upsert_game("g1", "Game", "any%")
+        seg = _make_segment(db, "g1", 1)
+        db.create_session("sess1", "g1")
+        db.log_attempt(Attempt(
+            segment_id=seg.id, session_id="sess1",
+            completed=True, time_ms=12000,
+        ))
+
+        db.save_model_state(seg.id, "kalman", '{"mu": 12.0}', '{}')
+        db.save_model_state(seg.id, "em_suite_sampler", '{"n_completed": 1}', '{}')
+        db.save_allocator_config("estimator", "kalman")
+        db.save_allocator_config("estimator_params:kalman", '{"R": 25.0}')
+        db.save_allocator_config("estimator_params:rolling_mean", '{}')
+        db.save_allocator_config("allocator_weights", '{"greedy": 100}')
+
+        db.purge_stale_model_state()
+
+        rows = db.load_all_model_states_for_segment(seg.id)
+        assert {r["estimator"] for r in rows} == {"em_suite_sampler"}
+        assert db.load_allocator_config("estimator") is None
+        assert db.load_allocator_config("estimator_params:kalman") is None
+        assert db.load_allocator_config("estimator_params:rolling_mean") is None
+        assert db.load_allocator_config("allocator_weights") == '{"greedy": 100}'
+        assert len(db.get_segment_attempts(seg.id)) == 1
+
 
 def test_reset_game_data_scoped(tmp_db):
     """reset_game_data should only delete data for the specified game."""

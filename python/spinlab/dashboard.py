@@ -122,6 +122,10 @@ def create_app(
             rom_dir=None,
         )
 
+    # One-shot cleanup so pre-purge DBs self-heal on first boot. Idempotent;
+    # cheap (two DELETEs by index) and runs every startup.
+    db.purge_stale_model_state()
+
     from spinlab.retroarch.wiring import build_orchestrator
     emu: EmuBackend = build_orchestrator(config)
     session = SessionManager(

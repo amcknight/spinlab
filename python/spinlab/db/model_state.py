@@ -140,3 +140,20 @@ class ModelStateMixin:
 
     def delete_allocator_config(self, key: str) -> None:
         self.conn.execute("DELETE FROM allocator_config WHERE key = ?", (key,))
+
+    def purge_stale_model_state(self, keep_estimator: str = "em_suite_sampler") -> None:
+        """Drop derived rows for any other estimator and the obsolete
+        estimator-selection / per-estimator-tuning config keys.
+
+        Event data (``attempts``) is the source of truth and is never touched
+        here. The kept estimator's rows rebuild from events on the next
+        scheduler tick.
+        """
+        self.conn.execute(
+            "DELETE FROM model_state WHERE estimator != ?", (keep_estimator,),
+        )
+        self.conn.execute("DELETE FROM allocator_config WHERE key = 'estimator'")
+        self.conn.execute(
+            "DELETE FROM allocator_config WHERE key LIKE 'estimator_params:%'",
+        )
+        self.conn.commit()
