@@ -84,6 +84,14 @@ def _events_from_rows(rows: list[EventAttemptRow]) -> list[EventAttempt]:
     return out
 
 
+# PracticeEngine defaults until the route handler (PE-T10) wires them from
+# practice_engine.* config. Spec §10: N=10k–20k is the variance/cost sweet
+# spot at the measured 18.6µs/sample_episode; rng_seed=0 keeps the matrix
+# reproducible per scheduler instance.
+_DEFAULT_PRACTICE_ENGINE_N = 20000
+_DEFAULT_PRACTICE_ENGINE_RNG_SEED = 0
+
+
 class Scheduler:
     def __init__(
         self, db: "Database", game_id: str,
@@ -210,8 +218,8 @@ class Scheduler:
         if self._engine is None:
             self._engine = PracticeEngine(
                 sampler_states=self._load_all_sampler_states(),
-                N=20000,
-                rng_seed=0,
+                N=_DEFAULT_PRACTICE_ENGINE_N,
+                rng_seed=_DEFAULT_PRACTICE_ENGINE_RNG_SEED,
             )
         return self._engine
 

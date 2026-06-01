@@ -20,7 +20,7 @@ from spinlab.scheduler import Scheduler
 def _seed_gated_state(db: Database, segment_id: str, n_events: int = 60) -> None:
     """Insert enough events to gate the segment's SamplerState."""
     state = SamplerState(n_completed=0, n_attempts=0)
-    rng = random.Random(hash(segment_id) % 1000)
+    rng = random.Random(segment_id)
     # Use a stable session_id keyed by segment so the seeding doesn't collide.
     if db.get_current_session("g1") is None:
         db.create_session("sess_pe", "g1")
