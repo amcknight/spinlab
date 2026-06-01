@@ -45,11 +45,10 @@ from spinlab.models import (
     ModelOutput,
 )
 
-# Decay-rate grid (locked, strictly ascending). Endpoints (0.0, 1.0) are
-# sanity-check anchors that should look obviously broken on the matrix.
-# Note: under the normalized scheme, α=0.0 produces D = 0 forever and so
-# never yields a valid EMA — the cell will remain "—" no matter how much
-# data lands. That's the honest reading of "never incorporate observations."
+# Decay-rate grid (locked, strictly ascending). Endpoints are anchors:
+# alpha=0.0 is the ZERO-DECAY anchor: uniform (equal-weight) all-time mean,
+# handled specially in ema_step. alpha=1.0 is the goldfish anchor (last
+# attempt only).
 ALPHA_GRID: tuple[float, ...] = (
     0.0, 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0,
 )
@@ -58,7 +57,12 @@ ALPHA_GRID: tuple[float, ...] = (
 def ema_step(values: list[float], driver: float) -> list[float]:
     """Apply one EMA-style update to all alphas in parallel.
 
-    For each alpha: new[i] = alpha * driver + (1 - alpha) * values[i].
+    For alpha > 0: new[i] = alpha * driver + (1 - alpha) * values[i]  (normalized EMA).
+    For alpha == 0: new[i] = values[i] + driver  (ZERO DECAY = unbiased
+        accumulation). Because the Sum accumulator is driven by the
+        observation and the Denom by 1.0, this makes the alpha=0 slot a true
+        uniform all-time mean (Sum/Denom = sum(obs)/count), not the degenerate
+        frozen-at-zero cell the plain alpha=0 substitution would give.
 
     Used for both the Sum (driver = observation) and Denom (driver = 1.0)
     accumulators inside the normalized EMA. Lengths must match ALPHA_GRID;
@@ -68,7 +72,10 @@ def ema_step(values: list[float], driver: float) -> list[float]:
         raise ValueError(
             f"values has length {len(values)}, expected {len(ALPHA_GRID)}",
         )
-    return [a * driver + (1.0 - a) * v for v, a in zip(values, ALPHA_GRID)]
+    return [
+        (v + driver) if a == 0.0 else (a * driver + (1.0 - a) * v)
+        for v, a in zip(values, ALPHA_GRID)
+    ]
 
 
 def _ema(s: float, d: float) -> float | None:
@@ -232,9 +239,10 @@ def trend_signal_slopes(
 ) -> tuple[float, float, float] | None:
     """Compute (slope_log_success, slope_log_death, slope_logit_p_die).
 
-    Returns None when the prediction gate fails, OR when either alpha is
-    the α=0.0 anchor (its EMA never gains a denominator, so no slope is
-    available against it).
+    Returns None when the prediction gate fails, or when either EMA is
+    None (insufficient data for that alpha). The α=0.0 anchor accumulates
+    data via additive accumulation (zero-decay uniform mean) and is a valid
+    slow-index reference once observations arrive.
 
     Each slope is E_fast − E_slow, in log-space for times and logit-space
     for p_die. The logit values are clamped to [LOGIT_EPS, 1−LOGIT_EPS] to
@@ -396,7 +404,7 @@ def build_matrix(
         Upper-triangular: cell [fast][slow] is non-None iff fast > slow.
 
     None cells appear when either the prediction gate fails (insufficient data),
-    when an alpha hasn't accumulated any observations (α=0.0 forever),
+    when an alpha hasn't accumulated sufficient observations yet,
     or when fast_idx <= slow_idx.
     """
     n = len(ALPHA_GRID)

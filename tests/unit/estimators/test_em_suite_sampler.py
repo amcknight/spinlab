@@ -28,14 +28,14 @@ class TestEmaStep:
         for v, alpha in zip(result, ALPHA_GRID):
             assert math.isclose(v, 10.0 * (1.0 - alpha))
 
-    def test_alpha_zero_never_updates(self):
+    def test_alpha_zero_accumulates_additively(self):
         from spinlab.estimators.em_suite_sampler import (
             ALPHA_GRID, ema_step,
         )
         n = len(ALPHA_GRID)
         result = ema_step([10.0] * n, 100.0)
-        # alpha=0.0 at index 0 means observation is ignored; value sticks.
-        assert result[0] == 10.0
+        # alpha=0.0 is the zero-decay anchor: new = old + driver (additive accumulation).
+        assert result[0] == 110.0
 
     def test_alpha_one_replaces_entirely(self):
         from spinlab.estimators.em_suite_sampler import (
@@ -47,16 +47,19 @@ class TestEmaStep:
         assert result[-1] == 100.0
 
     def test_denom_accumulation_pattern(self):
-        # Denom = ema_step with driver=1.0 starting from [0.0]*n
-        # gives D_N = 1 - (1-α)^N. Spot-check after 1 step.
+        # Denom = ema_step with driver=1.0 starting from [0.0]*n.
+        # For alpha > 0: D_1 = alpha * 1 + (1-alpha) * 0 = alpha.
+        # For alpha == 0: D_1 = 0 + 1.0 = 1.0 (additive accumulation).
         from spinlab.estimators.em_suite_sampler import (
             ALPHA_GRID, ema_step,
         )
         n = len(ALPHA_GRID)
         d_after_1 = ema_step([0.0] * n, 1.0)
-        # D_1 = α * 1 + (1-α) * 0 = α
         for d, alpha in zip(d_after_1, ALPHA_GRID):
-            assert math.isclose(d, alpha)
+            if alpha == 0.0:
+                assert d == 1.0  # zero-decay anchor: additive
+            else:
+                assert math.isclose(d, alpha)
 
     def test_rejects_wrong_length_values(self):
         from spinlab.estimators.em_suite_sampler import ema_step
@@ -128,15 +131,11 @@ class TestProcessEvent:
         state = SamplerState()
         ev = make_event_attempt(outcome="survived", time_ms=20_000)
         new_state = process_event(state, ev)
-        # success_time and p_die have non-zero denoms at every alpha > 0;
+        # success_time and p_die have non-zero denoms at every alpha (incl. 0);
         # death_time denoms remain at 0 (no death observed).
         for i, alpha in enumerate(ALPHA_GRID):
-            if alpha > 0.0:
-                assert new_state.log_success_time_denoms[i] > 0.0
-                assert new_state.p_die_denoms[i] > 0.0
-            else:
-                assert new_state.log_success_time_denoms[i] == 0.0
-                assert new_state.p_die_denoms[i] == 0.0
+            assert new_state.log_success_time_denoms[i] > 0.0
+            assert new_state.p_die_denoms[i] > 0.0
             assert new_state.log_death_time_denoms[i] == 0.0
         assert new_state.n_successes == 1
         assert new_state.n_deaths == 0
@@ -153,13 +152,11 @@ class TestProcessEvent:
         state = SamplerState()
         ev = make_event_attempt(outcome="died", time_ms=5_000)
         new_state = process_event(state, ev)
+        # death_time and p_die have non-zero denoms at every alpha (incl. 0);
+        # success_time denoms remain at 0 (no success observed).
         for i, alpha in enumerate(ALPHA_GRID):
-            if alpha > 0.0:
-                assert new_state.log_death_time_denoms[i] > 0.0
-                assert new_state.p_die_denoms[i] > 0.0
-            else:
-                assert new_state.log_death_time_denoms[i] == 0.0
-                assert new_state.p_die_denoms[i] == 0.0
+            assert new_state.log_death_time_denoms[i] > 0.0
+            assert new_state.p_die_denoms[i] > 0.0
             assert new_state.log_success_time_denoms[i] == 0.0
         assert new_state.n_successes == 0
         assert new_state.n_deaths == 1
@@ -289,9 +286,10 @@ class TestTrendSignalSlopes:
         state = process_event(state, make_event_attempt(outcome="died", time_ms=5_000))
         assert trend_signal_slopes(state, fast_idx=5, slow_idx=2) is None
 
-    def test_returns_none_when_alpha_is_zero(self):
-        # α=0.0 never gains a denom, so its EMA is None even after the gate
-        # clears. Any pair involving idx=0 must return None.
+    def test_alpha_zero_as_slow_anchor_yields_valid_slope(self):
+        # α=0.0 is the zero-decay (uniform-mean) anchor. It accumulates data
+        # like any other alpha, so a pair (fast_idx>0, slow_idx=0) produces
+        # a valid slope when the gate passes.
         from spinlab.estimators.em_suite_sampler import (
             SamplerState, process_event, trend_signal_slopes,
         )
@@ -306,8 +304,10 @@ class TestTrendSignalSlopes:
             state = process_event(
                 state, make_event_attempt(outcome="died", time_ms=t),
             )
-        # Pair (fast=8, slow=0) → slow has no EMA, slope undefined.
-        assert trend_signal_slopes(state, fast_idx=8, slow_idx=0) is None
+        # Pair (fast=8, slow=0) — α=0 has data now; slope is computable.
+        slopes = trend_signal_slopes(state, fast_idx=8, slow_idx=0)
+        assert slopes is not None
+        assert len(slopes) == 3
 
     def test_returns_slopes_when_gate_passes_and_both_alphas_have_data(self):
         from spinlab.estimators.em_suite_sampler import (
@@ -358,13 +358,16 @@ class TestExpectedEpisodeTime:
         assert expected_episode_time_ms(state, 5, 2, apply_slope=False) is None
         assert expected_episode_time_ms(state, 5, 2, apply_slope=True) is None
 
-    def test_returns_none_for_alpha_zero_baseline(self):
-        # α=0 cell can't produce a baseline EMA — denom is always 0.
+    def test_alpha_zero_baseline_produces_uniform_mean_prediction(self):
+        # α=0 is the zero-decay anchor (uniform all-time mean). After
+        # sufficient data it produces a valid baseline prediction.
         from spinlab.estimators.em_suite_sampler import (
             expected_episode_time_ms,
         )
         state = self._populated_state()
-        assert expected_episode_time_ms(state, 0, 0, apply_slope=False) is None
+        result = expected_episode_time_ms(state, 0, 0, apply_slope=False)
+        assert result is not None
+        assert result > 0.0
 
     def test_baseline_matches_geometric_formula(self):
         from spinlab.estimators.em_suite_sampler import (
@@ -473,12 +476,13 @@ class TestBuildMatrix:
                     )
         assert any(v is not None for v in upper_triangle_values)
 
-    def test_alpha_zero_baseline_row_is_none(self):
-        # The α=0.0 anchor never gains a denominator, so its sample(0) row
-        # must read None regardless of how much data has landed.
+    def test_alpha_zero_baseline_row_produces_uniform_mean_prediction(self):
+        # The α=0.0 anchor is the zero-decay (uniform all-time mean) slot.
+        # After sufficient data it produces a valid baseline prediction.
         from spinlab.estimators.em_suite_sampler import build_matrix
         result = build_matrix(self._populated_state())
-        assert result["baseline"][0] is None
+        assert result["baseline"][0] is not None
+        assert result["baseline"][0] > 0.0
 
     def test_baseline_contains_no_slope_predictions(self):
         from spinlab.estimators.em_suite_sampler import (
@@ -630,13 +634,17 @@ class TestReplayWithHistory:
                 == state.log_death_time_ema(i)
             )
 
-    def test_alpha_zero_row_is_all_none(self):
-        # The α=0.0 anchor never gains a denominator, so its row must read
-        # None at every snapshot regardless of data.
+    def test_alpha_zero_row_is_none_only_at_snapshot_zero(self):
+        # The α=0.0 anchor is the zero-decay (uniform all-time mean) slot.
+        # Snapshot 0 (empty state) is always None; after observations, values
+        # become available.
         from spinlab.estimators.em_suite_sampler import replay_with_history
         _, history = replay_with_history(self._events())
         for key in ("p_die", "log_success_time", "log_death_time"):
-            assert all(v is None for v in history[key][0])
+            # Snapshot 0 (empty state) must be None.
+            assert history[key][0][0] is None
+            # After events, at least one snapshot in the α=0 row is non-None.
+            assert any(v is not None for v in history[key][0][1:])
 
     def test_invalidated_event_emits_same_snapshot_as_prior(self):
         # An invalidated event is a no-op for state but still counts as a
@@ -663,6 +671,34 @@ class TestReplayWithHistory:
             assert len(history[key]) == len(ALPHA_GRID)
             for row in history[key]:
                 assert row == [None]
+
+
+class TestAlphaZeroUniformMean:
+    """α=0.0 is the zero-decay anchor: uniform (equal-weight) all-time mean."""
+
+    def test_alpha_zero_is_uniform_mean_of_log_times(self):
+        from spinlab.estimators.em_suite_sampler import ALPHA_GRID, SamplerState, process_event
+        from tests.factories import make_event_attempt
+        # alpha=0.0 is the first grid entry: the zero-decay / uniform anchor.
+        assert ALPHA_GRID[0] == 0.0
+        st = SamplerState()
+        # Three successes at 1000, 2000, 4000 ms.
+        for t in (1000, 2000, 4000):
+            st = process_event(st, make_event_attempt(outcome="survived", time_ms=t))
+        # alpha=0 success-time EMA must equal the unbiased mean of log(time).
+        expected = (math.log(1000) + math.log(2000) + math.log(4000)) / 3.0
+        got = st.log_success_time_ema(0)
+        assert got is not None
+        assert math.isclose(got, expected, rel_tol=1e-9)
+
+    def test_alpha_zero_p_die_is_uniform_rate(self):
+        from spinlab.estimators.em_suite_sampler import SamplerState, process_event
+        from tests.factories import make_event_attempt
+        st = SamplerState()
+        for outcome in ("died", "survived", "died", "died"):
+            st = process_event(st, make_event_attempt(outcome=outcome, time_ms=1500))
+        # 3 deaths of 4 attempts -> uniform p_die = 0.75 at alpha=0.
+        assert math.isclose(st.p_die_ema(0), 0.75, rel_tol=1e-9)
 
 
 class TestBuildSlopeMatrices:
