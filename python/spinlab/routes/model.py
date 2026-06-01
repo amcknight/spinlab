@@ -11,17 +11,11 @@ logger = logging.getLogger(__name__)
 from spinlab.api_schemas import (
     AllocatorWeightsResponse,
     EmSuiteMatrixResponse,
-    EstimatorParamsRequest,
-    EstimatorSwitchRequest,
-    EstimatorSwitchResponse,
     ModelData,
-    OkResponse,
     SegmentHistory,
-    TuningData,
 )
 from spinlab.cold_distribution import compute_cold_distribution
 from spinlab.db import Database
-from spinlab.estimators import get_estimator, list_estimators
 from spinlab.estimators.death_aware_rolling import _resolve_halflife
 from spinlab.scheduler import _attempts_from_rows, _events_from_rows
 from spinlab.session_manager import SessionManager
@@ -34,15 +28,11 @@ router = APIRouter(prefix="/api")
 @router.get("/model", response_model=ModelData)
 def api_model(session: SessionManager = Depends(get_session)):
     if session.game_id is None:
-        return {"estimator": None, "estimators": [], "allocator_weights": None, "segments": []}
+        return {"estimator": None, "allocator_weights": None, "segments": []}
     sched = session.get_scheduler()
     segments = sched.get_all_model_states()
     return {
         "estimator": sched.estimator.name,
-        "estimators": [
-            {"name": n, "display_name": get_estimator(n).display_name or n}
-            for n in list_estimators()
-        ],
         "allocator_weights": sched.all_weights,
         "segments": [
             {
@@ -79,57 +69,6 @@ def set_allocator_weights(body: dict[str, int], session: SessionManager = Depend
     return {"weights": body}
 
 
-@router.post("/estimator", response_model=EstimatorSwitchResponse)
-def switch_estimator(body: EstimatorSwitchRequest, session: SessionManager = Depends(get_session)):
-    from spinlab.estimators import list_estimators
-    valid = list_estimators()
-    if body.name not in valid:
-        logger.warning("switch_estimator: unknown %r (valid: %s)", body.name, valid)
-        raise HTTPException(status_code=400, detail=f"Unknown estimator: {body.name}. Valid: {valid}")
-    sched = session.get_scheduler()
-    sched.switch_estimator(body.name)
-    return {"estimator": body.name}
-
-
-@router.get("/estimator-params", response_model=TuningData)
-def get_estimator_params(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
-    if session.game_id is None:
-        return {"estimator": None, "params": []}
-    sched = session.get_scheduler()
-    est = sched.estimator
-    declared = est.declared_params()
-    raw = db.load_allocator_config(f"estimator_params:{est.name}")
-    saved = json.loads(raw) if raw else {}
-    return {
-        "estimator": est.name,
-        "params": [
-            {
-                **p.to_dict(),
-                "value": saved.get(p.name, p.default),
-            }
-            for p in declared
-        ],
-    }
-
-
-@router.post("/estimator-params", response_model=OkResponse)
-def set_estimator_params(
-    body: EstimatorParamsRequest,
-    session: SessionManager = Depends(get_session),
-    db: Database = Depends(get_db),
-):
-    sched = session.get_scheduler()
-    est = sched.estimator
-    valid_names = {p.name for p in est.declared_params()}
-    for name in body.params:
-        if name not in valid_names:
-            logger.warning("set_estimator_params: unknown param %r (valid: %s)", name, valid_names)
-            raise HTTPException(status_code=400, detail=f"Unknown param: {name}")
-    db.save_allocator_config(f"estimator_params:{est.name}", json.dumps(body.params))
-    sched.rebuild_all_states()
-    return {"status": "ok"}
-
-
 @router.get("/segments/{segment_id}/history", response_model=SegmentHistory)
 def segment_history(
     segment_id: str,
@@ -162,58 +101,19 @@ def segment_history(
             "created_at": a.created_at,
         })
 
-    estimator_names = list_estimators()
-    estimator_curves: dict[str, dict] = {}
-
-    for est_name in estimator_names:
-        est = get_estimator(est_name)
-        saved_raw = db.load_allocator_config(f"estimator_params:{est_name}")
-        params = json.loads(saved_raw) if saved_raw else None
-        priors = est.get_priors(db, seg.game_id)
-
-        total_expected: list[float | None] = []
-        total_floor: list[float | None] = []
-        clean_expected: list[float | None] = []
-        clean_floor: list[float | None] = []
-
-        final_extras = None
-        if completed:
-            state = est.init_state(completed[0], priors, params=params)
-            out = est.model_output(state, completed[:1], params=params)
-            total_expected.append(out.total.expected_ms)
-            total_floor.append(out.total.floor_ms)
-            clean_expected.append(out.clean.expected_ms)
-            clean_floor.append(out.clean.floor_ms)
-
-            for j in range(1, len(completed)):
-                state = est.process_attempt(
-                    state, completed[j], completed[:j + 1], params=params,
-                )
-                out = est.model_output(state, completed[:j + 1], params=params)
-                total_expected.append(out.total.expected_ms)
-                total_floor.append(out.total.floor_ms)
-                clean_expected.append(out.clean.expected_ms)
-                clean_floor.append(out.clean.floor_ms)
-
-            # Compute final extras by reusing the final state from the
-            # per-attempt loop above and recomputing model_output with the
-            # full event list. The per-attempt loop intentionally doesn't
-            # pass events (the per-attempt curves for death-aware
-            # estimators are pre-existing-empty; out of scope here).
-            # Estimators that don't publish extras (kalman, rolling_mean)
-            # return extras=None naturally — no explicit gate needed.
-            final_out = est.model_output(
-                state, completed, params=params, events=events,
-            )
-            final_extras = (
+    from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
+    est = EmSuiteSamplerEstimator()
+    final_state = est.rebuild_state(all_records, events=events)
+    final_out = est.model_output(final_state, completed, events=events)
+    estimator_curves: dict[str, dict] = {
+        est.name: {
+            "total": {"expected_ms": [], "floor_ms": []},
+            "clean": {"expected_ms": [], "floor_ms": []},
+            "final_extras": (
                 final_out.extras.to_dict() if final_out.extras is not None else None
-            )
-
-        estimator_curves[est_name] = {
-            "total": {"expected_ms": total_expected, "floor_ms": total_floor},
-            "clean": {"expected_ms": clean_expected, "floor_ms": clean_floor},
-            "final_extras": final_extras,
+            ),
         }
+    }
 
     sched = session.get_scheduler() if session.game_id is not None else None
     selected_model = sched.estimator.name if sched is not None else None

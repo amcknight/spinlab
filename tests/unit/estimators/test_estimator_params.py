@@ -104,25 +104,4 @@ class TestKalmanRReestimateEveryAttempt:
 
 
 
-class TestEstimatorParamsAPI:
-    def test_get_estimator_params_returns_schema(self, tmp_path):
-        from starlette.testclient import TestClient
-
-        from spinlab.dashboard import create_app
-        from spinlab.db import Database
-
-        db = Database(str(tmp_path / "test.db"))
-        db.upsert_game("g1", "TestGame", "any%")
-        from tests.conftest import make_test_config
-        app = create_app(db=db, config=make_test_config())
-        client = TestClient(app)
-        app.state.session.game_id = "g1"
-        app.state.session.game_name = "TestGame"
-
-        resp = client.get("/api/estimator-params")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "estimator" in data
-        assert "params" in data
-        assert isinstance(data["params"], list)
 
