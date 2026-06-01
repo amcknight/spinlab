@@ -15,6 +15,7 @@ from spinlab.practice_engine.objectives import (
     expected_wall_clock_per_attempt,
 )
 from spinlab.practice_engine.reset_policies import no_reset, target_paced
+from spinlab.practice_engine.types import PerSegmentValue
 
 
 def _gated_state(seed: int = 0) -> SamplerState:
@@ -90,3 +91,52 @@ class TestColumnSummary:
         assert summary["p10"] <= summary["p50"] <= summary["p90"]
         assert "e_sample_0_ms" in summary
         assert "e_sample_1_ms" in summary
+
+
+class TestPerSegmentValues:
+    def test_returns_one_entry_per_gated_segment(self):
+        states = {"s1": _gated_state(0), "s2": _gated_state(1), "s3": _gated_state(2)}
+        engine = PracticeEngine(sampler_states=states, N=500, rng_seed=42)
+        values = engine.per_segment_values(
+            policy=no_reset, threshold_kwargs={},
+            objective=expected_wall_clock_per_attempt, ctx={},
+        )
+        assert set(values.keys()) == {"s1", "s2", "s3"}
+        for seg_id, psv in values.items():
+            assert isinstance(psv, PerSegmentValue)
+            assert psv.seg_id == seg_id
+            assert psv.e_sample_0_ms > 0
+            assert psv.e_sample_1_ms >= 0
+
+    def test_returns_empty_when_no_gated(self):
+        empty = SamplerState(n_completed=0, n_attempts=0)
+        states = {"s1": empty}
+        engine = PracticeEngine(sampler_states=states, N=100, rng_seed=42)
+        values = engine.per_segment_values(
+            policy=no_reset, threshold_kwargs={},
+            objective=expected_wall_clock_per_attempt, ctx={},
+        )
+        assert values == {}
+
+    def test_value_per_second_is_value_over_cost(self):
+        states = {"s1": _gated_state(0)}
+        engine = PracticeEngine(sampler_states=states, N=500, rng_seed=42)
+        values = engine.per_segment_values(
+            policy=no_reset, threshold_kwargs={},
+            objective=expected_wall_clock_per_attempt, ctx={},
+        )
+        psv = values["s1"]
+        if psv.value_per_second is not None:
+            assert psv.value_per_second == pytest.approx(psv.value / psv.e_sample_0_ms, rel=1e-9)
+
+    def test_objective_none_skips_segment(self):
+        # If baseline objective returns None (e.g. expected_total_finished_time
+        # when threshold is so tight nothing finishes), the engine returns empty.
+        states = {"s1": _gated_state(0)}
+        engine = PracticeEngine(sampler_states=states, N=200, rng_seed=42)
+        values = engine.per_segment_values(
+            policy=target_paced,
+            threshold_kwargs={"threshold_cum_ms": np.array([1.0]), "slack": 0.0},
+            objective=expected_total_finished_time, ctx={},
+        )
+        assert values == {}

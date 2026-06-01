@@ -13,7 +13,7 @@ import numpy as np
 
 from spinlab.estimators.em_suite_sampler import SamplerState
 from spinlab.practice_engine.rollout_matrix import RolloutMatrix
-from spinlab.practice_engine.types import ResetMasks
+from spinlab.practice_engine.types import PerSegmentValue, ResetMasks
 
 ResetPolicy = Callable[..., ResetMasks]
 Objective = Callable[[np.ndarray, ResetMasks, dict], float | None]
@@ -101,6 +101,47 @@ class PracticeEngine:
             "e_sample_0_ms": float(col.mean()),
             "e_sample_1_ms": float(swap_col.mean()),
         }
+
+    def per_segment_values(
+        self,
+        policy: ResetPolicy,
+        threshold_kwargs: dict,
+        objective: Objective,
+        ctx: dict,
+    ) -> dict[str, PerSegmentValue]:
+        """For each gated segment, return baseline_obj − swap_i_to_k=1_obj.
+
+        Independent re-draws of the swap column (no CRN in v0; see spec §13 risk #1).
+        """
+        self.matrix.ensure_fresh()
+        baseline_masks = policy(self.matrix.T, **threshold_kwargs)
+        baseline_obj = objective(self.matrix.T, baseline_masks, ctx)
+        if baseline_obj is None:
+            return {}
+
+        results: dict[str, PerSegmentValue] = {}
+        for i, seg_id in enumerate(self.matrix.seg_ids):
+            swap_col = self.matrix.draw_column(seg_id, k_param=1)
+            T_swap = self.matrix.T.copy()
+            T_swap[:, i] = swap_col
+
+            swap_masks = policy(T_swap, **threshold_kwargs)
+            swap_obj = objective(T_swap, swap_masks, ctx)
+            if swap_obj is None:
+                continue
+
+            value = baseline_obj - swap_obj
+            cost = self.matrix.cost_ms[i]
+            value_per_second = (value / cost) if cost > 0 else None
+
+            results[seg_id] = PerSegmentValue(
+                seg_id=seg_id,
+                value=value,
+                value_per_second=value_per_second,
+                e_sample_0_ms=float(cost),
+                e_sample_1_ms=float(swap_col.mean()),
+            )
+        return results
 
     def _masks_summary(self, masks: ResetMasks) -> dict:
         """Compact summary of ResetMasks for the dashboard."""
