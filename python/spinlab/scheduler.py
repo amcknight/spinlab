@@ -86,7 +86,7 @@ def _events_from_rows(rows: list[EventAttemptRow]) -> list[EventAttempt]:
 class Scheduler:
     def __init__(
         self, db: "Database", game_id: str,
-        estimator_name: str = "em_suite_sampler",  # kept for call-site compat; ignored
+        estimator_name: str = "em_suite_sampler",  # accepted but unused; reserved to avoid a future positional-arg silently doing nothing
     ) -> None:
         self.db = db
         self.game_id = game_id
@@ -215,12 +215,17 @@ class Scheduler:
             return
         event_rows = self.db.get_segment_event_rows(segment_id)
         events = _events_from_rows(event_rows)
-        state = self.estimator.rebuild_state(all_attempts, events=events)
-        output = self.estimator.model_output(state, all_attempts, events=events)
-        self.db.save_model_state(
-            segment_id, self.estimator.name,
-            json.dumps(state.to_dict()), json.dumps(output.to_dict()),
-        )
+        try:
+            state = self.estimator.rebuild_state(all_attempts, events=events)
+            output = self.estimator.model_output(state, all_attempts, events=events)
+            self.db.save_model_state(
+                segment_id, self.estimator.name,
+                json.dumps(state.to_dict()), json.dumps(output.to_dict()),
+            )
+        except Exception:
+            logger.exception(
+                "update_state_after_episode failed for segment=%s", segment_id,
+            )
 
         # Silent V07 fit. Off the request path but inline (~15ms p50
         # per V1_ESSENCE, well within an end-of-episode budget). Skips
