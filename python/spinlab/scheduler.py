@@ -56,12 +56,21 @@ def _attempts_from_rows(rows: list[AttemptRow]) -> list[AttemptRecord]:
 
 def _events_from_rows(rows: list[EventAttemptRow]) -> list[EventAttempt]:
     """Convert raw event_attempt rows (dicts from get_segment_event_rows)
-    into EventAttempt dataclass instances for estimator consumption."""
+    into EventAttempt dataclass instances for estimator consumption.
+
+    Replay/fast-replay events are recorded for provenance but never seed the
+    model: their wall-clock-collapsed frame deltas are meaningless for the
+    sampler's time pools. Filter them here — the only sampler-ingestion seam —
+    so that get_segment_event_rows callers (matrix, cold-distribution, provenance
+    views) still receive all rows unfiltered.
+    """
     from datetime import datetime
 
     from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
     out: list[EventAttempt] = []
     for r in rows:
+        if AttemptSource(r["source"]) is AttemptSource.REPLAY:
+            continue
         out.append(EventAttempt(
             segment_id=r["segment_id"],
             episode_id=r["episode_id"],

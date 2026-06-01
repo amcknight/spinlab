@@ -34,6 +34,7 @@ from ..errors import (
 )
 from ..models import (
     ActionResult,
+    AttemptSource,
     Mode,
     Status,
 )
@@ -238,6 +239,7 @@ class ReferenceController:
         replay_path = self._game_rec_dir(data_dir, game_id) / f"{run_id}__sess{ordinal:03d}.replay"
 
         self._enter_recording(run_id, sess_id)
+        self.recorder._source = AttemptSource.REFERENCE
 
         logger.info("reference: started run=%s name=%r", run_id, run_name)
         await self.emu.send_command(ReferenceStartCmd(path=str(replay_path)))
@@ -259,6 +261,7 @@ class ReferenceController:
         sess_id, ordinal = self._create_new_session(run_id, data_dir, game_id)
         replay_path = self._game_rec_dir(data_dir, game_id) / f"{run_id}__sess{ordinal:03d}.replay"
         self._enter_recording(run_id, sess_id)
+        self.recorder._source = AttemptSource.REFERENCE
 
         logger.info("reference: resumed run=%s sess=%s", run_id, sess_id)
         await self.emu.send_command(ReferenceStartCmd(path=str(replay_path)))
@@ -387,6 +390,11 @@ class ReferenceController:
             ordinal=1,
         )
         self._enter_recording(run_id, sess_id)
+        # Tag all events recorded during replay with REPLAY so they are stored
+        # for provenance but excluded from model ingestion in the scheduler.
+        # Replay wall-clock times are collapsed by fast-forward and must never
+        # seed the sampler's time pools.
+        self.recorder._source = AttemptSource.REPLAY
 
         await self.emu.send_command(ReplayCmd(path=replay_path, speed=speed))
         return ActionResult(status=Status.STARTED, new_mode=Mode.REPLAY)

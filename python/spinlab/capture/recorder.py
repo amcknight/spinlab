@@ -68,9 +68,14 @@ class SegmentRecorder:
         self,
         db: "Database",
         condition_registry: "ConditionRegistry",
+        source: AttemptSource = AttemptSource.REFERENCE,
     ) -> None:
         self._db = db
         self._condition_registry = condition_registry
+        # Source tag stamped on every EventAttempt written by this recorder.
+        # Live reference runs use REFERENCE; replay runs use REPLAY so their
+        # wall-clock-collapsed frame deltas never pollute the model's time pools.
+        self._source: AttemptSource = source
         self.capture_run_id: str | None = None
         self.current_capture_session_id: str | None = None
         self.pending_start: PendingStart | None = None
@@ -246,7 +251,7 @@ class SegmentRecorder:
                         outcome=ev.outcome,
                         time_ms=ev.time_ms,
                         capture_run_id=self.capture_run_id,
-                        source=AttemptSource.REFERENCE,
+                        source=self._source,
                         is_hot=ev.is_hot,
                         created_at=ev.created_at,
                     ))
