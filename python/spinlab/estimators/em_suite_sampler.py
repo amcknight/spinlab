@@ -418,10 +418,12 @@ def sample_episode(
     for _ in range(MAX_ATTEMPTS_PER_EPISODE):
         if rng.random() < p:  # died
             d = draw_from_pool(state.death_time_pool, alpha_fast, rng)
-            episode_ms += d * slide_death + reload_penalty_ms  # type: ignore[operator]
+            assert d is not None  # both pools guarded non-empty at entry
+            episode_ms += d * slide_death + reload_penalty_ms
         else:  # survived -> episode ends
             s = draw_from_pool(state.success_time_pool, alpha_fast, rng)
-            episode_ms += s * slide_success  # type: ignore[operator]
+            assert s is not None  # both pools guarded non-empty at entry
+            episode_ms += s * slide_success
             return episode_ms
     return None  # never survived within the cap
 
