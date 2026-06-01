@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
+from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeEngineConfig
 from spinlab.dashboard import create_app
 from spinlab.db import Database
 
@@ -27,6 +27,7 @@ def _app(
     cfg = AppConfig(
         network=NetworkConfig(),
         emulator=EmulatorConfig(**emu_kwargs),
+        practice_engine=PracticeEngineConfig(),
         data_dir=tmp_path,
         rom_dir=rom_dir,
     )

@@ -24,7 +24,7 @@ def _build_schema() -> dict:
     Uses an in-memory-like temp DB so create_app's wiring (migrations, etc.)
     runs without touching the user's real data directory.
     """
-    from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
+    from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeEngineConfig
     from spinlab.dashboard import create_app
     from spinlab.db import Database
 
@@ -37,6 +37,7 @@ def _build_schema() -> dict:
                     savestate_dir=Path(td) / "ra-states",
                     spinlab_state_dir=Path(td) / "spinlab-states",
                 ),
+                practice_engine=PracticeEngineConfig(),
                 data_dir=Path(td) / "data",
                 rom_dir=None,
             )

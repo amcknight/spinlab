@@ -241,7 +241,7 @@ def replay_ra_dashboard(
     dashboard_port = _free_port()
     rom_dir = resolve_rom_path("love_yourself").parent
 
-    from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
+    from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeEngineConfig
     config = AppConfig(
         network=NetworkConfig(
             host="127.0.0.1",
@@ -254,6 +254,7 @@ def replay_ra_dashboard(
             spinlab_state_dir=spinlab_state_dir,
             ra_core_subdir=ra_core_subdir,
         ),
+        practice_engine=PracticeEngineConfig(),
         data_dir=tmp_path,
         rom_dir=rom_dir,
     )

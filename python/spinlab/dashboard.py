@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from .config import AppConfig, EmulatorConfig, NetworkConfig
+from .config import AppConfig, EmulatorConfig, NetworkConfig, PracticeEngineConfig
 from .db import Database
 from .emu_backend import EmuBackend
 from .errors import ActionError
@@ -118,6 +118,7 @@ def create_app(
         config = AppConfig(
             network=NetworkConfig(),
             emulator=EmulatorConfig(),
+            practice_engine=PracticeEngineConfig(),
             data_dir=Path("data"),
             rom_dir=None,
         )

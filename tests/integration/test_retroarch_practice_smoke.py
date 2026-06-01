@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
+from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeEngineConfig
 
 
 @pytest.mark.emulator
@@ -30,6 +30,7 @@ def test_orchestrator_connects_to_live_retroarch(ra_harness_factory, tmp_path):
             savestate_dir=tmp_path / "ra",
             spinlab_state_dir=tmp_path / "sl",
         ),
+        practice_engine=PracticeEngineConfig(),
         data_dir=tmp_path,
         rom_dir=None,
     )

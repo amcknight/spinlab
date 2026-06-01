@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
+from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeEngineConfig
 from spinlab.dashboard import create_app
 from spinlab.db import Database
 
@@ -16,6 +16,7 @@ def test_invalidate_returns_ok_when_no_attempt(tmp_path):
             savestate_dir=tmp_path / "ra",
             spinlab_state_dir=tmp_path / "sl",
         ),
+        practice_engine=PracticeEngineConfig(),
         data_dir=tmp_path,
         rom_dir=None,
     )

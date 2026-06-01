@@ -2,7 +2,7 @@
 
 import pytest
 
-from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
+from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeEngineConfig
 from spinlab.retroarch.orchestrator import RetroArchOrchestrator
 from spinlab.retroarch.wiring import build_orchestrator
 
@@ -16,6 +16,7 @@ def _config(tmp_path, **emu_overrides) -> AppConfig:
     return AppConfig(
         network=NetworkConfig(),
         emulator=EmulatorConfig(**base),
+        practice_engine=PracticeEngineConfig(),
         data_dir=tmp_path / "data",
         rom_dir=None,
     )

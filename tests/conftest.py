@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
+from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeEngineConfig
 from spinlab.db import Database
 from spinlab.models import Segment, Waypoint, WaypointSaveState
 
@@ -20,6 +20,7 @@ def make_test_config(**overrides) -> AppConfig:
     return AppConfig(
         network=NetworkConfig(port=overrides.get("port", 59999)),
         emulator=overrides.get("emulator", default_emu),
+        practice_engine=overrides.get("practice_engine", PracticeEngineConfig()),
         data_dir=overrides.get("data_dir", Path("data")),
         rom_dir=overrides.get("rom_dir"),
         category=overrides.get("category", "any%"),

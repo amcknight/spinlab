@@ -26,10 +26,29 @@ class EmulatorConfig:
     # e.g. "Snes9x" for snes9x_libretro.dll — not derivable from the DLL stem automatically
 
 
+# Practice Simulation Engine rollout count.
+#
+# Spec §10 proposed 20000; profiling sample_episode on a populated post-gate
+# SamplerState measured ~18.6µs/call on Andrew's dev box (2026-06-01). At that
+# rate a 20k×|segments| matrix column costs ~370ms, which is too chunky for
+# tick-rate refresh. 10000 keeps a single column under ~200ms while still
+# giving a tight SE on the mean (SE shrinks as 1/sqrt(N), so dropping 20k→10k
+# only widens it by sqrt(2) ≈ 1.41× — well within the noise floor of the
+# underlying EM-Suite draws). Operators on faster hardware can bump it via
+# config.yaml without code changes.
+DEFAULT_PRACTICE_ENGINE_ROLLOUTS = 10000
+
+
+@dataclass
+class PracticeEngineConfig:
+    rollouts: int = DEFAULT_PRACTICE_ENGINE_ROLLOUTS  # Monte Carlo rollouts per matrix column. See spec §10.
+
+
 @dataclass
 class AppConfig:
     network: NetworkConfig
     emulator: EmulatorConfig
+    practice_engine: PracticeEngineConfig
     data_dir: Path
     rom_dir: Path | None
     category: str = "any%"
@@ -42,6 +61,7 @@ class AppConfig:
 
         net = raw.get("network", {})
         emu = raw.get("emulator", {})
+        pe = raw.get("practice_engine", {})
         rom_dir_str = raw.get("rom", {}).get("dir")
 
         retroarch_path = emu.get("retroarch_path")
@@ -65,6 +85,9 @@ class AppConfig:
                 spinlab_state_dir=Path(spinlab_state_dir) if spinlab_state_dir else None,
                 ra_movie_dir=Path(ra_movie_dir) if ra_movie_dir else None,
                 ra_core_subdir=ra_core_subdir if ra_core_subdir else None,
+            ),
+            practice_engine=PracticeEngineConfig(
+                rollouts=pe.get("rollouts", DEFAULT_PRACTICE_ENGINE_ROLLOUTS),
             ),
             data_dir=Path(raw["data"]["dir"]),
             rom_dir=Path(rom_dir_str) if rom_dir_str else None,

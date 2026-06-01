@@ -21,7 +21,7 @@ import requests as http_requests
 import uvicorn
 from tests.integration._wait_for import wait_for
 
-from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig
+from spinlab.config import AppConfig, EmulatorConfig, NetworkConfig, PracticeEngineConfig
 from spinlab.db import Database
 
 if TYPE_CHECKING:
@@ -104,6 +104,7 @@ class DashboardHarness(AbstractContextManager):
                 savestate_dir=tmp / "ra",
                 spinlab_state_dir=tmp / "sl",
             ),
+            practice_engine=PracticeEngineConfig(),
             data_dir=tmp,
             rom_dir=None,
         )
