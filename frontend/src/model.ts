@@ -1,5 +1,5 @@
 import { canStartPractice, canStartHyperPlay } from "./model-logic";
-import type { AppState, ModelData, TuningData, SessionInfo } from "./types";
+import type { AppState, ModelData, SessionInfo } from "./types";
 import {
   loadAndRenderEmSuitePanel,
   destroyEmSuitePanel,
@@ -7,9 +7,6 @@ import {
 import { renderSegmentDetail, destroySegmentDetail } from "./segment-detail";
 import {
   fetchModelData,
-  fetchTuningData,
-  postEstimator,
-  postTuningParams,
   postAllocatorWeights,
   patchAttemptInvalidated,
   postPracticeStart,
@@ -23,44 +20,11 @@ import {
   renderRecentList,
   renderPracticeInsight,
   renderSessionStats,
-  renderTuningParams,
   renderSavingsPanel,
 } from "./model-render";
 
 let _currentWeights: Record<string, number> | null = null;
-let _tuningParams: TuningData | null = null;
-let _tuningDebounce: ReturnType<typeof setTimeout> | null = null;
 let _currentSegmentId: string | null = null;
-let _lastTuningGameId: string | null = null;
-const TUNING_DEBOUNCE_MS = 200;
-
-/**
- * Refetch tuning params when the active game changes.
- *
- * Tuning is fetched once at page init, but at that moment the dashboard is
- * still bootstrapping and `session.game_id` is `None` — so the route returns
- * an empty list and the user later sees "No tunable parameters" even for
- * estimators that declare them.  Watch the SSE state for game_id changes and
- * refetch when a real game appears.  Exported (and tested) so this regression
- * doesn't sneak back in.
- */
-export function syncTuningWithGame(gameId: string | null): void {
-  if (gameId === _lastTuningGameId) return;
-  _lastTuningGameId = gameId;
-  if (gameId !== null) fetchTuningParams();
-}
-
-// Test-only: reset the cached game id so each test starts from a clean slate.
-export function _resetTuningGameCache(): void {
-  _lastTuningGameId = null;
-}
-
-function debouncedApply(): void {
-  if (_tuningDebounce) clearTimeout(_tuningDebounce);
-  _tuningDebounce = setTimeout(() => {
-    applyTuningParams();
-  }, TUNING_DEBOUNCE_MS);
-}
 
 export async function fetchModel(): Promise<void> {
   const data = await fetchModelData();
@@ -75,7 +39,6 @@ function showSegmentDetail(segmentId: string): void {
   _currentSegmentId = segmentId;
   (document.getElementById("model-table") as HTMLElement).style.display = "none";
   (document.querySelector(".model-header") as HTMLElement).style.display = "none";
-  (document.getElementById("tuning-panel") as HTMLElement).style.display = "none";
   (document.getElementById("practice-controls") as HTMLElement).style.display = "none";
   const practiceCard = document.getElementById("practice-card") as HTMLElement;
   practiceCard.dataset.wasVisible = practiceCard.style.display;
@@ -92,7 +55,6 @@ function hideSegmentDetail(): void {
 
   (document.getElementById("model-table") as HTMLElement).style.display = "";
   (document.querySelector(".model-header") as HTMLElement).style.display = "";
-  (document.getElementById("tuning-panel") as HTMLElement).style.display = "";
   (document.getElementById("practice-controls") as HTMLElement).style.display = "";
   const practiceCard = document.getElementById("practice-card") as HTMLElement;
   practiceCard.style.display = practiceCard.dataset.wasVisible || "none";
@@ -158,63 +120,9 @@ export function updatePracticeControls(data: AppState): void {
   srStopBtn.style.display = isHyperPlay ? "" : "none";
 }
 
-export async function fetchTuningParams(): Promise<void> {
-  const data = await fetchTuningData();
-  if (!data) return;
-  _tuningParams = data;
-  renderTuningParams(data, debouncedApply);
-}
-
-function collectTuningParams(): Record<string, number> {
-  const params: Record<string, number> = {};
-  document.querySelectorAll<HTMLInputElement>("#tuning-params .tuning-slider").forEach((slider) => {
-    params[slider.dataset.param!] = parseFloat(slider.value);
-  });
-  return params;
-}
-
-async function applyTuningParams(): Promise<void> {
-  const params = collectTuningParams();
-  await postTuningParams(params);
-  fetchModel();
-}
-
-async function resetTuningDefaults(): Promise<void> {
-  if (!_tuningParams) return;
-  _tuningParams.params.forEach((p) => {
-    const slider = document.querySelector<HTMLInputElement>(
-      '.tuning-slider[data-param="' + p.name + '"]',
-    );
-    const input = document.querySelector<HTMLInputElement>(
-      '.tuning-value[data-param="' + p.name + '"]',
-    );
-    if (slider) slider.value = String(p.default);
-    if (input) input.value = String(p.default);
-  });
-  await applyTuningParams();
-}
-
 export function initModelTab(): void {
-  document.getElementById("estimator-select")!.addEventListener("change", async (e) => {
-    await postEstimator((e.target as HTMLSelectElement).value);
-    fetchModel();
-    fetchTuningParams();
-  });
   document.getElementById("btn-practice-start")!.addEventListener("click", () => postPracticeStart());
   document.getElementById("btn-practice-stop")!.addEventListener("click", () => postPracticeStop());
   document.getElementById("btn-hyperplay-start")!.addEventListener("click", () => postHyperPlayStart());
   document.getElementById("btn-hyperplay-stop")!.addEventListener("click", () => postHyperPlayStop());
-
-  const toggle = document.getElementById("tuning-toggle");
-  const panel = document.getElementById("tuning-panel");
-  const body = document.getElementById("tuning-body") as HTMLElement | null;
-  if (toggle && panel && body) {
-    toggle.addEventListener("click", () => {
-      panel.classList.toggle("collapsed");
-      body.style.display = panel.classList.contains("collapsed") ? "none" : "";
-    });
-  }
-  document.getElementById("btn-tuning-reset")?.addEventListener("click", resetTuningDefaults);
-
-  fetchTuningParams();
 }

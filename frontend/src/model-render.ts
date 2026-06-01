@@ -1,6 +1,6 @@
 import { segmentName, formatTime, elapsedStr, formatSavings } from "./format";
 import { selectedEstimate, currentEstimate, formatTrend } from "./model-logic";
-import type { AppState, ModelData, TuningData, SessionInfo } from "./types";
+import type { AppState, ModelData, SessionInfo } from "./types";
 
 export function renderSavingsPanel(session: SessionInfo | null): void {
   const panel = document.getElementById("savings-panel") as HTMLElement | null;
@@ -196,18 +196,6 @@ export function renderModelTable(
     body.appendChild(tr);
   });
 
-  const estSelect = document.getElementById("estimator-select") as HTMLSelectElement | null;
-  if (estSelect && data.estimators) {
-    const current = data.estimator || estSelect.value;
-    estSelect.innerHTML = "";
-    data.estimators.forEach((e) => {
-      const opt = document.createElement("option");
-      opt.value = e.name;
-      opt.textContent = e.display_name;
-      estSelect.appendChild(opt);
-    });
-    estSelect.value = current;
-  }
 }
 
 export function renderRecentList(
@@ -275,44 +263,3 @@ export function renderSessionStats(session: AppState["session"]): void {
   }
 }
 
-export function renderTuningParams(
-  data: TuningData,
-  onParamChange: () => void,
-): void {
-  const container = document.getElementById("tuning-params");
-  if (!container) return;
-  container.innerHTML = "";
-  const actions = document.querySelector(".tuning-actions") as HTMLElement | null;
-  if (!data.params || data.params.length === 0) {
-    container.innerHTML = '<p class="tuning-empty">No tunable parameters</p>';
-    if (actions) actions.style.display = "none";
-    return;
-  }
-  if (actions) actions.style.display = "";
-  data.params.forEach((p) => {
-    const row = document.createElement("div");
-    row.className = "tuning-row";
-    row.innerHTML =
-      '<span class="tuning-label">' + p.display_name + "</span>" +
-      '<input type="range" class="tuning-slider" ' +
-      'data-param="' + p.name + '" ' +
-      'min="' + p.min + '" max="' + p.max + '" step="' + p.step + '" ' +
-      'value="' + p.value + '">' +
-      '<input type="number" class="tuning-value" ' +
-      'data-param="' + p.name + '" ' +
-      'min="' + p.min + '" max="' + p.max + '" step="' + p.step + '" ' +
-      'value="' + p.value + '">';
-    container.appendChild(row);
-
-    const slider = row.querySelector(".tuning-slider") as HTMLInputElement;
-    const input = row.querySelector(".tuning-value") as HTMLInputElement;
-    slider.addEventListener("input", () => {
-      input.value = slider.value;
-      onParamChange();
-    });
-    input.addEventListener("input", () => {
-      slider.value = input.value;
-      onParamChange();
-    });
-  });
-}

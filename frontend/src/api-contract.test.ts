@@ -3,7 +3,6 @@ import type {
   AppState,
   ModelData,
   SessionInfo,
-  TuningData,
   Reference,
   ReferenceSegment,
   SegmentHistory,

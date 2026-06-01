@@ -5,7 +5,6 @@ import {
   updatePracticeControls,
   fetchModel,
   initModelTab,
-  syncTuningWithGame,
 } from "./model";
 import { fetchManage, initManageTab, updateManageState } from "./manage";
 import { fetchSegments, renderSegmentsView, coldCaptureButtonEnabled } from "./segments-view";
@@ -24,7 +23,6 @@ function updateColdCaptureButton(data: AppState): void {
 
 function updateFromState(data: AppState): void {
   _currentGameId = data.game_id;
-  syncTuningWithGame(data.game_id);
   updateHeader(data);
   updatePracticeCard(data);
   updatePracticeControls(data);
