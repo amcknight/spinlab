@@ -86,23 +86,28 @@ A **ring buffer** is a fixed-size buffer that overwrites its oldest entry when f
 
 `p_die` is **not** a pool — it stays the EMA rate (the chosen α's `p_die_ema`).
 
-**Why two, not one combined buffer:** a single combined buffer starves the rarer outcome. A brutal segment (e.g. 80 attempts to clear, mostly deaths) would crowd successes down to a handful in a 200-slot shared buffer, making success draws noisy. Two independent buffers decouple each pool's adequacy from the death rate — the segment keeps a healthy window of recent successes *and* deaths regardless of `p_die`.
+**Why p_die has no pool (the asymmetry is principled):** p_die is Bernoulli, and a Bernoulli is fully described by its mean — the mean is a *sufficient statistic*, there is no "shape" beyond p. So drawing a recent 0/1 outcome from a pool would be *identical* to `Bernoulli(p_EMA)`; a pool buys nothing. The time quantities are the opposite — continuous, right-skewed, sometimes **bimodal** (the 4s-trick vs 20s-late case) — where the mean discards exactly the structure we care about, so we must draw from the empirical pool to preserve shape. Hence: pool the things whose *shape* matters (times); keep a rate for the thing whose *mean is everything* (p_die). One deferred subtlety: v0 uses p as a point estimate in the `Bernoulli(p_k)` draw, ignoring uncertainty in p itself (few attempts → p is fuzzy); a Beta posterior on p is a clean future refinement, not v0.
 
-**Sizing:** each pool is a named constant, sized to cover the slowest meaningful α's window (≈ a few hundred). Start at `POOL_SIZE = 300` per pool; tunable as a constant, not a structural change. The slowest producing α is 0.01 (~100-attempt memory), so a few hundred comfortably covers ~several effective windows.
+**Why two pools, not one combined buffer:** a single combined buffer starves the rarer outcome. A brutal segment (e.g. 80 attempts to clear, mostly deaths) would crowd successes down to a handful in a 200-slot shared buffer, making success draws noisy. Two independent buffers decouple each pool's adequacy from the death rate — the segment keeps a healthy window of recent successes *and* deaths regardless of `p_die`.
+
+**Sizing:** each pool is a named constant, sized to cover the slowest meaningful decay's window (≈ a few hundred). Start at `POOL_SIZE = 300` per pool; tunable as a constant, not a structural change. The slowest *recency-weighted* rate (α=0.01) has ~100-attempt memory, so a few hundred comfortably covers several effective windows. Note the ring buffer bounds only the **draw pools** (sampling shapes); the EMA/uniform-mean accumulators see *all* replayed events, so the α=0 uniform mean is genuinely all-time, not buffer-bounded.
 
 **In-pool draw weighting:** the `weighted_empirical(pool, alpha)` draw is recency-weighted within the pool, using the **same normalized weighting** as the EMAs (weights divided by their observed mass), so small pools weight honestly. The ring buffer bounds staleness; the α-weighting within it shapes the draw.
 
-### Normalized EMA — keep it, and fix the α grid
+### Normalized EMA — keep it, and fix α=0's *semantics* (not the grid)
 
-The normalized `(Sum, Denom)` EMA built last session is correct and stays untouched. It is what makes small-N weighting honest (it divides by the actually-observed weight mass instead of letting the first observation dominate — see the `em_suite_sampler.py` module docstring for the 96%-at-N=5 motivation).
+The normalized `(Sum, Denom)` EMA built last session is correct and stays untouched for α>0. It is what makes small-N weighting honest (it divides by the actually-observed weight mass instead of letting the first observation dominate — see the `em_suite_sampler.py` module docstring for the 96%-at-N=5 motivation).
 
-**α grid change:** drop `α = 0.0`. Under the normalized form, `α = 0.0` keeps `Denom = 0` forever, so it **never yields a value** — it is a permanently-dead `—` cell, not a "long memory" anchor. The real long-memory end of the grid is `α = 0.01` (~100 attempts). Keeping a cell that always reads `—` is the opposite of clearing filth. New grid:
+**α=0 means zero decay, not updatelessness.** The grid keeps all 10 entries; what changes is α=0's *implementation*. The spirit of α=0 is **uniform weighting** — every observation counted equally, forever — i.e. the unbiased all-time mean `E = (Σxᵢ)/n`. The normalized form already *converges* to exactly this as α→0 (the weights `α(1−α)^k` flatten toward uniform and `S/D → (Σxᵢ)/n`); the only reason the current code reads `—` at α=0 is the degenerate `0/0` exactly at the limit, an implementation edge — not the concept.
+
+So α=0 is **not** a dead cell and must not be dropped. It is the **zero-decay / no-recency-bias anchor**: "what does my whole history say with every attempt weighted equally." Implementation: the α=0 slot uses an unbiased `(running Σ, running count)` accumulator (`E = Σ/count`); all α>0 slots use the normalized EMA. One small special-case in the update.
 
 ```
-ALPHA_GRID = (0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0)    # 9 producing rates
+ALPHA_GRID = (0.0, 0.01, 0.02, 0.03, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0)    # 10 rates
+#             ^uniform / zero decay (all-time equal-weight mean)        ^goldfish (last only)
 ```
 
-`α = 1.0` (goldfish — only the most recent attempt counts) stays as the fast anchor; it *does* produce a value. This is a deliberate change from the 05-30 design (which locked a 10-entry grid including 0.0). The matrix becomes 9×9 upper-triangular; downstream code reads `len(ALPHA_GRID)`, so no hard-coded 10s.
+α=0 will sit numerically *close* to α=0.01 in practice (both are near-uniform over ~100+ attempts); its value is conceptual — the equal-weight baseline the decaying rows are read against. The matrix stays 10×10 upper-triangular; downstream code reads `len(ALPHA_GRID)`, so no hard-coded counts. (This corrects an earlier draft of this spec that wrongly proposed dropping α=0 by reading it as "never updates.")
 
 ### The scalar the allocator/table needs
 
@@ -177,7 +182,7 @@ The "re-seed a deleted run from a replay" idea Andrew floated is **explicitly de
 - **`DEFAULT_ALPHA_PAIR = (0.2, 0.05)`** — does this default decay choice match Andrew's intuition for the headline *Episode Time* number, or should the scalar use the no-slope `sample(0)` baseline at a single α instead of a fast/slow pair?
 - **Scalar source** — mean-of-draws vs closed-form `expected_episode_time_ms` for the table/allocator number. Closed-form is exact and variance-free for a *display* number; draws are the truer object. Lean closed-form for the scalar, draws for everything user-facing later. Confirm.
 - **`POOL_SIZE = 300`** per pool — accept as the starting constant, knowing it is a one-line bump?
-- **Drop `α = 0.0`** from the grid (9 producing rates) — confirm this deliberate divergence from the 05-30 design.
+- **α=0 = zero-decay uniform mean** (resolved in review) — restored to the grid with unbiased-accumulator semantics, *not* dropped. Confirm the implementation special-case (α=0 slot uses running Σ/count) reads right.
 
 ## Cross-references
 
