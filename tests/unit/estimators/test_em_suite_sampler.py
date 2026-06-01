@@ -832,6 +832,56 @@ class TestDrawFromPool:
         assert draw_from_pool([], 0.2, random.Random(0)) is None
 
 
+class TestSampleEpisode:
+    def _seed_balanced(self, st: SamplerState) -> SamplerState:
+        # >=2 successes and >=2 deaths so the prediction gate passes.
+        for outcome, t in [("survived", 2000), ("died", 500), ("survived", 2100),
+                           ("died", 600), ("survived", 1900), ("died", 550)]:
+            st = process_event(st, _evt(outcome, t))
+        return st
+
+    def test_sample_episode_returns_none_below_gate(self):
+        import random
+        from spinlab.estimators.em_suite_sampler import sample_episode
+        st = SamplerState()
+        st = process_event(st, _evt("survived", 2000))  # only 1 success, 0 deaths
+        assert sample_episode(st, fast_idx=6, slow_idx=4, rng=random.Random(0)) is None
+
+    def test_sample_episode_draws_a_positive_time(self):
+        import random
+        from spinlab.estimators.em_suite_sampler import sample_episode
+        st = self._seed_balanced(SamplerState())
+        rng = random.Random(0)
+        draws = [sample_episode(st, fast_idx=6, slow_idx=4, k=0, rng=rng)
+                 for _ in range(200)]
+        assert all(d is not None and d > 0 for d in draws)
+        # A draw with >=1 death must exceed the minimum success time alone.
+        assert max(draws) > 2000
+
+    def test_sample_episode_gated_out_when_no_deaths(self):
+        import random
+        from spinlab.estimators.em_suite_sampler import sample_episode
+        st = SamplerState()
+        # All successes -> 0 deaths, so the >=2-deaths gate fails and the empty
+        # death pool would have nothing to draw: must return None, not a fudge.
+        for t in (2000, 2100, 1900):
+            st = process_event(st, _evt("survived", t))
+        assert sample_episode(st, fast_idx=6, slow_idx=4, rng=random.Random(0)) is None
+
+    def test_sample_episode_caps_and_returns_none_when_never_survives(self):
+        from spinlab.estimators.em_suite_sampler import sample_episode
+        st = self._seed_balanced(SamplerState())
+
+        class AlwaysDie:
+            def random(self):
+                return 0.0  # always < p -> always "died"
+
+            def choices(self, seq, weights, k):
+                return [seq[-1]]
+
+        assert sample_episode(st, fast_idx=6, slow_idx=4, rng=AlwaysDie()) is None
+
+
 class TestRecencyDrawPools:
     def test_pools_split_by_outcome(self):
         st = SamplerState()

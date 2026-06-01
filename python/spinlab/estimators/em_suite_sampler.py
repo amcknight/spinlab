@@ -66,6 +66,12 @@ ALPHA_GRID: tuple[float, ...] = (
 # than this; it is a one-line change with no structural impact.
 POOL_SIZE = 300
 
+# Inner-loop cap for a single simulated episode. A draw that never survives
+# within this many attempts returns None (non-converged) rather than a fudge
+# value, per the no-silent-fallback principle. Reachable only at near-certain
+# death; normal segments survive in a handful of attempts.
+MAX_ATTEMPTS_PER_EPISODE = 100
+
 
 def _append_capped(pool: list[float], value: float) -> list[float]:
     """Return a new list with `value` appended, keeping only the last POOL_SIZE
@@ -368,6 +374,56 @@ def expected_episode_time_ms(
     if p >= 1.0 - LOGIT_EPS:
         return None  # geometric mean diverges
     return success_time + (p / (1.0 - p)) * (death_time + reload_penalty_ms)
+
+
+def sample_episode(
+    state: SamplerState, fast_idx: int, slow_idx: int, k: int = 0,
+    *, rng: "random.Random",
+    reload_penalty_ms: int = DEFAULT_DEATH_PENALTY_MS,
+) -> float | None:
+    """Draw one episode time (ms): bootstrap-with-slide.
+
+    Repeatedly draw an attempt — died with probability p, else survived —
+    drawing the attempt's gameplay time from the matching recency-weighted
+    pool, until the first survival. Sum gameplay times + reload_penalty_ms per
+    death. k>0 slides p (logit space) and the per-draw times (log space) by
+    k * the (alpha_fast, alpha_slow) trend slopes.
+
+    Returns None when the prediction gate fails, when either pool is empty,
+    or when the draw does not survive within MAX_ATTEMPTS_PER_EPISODE.
+    """
+    if not _gate_passes(state):
+        return None
+    if not state.success_time_pool or not state.death_time_pool:
+        return None
+    p_fast = state.p_die_ema(fast_idx)
+    if p_fast is None:
+        return None
+
+    if k != 0:
+        slopes = trend_signal_slopes(state, fast_idx, slow_idx)
+        if slopes is None:
+            return None
+        slope_log_success, slope_log_death, slope_logit_p = slopes
+        p = _logistic(_logit(p_fast) + k * slope_logit_p)
+        slide_success = math.exp(k * slope_log_success)
+        slide_death = math.exp(k * slope_log_death)
+    else:
+        p = p_fast
+        slide_success = 1.0
+        slide_death = 1.0
+
+    alpha_fast = ALPHA_GRID[fast_idx]
+    episode_ms = 0.0
+    for _ in range(MAX_ATTEMPTS_PER_EPISODE):
+        if rng.random() < p:  # died
+            d = draw_from_pool(state.death_time_pool, alpha_fast, rng)
+            episode_ms += d * slide_death + reload_penalty_ms  # type: ignore[operator]
+        else:  # survived -> episode ends
+            s = draw_from_pool(state.success_time_pool, alpha_fast, rng)
+            episode_ms += s * slide_success  # type: ignore[operator]
+            return episode_ms
+    return None  # never survived within the cap
 
 
 def replay_with_history(
