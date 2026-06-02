@@ -14,6 +14,7 @@ describe("verdictLabel", () => {
     expect(verdictLabel("faster")).toMatch(/↓/);
     expect(verdictLabel("slower")).toMatch(/↑/);
     expect(verdictLabel("holding")).toMatch(/→/);
+    expect(verdictLabel("not_ready").toLowerCase()).toContain("not enough");
   });
 });
 

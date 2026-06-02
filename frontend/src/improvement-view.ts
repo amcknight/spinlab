@@ -22,6 +22,10 @@ const VERDICT_CLASS: Record<string, string> = {
   faster: "iv-good", slower: "iv-bad", holding: "iv-neutral", not_ready: "iv-dim",
 };
 
+// The data gate: a segment needs ≥2 clears AND ≥2 deaths before the model runs.
+// Mirrors em_suite_sampler._gate_passes; keep in sync if that threshold moves.
+const GATE_MIN_OUTCOMES = 2;
+
 /** Map clear-time values to an SVG polyline points string. Lower time = lower y
  * (drawn higher). Single/empty input is NaN-safe. */
 export function sparklinePoints(values: number[], w: number, h: number): string {
@@ -43,8 +47,8 @@ export function renderImprovementView(host: HTMLElement, p: SegmentProgress): vo
   const cls = VERDICT_CLASS[p.verdict] ?? "iv-dim";
 
   if (!p.ready) {
-    const needS = Math.max(0, 2 - p.n_successes);
-    const needD = Math.max(0, 2 - p.n_deaths);
+    const needS = Math.max(0, GATE_MIN_OUTCOMES - p.n_successes);
+    const needD = Math.max(0, GATE_MIN_OUTCOMES - p.n_deaths);
     const parts: string[] = [];
     if (needS) parts.push(`${needS} more clear${needS === 1 ? "" : "s"}`);
     if (needD) parts.push(`${needD} more death${needD === 1 ? "" : "s"}`);
@@ -54,8 +58,10 @@ export function renderImprovementView(host: HTMLElement, p: SegmentProgress): vo
     return;
   }
 
-  const now = p.now_clear_ms ?? 0;
-  const baseline = p.baseline_clear_ms ?? 0;
+  // Pass nullable straight to formatTime (renders "—"); a ready segment can
+  // still have a null EMA, and 0.0s would be a lie.
+  const now = p.now_clear_ms;
+  const baseline = p.baseline_clear_ms;
   const w = 320, hgt = 56;
   const pts = sparklinePoints(p.trend_ms, w, hgt);
 
