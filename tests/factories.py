@@ -91,6 +91,78 @@ def seed_basic_game(db: "Database") -> str:
     return game_id
 
 
+def seed_sampler_states(db: "Database") -> dict[str, list[str]]:
+    """Add em_suite_sampler-backed segments to the frontend-smoke game so the
+    Practice Simulator tab has gated + ungated rows to render.
+
+    Crucially these segments have EMPTY descriptions, so the frontend formats
+    their names from the endpoint structure (start/end type+ordinal) — the path
+    that regressed to "L… cpundefined → cpundefined". Distinct endpoint types
+    exercise shortEndpoint's start/cp/goal branches.
+
+    Returns {"gated": [...], "ungated": [...]} segment ids.
+    """
+    import json
+    from datetime import UTC, datetime
+
+    from spinlab.estimators.em_suite_sampler import (
+        EmSuiteSamplerEstimator,
+        SamplerState,
+        process_event,
+    )
+    from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
+
+    game_id = "fake_game_frontend_smoke"
+    session_id = f"{game_id}:pe_sess"
+    try:
+        db.create_session(session_id, game_id)
+    except Exception:
+        pass  # already exists across a session-scoped reseed
+
+    estimator = EmSuiteSamplerEstimator()
+
+    def _events(seg_id: str, n: int) -> list[EventAttempt]:
+        evs = []
+        for i in range(n):
+            died = i % 2 == 1
+            evs.append(EventAttempt(
+                segment_id=seg_id, session_id=session_id, episode_id=f"{seg_id}_e{i}",
+                outcome=AttemptOutcome.DIED if died else AttemptOutcome.SURVIVED,
+                time_ms=1500 if died else 4000 + i * 50,
+                source=AttemptSource.PRACTICE, created_at=datetime.now(UTC),
+            ))
+        return evs
+
+    # (suffix, level, start_type, start_ord, end_type, end_ord, n_events)
+    # n_events >= 4 (2 of each) gates; < 4 leaves it ungated.
+    specs = [
+        ("pe_g1", 201, "entrance", 0, "checkpoint", 1, 8),   # gated → "L201 start → cp1"
+        ("pe_g2", 202, "checkpoint", 1, "goal", 0, 8),       # gated → "L202 cp1 → goal"
+        ("pe_u1", 203, "entrance", 0, "goal", 0, 2),         # ungated → "L203 start → goal"
+    ]
+    out: dict[str, list[str]] = {"gated": [], "ungated": []}
+    for suffix, level, st, so, et, eo, n in specs:
+        seg_id = f"{game_id}:{suffix}"
+        db.upsert_segment(Segment(
+            id=seg_id, game_id=game_id, level_number=level,
+            start_type=st, start_ordinal=so, end_type=et, end_ordinal=eo,
+            description="", active=True,
+        ))
+        events = _events(seg_id, n)
+        for ev in events:
+            db.log_event_attempt(ev)
+        state = SamplerState()
+        for ev in events:
+            state = process_event(state, ev)
+        output = estimator.model_output(state, [], events=events)
+        db.save_model_state(
+            seg_id, "em_suite_sampler",
+            json.dumps(state.to_dict()), json.dumps(output.to_dict()),
+        )
+        out["gated" if n >= 4 else "ungated"].append(seg_id)
+    return out
+
+
 def make_attempt_record(
     time_ms: int,
     completed: bool,

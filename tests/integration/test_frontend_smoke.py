@@ -56,9 +56,9 @@ async def _serve_static(route, request):
         status=200, body=fs_path.read_bytes(), headers={"Content-Type": ct},
     )
 
-# The index.html nav only exposes three tabs; the "practice" UI lives inside
-# the model tab as #practice-card, not as its own tab button.
-TABS = ("model", "manage", "segments")
+# The nav exposes four tabs; the "practice" UI lives inside the model tab as
+# #practice-card, not as its own tab button. "practice-engine" is the Simulator.
+TABS = ("model", "manage", "segments", "practice-engine")
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
@@ -184,3 +184,49 @@ async def test_model_tab_renders_model_table(page):
     await pg.wait_for_selector("#model-body tr", timeout=5000)
     rows = await pg.locator("#model-body tr").count()
     assert rows >= 1
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def simulator_seeded(fake_dashboard_server, fake_game_loaded):
+    """Add em_suite_sampler-backed (gated + ungated) segments with EMPTY
+    descriptions so the Simulator has rows whose names come from the endpoint
+    structure. Drop any practice engine built before the seed so the next
+    /api/practice-engine access rebuilds from the seeded states.
+    """
+    from tests.factories import seed_sampler_states
+    _base_url, db, session = fake_dashboard_server
+    ids = seed_sampler_states(db)
+    session.get_scheduler()._engine = None  # force lazy rebuild with seeded data
+    return ids
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_simulator_tab_renders_segment_names_not_undefined(page, simulator_seeded):
+    """Regression: empty-description segments rendered "L… cpundefined → cpundefined"
+    because the state payload omitted the endpoint structure. Names must resolve."""
+    pg, errors = page
+    await pg.click('nav#tabs button.tab[data-tab="practice-engine"]')
+    await pg.wait_for_selector(".pe-segments-input tbody tr", timeout=5000)
+    panel_text = await pg.locator("#practice-engine-panel").inner_text()
+    assert "undefined" not in panel_text, f"unresolved name fields: {panel_text!r}"
+    # Structural formatting actually applied (shortEndpoint start/cp/goal branches).
+    assert "L201 start → cp1" in panel_text
+    assert "L202 cp1 → goal" in panel_text
+    # Ungated segment is listed with its resolved name + gate reason.
+    assert "L203 start → goal" in panel_text
+    assert not errors, f"console/page errors: {errors}"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_simulator_recompute_populates_values(page, simulator_seeded):
+    """Regression: Recompute 500'd (pool-less states → all-None matrix column).
+    With pools rebuilt from events, the value table must populate end-to-end."""
+    pg, errors = page
+    await pg.click('nav#tabs button.tab[data-tab="practice-engine"]')
+    await pg.wait_for_selector(".pe-segments-input tbody tr", timeout=5000)
+    await pg.click("#pe-recompute")
+    # One row per gated segment appears only if /evaluate returned 200.
+    await pg.wait_for_selector("#pe-values-body tr", timeout=5000)
+    rows = await pg.locator("#pe-values-body tr").count()
+    assert rows >= 1
+    assert not errors, f"console/page errors: {errors}"
