@@ -134,21 +134,17 @@ export function renderPracticeEnginePanel(
   help.innerHTML = `
     <summary>What is this? (how to use)</summary>
     <div class="pe-help-body">
-      <p>Imagines thousands of full runs from your real per-segment data to answer
-      two questions: <em>how your runs are likely to go</em>, and <em>which single
-      segment is most worth practicing next</em>.</p>
+      <p>Imagines thousands of full runs from your real per-segment data to rank
+      <em>which segment is most worth practicing next</em> and show how your runs
+      are likely to go.</p>
       <ul>
-        <li><strong>Policy</strong> — <code>no_reset</code>: simulate every run to the
-        end. <code>target_paced</code>: quit a run once it falls behind your split.</li>
-        <li><strong>Objective</strong> — what to measure: average time, chance of
-        finishing under a target, chance of a PB this session, …</li>
-        <li>It recomputes automatically when you change a control. Extra inputs
-        appear only for the policy/objective that needs them.</li>
+        <li><strong>Practice next</strong> lists segments best-first by the expected
+        gain from one more practice attempt. Practice the top one.</li>
+        <li>A segment needs <strong>≥2 clears and ≥2 deaths</strong> before it can be
+        modelled; until then it shows greyed with what it still needs.</li>
+        <li><strong>Advanced</strong> lets you change what's measured (objective) and
+        the reset rule (policy). The default is average time per attempt.</li>
       </ul>
-      <p>The results table ranks segments by <strong>Value/sec</strong> — objective
-      improvement per second of practice. Practice the top row. A segment needs
-      <strong>≥2 clears and ≥2 deaths</strong> before it can be modelled; until then
-      it sits under “Not enough data yet”.</p>
     </div>
   `;
   container.appendChild(help);
@@ -162,6 +158,35 @@ export function renderPracticeEnginePanel(
     : `<strong>${gatedCount}</strong> of ${total} segment${total === 1 ? "" : "s"} `
       + `ready. The rest need ≥2 clears and ≥2 deaths each.`;
   container.appendChild(status);
+
+  const headline = document.createElement("div");
+  headline.className = "pe-headline";
+  headline.id = "pe-headline";
+  headline.textContent = "(computing…)";
+  container.appendChild(headline);
+
+  // Practice-next: ranked gated segments (filled by updatePanelResults), then
+  // not-ready segments inline (greyed) — one block, no separate "Ungated" header.
+  const rank = document.createElement("div");
+  rank.className = "pe-ranklist";
+  rank.innerHTML = `
+    <div class="pe-ranklist-title">Practice next</div>
+    <ol id="pe-rank-body"></ol>
+    <ul id="pe-notready">
+      ${state.ungated_segments.map(u =>
+        `<li class="pe-nr"><span class="pe-nr-seg">${segmentName(u)}</span>` +
+        `<span class="dim"> — ${u.reason}</span></li>`).join("")}
+    </ul>
+  `;
+  container.appendChild(rank);
+
+  const advanced = document.createElement("details");
+  advanced.className = "pe-advanced";
+  advanced.innerHTML = `<summary>Advanced</summary>`;
+  const advBody = document.createElement("div");
+  advBody.className = "pe-advanced-body";
+  advanced.appendChild(advBody);
+  container.appendChild(advanced);
 
   const controls = document.createElement("div");
   controls.className = "pe-controls";
@@ -195,10 +220,8 @@ export function renderPracticeEnginePanel(
     </label>
     <button id="pe-recompute" title="Recompute now (also runs automatically on change)">Recompute</button>
   `;
-  container.appendChild(controls);
+  advBody.appendChild(controls);
 
-  // target_paced-only: per-segment cumulative split thresholds. Hidden for
-  // no_reset (which ignores them) — wired visible via applyControlVisibility.
   const segInputWrap = document.createElement("div");
   segInputWrap.id = "pe-target-paced-section";
   segInputWrap.innerHTML = `
@@ -218,9 +241,8 @@ export function renderPracticeEnginePanel(
       </tbody>
     </table>
   `;
-  container.appendChild(segInputWrap);
+  advBody.appendChild(segInputWrap);
 
-  // Wire the fill-from-gold button: cumulative sum of per-segment golds (ms).
   const fillBtn = segInputWrap.querySelector<HTMLButtonElement>("#pe-fill-gold");
   if (fillBtn) {
     fillBtn.addEventListener("click", () => {
@@ -235,39 +257,6 @@ export function renderPracticeEnginePanel(
         }
       });
     });
-  }
-
-  // Headline objective value
-  const headline = document.createElement("div");
-  headline.className = "pe-headline";
-  headline.id = "pe-headline";
-  headline.textContent = "(computing…)";
-  container.appendChild(headline);
-
-  // Per-segment value table. Headers carry tooltips since the columns are dense.
-  const valuesTable = document.createElement("table");
-  valuesTable.className = "pe-values";
-  valuesTable.innerHTML = `
-    <thead><tr>
-      <th>Segment</th>
-      <th class="pe-num" title="Expected time now">Now</th>
-      <th class="pe-num" title="Expected time after one more practice attempt">After 1×</th>
-      <th class="pe-num" title="Time saved by that one practice attempt">Δ</th>
-      <th class="pe-num" title="Objective improvement from one practice attempt">Value</th>
-      <th class="pe-num" title="Objective improvement per second of practice — the ranking metric">Value/sec</th>
-    </tr></thead>
-    <tbody id="pe-values-body"></tbody>
-  `;
-  container.appendChild(valuesTable);
-
-  // Segments that can't be modelled yet (below the ≥2-clears/≥2-deaths gate).
-  if (state.ungated_segments.length > 0) {
-    const ungated = document.createElement("div");
-    ungated.className = "pe-ungated";
-    ungated.innerHTML = `<h3>Not enough data yet</h3><ul>${
-      state.ungated_segments.map(u => `<li>${segmentName(u)}: ${u.reason}</li>`).join("")
-    }</ul>`;
-    container.appendChild(ungated);
   }
 }
 
@@ -284,17 +273,19 @@ export function updatePanelResults(
       ? `${label}: — (not enough data)`
       : `${label}: ${formatObjectiveValue(objName, response.objective_value)}`;
   }
-  const body = container.querySelector<HTMLTableSectionElement>("#pe-values-body");
+  const body = container.querySelector<HTMLOListElement>("#pe-rank-body");
   if (body) {
-    body.innerHTML = response.per_segment_values.map(psv => `
-      <tr>
-        <td>${segNameById[psv.seg_id] ?? psv.seg_id}</td>
-        <td class="pe-num">${formatTime(psv.e_sample_0_ms)}</td>
-        <td class="pe-num">${formatTime(psv.e_sample_1_ms)}</td>
-        <td class="pe-num">${formatSavings(psv.e_sample_0_ms - psv.e_sample_1_ms) ?? "—"}</td>
-        <td class="pe-num">${formatObjectiveDelta(objName, psv.value)}</td>
-        <td class="pe-num">${psv.value_per_second === null ? "—" : psv.value_per_second.toExponential(2)}</td>
-      </tr>
+    // Best-first by value per second of practice (the ranking metric); nulls last.
+    const ranked = [...response.per_segment_values].sort(
+      (a, b) => (b.value_per_second ?? -Infinity) - (a.value_per_second ?? -Infinity),
+    );
+    body.innerHTML = ranked.map((psv, i) => `
+      <li>
+        <span class="pe-rank-n">${i + 1}</span>
+        <span class="pe-rank-seg">${segNameById[psv.seg_id] ?? psv.seg_id}</span>
+        <span class="pe-rank-gain" title="Expected gain from one more practice attempt">${formatObjectiveDelta(objName, psv.value)}</span>
+        <span class="pe-rank-times dim">${formatTime(psv.e_sample_0_ms)} → ${formatTime(psv.e_sample_1_ms)}</span>
+      </li>
     `).join("");
   }
 }
@@ -324,7 +315,7 @@ async function runRecompute(container: HTMLElement): Promise<void> {
   if (missing.length > 0) {
     const headline = container.querySelector<HTMLDivElement>("#pe-headline");
     if (headline) headline.textContent = `Enter ${missing.map(([, name]) => name).join(" and ")} to compute.`;
-    const body = container.querySelector<HTMLTableSectionElement>("#pe-values-body");
+    const body = container.querySelector<HTMLOListElement>("#pe-rank-body");
     if (body) body.innerHTML = "";
     return;
   }

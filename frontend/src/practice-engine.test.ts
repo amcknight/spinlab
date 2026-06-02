@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { renderPracticeEnginePanel, buildEvaluateRequest } from "./practice-engine";
+import { renderPracticeEnginePanel, updatePanelResults, buildEvaluateRequest } from "./practice-engine";
 import type { PracticeEngineState, PracticeEngineEvaluateResponse } from "./types";
 
 const MOCK_STATE: PracticeEngineState = {
@@ -40,35 +40,68 @@ describe("renderPracticeEnginePanel", () => {
     document.body.innerHTML = `<div id="practice-engine-panel"></div>`;
   });
 
-  it("renders gated segments in the controls table", () => {
+  it("renders the practice-next list container and the status line", () => {
     const container = document.getElementById("practice-engine-panel")!;
     renderPracticeEnginePanel(container, MOCK_STATE);
-    expect(container.querySelector(".pe-segments-input")).not.toBeNull();
-    const rows = container.querySelectorAll(".pe-segments-input tbody tr");
-    expect(rows.length).toBe(2);
+    expect(container.querySelector("#pe-rank-body")).not.toBeNull();
+    expect(container.querySelector(".pe-status")?.textContent ?? "").toContain("ready");
   });
 
-  it("shows ungated segments separately if any", () => {
+  it("collapses policy/objective controls behind an Advanced details (closed)", () => {
+    const container = document.getElementById("practice-engine-panel")!;
+    renderPracticeEnginePanel(container, MOCK_STATE);
+    const adv = container.querySelector<HTMLDetailsElement>("details.pe-advanced");
+    expect(adv).not.toBeNull();
+    expect(adv!.open).toBe(false);
+    // Controls live inside Advanced, not at top level.
+    expect(adv!.querySelector("#pe-policy")).not.toBeNull();
+    expect(adv!.querySelector("#pe-objective")).not.toBeNull();
+  });
+
+  it("shows not-ready segments inline in the list (not a separate block)", () => {
     const stateWithUngated: PracticeEngineState = {
       ...MOCK_STATE,
-      ungated_segments: [{ seg_id: "s3", reason: "needs more data",
-        description: "", level_number: 3,
-        start_type: "entrance", start_ordinal: 0, end_type: "goal", end_ordinal: 0 }],
+      ungated_segments: [{
+        seg_id: "s3", reason: "needs more data", description: "", level_number: 3,
+        start_type: "entrance", start_ordinal: 0, end_type: "goal", end_ordinal: 0,
+      }],
     };
     const container = document.getElementById("practice-engine-panel")!;
     renderPracticeEnginePanel(container, stateWithUngated);
-    expect(container.textContent).toContain("needs more data");
+    const notReady = container.querySelector("#pe-notready");
+    expect(notReady).not.toBeNull();
+    expect(notReady!.textContent).toContain("needs more data");
+    expect(container.querySelector(".pe-ungated")).toBeNull(); // old separate block gone
   });
 
-  it("fill-from-gold button populates inputs with cumulative golds", () => {
+  it("fill-from-gold (inside Advanced) populates cumulative splits", () => {
     const container = document.getElementById("practice-engine-panel")!;
     renderPracticeEnginePanel(container, MOCK_STATE);
-    const fillBtn = container.querySelector<HTMLButtonElement>("#pe-fill-gold")!;
-    fillBtn.click();
-    const s1Input = container.querySelector<HTMLInputElement>('input.pe-seg-split[data-seg-id="s1"]')!;
-    const s2Input = container.querySelector<HTMLInputElement>('input.pe-seg-split[data-seg-id="s2"]')!;
-    expect(s1Input.value).toBe("4200");          // cum gold through s1
-    expect(s2Input.value).toBe(String(4200 + 5800));  // cum gold through s2
+    container.querySelector<HTMLButtonElement>("#pe-fill-gold")!.click();
+    const s1 = container.querySelector<HTMLInputElement>('input.pe-seg-split[data-seg-id="s1"]')!;
+    const s2 = container.querySelector<HTMLInputElement>('input.pe-seg-split[data-seg-id="s2"]')!;
+    expect(s1.value).toBe("4200");
+    expect(s2.value).toBe(String(4200 + 5800));
+  });
+});
+
+describe("updatePanelResults", () => {
+  beforeEach(() => {
+    document.body.innerHTML = `<div id="practice-engine-panel"></div>`;
+  });
+
+  it("renders a ranked practice-next list with plain payoff, no scientific notation", () => {
+    const container = document.getElementById("practice-engine-panel")!;
+    renderPracticeEnginePanel(container, MOCK_STATE);
+    updatePanelResults(container, MOCK_EVAL);
+    const rows = container.querySelectorAll("#pe-rank-body li");
+    expect(rows.length).toBe(2);
+    const text = container.querySelector("#pe-rank-body")!.textContent || "";
+    expect(text).not.toMatch(/e[+-]\d/i);       // no 5.71e-2
+    expect(text).not.toContain("undefined");
+    // s1 (value_per_second 200/4500 ≈ 0.0444) ranks above s2 (150/6000 = 0.025).
+    expect(rows[0]!.textContent).toContain("Level 1");
+    expect(rows[1]!.textContent).toContain("Level 2");
   });
 });
 
