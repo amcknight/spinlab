@@ -52,6 +52,9 @@ class DatabaseCore:
         # tests are single-threaded and never hit the concurrency bug.
         self._local = threading.local()
         self._conns_lock = threading.Lock()
+        # Every per-thread connection is registered here so close() can shut
+        # them all down. Assumes a bounded set of long-lived threads (uvicorn's
+        # worker pool + a few background threads), so this list stays small.
         self._all_conns: list[sqlite3.Connection] = []
         self._shared_conn: sqlite3.Connection | None = None
         conn = self._new_conn()
@@ -89,12 +92,14 @@ class DatabaseCore:
         return conn
 
     def close(self) -> None:
+        # Call at shutdown, after worker threads are done — other threads
+        # holding a connection would see it closed under them otherwise.
         with self._conns_lock:
             for c in self._all_conns:
                 try:
                     c.close()
                 except Exception:
-                    pass
+                    pass  # best-effort teardown — one bad close mustn't strand the rest
             self._all_conns.clear()
         self._shared_conn = None
         if hasattr(self._local, "conn"):
