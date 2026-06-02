@@ -934,3 +934,30 @@ h3 {
   display: block; font-size: 9px; text-transform: uppercase;
   color: var(--text-dim); letter-spacing: 0.5px;
 }
+
+/* Practice-next ranked list */
+.pe-ranklist { margin: 8px 0; }
+.pe-ranklist-title {
+  font-size: 11px; text-transform: uppercase; color: var(--text-dim);
+  letter-spacing: 0.5px; margin: 6px 0 4px;
+}
+#pe-rank-body { list-style: none; margin: 0; padding: 0; }
+#pe-rank-body li {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 4px 5px; border-bottom: 1px solid var(--surface); font-size: 12px;
+}
+.pe-rank-n {
+  color: var(--accent); font-weight: 700; min-width: 1.4em; text-align: right;
+}
+.pe-rank-seg { flex: 1; color: var(--text); }
+.pe-rank-gain { color: var(--green); font-variant-numeric: tabular-nums; }
+.pe-rank-times { font-size: 11px; }
+#pe-notready { list-style: none; margin: 4px 0 0; padding: 0; }
+#pe-notready .pe-nr {
+  padding: 3px 5px; border-bottom: 1px solid var(--surface); font-size: 11px;
+}
+#pe-notready .pe-nr-seg { color: var(--text-dim); }
+/* Advanced */
+.pe-advanced { margin-top: 10px; }
+.pe-advanced > summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+.pe-advanced-body { margin-top: 8px; }
