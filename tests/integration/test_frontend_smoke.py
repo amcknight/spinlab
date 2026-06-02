@@ -10,6 +10,7 @@ default suite — no marker needed.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -202,35 +203,37 @@ async def simulator_seeded(fake_dashboard_server, fake_game_loaded):
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_simulator_tab_renders_segment_names_not_undefined(page, simulator_seeded):
-    """Regression: empty-description segments rendered "L… cpundefined → cpundefined"
-    because the state payload omitted the endpoint structure. Names must resolve."""
+    """Regression: empty-description segments must resolve to structural names
+    (no 'cpundefined'). Gated names appear in the ranked list, ungated inline."""
     pg, errors = page
     await pg.click('nav#tabs button.tab[data-tab="practice-engine"]')
-    # Panel auto-recomputes on open; gated rows land in the values body. (The
-    # cumulative-split table is hidden under the default no_reset policy.)
-    await pg.wait_for_selector("#pe-values-body tr", timeout=5000)
+    # Auto-recompute on open populates the ranked list (default objective needs no input).
+    await pg.wait_for_selector("#pe-rank-body li", timeout=5000)
     panel_text = await pg.locator("#practice-engine-panel").inner_text()
     assert "undefined" not in panel_text, f"unresolved name fields: {panel_text!r}"
-    # Structural formatting actually applied (shortEndpoint start/cp/goal branches).
     assert "L201 start → cp1" in panel_text
     assert "L202 cp1 → goal" in panel_text
-    # Ungated segment is listed with its resolved name + gate reason.
+    # Not-ready segment shown inline (greyed), not a separate block.
     assert "L203 start → goal" in panel_text
+    assert await pg.locator(".pe-ungated").count() == 0
     assert not errors, f"console/page errors: {errors}"
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_simulator_recompute_populates_values(page, simulator_seeded):
-    """Regression: Recompute 500'd (pool-less states → all-None matrix column).
-    With pools rebuilt from events, the value table must populate end-to-end."""
+async def test_simulator_ranks_gated_segments(page, simulator_seeded):
+    """Regression: the panel auto-ranks gated segments best-first with plain
+    payoffs — no scientific notation, no Value/sec column, controls behind Advanced."""
     pg, errors = page
     await pg.click('nav#tabs button.tab[data-tab="practice-engine"]')
-    await pg.wait_for_selector("#pe-recompute", timeout=5000)
-    await pg.click("#pe-recompute")
-    # One row per gated segment appears only if /evaluate returned 200.
-    await pg.wait_for_selector("#pe-values-body tr", timeout=5000)
-    rows = await pg.locator("#pe-values-body tr").count()
+    await pg.wait_for_selector("#pe-rank-body li", timeout=5000)
+    rows = await pg.locator("#pe-rank-body li").count()
     assert rows >= 1
+    body_text = await pg.locator("#pe-rank-body").inner_text()
+    assert not re.search(r"e[+-]\d", body_text), f"scientific notation leaked: {body_text!r}"
+    # The Advanced controls are collapsed by default.
+    assert await pg.locator("details.pe-advanced").count() == 1
+    advanced_open = await pg.locator("details.pe-advanced").evaluate("el => el.open")
+    assert advanced_open is False
     assert not errors, f"console/page errors: {errors}"
 
 
