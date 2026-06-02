@@ -76,3 +76,29 @@ def test_concurrent_reads_never_miss_a_present_row(tmp_path):
     assert errors == [], f"DB raised under concurrency: {errors[:3]}"
     assert misses == [], f"{len(misses)} spurious empty reads of a present row"
     db.close()
+
+
+def test_memory_db_shares_state_across_operations():
+    # :memory: keeps ONE shared connection; writes are visible to later reads
+    # on the same Database (would be invisible if each call got a fresh
+    # per-connection in-memory db).
+    db = Database(":memory:")
+    db.upsert_game("g", "G", "any%")
+    seg_id = "g:1:entrance.0:checkpoint.1:aa:bb"
+    db.upsert_segment(_seg(seg_id))
+    assert db.get_segment_by_id(seg_id) is not None
+    db.close()
+
+
+def test_transaction_rollback_still_works(tmp_path):
+    db = Database(str(tmp_path / "t.db"))
+    db.upsert_game("g", "G", "any%")
+    seg_id = "g:1:entrance.0:checkpoint.1:aa:bb"
+    try:
+        with db.transaction():
+            db.upsert_segment(_seg(seg_id))
+            raise RuntimeError("boom")  # force rollback
+    except RuntimeError:
+        pass
+    assert db.get_segment_by_id(seg_id) is None  # rolled back
+    db.close()
