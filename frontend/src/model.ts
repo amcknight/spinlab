@@ -4,6 +4,7 @@ import {
   loadAndRenderEmSuitePanel,
   destroyEmSuitePanel,
 } from "./em-suite-panel";
+import { loadAndRenderImprovementView, destroyImprovementView } from "./improvement-view";
 import { renderSegmentDetail, destroySegmentDetail } from "./segment-detail";
 import {
   fetchModelData,
@@ -73,6 +74,7 @@ export function updatePracticeCard(data: AppState): void {
   if ((data.mode !== "practice" && data.mode !== "hyper_play") || !data.current_segment) {
     card.style.display = "none";
     destroyEmSuitePanel();
+    destroyImprovementView();
     return;
   }
   card.style.display = "";
@@ -92,6 +94,11 @@ export function updatePracticeCard(data: AppState): void {
       _currentWeights = next;
       postAllocatorWeights(next);
     });
+  }
+
+  const improvementHost = document.getElementById("improvement-view") as HTMLElement;
+  if (improvementHost) {
+    void loadAndRenderImprovementView(data.current_segment.id, improvementHost);
   }
 
   // EMA-suite panel. Fired per SSE app-state push, so updates per attempt
