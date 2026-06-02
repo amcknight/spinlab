@@ -822,3 +822,7 @@ git commit -m "test(progress): smoke coverage for segment-progress endpoint + pa
 
 - Move this view into the narrow live strip; make the layout responsive.
 - The last-attempt callout (see above) if not added here.
+- **PB marker on the sparkline** and a **death-rate trend arrow** — §A mentions both
+  ("PB marked", "death-rate with trend arrow"); the shipped view shows PB and death
+  rate as stats but the sparkline has no PB marker and death rate has no trend arrow.
+  Cosmetic; fold into Plan D. (Recorded post-final-review so it isn't silently lost.)

@@ -204,7 +204,8 @@ def get_segment_progress(
 
     events = _events_from_rows(db.get_segment_event_rows(segment_id))
     state, _history = replay_with_history(events)
-    gold_ms = db.compute_golds(seg.game_id).get(segment_id, {}).get("gold_ms")
+    gold_row = db.compute_golds(seg.game_id).get(segment_id)
+    gold_ms = gold_row["gold_ms"] if gold_row else None
     p = segment_progress(state, gold_ms=gold_ms)
     return {
         "segment_id": segment_id,
