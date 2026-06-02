@@ -489,6 +489,12 @@ class PracticeEngineSegmentState(_BaseResponse):
     seg_id: str
     description: str
     level_number: int
+    # Endpoint structure so the frontend can format names with the shared
+    # segmentName()/shortEndpoint() helpers (identical labels to other tabs).
+    start_type: str
+    start_ordinal: int
+    end_type: str
+    end_ordinal: int
     e_sample_0_ms: float
     e_sample_1_ms: float
     pool_success: int
@@ -499,6 +505,12 @@ class PracticeEngineSegmentState(_BaseResponse):
 class PracticeEngineUngated(_BaseResponse):
     seg_id: str
     reason: str
+    description: str
+    level_number: int
+    start_type: str
+    start_ordinal: int
+    end_type: str
+    end_ordinal: int
 
 
 class PracticeEngineState(_BaseResponse):

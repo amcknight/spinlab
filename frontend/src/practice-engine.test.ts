@@ -5,9 +5,11 @@ import type { PracticeEngineState, PracticeEngineEvaluateResponse } from "./type
 const MOCK_STATE: PracticeEngineState = {
   gated_segments: [
     { seg_id: "s1", description: "Level 1", level_number: 1,
+      start_type: "entrance", start_ordinal: 0, end_type: "goal", end_ordinal: 0,
       e_sample_0_ms: 4500, e_sample_1_ms: 4300,
       pool_success: 40, pool_death: 20, gold_ms: 4200 },
     { seg_id: "s2", description: "Level 2", level_number: 2,
+      start_type: "entrance", start_ordinal: 0, end_type: "goal", end_ordinal: 0,
       e_sample_0_ms: 6000, e_sample_1_ms: 5800,
       pool_success: 35, pool_death: 25, gold_ms: 5800 },
   ],
@@ -49,7 +51,9 @@ describe("renderPracticeEnginePanel", () => {
   it("shows ungated segments separately if any", () => {
     const stateWithUngated: PracticeEngineState = {
       ...MOCK_STATE,
-      ungated_segments: [{ seg_id: "s3", reason: "needs more data" }],
+      ungated_segments: [{ seg_id: "s3", reason: "needs more data",
+        description: "", level_number: 3,
+        start_type: "entrance", start_ordinal: 0, end_type: "goal", end_ordinal: 0 }],
     };
     const container = document.getElementById("practice-engine-panel")!;
     renderPracticeEnginePanel(container, stateWithUngated);

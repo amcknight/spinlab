@@ -82,6 +82,10 @@ def get_state(
                 seg_id=seg_id,
                 description=meta.description or "",
                 level_number=meta.level_number,
+                start_type=meta.start_type,
+                start_ordinal=meta.start_ordinal,
+                end_type=meta.end_type,
+                end_ordinal=meta.end_ordinal,
                 e_sample_0_ms=float(e0),
                 e_sample_1_ms=float(e0),
                 pool_success=n_succ,
@@ -92,7 +96,16 @@ def get_state(
             reason = (
                 f"needs >=2 successes (have {n_succ}) and >=2 deaths (have {n_death})"
             )
-            ungated.append(PracticeEngineUngated(seg_id=seg_id, reason=reason))
+            ungated.append(PracticeEngineUngated(
+                seg_id=seg_id,
+                reason=reason,
+                description=meta.description or "",
+                level_number=meta.level_number,
+                start_type=meta.start_type,
+                start_ordinal=meta.start_ordinal,
+                end_type=meta.end_type,
+                end_ordinal=meta.end_ordinal,
+            ))
 
     # Empty gated list → return N=0 without triggering the lazy engine build
     # (no point materializing a zero-column matrix for a no-data game).

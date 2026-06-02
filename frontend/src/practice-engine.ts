@@ -9,6 +9,11 @@ import type {
   PracticeEngineEvaluateRequest,
   PracticeEngineEvaluateResponse,
 } from "./types";
+import { segmentName } from "./format";
+
+// seg_id → short display name, captured at render so the results table (which
+// only carries seg_id) can label rows the same way the rest of the dashboard does.
+let segNameById: Record<string, string> = {};
 
 type PolicyName = "no_reset" | "target_paced";
 type ObjectiveName =
@@ -66,9 +71,41 @@ export function renderPracticeEnginePanel(
 ): void {
   container.innerHTML = "";
 
+  // Capture seg_id → short name for the results table (keyed only by seg_id).
+  segNameById = {};
+  for (const seg of state.gated_segments) segNameById[seg.seg_id] = segmentName(seg);
+  for (const seg of state.ungated_segments) segNameById[seg.seg_id] = segmentName(seg);
+
   const header = document.createElement("h2");
   header.textContent = "Practice Simulator";
   container.appendChild(header);
+
+  const help = document.createElement("details");
+  help.className = "pe-help";
+  help.innerHTML = `
+    <summary>What is this? (how to use)</summary>
+    <div class="pe-help-body">
+      <p>Imagines thousands of full runs from your real per-segment data to answer
+      two questions: <em>how your runs are likely to go</em>, and <em>which single
+      segment is most worth practicing next</em>.</p>
+      <ol>
+        <li><strong>Policy</strong> — <code>no_reset</code>: simulate every run to the
+        end. <code>target_paced</code>: quit a run once it falls behind your split.</li>
+        <li><strong>Objective</strong> — what to measure/maximize (expected time,
+        <code>q</code> = fraction under your target, per-session PB probability, …).</li>
+        <li>Fill the inputs your objective needs (<code>target_ms</code> for
+        <code>q</code>; <code>session_remaining_ms</code> for <code>p_pb</code>). For
+        <code>target_paced</code>, set per-segment cumulative splits — or click
+        <em>Fill cum-splits from gold</em>.</li>
+        <li>Hit <strong>Recompute</strong>.</li>
+      </ol>
+      <p>The results table ranks segments by <strong>Value/sec</strong> — the
+      objective improvement per second of practice. Practice the top row.
+      <strong>Ungated</strong> segments lack enough data (need ≥2 successes and ≥2
+      deaths) and are excluded.</p>
+    </div>
+  `;
+  container.appendChild(help);
 
   const controls = document.createElement("div");
   controls.className = "pe-controls";
@@ -119,7 +156,7 @@ export function renderPracticeEnginePanel(
     <tbody>
       ${state.gated_segments.map(seg => `
         <tr data-seg-id="${seg.seg_id}">
-          <td>${seg.description || seg.seg_id} (L${seg.level_number})</td>
+          <td>${segmentName(seg)}</td>
           <td><input class="pe-seg-split" type="number" step="100" data-seg-id="${seg.seg_id}" /></td>
           <td class="pe-seg-gold" data-gold-ms="${seg.gold_ms ?? ""}">${seg.gold_ms ?? "—"}</td>
         </tr>
@@ -175,7 +212,7 @@ export function renderPracticeEnginePanel(
     const ungated = document.createElement("div");
     ungated.className = "pe-ungated";
     ungated.innerHTML = `<h3>Ungated</h3><ul>${
-      state.ungated_segments.map(u => `<li>${u.seg_id}: ${u.reason}</li>`).join("")
+      state.ungated_segments.map(u => `<li>${segmentName(u)}: ${u.reason}</li>`).join("")
     }</ul>`;
     container.appendChild(ungated);
   }
@@ -195,7 +232,7 @@ export function updatePanelResults(
   if (body) {
     body.innerHTML = response.per_segment_values.map(psv => `
       <tr>
-        <td>${psv.seg_id}</td>
+        <td>${segNameById[psv.seg_id] ?? psv.seg_id}</td>
         <td>${psv.e_sample_0_ms.toFixed(0)}</td>
         <td>${psv.e_sample_1_ms.toFixed(0)}</td>
         <td>${(psv.e_sample_0_ms - psv.e_sample_1_ms).toFixed(0)}</td>
