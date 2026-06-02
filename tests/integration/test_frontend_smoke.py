@@ -232,3 +232,25 @@ async def test_simulator_recompute_populates_values(page, simulator_seeded):
     rows = await pg.locator("#pe-values-body tr").count()
     assert rows >= 1
     assert not errors, f"console/page errors: {errors}"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_segment_progress_endpoint_and_view(page, simulator_seeded):
+    """The progress endpoint returns a ready payload for a gated segment, in the
+    shape the improvement-view renderer consumes. (The renderer's DOM output is
+    covered by the Task-5 vitest; the bundled ES module isn't importable by URL
+    in this harness, so we assert the endpoint contract + payload shape here.)"""
+    pg, errors = page
+    gated_id = simulator_seeded["gated"][0]
+    resp = await pg.evaluate(
+        """async (id) => {
+            const r = await fetch(`/api/segments/${encodeURIComponent(id)}/progress`);
+            return { status: r.status, body: await r.json() };
+        }""", gated_id)
+    assert resp["status"] == 200
+    b = resp["body"]
+    assert b["ready"] is True
+    assert b["verdict"] in ("faster", "holding", "slower")
+    assert isinstance(b["trend_ms"], list) and len(b["trend_ms"]) >= 1
+    assert b["now_clear_ms"] is not None
+    assert not errors, f"console/page errors: {errors}"
