@@ -1,17 +1,16 @@
 """Tests for the segment-progress reducer (the 'am I improving?' signal)."""
 from __future__ import annotations
 
-import math
-
 from spinlab.estimators.em_suite_sampler import SamplerState
 from spinlab.estimators.segment_progress import SegmentProgress, segment_progress
 
 
 def _state_with(success_ms: list[float], death_ms: list[float]) -> SamplerState:
     """Build a gated state by replaying alternating events through process_event."""
+    from datetime import UTC, datetime
+
     from spinlab.estimators.em_suite_sampler import process_event
     from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
-    from datetime import UTC, datetime
     state = SamplerState()
     # Interleave so both pools fill and counters gate.
     n = max(len(success_ms), len(death_ms))

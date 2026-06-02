@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import statistics
 from dataclasses import dataclass
+from typing import Literal
 
 from spinlab.estimators.em_suite_sampler import (
     ALPHA_GRID,
@@ -41,19 +42,14 @@ class SegmentProgress:
     arbitrary cutoff.
     """
     ready: bool
-    verdict: str
+    verdict: Literal["faster", "holding", "slower", "not_ready"]
     now_clear_ms: float | None        # recent (fast-α) expected clear time
     baseline_clear_ms: float | None   # baseline (slow-α) expected clear time
     death_rate: float                 # recent (fast-α) p_die; 0.0 below gate
     consistency_ms: float | None      # sample stdev of recent clears
     gap_to_gold_ms: float | None      # now_clear_ms − gold_ms (signed), or None
-    pb_ms: float | None               # fastest clear in the pool
+    pb_ms: float | None               # all-time fastest clear in the pool (not capped to TREND_WINDOW)
     trend_ms: list[float]             # recency-ordered recent clears (newest last)
-
-
-def _ema_time_ms(state: SamplerState, idx: int) -> float | None:
-    log_ms = state.log_success_time_ema(idx)
-    return None if log_ms is None else math.exp(log_ms)
 
 
 def segment_progress(state: SamplerState, gold_ms: int | None) -> SegmentProgress:
@@ -64,8 +60,12 @@ def segment_progress(state: SamplerState, gold_ms: int | None) -> SegmentProgres
             consistency_ms=None, gap_to_gold_ms=None, pb_ms=None, trend_ms=[],
         )
 
-    now = _ema_time_ms(state, DEFAULT_FAST_IDX)
-    baseline = _ema_time_ms(state, DEFAULT_SLOW_IDX)
+    # EMAs are stored in log space; fetch the logs once and derive ms from the
+    # same values the verdict logic below uses (no double lookup).
+    now_log = state.log_success_time_ema(DEFAULT_FAST_IDX)
+    baseline_log = state.log_success_time_ema(DEFAULT_SLOW_IDX)
+    now = math.exp(now_log) if now_log is not None else None
+    baseline = math.exp(baseline_log) if baseline_log is not None else None
     p_die = state.p_die_ema(DEFAULT_FAST_IDX)
     death_rate = float(p_die) if p_die is not None else 0.0
 
@@ -79,9 +79,7 @@ def segment_progress(state: SamplerState, gold_ms: int | None) -> SegmentProgres
     # is correct because the EMAs are stored in log space; the SE of the log-
     # clears is a principled uncertainty measure for the fast EMA estimate.
     # Inside the band the difference is indistinguishable from noise → "holding".
-    now_log = state.log_success_time_ema(DEFAULT_FAST_IDX)
-    baseline_log = state.log_success_time_ema(DEFAULT_SLOW_IDX)
-    verdict = "holding"
+    verdict: Literal["faster", "holding", "slower"] = "holding"
     if now_log is not None and baseline_log is not None:
         delta_log = baseline_log - now_log  # positive = faster now than baseline
         noise_log = 0.0
