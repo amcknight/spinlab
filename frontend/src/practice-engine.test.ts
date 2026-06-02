@@ -102,6 +102,8 @@ describe("updatePanelResults", () => {
     // s1 (value_per_second 200/4500 ≈ 0.0444) ranks above s2 (150/6000 = 0.025).
     expect(rows[0]!.textContent).toContain("Level 1");
     expect(rows[1]!.textContent).toContain("Level 2");
+    // now → after is rendered (guards the times field / arrow).
+    expect(rows[0]!.querySelector(".pe-rank-times")?.textContent).toMatch(/→/);
   });
 });
 
