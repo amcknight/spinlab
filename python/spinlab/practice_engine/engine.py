@@ -90,6 +90,8 @@ class PracticeEngine:
             raise KeyError(f"Unknown or ungated segment: {seg_id!r}")
         col_idx = self.matrix.seg_ids.index(seg_id)
         col = self.matrix.T[:, col_idx]
+        # seg_id is in seg_ids ⇒ samplable at k=0; the k=1 ("after one practice")
+        # column can still come back unsamplable in the rare p_die≈1 corner.
         swap_col = self.matrix.draw_column(seg_id, k_param=1)
         return {
             "seg_id": seg_id,
@@ -99,7 +101,7 @@ class PracticeEngine:
             "p50": float(np.quantile(col, 0.50)),
             "p90": float(np.quantile(col, 0.90)),
             "e_sample_0_ms": float(col.mean()),
-            "e_sample_1_ms": float(swap_col.mean()),
+            "e_sample_1_ms": float(swap_col.mean()) if swap_col is not None else None,
         }
 
     def per_segment_values(
@@ -122,6 +124,10 @@ class PracticeEngine:
         results: dict[str, PerSegmentValue] = {}
         for i, seg_id in enumerate(self.matrix.seg_ids):
             swap_col = self.matrix.draw_column(seg_id, k_param=1)
+            if swap_col is None:
+                # Can't simulate "one more practice" for this segment — omit it
+                # rather than feed a degenerate column into the objective.
+                continue
             T_swap = self.matrix.T.copy()
             T_swap[:, i] = swap_col
 

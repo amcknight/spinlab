@@ -233,16 +233,27 @@ class Scheduler:
     def _load_all_sampler_states(self) -> dict[str, SamplerState]:
         """Hydrate all SamplerState objects for this game's segments.
 
-        Returns only segments that have a saved em_suite_sampler model_state row.
-        Newly-gated segments (without a saved row yet) are absent until their first
-        update_state_after_episode call writes one.
+        Rebuilds each state from the event table (the source of truth) rather than
+        deserializing the persisted ``state_json``. The JSON can predate the
+        sampler's draw-pool fields — saved with EMAs + counters but no pools — and
+        ``from_dict`` tolerantly defaults missing pools to empty. The closed-form
+        scalar only needs the EMAs, but ``sample_episode`` draws from the pools, so a
+        pool-less state makes every draw return None and the rollout matrix excludes
+        (or, before the robustness fix, crashed on) the segment. Replaying events
+        repopulates pools + EMAs identically to ``update_state_after_episode``.
+
+        A saved em_suite_sampler model_state row is the marker that a segment is
+        tracked; segments without one (newly gated, no row yet) are absent.
         """
         rows = self.db.load_all_model_states(self.game_id)
         out: dict[str, SamplerState] = {}
         for r in rows:
             if r["estimator"] != "em_suite_sampler" or not r["state_json"]:
                 continue
-            out[r["segment_id"]] = SamplerState.from_dict(json.loads(r["state_json"]))
+            seg_id = r["segment_id"]
+            attempts = _attempts_from_rows(self.db.get_segment_attempts(seg_id))
+            events = _events_from_rows(self.db.get_segment_event_rows(seg_id))
+            out[seg_id] = self.estimator.rebuild_state(attempts, events=events)
         return out
 
     def update_state_after_episode(self, segment_id: str) -> None:

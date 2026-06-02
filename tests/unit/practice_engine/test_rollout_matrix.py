@@ -137,3 +137,30 @@ class TestRolloutMatrixSwapColumn:
         m.ensure_fresh()
         with pytest.raises(KeyError):
             m.draw_column("does_not_exist", k_param=1)
+
+
+class TestRolloutMatrixUnsamplable:
+    """A segment can pass the counter-based gate yet be unsamplable (empty draw
+    pools, or p_die≈1 so no draw ever survives). The matrix must exclude such a
+    column and record why — not crash the whole build (which would 500 the panel)."""
+
+    def test_gated_but_empty_pools_excluded_not_raised(self):
+        # Counters pass the gate (>=2/>=2/>=2) but the pools are empty, so every
+        # sample_episode draw returns None.
+        bad = SamplerState(n_successes=5, n_deaths=5, n_attempts_total=10)
+        states = {"good": _gated_state(0), "bad": bad}
+        m = RolloutMatrix(sampler_states=states, N=100, rng_seed=42)
+        m.ensure_fresh()  # must NOT raise
+        assert m.seg_ids == ["good"]
+        assert m.T.shape == (100, 1)
+        assert "bad" in m.unsamplable
+        assert isinstance(m.unsamplable["bad"], str) and m.unsamplable["bad"]
+
+    def test_all_segments_unsamplable_yields_empty_matrix(self):
+        bad = SamplerState(n_successes=5, n_deaths=5, n_attempts_total=10)
+        states = {"bad": bad}
+        m = RolloutMatrix(sampler_states=states, N=50, rng_seed=1)
+        m.ensure_fresh()  # must NOT raise
+        assert m.seg_ids == []
+        assert m.T.shape == (50, 0)
+        assert "bad" in m.unsamplable

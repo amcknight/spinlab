@@ -97,3 +97,26 @@ class TestSchedulerLoadAllSamplerStates:
         states = sched._load_all_sampler_states()
         # s1 and s2 have model_state rows; s3 doesn't → not present
         assert set(states.keys()) == {"s1", "s2"}
+
+    def test_rebuilds_pools_from_events_when_persisted_json_lacks_them(self, tmp_path):
+        """Regression: states persisted before the draw-pool fields existed have
+        EMAs + counters in their JSON but no pools. The sampler draws from the
+        pools, so a pool-less load makes every sample_episode draw return None and
+        the engine matrix build crashes. _load_all_sampler_states must rebuild from
+        events (the source of truth) so the pools are always present."""
+        db = _seeded_db(tmp_path)
+        # Simulate a stale pre-pool persisted state for s1: strip the pool keys
+        # from its JSON while keeping the EMAs/counters (so it still gates).
+        row = db.load_model_state("s1", "em_suite_sampler")
+        assert row is not None
+        stale = json.loads(row["state_json"])
+        stale.pop("success_time_pool", None)
+        stale.pop("death_time_pool", None)
+        db.save_model_state("s1", "em_suite_sampler", json.dumps(stale), "{}")
+
+        sched = Scheduler(db, "g1")
+        states = sched._load_all_sampler_states()
+
+        # Pools must be repopulated from the event table, not left empty.
+        assert len(states["s1"].success_time_pool) > 0
+        assert len(states["s1"].death_time_pool) > 0
