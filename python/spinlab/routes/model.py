@@ -12,6 +12,7 @@ from spinlab.api_schemas import (
     EmSuiteMatrixResponse,
     ModelData,
     SegmentHistory,
+    SegmentProgressResponse,
 )
 from spinlab.cold_distribution import compute_cold_distribution
 from spinlab.db import Database
@@ -179,4 +180,42 @@ def get_em_suite_matrix(
         "n_deaths": state.n_deaths,
         "param_history": param_history,
         "slope_matrices": slope_matrices,
+    }
+
+
+@router.get(
+    "/segments/{segment_id}/progress",
+    response_model=SegmentProgressResponse,
+)
+def get_segment_progress(
+    segment_id: str,
+    db: Database = Depends(get_db),
+):
+    """'Am I improving on this segment?' — recent-vs-baseline clear time,
+    death rate, consistency, gap-to-gold, and the recent clear-time trend.
+    Replays the event log through the sampler; pure read."""
+    from spinlab.estimators.em_suite_sampler import replay_with_history
+    from spinlab.estimators.segment_progress import segment_progress
+
+    seg = db.get_segment_by_id(segment_id)
+    if seg is None:
+        raise HTTPException(status_code=404, detail=f"Segment not found: {segment_id}")
+
+    events = _events_from_rows(db.get_segment_event_rows(segment_id))
+    state, _history = replay_with_history(events)
+    gold_ms = db.compute_golds(seg.game_id).get(segment_id, {}).get("gold_ms")
+    p = segment_progress(state, gold_ms=gold_ms)
+    return {
+        "segment_id": segment_id,
+        "ready": p.ready,
+        "verdict": p.verdict,
+        "now_clear_ms": p.now_clear_ms,
+        "baseline_clear_ms": p.baseline_clear_ms,
+        "death_rate": p.death_rate,
+        "consistency_ms": p.consistency_ms,
+        "gap_to_gold_ms": p.gap_to_gold_ms,
+        "pb_ms": p.pb_ms,
+        "trend_ms": p.trend_ms,
+        "n_successes": state.n_successes,
+        "n_deaths": state.n_deaths,
     }

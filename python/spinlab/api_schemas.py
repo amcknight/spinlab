@@ -482,6 +482,27 @@ class EmSuiteMatrixResponse(_BaseResponse):
 
 
 # ---------------------------------------------------------------------------
+# Segment progress — /api/segments/{id}/progress
+# ---------------------------------------------------------------------------
+
+class SegmentProgressResponse(_BaseResponse):
+    """'Am I improving?' payload for one segment. See segment_progress()."""
+    segment_id: str
+    ready: bool
+    verdict: str  # "faster" | "holding" | "slower" | "not_ready"
+    now_clear_ms: float | None
+    baseline_clear_ms: float | None
+    death_rate: float
+    consistency_ms: float | None
+    gap_to_gold_ms: float | None
+    pb_ms: float | None
+    trend_ms: list[float] = []
+    # Gate diagnostics so the view can say "need N more" inline.
+    n_successes: int
+    n_deaths: int
+
+
+# ---------------------------------------------------------------------------
 # Practice Simulation Engine — /api/practice-engine/*
 # ---------------------------------------------------------------------------
 
