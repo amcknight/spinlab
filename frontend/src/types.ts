@@ -55,6 +55,7 @@ export type PracticeEngineEvaluateRequest = S["PracticeEngineEvaluateRequest"];
 export type PracticeEngineEvaluateResponse = S["PracticeEngineEvaluateResponse"];
 export type PracticeEnginePerSegmentValue = S["PracticeEnginePerSegmentValue"];
 export type PracticeEngineTotalTimeSummary = S["PracticeEngineTotalTimeSummary"];
+export type SegmentProgress = S["SegmentProgressResponse"];
 
 // ---- Request bodies (auto-generated) --------------------------------------
 
