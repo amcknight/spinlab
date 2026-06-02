@@ -489,7 +489,7 @@ class SegmentProgressResponse(_BaseResponse):
     """'Am I improving?' payload for one segment. See segment_progress()."""
     segment_id: str
     ready: bool
-    verdict: str  # "faster" | "holding" | "slower" | "not_ready"
+    verdict: Literal["faster", "holding", "slower", "not_ready"]
     now_clear_ms: float | None
     baseline_clear_ms: float | None
     death_rate: float

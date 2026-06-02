@@ -199,6 +199,7 @@ def get_segment_progress(
 
     seg = db.get_segment_by_id(segment_id)
     if seg is None:
+        logger.warning("get_segment_progress: unknown segment %r", segment_id)
         raise HTTPException(status_code=404, detail=f"Segment not found: {segment_id}")
 
     events = _events_from_rows(db.get_segment_event_rows(segment_id))

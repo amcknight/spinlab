@@ -49,6 +49,9 @@ class TestProgressRoute:
         assert data["verdict"] in ("faster", "holding", "slower")
         assert data["now_clear_ms"] is not None
         assert len(data["trend_ms"]) >= 1
+        # Gate counters populated (back the "need N more" UI). 8 of each seeded.
+        assert data["n_successes"] == 8
+        assert data["n_deaths"] == 8
 
     def test_unknown_segment_404(self, tmp_path):
         client, _ = _client(tmp_path)
