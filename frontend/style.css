@@ -961,3 +961,22 @@ h3 {
 .pe-advanced { margin-top: 10px; }
 .pe-advanced > summary { cursor: pointer; color: var(--accent); font-size: 12px; }
 .pe-advanced-body { margin-top: 8px; }
+
+/* EMA-suite memory-window picker (replaces the 10x10 matrix) */
+.ems-windows { margin: 6px 0; }
+.ems-windows__header {
+  font-size: 11px; text-transform: uppercase; color: var(--text-dim);
+  letter-spacing: 0.5px; margin-bottom: 6px;
+}
+.ems-pickers { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
+.ems-pickers label { display: flex; flex-direction: column; gap: 2px; }
+.ems-pickers select {
+  background: var(--bg); color: var(--text); border: 1px solid var(--card);
+  border-radius: 4px; font-family: inherit; font-size: 11px; padding: 2px 4px;
+}
+.ems-readout { margin-top: 8px; }
+.ems-line { display: flex; align-items: baseline; gap: 8px; font-size: 12px; padding: 2px 0; }
+.ems-kind { color: var(--text-dim); min-width: 4.5em; }
+.ems-win { color: var(--text); flex: 0 0 auto; }
+.ems-val { color: var(--accent); font-variant-numeric: tabular-nums; }
+.ems-note { color: var(--text-dim); font-size: 10px; }
