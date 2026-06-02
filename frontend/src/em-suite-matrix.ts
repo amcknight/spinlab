@@ -1,7 +1,7 @@
 /**
  * EMA-suite memory-window picker renderer.
  *
- * See docs/superpowers/specs/2026-05-30-em-suite-sampler-design.md.
+ * See docs/superpowers/specs/2026-06-01-practice-ui-overhaul-design.md §C.
  *
  * Renders a Now / Baseline memory-window picker where the user selects
  * a memory window (e.g. "last ~5", "last ~20", "all-time") for each
@@ -74,7 +74,7 @@ function renderReadout(
   el: HTMLElement, data: EmSuiteMatrixResponse, nowIdx: number, baseIdx: number,
 ): void {
   const line = (kind: string, idx: number) => {
-    const a = data.alpha_grid[idx] ?? 0;
+    const a = data.alpha_grid[idx]!;  // idx is always a valid option position
     const ok = isWindowSufficient(a, data.n_attempts_total);
     const note = ok ? "" :
       ` <span class="ems-note">(≈ all-time — only ${data.n_attempts_total} attempt${data.n_attempts_total === 1 ? "" : "s"} so far)</span>`;
