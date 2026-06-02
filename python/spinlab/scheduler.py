@@ -84,11 +84,8 @@ def _events_from_rows(rows: list[EventAttemptRow]) -> list[EventAttempt]:
     return out
 
 
-# PracticeEngine defaults until the route handler (PE-T10) wires them from
-# practice_engine.* config. Spec §10: N=10k–20k is the variance/cost sweet
-# spot at the measured 18.6µs/sample_episode; rng_seed=0 keeps the matrix
+# Default RNG seed for the lazily-built PracticeEngine. Keeps the matrix
 # reproducible per scheduler instance.
-_DEFAULT_PRACTICE_ENGINE_N = 20000
 _DEFAULT_PRACTICE_ENGINE_RNG_SEED = 0
 
 
@@ -96,6 +93,8 @@ class Scheduler:
     def __init__(
         self, db: "Database", game_id: str,
         estimator_name: str = "em_suite_sampler",  # accepted but unused; reserved to avoid a future positional-arg silently doing nothing
+        *,
+        practice_engine_rollouts: int | None = None,
     ) -> None:
         self.db = db
         self.game_id = game_id
@@ -103,6 +102,14 @@ class Scheduler:
         self.allocator: MixAllocator = self._build_mix_from_db()
         self._drop_legacy_allocator_config_key()
         self._engine: PracticeEngine | None = None
+        # Fallback to the config-defined default when the caller doesn't override
+        # (matches `PracticeEngineConfig.rollouts` default).
+        from spinlab.config import DEFAULT_PRACTICE_ENGINE_ROLLOUTS
+        self._practice_engine_rollouts: int = (
+            practice_engine_rollouts
+            if practice_engine_rollouts is not None
+            else DEFAULT_PRACTICE_ENGINE_ROLLOUTS
+        )
 
     def _drop_legacy_allocator_config_key(self) -> None:
         if self.db.load_allocator_config("allocator") is not None:
@@ -218,7 +225,7 @@ class Scheduler:
         if self._engine is None:
             self._engine = PracticeEngine(
                 sampler_states=self._load_all_sampler_states(),
-                N=_DEFAULT_PRACTICE_ENGINE_N,
+                N=self._practice_engine_rollouts,
                 rng_seed=_DEFAULT_PRACTICE_ENGINE_RNG_SEED,
             )
         return self._engine

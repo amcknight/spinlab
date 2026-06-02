@@ -68,12 +68,15 @@ class SessionManager:
         rom_dir: Path | None,
         default_category: str = "any%",
         data_dir: Path | None = None,
+        *,
+        practice_engine_rollouts: int | None = None,
     ) -> None:
         self.db = db
         self.emu = emu
         self.rom_dir = rom_dir
         self.default_category = default_category
         self.data_dir = data_dir or Path("data")
+        self._practice_engine_rollouts = practice_engine_rollouts
 
         self.state = SystemState()  # SystemState is the single source of truth
         self.scheduler = None  # Scheduler | None, lazy-init
@@ -168,7 +171,10 @@ class SessionManager:
             with self._scheduler_lock:
                 if self.scheduler is None:
                     from spinlab.scheduler import Scheduler
-                    self.scheduler = Scheduler(self.db, self.require_game())
+                    self.scheduler = Scheduler(
+                        self.db, self.require_game(),
+                        practice_engine_rollouts=self._practice_engine_rollouts,
+                    )
         return self.scheduler
 
     def require_game(self) -> str:

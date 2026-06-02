@@ -132,6 +132,7 @@ def create_app(
     session = SessionManager(
         db, emu, config.rom_dir, config.category,
         data_dir=config.data_dir,
+        practice_engine_rollouts=config.practice_engine.rollouts,
     )
     emu.on_disconnect = session.on_disconnect
 
