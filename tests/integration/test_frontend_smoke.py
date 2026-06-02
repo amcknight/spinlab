@@ -206,7 +206,9 @@ async def test_simulator_tab_renders_segment_names_not_undefined(page, simulator
     because the state payload omitted the endpoint structure. Names must resolve."""
     pg, errors = page
     await pg.click('nav#tabs button.tab[data-tab="practice-engine"]')
-    await pg.wait_for_selector(".pe-segments-input tbody tr", timeout=5000)
+    # Panel auto-recomputes on open; gated rows land in the values body. (The
+    # cumulative-split table is hidden under the default no_reset policy.)
+    await pg.wait_for_selector("#pe-values-body tr", timeout=5000)
     panel_text = await pg.locator("#practice-engine-panel").inner_text()
     assert "undefined" not in panel_text, f"unresolved name fields: {panel_text!r}"
     # Structural formatting actually applied (shortEndpoint start/cp/goal branches).
@@ -223,7 +225,7 @@ async def test_simulator_recompute_populates_values(page, simulator_seeded):
     With pools rebuilt from events, the value table must populate end-to-end."""
     pg, errors = page
     await pg.click('nav#tabs button.tab[data-tab="practice-engine"]')
-    await pg.wait_for_selector(".pe-segments-input tbody tr", timeout=5000)
+    await pg.wait_for_selector("#pe-recompute", timeout=5000)
     await pg.click("#pe-recompute")
     # One row per gated segment appears only if /evaluate returned 200.
     await pg.wait_for_selector("#pe-values-body tr", timeout=5000)

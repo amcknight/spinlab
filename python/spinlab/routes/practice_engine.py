@@ -46,6 +46,15 @@ _OBJECTIVES: dict[str, Callable] = {
     "p_pb_this_session": objectives.p_pb_this_session,
 }
 
+# objective_ctx keys each objective indexes directly. Missing them raises KeyError
+# deep in the objective (a 500); validate at the boundary and 422 with a clear
+# message instead. Objectives absent here need no ctx.
+_OBJECTIVE_REQUIRED_CTX: dict[str, list[str]] = {
+    "q": ["target_ms"],
+    "quantile": ["p"],
+    "p_pb_this_session": ["target_ms", "session_remaining_ms"],
+}
+
 
 @router.get("/state", response_model=PracticeEngineState)
 def get_state(
@@ -133,6 +142,16 @@ def evaluate(
 
     policy_fn = _POLICIES[body.policy]
     objective_fn = _OBJECTIVES[body.objective]
+
+    missing = [
+        k for k in _OBJECTIVE_REQUIRED_CTX.get(body.objective, [])
+        if k not in body.objective_ctx
+    ]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"objective {body.objective!r} requires objective_ctx: {', '.join(missing)}",
+        )
 
     threshold_kwargs: dict = {}
     if body.policy == "target_paced":

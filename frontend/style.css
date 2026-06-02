@@ -810,3 +810,111 @@ h3 {
 .em-suite-slopes__cell--blank {
   background: transparent;
 }
+
+/* Practice Simulator (practice-engine) panel — matches the model/segment tables */
+#practice-engine-panel { padding: 0 8px; }
+#practice-engine-panel h2 {
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 700;
+  margin: 10px 0 6px;
+}
+.pe-help { font-size: 11px; color: var(--text-dim); margin-bottom: 8px; }
+.pe-help summary { cursor: pointer; color: var(--accent); }
+.pe-help-body { margin-top: 6px; line-height: 1.45; }
+.pe-help-body ul { margin: 4px 0 4px 16px; }
+.pe-help-body li { margin-bottom: 3px; }
+.pe-help-body code { color: var(--yellow); }
+.pe-status {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 4px 0 8px;
+  padding: 5px 8px;
+  background: var(--surface);
+  border: 1px solid var(--card);
+  border-radius: 4px;
+}
+.pe-status strong { color: var(--green); }
+.pe-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: flex-end;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.pe-controls label { display: flex; flex-direction: column; gap: 2px; }
+.pe-controls select,
+.pe-controls input {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--card);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 3px 4px;
+}
+.pe-controls input[type="number"] { width: 92px; }
+.pe-controls button,
+#pe-fill-gold {
+  background: none;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.pe-controls button:hover,
+#pe-fill-gold:hover { background: var(--accent); color: #06121f; }
+.pe-headline {
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 600;
+  margin: 8px 0;
+}
+.pe-caption {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-style: italic;
+  margin: 6px 0 4px;
+  line-height: 1.4;
+}
+.pe-caption code { color: var(--yellow); font-style: normal; }
+.pe-segments-input,
+.pe-values {
+  border-collapse: collapse;
+  font-size: 11px;
+  width: 100%;
+  margin: 6px 0;
+}
+.pe-segments-input th,
+.pe-values th {
+  text-align: left;
+  color: var(--text-dim);
+  padding: 4px 5px;
+  border-bottom: 1px solid var(--card);
+  white-space: nowrap;
+}
+.pe-segments-input td,
+.pe-values td {
+  padding: 4px 5px;
+  border-bottom: 1px solid var(--surface);
+  white-space: nowrap;
+}
+.pe-values th.pe-num,
+.pe-values td.pe-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pe-seg-split { width: 92px; }
+.pe-ungated { margin-top: 10px; }
+.pe-ungated ul { list-style: none; margin: 0; }
+.pe-ungated li {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 3px 0;
+  border-bottom: 1px solid var(--surface);
+}

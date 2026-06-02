@@ -136,6 +136,30 @@ class TestEvaluateEndpoint:
         assert data["objective_value"] is not None
         assert 0.0 <= data["objective_value"] <= 1.0
 
+    def test_q_objective_without_target_ms_422(self, client_with_gated):
+        # Missing required ctx must 422 at the boundary, not KeyError-500 inside
+        # the objective. Regression: selecting q with a blank target crashed eval.
+        resp = client_with_gated.post(
+            "/api/practice-engine/evaluate",
+            json={
+                "policy": "no_reset", "policy_kwargs": {},
+                "objective": "q", "objective_ctx": {},
+            },
+        )
+        assert resp.status_code == 422
+        assert "target_ms" in resp.json()["detail"]
+
+    def test_p_pb_requires_both_ctx_keys_422(self, client_with_gated):
+        resp = client_with_gated.post(
+            "/api/practice-engine/evaluate",
+            json={
+                "policy": "no_reset", "policy_kwargs": {},
+                "objective": "p_pb_this_session", "objective_ctx": {"target_ms": 7000},
+            },
+        )
+        assert resp.status_code == 422
+        assert "session_remaining_ms" in resp.json()["detail"]
+
     def test_unknown_objective_400(self, client_with_gated):
         resp = client_with_gated.post(
             "/api/practice-engine/evaluate",
