@@ -91,6 +91,16 @@ class DatabaseCore:
             self._local.conn = conn
         return conn
 
+    @conn.setter
+    def conn(self, value: sqlite3.Connection) -> None:
+        # Override the connection this thread sees. Used by tests that inject a
+        # failing connection to exercise transaction rollback; in production the
+        # getter manages connections and this is not used.
+        if self._is_memory:
+            self._shared_conn = value
+        else:
+            self._local.conn = value
+
     def close(self) -> None:
         # Call at shutdown, after worker threads are done — other threads
         # holding a connection would see it closed under them otherwise.
