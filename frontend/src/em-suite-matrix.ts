@@ -20,11 +20,6 @@ export function formatMatrixCell(value_ms: number | null): string {
   return `${(value_ms / 1000).toFixed(1)}s`;
 }
 
-/** Pair is valid if fast > slow (upper triangle of the matrix). */
-export function isAlphaPairValid(fastIdx: number, slowIdx: number): boolean {
-  return fastIdx > slowIdx;
-}
-
 // Default memory windows (by alpha value, matched against data.alpha_grid):
 // Now ~ last 5 attempts (current skill), Baseline ~ last 20 (stable reference).
 const DEFAULT_NOW_ALPHA = 0.2;

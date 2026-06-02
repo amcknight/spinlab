@@ -1,5 +1,7 @@
 # Simulator Simplify — Implementation Plan (Plan B)
 
+**Status:** ✅ SHIPPED to main 2026-06-02 (merged at `2f2ad62`). Checkboxes below are the historical task list, not live state.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the Practice Simulator legible at a glance: a unified per-segment list with not-ready segments shown **inline**, a plain **"Practice next"** ranking (no `Value/sec`, no scientific notation, no `Δ`/`Value` columns), and all policy/objective/slack/target knobs collapsed behind **Advanced** so the default view works with zero input.

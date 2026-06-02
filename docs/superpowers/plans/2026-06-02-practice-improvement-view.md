@@ -1,5 +1,7 @@
 # Practice "Am I Improving?" View — Implementation Plan (Plan A)
 
+**Status:** ✅ SHIPPED to main 2026-06-02 (merged at `905721b`). Checkboxes below are the historical task list, not live state. Deferred items (last-attempt callout, PB marker, death-rate arrow) tracked in [`project_practice_ui_overhaul`](../../../) memory for Plan D.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a focused "Am I improving on this segment?" view to the practice card — a verdict (faster/holding/slower), a recent clear-time sparkline with PB, death-rate/consistency/gap-to-gold stats, and a last-attempt callout — fed per attempt by a new read-only `segment progress` endpoint.

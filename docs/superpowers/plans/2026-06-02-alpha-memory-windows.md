@@ -1,5 +1,7 @@
 # Alpha → Memory Windows — Implementation Plan (Plan C)
 
+**Status:** ✅ SHIPPED to main 2026-06-02 (merged at `c834c8b`). Checkboxes below are the historical task list, not live state. Self-contained (does not drive Plan A's view); that wiring + picker-persistence deferred to Plan D.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the confusing 10×10 EMA-suite alpha matrix (on the Model-tab practice card) with a readable **Now / Baseline memory-window picker** — windows in plain English ("last ~5", "all-time"), defaulting to last-5 / last-20, greying windows you don't have enough attempts for, and showing each chosen window's expected segment time.

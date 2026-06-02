@@ -683,64 +683,6 @@ h3 {
   margin-top: 16px;
 }
 
-.em-suite-matrix {
-  padding: 12px;
-  border: 1px solid var(--border-color, #444);
-  border-radius: 4px;
-  background: var(--card-bg, #1a1a1a);
-}
-
-.em-suite-matrix__header {
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-.em-suite-matrix__baseline {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px dashed var(--border-color, #444);
-  align-items: center;
-  font-family: monospace;
-  font-size: 0.85rem;
-}
-
-.em-suite-matrix__label {
-  font-weight: 600;
-  padding-right: 8px;
-}
-
-.em-suite-matrix__grid {
-  display: grid;
-  gap: 2px;
-  font-family: monospace;
-  font-size: 0.85rem;
-}
-
-.em-suite-matrix__corner,
-.em-suite-matrix__col-header,
-.em-suite-matrix__row-header {
-  font-weight: 600;
-  text-align: center;
-  padding: 4px;
-  background: #2a2a2a;
-}
-
-.em-suite-matrix__cell {
-  text-align: center;
-  padding: 4px;
-  background: #222;
-}
-
-.em-suite-matrix__cell--baseline {
-  background: #1e2a1e;
-}
-
-.em-suite-matrix__cell--blank {
-  background: transparent;
-}
-
 .em-suite-matrix__error {
   padding: 8px;
   color: #ff8a65;
@@ -883,41 +825,25 @@ h3 {
   line-height: 1.4;
 }
 .pe-caption code { color: var(--yellow); font-style: normal; }
-.pe-segments-input,
-.pe-values {
+.pe-segments-input {
   border-collapse: collapse;
   font-size: 11px;
   width: 100%;
   margin: 6px 0;
 }
-.pe-segments-input th,
-.pe-values th {
+.pe-segments-input th {
   text-align: left;
   color: var(--text-dim);
   padding: 4px 5px;
   border-bottom: 1px solid var(--card);
   white-space: nowrap;
 }
-.pe-segments-input td,
-.pe-values td {
+.pe-segments-input td {
   padding: 4px 5px;
   border-bottom: 1px solid var(--surface);
   white-space: nowrap;
 }
-.pe-values th.pe-num,
-.pe-values td.pe-num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
 .pe-seg-split { width: 92px; }
-.pe-ungated { margin-top: 10px; }
-.pe-ungated ul { list-style: none; margin: 0; }
-.pe-ungated li {
-  font-size: 11px;
-  color: var(--text-dim);
-  padding: 3px 0;
-  border-bottom: 1px solid var(--surface);
-}
 
 /* "Am I improving?" view (top of practice card) */
 #improvement-view { padding: 6px 8px; }

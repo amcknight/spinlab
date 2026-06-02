@@ -1,7 +1,7 @@
 # Practice UI Overhaul — Design Spec
 
 **Date:** 2026-06-01
-**Status:** Brainstormed with Andrew (visual companion + terminal), ready for review.
+**Status:** **Plans A, B, C SHIPPED to main 2026-06-02** (improvement view · simulator simplify · alpha→memory-windows). **Plan D (responsive two-mode capstone) PARKED** pending a live smoke of A+B+C on real data; D also picks up the deferred §A polish (last-attempt callout, PB marker, death-rate arrow), wiring C's picker into A, picker persistence, and dropping the slope heatmaps. Plan files: `../plans/2026-06-02-*.md`.
 **Scope:** Reorganize the practice-facing dashboard so the model is legible *while*
 and *after* practicing. Frontend-led reorganization + relabeling + a responsive
 two-mode layout; minimal new backend. No modeling changes.

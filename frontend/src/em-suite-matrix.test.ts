@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatMatrixCell,
-  isAlphaPairValid,
   windowLabel,
   windowAttempts,
   isWindowSufficient,
@@ -23,20 +22,6 @@ describe("formatMatrixCell", () => {
   it("returns em-dash for non-finite values", () => {
     expect(formatMatrixCell(Number.POSITIVE_INFINITY)).toBe("—");
     expect(formatMatrixCell(Number.NaN)).toBe("—");
-  });
-});
-
-describe("isAlphaPairValid", () => {
-  it("returns true when fast > slow", () => {
-    expect(isAlphaPairValid(5, 2)).toBe(true);
-  });
-
-  it("returns false when fast == slow", () => {
-    expect(isAlphaPairValid(3, 3)).toBe(false);
-  });
-
-  it("returns false when fast < slow", () => {
-    expect(isAlphaPairValid(1, 4)).toBe(false);
   });
 });
 
