@@ -517,6 +517,11 @@ class LiveSegmentViewResponse(_BaseResponse):
     series: list[dict] = []
     n_successes: int
     n_deaths: int
+    # Session diffs — None when no active practice session OR either side missing.
+    expected_episode_diff_ms: float | None = None
+    practice_gain_diff_ms: float | None = None
+    floor_diff_ms: float | None = None
+    death_rate_diff: float | None = None
 
 
 class RouteSummaryResponse(_BaseResponse):
@@ -526,6 +531,12 @@ class RouteSummaryResponse(_BaseResponse):
     exp_deaths: float | None
     n_estimable: int
     n_skipped: int
+    # Session-overlay fields — None when no active practice session.
+    session_started_at: float | None = None  # epoch seconds
+    exp_run_diff_ms: float | None = None
+    exp_deaths_diff: float | None = None
+    practice_saved_ms: float | None = None
+    floor_improvement_ms: float | None = None  # Sum over segments of max(0, baseline_floor - current_floor), positive = improved
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,14 @@ from fastapi.testclient import TestClient
 from spinlab.db import Database
 from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt, Segment
 from spinlab.routes.model import router
-from spinlab.routes._deps import get_db
+from spinlab.routes._deps import get_db, get_session
+
+
+class _NoSessionStub:
+    """Stand-in SessionManager for route tests that don't care about session
+    state. `practice_session_snapshot=None` so diff fields fall through to
+    None (matches the "no active practice session" contract)."""
+    practice_session_snapshot = None
 
 
 def _client(tmp_path) -> tuple[TestClient, str, str]:
@@ -29,6 +36,7 @@ def _client(tmp_path) -> tuple[TestClient, str, str]:
                 created_at=datetime.now(UTC)))
     app = FastAPI(); app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_session] = lambda: _NoSessionStub()
     return TestClient(app), seg_id, "g1"
 
 

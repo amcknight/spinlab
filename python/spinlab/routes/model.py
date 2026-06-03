@@ -226,9 +226,14 @@ def get_segment_progress(
 
 
 @router.get("/segments/{segment_id}/live", response_model=LiveSegmentViewResponse)
-def get_segment_live(segment_id: str, db: Database = Depends(get_db)):
+def get_segment_live(
+    segment_id: str,
+    db: Database = Depends(get_db),
+    session: SessionManager = Depends(get_session),
+):
     """Closed-form live-view payload for one segment (episode-time trend, floor,
-    expected, practice gain, deaths). Pure read; no Monte-Carlo."""
+    expected, practice gain, deaths). Pure read; no Monte-Carlo. Diff fields are
+    populated only when a practice session is active."""
     from spinlab.estimators.em_suite_sampler import replay_with_history
     from spinlab.estimators.live_view import live_segment_view
 
@@ -240,7 +245,11 @@ def get_segment_live(segment_id: str, db: Database = Depends(get_db)):
     events = _events_from_rows(db.get_segment_event_rows(segment_id))
     state, _history = replay_with_history(events)
     episodes = db.get_segment_attempts(segment_id)
-    v = live_segment_view(state, episodes)
+
+    snap = session.practice_session_snapshot
+    baseline = snap.segments.get(segment_id) if snap is not None else None
+    v = live_segment_view(state, episodes, baseline=baseline)
+
     return {
         "segment_id": segment_id,
         "ready": v.ready,
@@ -255,26 +264,71 @@ def get_segment_live(segment_id: str, db: Database = Depends(get_db)):
         "series": v.series,
         "n_successes": state.n_successes,
         "n_deaths": state.n_deaths,
+        "expected_episode_diff_ms": v.expected_episode_diff_ms,
+        "practice_gain_diff_ms": v.practice_gain_diff_ms,
+        "floor_diff_ms": v.floor_diff_ms,
+        "death_rate_diff": v.death_rate_diff,
     }
 
 
 @router.get("/games/{game_id}/live-summary", response_model=RouteSummaryResponse)
-def get_route_summary(game_id: str, db: Database = Depends(get_db)):
-    """Closed-form whole-run aggregate for the route bar: expected run time and
-    expected deaths summed over estimable segments. Pure read; no Monte-Carlo."""
+def get_route_summary(
+    game_id: str,
+    db: Database = Depends(get_db),
+    session: SessionManager = Depends(get_session),
+):
+    """Closed-form whole-run aggregate for the route bar. Pure read; no MC.
+    Session-overlay fields populated only when a practice session is active."""
     from spinlab.estimators.em_suite_sampler import replay_with_history
     from spinlab.estimators.live_view import route_summary
 
+    snap = session.practice_session_snapshot
+
     states = []
+    floor_improvement_ms: float | None = None
+    if snap is not None:
+        floor_improvement_ms = 0.0
     for seg in db.get_active_segments(game_id):
         events = _events_from_rows(db.get_segment_event_rows(seg.id))
         state, _history = replay_with_history(events)
         states.append(state)
-    s = route_summary(states)
+        # Aggregate floor improvement vs baseline. Per-segment improvement =
+        # max(0, baseline_floor - current_running_min_clean). None on either side -> skip.
+        # max(0, ...) because a new floor only ever drops; clipping to 0 prevents
+        # paradoxical "regression" if an invalidation flips the running-min back up.
+        if snap is not None and floor_improvement_ms is not None:
+            base = snap.segments.get(seg.id)
+            if base is not None and base.floor_ms is not None:
+                episodes = db.get_segment_attempts(seg.id)
+                cur = _running_min_clean_for_route(episodes)
+                if cur is not None:
+                    floor_improvement_ms += max(0.0, base.floor_ms - cur)
+
+    s = route_summary(states, baseline=snap.route if snap else None)
     return {
         "game_id": game_id,
         "exp_run_ms": s.exp_run_ms,
         "exp_deaths": s.exp_deaths,
         "n_estimable": s.n_estimable,
         "n_skipped": s.n_skipped,
+        "session_started_at": snap.started_at if snap else None,
+        "exp_run_diff_ms": s.exp_run_diff_ms,
+        "exp_deaths_diff": s.exp_deaths_diff,
+        "practice_saved_ms": s.practice_saved_ms,
+        "floor_improvement_ms": floor_improvement_ms,
     }
+
+
+def _running_min_clean_for_route(episodes):
+    """Helper for the route-bar floor_improvement aggregation. Same scan as
+    session_snapshot._running_min_clean (intentional duplication while the
+    three call sites stabilize; consolidate in a later cleanup pass)."""
+    floor: float | None = None
+    for e in episodes:
+        if not e.get("completed") or e.get("invalidated"):
+            continue
+        clean = e.get("clean_tail_ms")
+        if clean is None:
+            continue
+        floor = float(clean) if floor is None else min(floor, float(clean))
+    return floor
