@@ -40,9 +40,12 @@
   <main>
     <!-- Model Tab -->
     <section id="tab-model" class="tab-content active">
-      <!-- Practice card (hidden when not practicing) -->
+      <!-- Live practice view (hidden when not practicing) -->
       <div id="practice-card" style="display:none">
-        <div id="improvement-view"></div>
+        <div id="live-route-bar" class="lv-route-bar"></div>
+        <div id="live-segment-summary" class="lv-segment-summary"></div>
+        <div id="live-graph-slot" class="lv-graph-slot"></div>
+        <div id="improvement-view" class="lv-improvement"></div>
         <div id="savings-panel" class="savings-panel" style="display:none">
           <div class="savings-label">Time saved this session</div>
           <div class="savings-values">
@@ -50,13 +53,6 @@
             <span class="savings-sep">·</span>
             <span id="savings-clean" class="savings-value"></span>
           </div>
-        </div>
-        <div class="card">
-          <div class="segment-header">
-            <span id="current-goal" class="goal-label"></span>
-            <span id="current-attempts" class="dim"></span>
-          </div>
-          <div id="insight" class="insight-card"></div>
         </div>
         <h3>Recent</h3>
         <ul id="recent"></ul>
