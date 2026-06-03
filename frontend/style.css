@@ -916,3 +916,56 @@ h3 {
 .eg-floor-label { fill: var(--green); font-size: 9px; }
 .eg-death { fill: var(--red); font-size: 8px; }
 .eg-empty { color: var(--text-dim); font-size: 12px; padding: 16px 8px; text-align: center; }
+
+/* Live practice view — sections, stat stacks, colored diffs.
+   Aligns route-bar + segment-header stat columns by visual position
+   (right-aligned, identical column widths). */
+
+.lv-route-bar, .lv-segment-summary, .lv-graph-slot, .lv-improvement {
+  margin: 0 0 12px 0;
+}
+
+/* Route bar */
+.rb-root {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 16px; padding: 8px 12px;
+  background: var(--surface); border-radius: 6px;
+}
+.rb-left { display: flex; flex-direction: column; gap: 2px; }
+.rb-title { font-weight: 600; font-size: 14px; }
+.rb-saved { font-size: 12px; color: var(--text-dim); }
+.rb-skipped { font-size: 11px; }
+.rb-stats { display: flex; gap: 18px; }
+
+/* Segment summary */
+.sg-root { padding: 8px 12px; background: var(--surface); border-radius: 6px; }
+.sg-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.sg-name { font-weight: 600; font-size: 14px; }
+.sg-stats { display: flex; gap: 18px; }
+.sg-headline {
+  display: grid; grid-template-columns: auto 1fr auto auto;
+  gap: 6px 10px; align-items: baseline; margin-top: 8px;
+}
+.sg-headline-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; }
+.sg-headline-value { font-size: 28px; font-weight: 600; }
+.sg-headline-rank { font-size: 12px; color: var(--text-dim); }
+.sg-headline-decomp { font-size: 12px; color: var(--text-dim); }
+.sg-empty { color: var(--text-dim); font-size: 13px; padding: 8px 0; }
+
+/* Stat stack (shared by route bar + segment summary) */
+.ss-stack {
+  display: flex; flex-direction: column; align-items: flex-end;
+  min-width: 64px;
+}
+.ss-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; }
+.ss-value { font-size: 16px; font-weight: 600; line-height: 1.2; }
+.ss-diff { font-size: 11px; line-height: 1.2; }
+.ss-diff.good { color: var(--green); }
+.ss-diff.bad { color: var(--red); }
+.ss-diff.neutral { color: var(--text-dim); }
+
+/* Graph slot — wraps episode-graph.ts output */
+.lv-graph-slot { background: var(--surface); border-radius: 6px; padding: 8px; }
+
+/* Live view inline errors */
+.lv-error { padding: 8px; font-size: 12px; }
