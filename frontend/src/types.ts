@@ -57,6 +57,9 @@ export type PracticeEnginePerSegmentValue = S["PracticeEnginePerSegmentValue"];
 export type PracticeEngineTotalTimeSummary = S["PracticeEngineTotalTimeSummary"];
 export type SegmentProgress = S["SegmentProgressResponse"];
 
+export type LiveSegmentView = S["LiveSegmentViewResponse"];
+export type RouteSummary = S["RouteSummaryResponse"];
+
 // ---- Request bodies (auto-generated) --------------------------------------
 
 export type AttemptPatch = S["AttemptPatchRequest"];
@@ -77,3 +80,13 @@ export interface SegmentLike {
 }
 
 export type EndpointType = "entrance" | "checkpoint" | "goal";
+
+/** One completed-episode point in a LiveSegmentView.series. The API types
+ *  `series` loosely (schema `list[dict]`), so this names the item shape the
+ *  episode graph relies on. Keep in sync with live_view.py's series dicts. */
+export interface EpisodePoint {
+  episode_ms: number;
+  deaths: number;
+  clean_ms: number | null;
+  running_floor_ms: number | null;
+}
