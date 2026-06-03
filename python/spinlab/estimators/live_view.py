@@ -93,3 +93,36 @@ def live_segment_view(
         last_clean_ms=last_clean_ms, last_deaths=last_deaths, last_rank=last_rank,
         series=series,
     )
+
+
+from spinlab.estimators.em_suite_sampler import LOGIT_EPS
+
+
+@dataclass
+class RouteSummary:
+    """Closed-form whole-run aggregate. None when no segment is estimable."""
+    exp_run_ms: float | None
+    exp_deaths: float | None
+    n_estimable: int
+    n_skipped: int
+
+
+def route_summary(states: list[SamplerState]) -> RouteSummary:
+    run_ms = 0.0
+    deaths = 0.0
+    n_est = 0
+    n_skip = 0
+    for state in states:
+        exp = expected_episode_time_scalar(state)
+        p = state.p_die_ema(DEFAULT_FAST_IDX) if _gate_passes(state) else None
+        # A segment contributes only if BOTH closed forms are defined; p->1 makes
+        # the geometric mean diverge (exp is None there too), so skip honestly.
+        if exp is None or p is None or p >= 1.0 - LOGIT_EPS:
+            n_skip += 1
+            continue
+        run_ms += exp
+        deaths += p / (1.0 - p)
+        n_est += 1
+    if n_est == 0:
+        return RouteSummary(exp_run_ms=None, exp_deaths=None, n_estimable=0, n_skipped=n_skip)
+    return RouteSummary(exp_run_ms=run_ms, exp_deaths=deaths, n_estimable=n_est, n_skipped=n_skip)

@@ -84,3 +84,25 @@ class TestLiveSegmentView:
         assert v.floor_ms == 4200.0
         assert v.last_episode_ms == 4200.0
         assert len(v.series) == 1
+
+
+from spinlab.estimators.live_view import RouteSummary, route_summary
+
+
+class TestRouteSummary:
+    def test_sums_estimable_segments_and_counts_skips(self):
+        ready = _state(success_ms=[4000, 4000, 4000, 4000], death_ms=[1500, 1500])
+        ungated = SamplerState(n_successes=1, n_deaths=0, n_attempts_total=1)
+        s = route_summary([ready, ready, ungated])
+        assert s.exp_run_ms is not None and s.exp_run_ms > 0
+        assert s.exp_deaths is not None and s.exp_deaths >= 0.0
+        assert s.n_estimable == 2
+        assert s.n_skipped == 1
+
+    def test_all_skipped_yields_none(self):
+        ungated = SamplerState(n_successes=0, n_deaths=0, n_attempts_total=0)
+        s = route_summary([ungated, ungated])
+        assert s.exp_run_ms is None
+        assert s.exp_deaths is None
+        assert s.n_estimable == 0
+        assert s.n_skipped == 2
