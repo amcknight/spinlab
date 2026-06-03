@@ -1,5 +1,5 @@
 import { segmentName, formatTime, elapsedStr, formatSavings } from "./format";
-import { selectedEstimate, currentEstimate, formatTrend } from "./model-logic";
+import { selectedEstimate, formatTrend } from "./model-logic";
 import type { AppState, ModelData, SessionInfo } from "./types";
 
 export function renderSavingsPanel(session: SessionInfo | null): void {
@@ -228,27 +228,6 @@ export function renderRecentList(
     li.appendChild(btn);
     ul.appendChild(li);
   });
-}
-
-export function renderPracticeInsight(cs: AppState["current_segment"]): void {
-  if (!cs) return;
-  document.getElementById("current-goal")!.textContent = segmentName(cs);
-  document.getElementById("current-attempts")!.textContent =
-    "Attempt " + (cs.attempt_count || 0);
-
-  const insight = document.getElementById("insight")!;
-  const est = currentEstimate(cs);
-  const expectedStr = formatTime(est?.expected_ms ?? null);
-  const trend = formatTrend(est);
-  if (expectedStr) {
-    const parts = ["Expected: " + expectedStr];
-    if (trend) parts.push(trend);
-    insight.innerHTML = "<span>" + parts.join(" · ") + "</span>";
-  } else if (trend) {
-    insight.innerHTML = "<span>" + trend + "</span>";
-  } else {
-    insight.textContent = "No data yet";
-  }
 }
 
 export function renderSessionStats(session: AppState["session"]): void {

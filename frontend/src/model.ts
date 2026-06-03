@@ -5,7 +5,9 @@ import {
   destroyEmSuitePanel,
 } from "./em-suite-panel";
 import { loadAndRenderImprovementView, destroyImprovementView } from "./improvement-view";
+import { loadAndRenderLiveView, destroyLiveView } from "./live-view";
 import { renderSegmentDetail, destroySegmentDetail } from "./segment-detail";
+import { segmentName } from "./format";
 import {
   fetchModelData,
   postAllocatorWeights,
@@ -19,7 +21,6 @@ import {
   renderWeightSlider,
   renderModelTable,
   renderRecentList,
-  renderPracticeInsight,
   renderSessionStats,
   renderSavingsPanel,
 } from "./model-render";
@@ -75,12 +76,31 @@ export function updatePracticeCard(data: AppState): void {
     card.style.display = "none";
     destroyEmSuitePanel();
     destroyImprovementView();
+    destroyLiveView();
     return;
   }
   card.style.display = "";
   updateSavingsPanel(data.session);
 
-  renderPracticeInsight(data.current_segment);
+  // Live view (route bar + segment summary + episode graph). Fetches both
+  // /segments/{id}/live and /games/{id}/live-summary in parallel. Requires
+  // game_id on AppState — when null (no game loaded) we shouldn't be in
+  // practice mode anyway, but skip the mount defensively.
+  const cs = data.current_segment;
+  if (data.game_id) {
+    void loadAndRenderLiveView({
+      segmentId: cs.id,
+      gameId: data.game_id,
+      segmentName: segmentName(cs),
+      title: data.game_name ?? data.game_id,
+      hosts: {
+        routeBar: document.getElementById("live-route-bar")!,
+        segmentSummary: document.getElementById("live-segment-summary")!,
+        graph: document.getElementById("live-graph-slot")!,
+      },
+    });
+  }
+
   renderRecentList(document.getElementById("recent")!, data.recent, patchAttemptInvalidated);
   renderSessionStats(data.session);
 
