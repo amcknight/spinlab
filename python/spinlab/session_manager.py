@@ -93,6 +93,10 @@ class SessionManager:
         self.hyper_play_session = None  # HyperPlaySession | None
         self.hyper_play_task: asyncio.Task | None = None
 
+        # Practice-session snapshot — captured at practice/hyper-play start
+        # to anchor the live view's session diffs. Cleared on stop.
+        self.practice_session_snapshot = None  # SessionSnapshot | None
+
         self.capture = ReferenceController(db, emu)
         self.cold_fill = ColdFillController(db, emu)
         self.fill_gap = FillGapController(db, emu)
@@ -488,6 +492,41 @@ class SessionManager:
         return result
 
 
+    def _snapshot_inputs(self):
+        """Sequence of (seg_id, SamplerState, episodes) for every active segment.
+
+        Called by _take_session_snapshot. Pulls per-segment SamplerStates by
+        replaying the segment's event rows and the observed attempts from the
+        DB. Tests can override this method to bypass DB/scheduler plumbing.
+        """
+        from spinlab.estimators.em_suite_sampler import replay_with_history
+        from spinlab.scheduler import _events_from_rows
+
+        if self.scheduler is None or self.state.game_id is None:
+            return []
+        out = []
+        for seg in self.db.get_active_segments(self.state.game_id):
+            events = _events_from_rows(self.db.get_segment_event_rows(seg.id))
+            state, _hist = replay_with_history(events)
+            episodes = self.db.get_segment_attempts(seg.id)
+            out.append((seg.id, state, episodes))
+        return out
+
+    def _take_session_snapshot(self) -> None:
+        """Capture an in-memory baseline of every active segment + the route
+        aggregate. Called from practice/hyper-play start."""
+        import time as _time
+
+        from spinlab.estimators.session_snapshot import snapshot_from_segments
+
+        self.practice_session_snapshot = snapshot_from_segments(
+            started_at=_time.time(),
+            segments=self._snapshot_inputs(),
+        )
+
+    def _clear_session_snapshot(self) -> None:
+        self.practice_session_snapshot = None
+
     async def start_practice(self) -> ActionResult:
         if self.capture.has_paused_run:
             raise DraftPendingError()
@@ -508,6 +547,7 @@ class SessionManager:
         self.practice_task = asyncio.create_task(ps.run_loop())
         self.practice_task.add_done_callback(self._on_practice_done)
         self.mode = Mode.PRACTICE
+        self._take_session_snapshot()
         await self._notify_sse()
         return ActionResult(status=Status.STARTED, session_id=ps.session_id)
 
@@ -527,10 +567,12 @@ class SessionManager:
             # its finally block within one SEGMENT_LOAD_TIMEOUT_S cycle (~1s).
             # Awaiting it was the source of the UI lag.
             self.mode = Mode.IDLE
+            self._clear_session_snapshot()
             await self._notify_sse()
             return ActionResult(status=Status.STOPPED)
         if self.mode == Mode.PRACTICE:
             self.mode = Mode.IDLE
+            self._clear_session_snapshot()
             return ActionResult(status=Status.STOPPED)
         raise NotRunningError()
 
@@ -558,6 +600,7 @@ class SessionManager:
         self.hyper_play_task = asyncio.create_task(sr.run_loop())
         self.hyper_play_task.add_done_callback(self._on_hyper_play_done)
         self.mode = Mode.HYPER_PLAY
+        self._take_session_snapshot()
         await self._notify_sse()
         return ActionResult(status=Status.STARTED, session_id=sr.session_id)
 
@@ -575,10 +618,12 @@ class SessionManager:
             self.hyper_play_session.is_running = False
             # Don't await the task — same rationale as stop_practice.
             self.mode = Mode.IDLE
+            self._clear_session_snapshot()
             await self._notify_sse()
             return ActionResult(status=Status.STOPPED)
         if self.mode == Mode.HYPER_PLAY:
             self.mode = Mode.IDLE
+            self._clear_session_snapshot()
             return ActionResult(status=Status.STOPPED)
         raise NotRunningError()
 
