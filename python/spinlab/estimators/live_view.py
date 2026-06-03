@@ -3,7 +3,8 @@
 Everything here is EXACT closed form (no Monte-Carlo): valid because the live
 view uses only the additive total-run-time objective under no_reset. See the
 D-Live spec's Computation Sources table. The Monte-Carlo engine stays the
-Simulator's.
+Simulator's. Optional `baseline` arguments thread a `SessionSnapshot` through
+so the reducer emits per-request diffs vs the session-start values.
 """
 from __future__ import annotations
 
@@ -21,6 +22,9 @@ from spinlab.estimators.em_suite_sampler import (
     expected_episode_time_ms,
     expected_episode_time_scalar,
 )
+from spinlab.estimators.session_snapshot import (
+    RouteBaseline, SegmentBaseline, route_diff, segment_diff,
+)
 
 
 @dataclass
@@ -36,6 +40,11 @@ class LiveSegmentView:
     last_deaths: int | None
     last_rank: int | None
     series: list[dict] = field(default_factory=list)
+    # Session diffs (None when no baseline / either side missing).
+    expected_episode_diff_ms: float | None = None
+    practice_gain_diff_ms: float | None = None
+    floor_diff_ms: float | None = None
+    death_rate_diff: float | None = None
 
 
 def _valid_completed(
@@ -50,6 +59,7 @@ def live_segment_view(
     episodes: Sequence[Mapping[str, Any]],  # AttemptRow (TypedDict) or plain dict
     *,
     reload_penalty_ms: int = DEFAULT_DEATH_PENALTY_MS,
+    baseline: SegmentBaseline | None = None,
 ) -> LiveSegmentView:
     if not _gate_passes(state):
         return LiveSegmentView(
@@ -94,11 +104,30 @@ def live_segment_view(
     else:
         last_episode_ms = last_clean_ms = last_deaths = last_rank = None
 
+    diffs: dict[str, float | None] = {
+        "expected_episode_diff_ms": None,
+        "practice_gain_diff_ms": None,
+        "floor_diff_ms": None,
+        "death_rate_diff": None,
+    }
+    if baseline is not None:
+        diffs = segment_diff(
+            baseline,
+            current_expected_ms=expected,
+            current_gain_ms=practice_gain,
+            current_death_rate=death_rate,
+            current_floor_ms=floor_ms,
+        )
+
     return LiveSegmentView(
         ready=True, expected_episode_ms=expected, practice_gain_ms=practice_gain,
         death_rate=death_rate, floor_ms=floor_ms, last_episode_ms=last_episode_ms,
         last_clean_ms=last_clean_ms, last_deaths=last_deaths, last_rank=last_rank,
         series=series,
+        expected_episode_diff_ms=diffs["expected_episode_diff_ms"],
+        practice_gain_diff_ms=diffs["practice_gain_diff_ms"],
+        floor_diff_ms=diffs["floor_diff_ms"],
+        death_rate_diff=diffs["death_rate_diff"],
     )
 
 
@@ -109,9 +138,17 @@ class RouteSummary:
     exp_deaths: float | None
     n_estimable: int
     n_skipped: int
+    # Session diffs (None when no baseline / either side missing).
+    exp_run_diff_ms: float | None = None
+    exp_deaths_diff: float | None = None
+    practice_saved_ms: float | None = None
 
 
-def route_summary(states: list[SamplerState]) -> RouteSummary:
+def route_summary(
+    states: list[SamplerState],
+    *,
+    baseline: RouteBaseline | None = None,
+) -> RouteSummary:
     run_ms = 0.0
     deaths = 0.0
     n_est = 0
@@ -128,5 +165,20 @@ def route_summary(states: list[SamplerState]) -> RouteSummary:
         deaths += p / (1.0 - p)
         n_est += 1
     if n_est == 0:
-        return RouteSummary(exp_run_ms=None, exp_deaths=None, n_estimable=0, n_skipped=n_skip)
-    return RouteSummary(exp_run_ms=run_ms, exp_deaths=deaths, n_estimable=n_est, n_skipped=n_skip)
+        cur_run: float | None = None
+        cur_deaths: float | None = None
+    else:
+        cur_run = run_ms
+        cur_deaths = deaths
+    diffs = (
+        route_diff(baseline, current_exp_run_ms=cur_run, current_exp_deaths=cur_deaths)
+        if baseline is not None
+        else {"exp_run_diff_ms": None, "exp_deaths_diff": None, "practice_saved_ms": None}
+    )
+    return RouteSummary(
+        exp_run_ms=cur_run, exp_deaths=cur_deaths,
+        n_estimable=n_est, n_skipped=n_skip,
+        exp_run_diff_ms=diffs["exp_run_diff_ms"],
+        exp_deaths_diff=diffs["exp_deaths_diff"],
+        practice_saved_ms=diffs["practice_saved_ms"],
+    )
