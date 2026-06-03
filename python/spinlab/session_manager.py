@@ -558,6 +558,7 @@ class SessionManager:
                 logger.error("practice task crashed", exc_info=exc)
         if self.mode == Mode.PRACTICE:
             self.mode = Mode.IDLE
+            self._clear_session_snapshot()
             asyncio.create_task(self._notify_sse())
 
     async def stop_practice(self) -> ActionResult:
@@ -611,6 +612,7 @@ class SessionManager:
                 logger.error("hyper_play task crashed", exc_info=exc)
         if self.mode == Mode.HYPER_PLAY:
             self.mode = Mode.IDLE
+            self._clear_session_snapshot()
             asyncio.create_task(self._notify_sse())
 
     async def stop_hyper_play(self) -> ActionResult:
