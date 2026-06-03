@@ -102,9 +102,15 @@ def test_snapshot_state_clone_is_independent():
     s.n_successes = 3
     s.n_deaths = 3
     snapshot = snapshot_from_segments(started_at=1.0, segments=[(seg_id, s, [])])
-    s.n_successes = 99  # mutate live
-    # baseline was a snapshot, not a reference
     baseline = snapshot.segments[seg_id]
+    before_death_rate = baseline.death_rate
+    before_expected = baseline.expected_episode_ms
+    before_floor = baseline.floor_ms
+
+    s.n_successes = 99  # mutate live
+
     # The baseline holds DERIVED scalars (not the state); the floor was captured
     # from observed episodes. The mutation above must not move any baseline field.
-    assert isinstance(baseline, SegmentBaseline)
+    assert baseline.death_rate == pytest.approx(before_death_rate)
+    assert baseline.expected_episode_ms == before_expected  # None-or-float equality
+    assert baseline.floor_ms == before_floor
