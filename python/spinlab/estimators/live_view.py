@@ -15,6 +15,7 @@ from spinlab.estimators.em_suite_sampler import (
     DEFAULT_DEATH_PENALTY_MS,
     DEFAULT_FAST_IDX,
     DEFAULT_SLOW_IDX,
+    LOGIT_EPS,
     SamplerState,
     _gate_passes,
     expected_episode_time_ms,
@@ -87,6 +88,8 @@ def live_segment_view(
         last_clean_ms = float(last["clean_tail_ms"]) if last["clean_tail_ms"] is not None else None
         last_deaths = int(last["deaths"])
         totals = sorted(float(e["time_ms"]) for e in valid)
+        # 1-based; .index finds the first occurrence, so ties share the best
+        # (competition-style) rank — a tied-best completion reads "1st".
         last_rank = totals.index(last_episode_ms) + 1
     else:
         last_episode_ms = last_clean_ms = last_deaths = last_rank = None
@@ -97,9 +100,6 @@ def live_segment_view(
         last_clean_ms=last_clean_ms, last_deaths=last_deaths, last_rank=last_rank,
         series=series,
     )
-
-
-from spinlab.estimators.em_suite_sampler import LOGIT_EPS
 
 
 @dataclass
