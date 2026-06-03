@@ -10,7 +10,9 @@ logger = logging.getLogger(__name__)
 from spinlab.api_schemas import (
     AllocatorWeightsResponse,
     EmSuiteMatrixResponse,
+    LiveSegmentViewResponse,
     ModelData,
+    RouteSummaryResponse,
     SegmentHistory,
     SegmentProgressResponse,
 )
@@ -220,4 +222,59 @@ def get_segment_progress(
         "trend_ms": p.trend_ms,
         "n_successes": state.n_successes,
         "n_deaths": state.n_deaths,
+    }
+
+
+@router.get("/segments/{segment_id}/live", response_model=LiveSegmentViewResponse)
+def get_segment_live(segment_id: str, db: Database = Depends(get_db)):
+    """Closed-form live-view payload for one segment (episode-time trend, floor,
+    expected, practice gain, deaths). Pure read; no Monte-Carlo."""
+    from spinlab.estimators.em_suite_sampler import replay_with_history
+    from spinlab.estimators.live_view import live_segment_view
+
+    seg = db.get_segment_by_id(segment_id)
+    if seg is None:
+        logger.warning("get_segment_live: unknown segment %r", segment_id)
+        raise HTTPException(status_code=404, detail=f"Segment not found: {segment_id}")
+
+    events = _events_from_rows(db.get_segment_event_rows(segment_id))
+    state, _history = replay_with_history(events)
+    episodes = db.get_segment_attempts(segment_id)
+    v = live_segment_view(state, episodes)
+    return {
+        "segment_id": segment_id,
+        "ready": v.ready,
+        "expected_episode_ms": v.expected_episode_ms,
+        "practice_gain_ms": v.practice_gain_ms,
+        "death_rate": v.death_rate,
+        "floor_ms": v.floor_ms,
+        "last_episode_ms": v.last_episode_ms,
+        "last_clean_ms": v.last_clean_ms,
+        "last_deaths": v.last_deaths,
+        "last_rank": v.last_rank,
+        "series": v.series,
+        "n_successes": state.n_successes,
+        "n_deaths": state.n_deaths,
+    }
+
+
+@router.get("/games/{game_id}/live-summary", response_model=RouteSummaryResponse)
+def get_route_summary(game_id: str, db: Database = Depends(get_db)):
+    """Closed-form whole-run aggregate for the route bar: expected run time and
+    expected deaths summed over estimable segments. Pure read; no Monte-Carlo."""
+    from spinlab.estimators.em_suite_sampler import replay_with_history
+    from spinlab.estimators.live_view import route_summary
+
+    states = []
+    for seg in db.get_active_segments(game_id):
+        events = _events_from_rows(db.get_segment_event_rows(seg.id))
+        state, _history = replay_with_history(events)
+        states.append(state)
+    s = route_summary(states)
+    return {
+        "game_id": game_id,
+        "exp_run_ms": s.exp_run_ms,
+        "exp_deaths": s.exp_deaths,
+        "n_estimable": s.n_estimable,
+        "n_skipped": s.n_skipped,
     }
