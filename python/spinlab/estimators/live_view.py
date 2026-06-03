@@ -23,7 +23,10 @@ from spinlab.estimators.em_suite_sampler import (
     expected_episode_time_scalar,
 )
 from spinlab.estimators.session_snapshot import (
-    RouteBaseline, SegmentBaseline, route_diff, segment_diff,
+    RouteBaseline,
+    SegmentBaseline,
+    route_diff,
+    segment_diff,
 )
 
 
