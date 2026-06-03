@@ -502,6 +502,32 @@ class SegmentProgressResponse(_BaseResponse):
     n_deaths: int
 
 
+class LiveSegmentViewResponse(_BaseResponse):
+    """Closed-form live-view payload for one segment. See live_segment_view()."""
+    segment_id: str
+    ready: bool
+    expected_episode_ms: float | None
+    practice_gain_ms: float | None
+    death_rate: float
+    floor_ms: float | None
+    last_episode_ms: float | None
+    last_clean_ms: float | None
+    last_deaths: int | None
+    last_rank: int | None
+    series: list[dict] = []
+    n_successes: int
+    n_deaths: int
+
+
+class RouteSummaryResponse(_BaseResponse):
+    """Closed-form whole-run aggregate for the route bar. See route_summary()."""
+    game_id: str
+    exp_run_ms: float | None
+    exp_deaths: float | None
+    n_estimable: int
+    n_skipped: int
+
+
 # ---------------------------------------------------------------------------
 # Practice Simulation Engine — /api/practice-engine/*
 # ---------------------------------------------------------------------------
