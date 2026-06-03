@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
 
+from spinlab.db.attempts import AttemptRow
 from spinlab.estimators.em_suite_sampler import (
     DEFAULT_DEATH_PENALTY_MS,
     DEFAULT_FAST_IDX,
@@ -58,7 +58,7 @@ class SessionSnapshot:
 
 def _baseline_for_segment(
     state: SamplerState,
-    episodes: Sequence[Mapping[str, Any]],
+    episodes: Sequence[AttemptRow],
     *,
     reload_penalty_ms: int = DEFAULT_DEATH_PENALTY_MS,
 ) -> SegmentBaseline:
@@ -82,12 +82,12 @@ def _baseline_for_segment(
     )
 
 
-def _running_min_clean(episodes: Sequence[Mapping[str, Any]]) -> float | None:
+def _running_min_clean(episodes: Sequence[AttemptRow]) -> float | None:
     floor: float | None = None
     for e in episodes:
-        if not e.get("completed") or e.get("invalidated"):
+        if not e["completed"] or e["invalidated"]:
             continue
-        clean = e.get("clean_tail_ms")
+        clean = e["clean_tail_ms"]
         if clean is None:
             continue
         floor = float(clean) if floor is None else min(floor, float(clean))
@@ -95,7 +95,7 @@ def _running_min_clean(episodes: Sequence[Mapping[str, Any]]) -> float | None:
 
 
 def _route_baseline(
-    items: Sequence[tuple[str, SamplerState, Sequence[Mapping[str, Any]]]],
+    items: Sequence[tuple[str, SamplerState, Sequence[AttemptRow]]],
 ) -> RouteBaseline:
     run_ms = 0.0
     deaths = 0.0
@@ -118,7 +118,7 @@ def _route_baseline(
 def snapshot_from_segments(
     *,
     started_at: float,
-    segments: Sequence[tuple[str, SamplerState, Sequence[Mapping[str, Any]]]],
+    segments: Sequence[tuple[str, SamplerState, Sequence[AttemptRow]]],
 ) -> SessionSnapshot:
     """Build a session snapshot from current sampler states + observed episodes.
 

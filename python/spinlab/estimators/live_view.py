@@ -8,10 +8,10 @@ so the reducer emits per-request diffs vs the session-start values.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
 
+from spinlab.db.attempts import AttemptRow
 from spinlab.estimators.em_suite_sampler import (
     DEFAULT_DEATH_PENALTY_MS,
     DEFAULT_FAST_IDX,
@@ -51,15 +51,17 @@ class LiveSegmentView:
 
 
 def _valid_completed(
-    episodes: Sequence[Mapping[str, Any]],
-) -> list[Mapping[str, Any]]:
-    return [e for e in episodes if e["completed"] and not e["invalidated"]
-            and e["time_ms"] is not None]
+    episodes: Sequence[AttemptRow],
+) -> list[tuple[AttemptRow, int]]:
+    """Return (row, time_ms) pairs with time_ms narrowed non-None for callers."""
+    return [(e, t) for e in episodes
+            if e["completed"] and not e["invalidated"]
+            and (t := e["time_ms"]) is not None]
 
 
 def live_segment_view(
     state: SamplerState,
-    episodes: Sequence[Mapping[str, Any]],  # AttemptRow (TypedDict) or plain dict
+    episodes: Sequence[AttemptRow],
     *,
     reload_penalty_ms: int = DEFAULT_DEATH_PENALTY_MS,
     baseline: SegmentBaseline | None = None,
@@ -84,23 +86,23 @@ def live_segment_view(
     valid = _valid_completed(episodes)
     floor_ms: float | None = None
     series: list[dict] = []
-    for e in valid:
+    for e, t_ms in valid:
         clean = e["clean_tail_ms"]
         if clean is not None:
             floor_ms = float(clean) if floor_ms is None else min(floor_ms, float(clean))
         series.append({
-            "episode_ms": float(e["time_ms"]),
+            "episode_ms": float(t_ms),
             "deaths": int(e["deaths"]),
             "clean_ms": float(clean) if clean is not None else None,
             "running_floor_ms": floor_ms,
         })
 
     if valid:
-        last = valid[-1]
-        last_episode_ms = float(last["time_ms"])
+        last, last_t_ms = valid[-1]
+        last_episode_ms = float(last_t_ms)
         last_clean_ms = float(last["clean_tail_ms"]) if last["clean_tail_ms"] is not None else None
         last_deaths = int(last["deaths"])
-        totals = sorted(float(e["time_ms"]) for e in valid)
+        totals = sorted(float(t) for _e, t in valid)
         # 1-based; .index finds the first occurrence, so ties share the best
         # (competition-style) rank — a tied-best completion reads "1st".
         last_rank = totals.index(last_episode_ms) + 1
