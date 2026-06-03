@@ -7,7 +7,9 @@ Simulator's.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 from spinlab.estimators.em_suite_sampler import (
     DEFAULT_DEATH_PENALTY_MS,
@@ -35,14 +37,16 @@ class LiveSegmentView:
     series: list[dict] = field(default_factory=list)
 
 
-def _valid_completed(episodes: list[dict]) -> list[dict]:
+def _valid_completed(
+    episodes: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
     return [e for e in episodes if e["completed"] and not e["invalidated"]
             and e["time_ms"] is not None]
 
 
 def live_segment_view(
     state: SamplerState,
-    episodes: list[dict],
+    episodes: Sequence[Mapping[str, Any]],  # AttemptRow (TypedDict) or plain dict
     *,
     reload_penalty_ms: int = DEFAULT_DEATH_PENALTY_MS,
 ) -> LiveSegmentView:
