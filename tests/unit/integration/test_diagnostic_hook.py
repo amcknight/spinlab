@@ -73,11 +73,17 @@ def test_collect_diagnostics_reports_dead_ra_process(mock_item):
 
 
 def test_collect_diagnostics_returns_empty_when_no_funcargs_match(mock_item):
-    """If a test has no integration funcargs, the diagnostic block is empty."""
+    """If a test has no integration funcargs, the fixture-walk blocks are empty.
+
+    Asserts on the block-header substrings (two-space indent + label + colon)
+    rather than bare 'harness' / '/api/state', so unrelated log lines tailed
+    from the ring buffer (e.g. perf middleware emitting '/api/state' as part
+    of a request log) can't false-trigger the check.
+    """
     mock_item.funcargs["unrelated_fixture"] = MagicMock(spec=[])
     out = collect_diagnostics(mock_item)
-    assert "/api/state" not in out
-    assert "harness:" not in out
+    assert "  /api/state:" not in out
+    assert "  harness:" not in out
 
 
 def test_pause_toggle_failure_message_includes_context():

@@ -5,11 +5,15 @@ import asyncio
 import logging
 import subprocess
 import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+PERF_LOG_PREFIX = "perf"
+PERF_SLOW_MS = 50.0
 
 from .config import AppConfig, EmulatorConfig, NetworkConfig, PracticeEngineConfig
 from .db import Database
@@ -148,6 +152,27 @@ def create_app(
             terminate_vite(vite_process)
 
     app = FastAPI(title="SpinLab Dashboard", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def perf_timing(request: Request, call_next):
+        """Log handler wall-clock for /api/* requests. Light, always-on.
+
+        Each line: `perf: METHOD /api/path status=N dur_ms=X.Y`. ≥PERF_SLOW_MS
+        logs at WARNING so slow handlers surface without grep. SSE/static
+        traffic skipped to keep the log readable.
+        """
+        path = request.url.path
+        if not path.startswith("/api/") or path == "/api/events":
+            return await call_next(request)
+        t0 = time.perf_counter()
+        response = await call_next(request)
+        dur_ms = (time.perf_counter() - t0) * 1000.0
+        level = logging.WARNING if dur_ms >= PERF_SLOW_MS else logging.INFO
+        logger.log(
+            level, "%s: %s %s status=%d dur_ms=%.1f",
+            PERF_LOG_PREFIX, request.method, path, response.status_code, dur_ms,
+        )
+        return response
 
     @app.exception_handler(ActionError)
     async def action_error_handler(request: Request, exc: ActionError):
