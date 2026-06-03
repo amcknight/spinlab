@@ -3,6 +3,15 @@ import type { AppState } from "./types";
 const TOAST_TIMEOUT_MS = 8000;
 const FALLBACK_POLL_MS = 5000;
 
+// Click-to-SSE perf tracking. perfMarkLastAction stamps when a mode/lifecycle
+// POST returned 2xx; connectSSE measures the gap to the next SSE message and
+// logs it as the "post→SSE" latency for that action. Window for correlation:
+// if no SSE arrives within PERF_SSE_WINDOW_MS, the mark is dropped (the next
+// SSE was for an unrelated state change).
+const PERF_SSE_WINDOW_MS = 5000;
+let perfLastActionUrl: string | null = null;
+let perfLastActionAt: number | null = null;
+
 export function formatClientError(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === "string") return err;
@@ -63,12 +72,28 @@ export async function postJSON<T = unknown>(
     opts.headers = { "Content-Type": "application/json" };
     opts.body = JSON.stringify(body);
   }
-  return fetchJSON<T>(url, opts);
+  const t0 = performance.now();
+  const result = await fetchJSON<T>(url, opts);
+  const rtt = performance.now() - t0;
+  console.log(`[perf] POST ${url} rtt_ms=${rtt.toFixed(1)} ok=${result !== null}`);
+  if (result !== null) {
+    perfLastActionUrl = url;
+    perfLastActionAt = performance.now();
+  }
+  return result;
 }
 
 export function connectSSE(onMessage: (data: AppState) => void): EventSource {
   const es = new EventSource("/api/events");
   es.onmessage = (e) => {
+    if (perfLastActionAt !== null) {
+      const gap = performance.now() - perfLastActionAt;
+      if (gap <= PERF_SSE_WINDOW_MS) {
+        console.log(`[perf] SSE after ${perfLastActionUrl} gap_ms=${gap.toFixed(1)}`);
+      }
+      perfLastActionUrl = null;
+      perfLastActionAt = null;
+    }
     try {
       const data: AppState = JSON.parse(e.data);
       onMessage(data);
