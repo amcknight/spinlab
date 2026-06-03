@@ -1,0 +1,87 @@
+/**
+ * Live practice view coordinator. Fetches /segments/{id}/live and
+ * /games/{id}/live-summary in parallel, renders the route bar, segment summary,
+ * and episode graph. Runs a 1s setInterval that re-renders only the route bar
+ * with an updated nowSeconds — keeps Practice-saved-rate + session elapsed ticking
+ * without re-fetching. Per-SSE-push callers re-invoke loadAndRenderLiveView,
+ * which cancels the old tick and starts a fresh one.
+ */
+import { fetchJSON } from "./api";
+import { renderRouteBar, type RouteBarData } from "./route-bar";
+import { renderSegmentSummary } from "./segment-summary";
+import { renderEpisodeGraph } from "./episode-graph";
+import type { LiveSegmentView, RouteSummary } from "./types";
+
+// 1s matches human time perception for a wall-clock display and matches the
+// D-Live spec's "ticks live" cadence. Anything faster spams renders without
+// visible benefit; slower feels stale on Practice saved/rate.
+const TICK_INTERVAL_MS = 1000;
+
+export interface LiveViewHosts {
+  routeBar: HTMLElement;
+  segmentSummary: HTMLElement;
+  graph: HTMLElement;
+}
+
+export interface LiveViewLoadOptions {
+  segmentId: string;
+  gameId: string;
+  segmentName: string;
+  title: string;
+  hosts: LiveViewHosts;
+}
+
+// Module-level singleton: the practice card is a single-instance UI surface.
+// Same pattern as improvement-view.ts's `_host`. destroyLiveView() must be
+// called before re-loading into a different host set, and is called by
+// model.ts:updatePracticeCard when the user exits practice mode.
+let _tickHandle: ReturnType<typeof setInterval> | null = null;
+let _lastRouteData: RouteBarData | null = null;
+let _lastHosts: LiveViewHosts | null = null;
+
+export async function loadAndRenderLiveView(opts: LiveViewLoadOptions): Promise<void> {
+  destroyLiveView();
+  _lastHosts = opts.hosts;
+
+  const [live, summary] = await Promise.all([
+    fetchJSON<LiveSegmentView>(`/api/segments/${encodeURIComponent(opts.segmentId)}/live`)
+      .catch((e: unknown) => { renderError(opts.hosts.segmentSummary, "segment live", e); return null; }),
+    fetchJSON<RouteSummary>(`/api/games/${encodeURIComponent(opts.gameId)}/live-summary`)
+      .catch((e: unknown) => { renderError(opts.hosts.routeBar, "route summary", e); return null; }),
+  ]);
+
+  if (summary) {
+    _lastRouteData = {
+      title: opts.title, gameId: opts.gameId,
+      routeSummary: summary, nowSeconds: Date.now() / 1000,
+    };
+    renderRouteBar(opts.hosts.routeBar, _lastRouteData);
+  }
+  if (live) {
+    renderSegmentSummary(opts.hosts.segmentSummary, { name: opts.segmentName, live });
+    renderEpisodeGraph(opts.hosts.graph, live);
+  }
+
+  _tickHandle = setInterval(tickRouteBar, TICK_INTERVAL_MS);
+}
+
+function tickRouteBar(): void {
+  if (!_lastRouteData || !_lastHosts) return;
+  _lastRouteData = { ..._lastRouteData, nowSeconds: Date.now() / 1000 };
+  renderRouteBar(_lastHosts.routeBar, _lastRouteData);
+}
+
+export function destroyLiveView(): void {
+  if (_tickHandle != null) { clearInterval(_tickHandle); _tickHandle = null; }
+  _lastRouteData = null;
+  if (_lastHosts) {
+    _lastHosts.routeBar.innerHTML = "";
+    _lastHosts.segmentSummary.innerHTML = "";
+    _lastHosts.graph.innerHTML = "";
+    _lastHosts = null;
+  }
+}
+
+function renderError(host: HTMLElement, what: string, err: unknown): void {
+  host.innerHTML = `<div class="lv-error dim">${what} unavailable: ${String(err)}</div>`;
+}
