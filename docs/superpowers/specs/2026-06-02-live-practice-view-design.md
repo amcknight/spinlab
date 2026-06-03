@@ -72,26 +72,29 @@ Primary aesthetic goal — the view should feel alive.
 
 ## Computation Sources (no fudge — the load-bearing table)
 
-Every value, with its principled source. **All route + model numbers come from one Monte-Carlo rollout** (the practice engine's `RolloutMatrix`) — no MC/closed-form mixing.
+**The entire live view is computed from EXACT CLOSED FORMS — no Monte-Carlo, no CRN.** This is valid because the live view uses only the *additive* total-run-time objective under `no_reset`: a no-reset run never aborts, so expected run time = the sum of per-segment expected episode times, and every number below has an exact closed form already present in the sampler. Zero randomness → nothing to be swamped by, and no MC/closed-form mixing (it's all closed-form). The Monte-Carlo engine (`RolloutMatrix`) and real CRN stay where they belong — the **Simulator**, for non-additive objectives (chance-under-target, PB-odds, quantile) and the distribution view — and are a separate concern from this UI.
 
-| UI element | Concept | Source |
+| UI element | Concept | Source (closed-form) |
 |---|---|---|
-| Graph line · headline · rank | **Episode** time | survived-episode `time_ms` (episode total incl. deaths+reload); rank among episode totals |
-| Decomposition "N deaths · Xs clean" | deaths + **clean** | episode's death count + `clean_tail_ms` |
-| Floor line | running-min **clean clear** | running min of `clean_tail_ms` (= `clean_gold_ms` so far), diagonal |
-| Floor / Floors stat | clean-best improvement this session | drop in min-clean since session start (segment); Σ over segments (run); shown only when non-zero |
-| Expected (segment) | **Episode** time | `e_sample_0` — rollout column mean (MC), consistent with the graph |
-| Deaths % (segment) | per-attempt death rate | `p_die` EMA (fast window); drives the MC death draws |
-| Practice (segment) | value-of-practice | engine `value` = baseline−swap of the objective via common random numbers (model spec §4); colored by sign |
-| Exp. Run (route) | **Episode** total run time | `expected_total_finished_time` under **no_reset** (MC; death-retry cost already included) |
-| Exp. Deaths (route) | expected deaths per run | **counted in the rollouts** — `sample_episode` returns its death count, averaged over rollouts (consistent with Exp. Run; no closed-form) |
+| Graph line · headline · rank | **Episode** time (observed) | survived-episode `time_ms` (episode total incl. deaths+reload); rank among episode totals |
+| Decomposition "N deaths · Xs clean" | deaths + **clean** (observed) | episode's death count + `clean_tail_ms` |
+| Floor line | running-min **clean clear** (observed) | running min of `clean_tail_ms` (= `clean_gold_ms` so far), diagonal |
+| Floor / Floors stat | clean-best improvement this session | drop in min-clean since session start (segment); Σ over segments (run); only when non-zero |
+| Expected (segment) | **Episode** time (predicted) | `expected_episode_time_scalar(state)` — closed-form geometric mean, no slide |
+| Deaths % (segment) | per-attempt death rate | `p_die` EMA at `DEFAULT_FAST_IDX` |
+| Practice (segment) | value-of-practice | `expected_episode_time(no slide) − expected_episode_time(one slope step)` — exact closed-form delta; colored by sign. Exact for the additive objective the live view uses. |
+| Exp. Run (route) | **Episode** total run time | Σ over estimable segments of `expected_episode_time_scalar` (exact, additive/no_reset) |
+| Exp. Deaths (route) | expected deaths per run | Σ over estimable segments of `p/(1−p)` (closed-form geometric expected death count) |
 | Practice saved · rate (route) | session improvement | drop in Exp. Run since session start; rate = saved ÷ session-elapsed |
 
-**Default objective = `expected_total_finished_time`, policy = `no_reset`.** For this additive objective the engine `value` equals `e_sample_0 − e_sample_1` per segment; `value` is used so it stays correct under a future non-additive objective.
+**Default objective = total run time, policy = `no_reset`** (the only objective the live view uses; implicit, no selector).
+
+**Honest incompleteness:** segments below the prediction gate (or with `p → 1`, where the geometric mean diverges → `None`) have no estimate. Exp. Run / Exp. Deaths sum only the estimable segments and the payload flags how many were skipped — never treat a missing segment as zero.
+
+**Why this isn't throwaway:** the closed forms already exist in the sampler; the frontend consumes a payload contract, not a method, so a future swap to MC for any number is invisible to the UI; and the MC engine remains intact for the Simulator. "Both" already coexist — closed-form for the live view, MC for the Simulator.
 
 **Backend additions needed:**
-- `sample_episode` (or a sibling) returns `(time, death_count)` so the rollout can average deaths per run.
-- A per-segment progress payload + a route aggregate payload (read-only), assembled from the practice engine + sampler.
+- A read-only **closed-form live-view reducer** (per-segment payload) + a **route aggregate** reducer, over sampler states + observed attempts. No rollout/MC.
 - Session tracking: a "practice session" boundary (dashboard start + game select) with an **in-memory snapshot** of the metrics at session start (do not re-derive by replay), for the diffs and "saved".
 
 ## Removed
