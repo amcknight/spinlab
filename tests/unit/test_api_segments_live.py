@@ -43,7 +43,8 @@ def _client(tmp_path) -> tuple[TestClient, str, str]:
                 segment_id=seg_id, session_id="g1:s", episode_id=f"{outcome.value}{i}",
                 outcome=outcome, time_ms=t, source=AttemptSource.PRACTICE,
                 created_at=datetime.now(UTC)))
-    app = FastAPI(); app.include_router(router)
+    app = FastAPI()
+    app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_session] = lambda: _NoSessionStub()
     return TestClient(app), seg_id, "g1"

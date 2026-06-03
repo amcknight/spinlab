@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 
 from spinlab.db import Database
 from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt, Segment
-from spinlab.routes.model import router
 from spinlab.routes._deps import get_db, get_session
+from spinlab.routes.model import router
 
 
 class _NoSessionStub:
@@ -34,7 +34,8 @@ def _client(tmp_path) -> tuple[TestClient, str, str]:
                 segment_id=seg_id, session_id="g1:s", episode_id=f"{outcome.value}{i}",
                 outcome=outcome, time_ms=t, source=AttemptSource.PRACTICE,
                 created_at=datetime.now(UTC)))
-    app = FastAPI(); app.include_router(router)
+    app = FastAPI()
+    app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_session] = lambda: _NoSessionStub()
     return TestClient(app), seg_id, "g1"
