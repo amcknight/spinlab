@@ -12,9 +12,17 @@ Replace the current Model-tab practice card with a focused, glanceable **live pr
 
 The shipped Plan A view had the right idea but: led with a qualitative verdict instead of a number, plotted a raw clear-time line that visibly disagreed with the smoothed verdict, had no axis, buried the window picker, showed a mislabeled `ms/att` legacy card, and gave no whole-run or session context. Andrew's redesign (this spec) fixes all of that.
 
-## The three altitudes
+## Architecture: three sections, swappable graph slot
 
-The view nests three altitudes so switching segments only changes the middle one:
+Structurally the view is **three stacked sections**, each an independent unit:
+
+1. **Route bar** — whole-run aggregates (stable across segment switches).
+2. **Segment summary** — the current segment's header, stat cluster, and the big "last clear" number.
+3. **Graph slot** — a **swappable** region. The default occupant is the clear-time trend graph specified below, but the slot is a pluggable interface so other per-segment visualizations can occupy it later (e.g. a death histogram, the hazard plot, or the D-Viz histogram-over-time) — chosen by a small graph picker, without touching sections 1–2. Build the slot with a clean interface (`render(host, segmentData)`) so adding a graph type is additive.
+
+The **session** (below) is not a fourth section — it's a cross-cutting overlay: a marker on the graph plus colored diffs on the section-1/2 stats.
+
+These map onto three *altitudes* (route / segment / session) so switching segments only changes section 2 + the graph:
 
 ### 1. Route bar (top, stable — does not change per segment)
 
@@ -43,8 +51,11 @@ A thin bar above the segment view. Surfaces whole-run aggregates (effectively th
 
 ## Liveliness
 
-- **In-progress attempt:** an **amber dot climbs the Y axis in real time** as the current attempt runs (starting low/off-axis, rising with elapsed segment time), then resolves — landing as a blue clear point or a red bottom tick (death). No moving text label on the dot.
-- The route Predictions and the per-segment stats **recompute as attempts land**, riding the existing SSE app-state cadence. The climbing dot wants finer-grained updates than per-attempt; see Open decisions.
+Liveliness is a primary aesthetic goal — the view should feel alive, not snapshot-y.
+
+- **In-progress attempt:** an **amber dot climbs the Y axis frame-by-frame** as the current attempt runs (starting low/off-axis, rising with elapsed segment time), then resolves — landing as a blue clear point or a red bottom tick (death). No moving text label on the dot. Driven by a lightweight **client-side timer** seeded by the current attempt's start time (interpolating between SSE pushes — no new push infra).
+- The route Predictions and the per-segment stats **recompute as attempts land**, riding the existing SSE app-state cadence.
+- **Flash-on-change (nice-to-have, may defer to a v2):** when any non-live value updates, briefly flash it (e.g. green/red tint on the direction of change) and fade back to its resting color. Applies to the stats and predictions. Defer only if it complicates the render meaningfully; the goal is everything visibly reacting.
 
 ## Standard stat stack (used everywhere)
 
@@ -91,11 +102,11 @@ The Predictions and Practice numbers are the practice engine's outputs (`per_seg
 - **Playwright smoke:** the route bar renders aggregates; the segment view renders the headline + axis + gold line + death ticks; diffs are colored; the legacy `#insight` card is gone; numbers are humanized.
 - **Python** route/reducer tests for the new aggregation (per-segment payload + route aggregate + session snapshot), mirroring the existing `segment_progress` test style.
 
-## Open decisions (resolve at planning time)
+## Decisions (resolved 2026-06-02)
 
-- **Live climbing dot cadence:** the existing SSE app-state push fires on state changes during play; is that frequent enough for a smooth climb, or do we drive the dot from a lightweight client-side timer seeded by the current attempt's start time? (Lean: client-side timer between pushes — no new push infra.)
-- **Session-start snapshot storage:** in-memory on the session manager vs derived by replaying events up to the session-start timestamp. (Lean: snapshot in memory at session start; cheap and exact.)
-- **Route aggregate source:** call the practice engine directly vs a dedicated lightweight aggregator. (Lean: reuse the practice engine's per-segment values to stay single-source.)
+- **Live climbing dot cadence:** frame-by-frame via a **client-side timer** seeded by the current attempt's start time, interpolating between SSE pushes. No new push infra.
+- **Session-start snapshot storage:** **snapshot in memory** at session start (do not re-derive by replay) — unless a snapshot value turns out to be needed by something else, in which case derive it there.
+- **Route aggregate source:** **reuse the practice engine** (its per-segment values + objective slate) so the route bar stays single-source with the Simulator.
 
 ## Out of scope (other Plan-D sub-projects)
 
