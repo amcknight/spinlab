@@ -40,7 +40,10 @@ class WrongModeError(ActionError):
 
     Use when an action requires a specific mode (e.g., cold-fill start requires
     IDLE, stop_replay requires REPLAY) and the system is in something else.
-    Sets `current_mode` so the route can surface a human-readable reason.
+    Carries `current_mode` for callers/loggers/tests; the default ActionError
+    handler in dashboard.py only serializes `detail`, so the HTTP body is just
+    `{"detail": "wrong_mode"}`. A specialized handler can read `current_mode`
+    if it wants to surface a human-readable reason in the future.
     """
     http_code = 409
     detail = "wrong_mode"
