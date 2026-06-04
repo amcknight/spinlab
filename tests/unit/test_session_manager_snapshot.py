@@ -169,7 +169,7 @@ def test_take_session_snapshot_real_baseline_exercises_closed_form(monkeypatch, 
 
     # Build a real SamplerState above the prediction gate
     # (n_successes >= 2 AND n_deaths >= 2 AND n_attempts_total >= 2 per
-    # em_suite_sampler._gate_passes at line ~310).
+    # em_suite_sampler.gate_passes at line ~310).
     state = SamplerState()
     sess = "sess-test"
     for i, (outcome, time_ms) in enumerate([

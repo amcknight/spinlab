@@ -18,7 +18,7 @@ from spinlab.estimators.em_suite_sampler import (
     DEFAULT_SLOW_IDX,
     LOGIT_EPS,
     SamplerState,
-    _gate_passes,
+    gate_passes,
     expected_episode_time_ms,
     expected_episode_time_scalar,
 )
@@ -66,7 +66,7 @@ def live_segment_view(
     reload_penalty_ms: int = DEFAULT_DEATH_PENALTY_MS,
     baseline: SegmentBaseline | None = None,
 ) -> LiveSegmentView:
-    if not _gate_passes(state):
+    if not gate_passes(state):
         return LiveSegmentView(
             ready=False, expected_episode_ms=None, practice_gain_ms=None,
             death_rate=0.0, floor_ms=None, last_episode_ms=None,
@@ -160,7 +160,7 @@ def route_summary(
     n_skip = 0
     for state in states:
         exp = expected_episode_time_scalar(state)
-        p = state.p_die_ema(DEFAULT_FAST_IDX) if _gate_passes(state) else None
+        p = state.p_die_ema(DEFAULT_FAST_IDX) if gate_passes(state) else None
         # A segment contributes only if BOTH closed forms are defined; p->1 makes
         # the geometric mean diverge (exp is None there too), so skip honestly.
         if exp is None or p is None or p >= 1.0 - LOGIT_EPS:

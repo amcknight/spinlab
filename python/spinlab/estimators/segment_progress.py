@@ -18,7 +18,7 @@ from spinlab.estimators.em_suite_sampler import (
     DEFAULT_FAST_IDX,
     DEFAULT_SLOW_IDX,
     SamplerState,
-    _gate_passes,
+    gate_passes,
 )
 
 # Number of recent clears shown in the trend sparkline. Sized to ~one slow-α
@@ -53,7 +53,7 @@ class SegmentProgress:
 
 
 def segment_progress(state: SamplerState, gold_ms: int | None) -> SegmentProgress:
-    if not _gate_passes(state):
+    if not gate_passes(state):
         return SegmentProgress(
             ready=False, verdict="not_ready",
             now_clear_ms=None, baseline_clear_ms=None, death_rate=0.0,

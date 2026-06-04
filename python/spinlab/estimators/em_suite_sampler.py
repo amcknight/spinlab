@@ -304,7 +304,7 @@ def _logistic(x: float) -> float:
     return 1.0 / (1.0 + math.exp(-x))
 
 
-def _gate_passes(state: SamplerState) -> bool:
+def gate_passes(state: SamplerState) -> bool:
     """Prediction gate: nil-until-2 of each outcome and overall."""
     return (
         state.n_successes >= 2
@@ -327,7 +327,7 @@ def trend_signal_slopes(
     for p_die. The logit values are clamped to [LOGIT_EPS, 1−LOGIT_EPS] to
     defend against same-outcome streaks that drive p toward 0 or 1.
     """
-    if not _gate_passes(state):
+    if not gate_passes(state):
         return None
     s_fast = state.log_success_time_ema(fast_idx)
     s_slow = state.log_success_time_ema(slow_idx)
@@ -365,7 +365,7 @@ def expected_episode_time_ms(
     no observations yet (denom == 0), or when p is too close to 1 (the
     geometric mean diverges as p → 1).
     """
-    if not _gate_passes(state):
+    if not gate_passes(state):
         return None
 
     s_fast = state.log_success_time_ema(fast_idx)
@@ -435,7 +435,7 @@ def sample_episode(
     the raw empirical distribution. Do not use one as a regression check on the
     other.
     """
-    if not _gate_passes(state):
+    if not gate_passes(state):
         return None
     # Post-gate (>=2 deaths and >=2 successes) both pools are non-empty in normal
     # flow; this guard is load-bearing only for a cross-version state deserialized

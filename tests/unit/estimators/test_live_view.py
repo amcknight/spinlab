@@ -10,7 +10,7 @@ def _gated_state(seg_id="s0"):
     # SamplerState() takes no constructor args — see Task 1 fixture pattern.
     # Caller-supplied seg_id is just a label here; baselines key on it via the
     # snapshot, not via the state itself.
-    # The prediction gate (_gate_passes) needs n_successes>=2, n_deaths>=2,
+    # The prediction gate (gate_passes) needs n_successes>=2, n_deaths>=2,
     # AND n_attempts_total>=2 — the third counter is independent of the first
     # two on a bare SamplerState, so set it explicitly.
     s = SamplerState()

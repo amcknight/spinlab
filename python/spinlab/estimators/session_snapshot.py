@@ -28,7 +28,7 @@ from spinlab.estimators.em_suite_sampler import (
     DEFAULT_SLOW_IDX,
     LOGIT_EPS,
     SamplerState,
-    _gate_passes,
+    gate_passes,
     expected_episode_time_ms,
     expected_episode_time_scalar,
 )
@@ -62,7 +62,7 @@ def _baseline_for_segment(
     *,
     reload_penalty_ms: int = DEFAULT_DEATH_PENALTY_MS,
 ) -> SegmentBaseline:
-    if not _gate_passes(state):
+    if not gate_passes(state):
         return SegmentBaseline(
             expected_episode_ms=None, practice_gain_ms=None,
             death_rate=0.0, floor_ms=_running_min_clean(episodes),
@@ -101,7 +101,7 @@ def _route_baseline(
     deaths = 0.0
     n_est = 0
     for _seg_id, state, _episodes in items:
-        if not _gate_passes(state):
+        if not gate_passes(state):
             continue
         exp = expected_episode_time_scalar(state)
         p = state.p_die_ema(DEFAULT_FAST_IDX)

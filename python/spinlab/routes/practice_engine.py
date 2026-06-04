@@ -20,7 +20,7 @@ from spinlab.api_schemas import (
 )
 from spinlab.db import Database
 from spinlab.estimators.em_suite_sampler import (
-    _gate_passes,
+    gate_passes,
     expected_episode_time_scalar,
 )
 from spinlab.practice_engine import objectives, reset_policies
@@ -81,7 +81,7 @@ def get_state(
         gold_ms = golds.get(seg_id, {}).get("gold_ms")
         n_succ = len(state.success_time_pool)
         n_death = len(state.death_time_pool)
-        if _gate_passes(state):
+        if gate_passes(state):
             # E[sample(0)] from the closed-form scalar; precise per-segment
             # draws live in /evaluate. e_sample_1 is a cheap closed-form
             # placeholder here — /evaluate fills in real draws via

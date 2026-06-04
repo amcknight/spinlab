@@ -16,7 +16,7 @@ from spinlab.estimators.em_suite_sampler import (
     DEFAULT_SLOW_IDX,
     MAX_ATTEMPTS_PER_EPISODE,
     SamplerState,
-    _gate_passes,
+    gate_passes,
     sample_episode,
 )
 
@@ -61,7 +61,7 @@ class RolloutMatrix:
         # Mark all currently-gated states dirty so the first ensure_fresh()
         # builds the matrix from scratch.
         for seg_id, state in self.sampler_states.items():
-            if _gate_passes(state):
+            if gate_passes(state):
                 self._assign_seed_offset(seg_id)
                 self.dirty.add(seg_id)
 
@@ -76,7 +76,7 @@ class RolloutMatrix:
             return
 
         # Authoritative set of currently-gated candidate segments.
-        gated = [s for s, st in self.sampler_states.items() if _gate_passes(st)]
+        gated = [s for s, st in self.sampler_states.items() if gate_passes(st)]
 
         # The universe we've already classified = samplable columns + the gated
         # ones we excluded as unsamplable. If the gate-set itself changed, fall
