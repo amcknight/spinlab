@@ -18,9 +18,9 @@ from spinlab.estimators.em_suite_sampler import (
     DEFAULT_SLOW_IDX,
     LOGIT_EPS,
     SamplerState,
-    gate_passes,
     expected_episode_time_ms,
     expected_episode_time_scalar,
+    gate_passes,
 )
 from spinlab.estimators.session_snapshot import (
     RouteBaseline,

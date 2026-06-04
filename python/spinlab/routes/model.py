@@ -18,6 +18,7 @@ from spinlab.api_schemas import (
 )
 from spinlab.cold_distribution import compute_cold_distribution
 from spinlab.db import Database
+from spinlab.estimators.session_snapshot import running_min_clean
 from spinlab.scheduler import attempts_from_rows, events_from_rows
 from spinlab.session_manager import SessionManager
 
@@ -300,7 +301,7 @@ def get_route_summary(
             base = snap.segments.get(seg.id)
             if base is not None and base.floor_ms is not None:
                 episodes = db.get_segment_attempts(seg.id)
-                cur = _running_min_clean_for_route(episodes)
+                cur = running_min_clean(episodes)
                 if cur is not None:
                     floor_improvement_ms += max(0.0, base.floor_ms - cur)
 
@@ -319,16 +320,3 @@ def get_route_summary(
     }
 
 
-def _running_min_clean_for_route(episodes):
-    """Helper for the route-bar floor_improvement aggregation. Same scan as
-    session_snapshot._running_min_clean (intentional duplication while the
-    three call sites stabilize; consolidate in a later cleanup pass)."""
-    floor: float | None = None
-    for e in episodes:
-        if not e.get("completed") or e.get("invalidated"):
-            continue
-        clean = e.get("clean_tail_ms")
-        if clean is None:
-            continue
-        floor = float(clean) if floor is None else min(floor, float(clean))
-    return floor

@@ -28,9 +28,9 @@ from spinlab.estimators.em_suite_sampler import (
     DEFAULT_SLOW_IDX,
     LOGIT_EPS,
     SamplerState,
-    gate_passes,
     expected_episode_time_ms,
     expected_episode_time_scalar,
+    gate_passes,
 )
 
 
@@ -65,7 +65,7 @@ def _baseline_for_segment(
     if not gate_passes(state):
         return SegmentBaseline(
             expected_episode_ms=None, practice_gain_ms=None,
-            death_rate=0.0, floor_ms=_running_min_clean(episodes),
+            death_rate=0.0, floor_ms=running_min_clean(episodes),
         )
     expected = expected_episode_time_scalar(state)
     slid = expected_episode_time_ms(
@@ -78,11 +78,11 @@ def _baseline_for_segment(
         expected_episode_ms=expected,
         practice_gain_ms=gain,
         death_rate=float(p) if p is not None else 0.0,
-        floor_ms=_running_min_clean(episodes),
+        floor_ms=running_min_clean(episodes),
     )
 
 
-def _running_min_clean(episodes: Sequence[AttemptRow]) -> float | None:
+def running_min_clean(episodes: Sequence[AttemptRow]) -> float | None:
     floor: float | None = None
     for e in episodes:
         if not e["completed"] or e["invalidated"]:

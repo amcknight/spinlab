@@ -20,8 +20,8 @@ from spinlab.api_schemas import (
 )
 from spinlab.db import Database
 from spinlab.estimators.em_suite_sampler import (
-    gate_passes,
     expected_episode_time_scalar,
+    gate_passes,
 )
 from spinlab.practice_engine import objectives, reset_policies
 from spinlab.practice_engine.threshold_sources import thresholds_from_user
