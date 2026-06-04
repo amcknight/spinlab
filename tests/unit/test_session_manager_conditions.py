@@ -163,3 +163,25 @@ class TestInstallConditionRegistry:
         assert len(installed) == 1
         # game_id derived from rom_info should match what SessionManager resolved.
         assert sm.game_id == installed[0]
+
+
+def test_set_condition_registry_raises_if_called_while_recording(tmp_path):
+    """The install invariant says: install_condition_registry runs BEFORE
+    recording starts (route_event serializes event handlers, so ROM-load
+    always lands before reference/start). Replacing the registry mid-record
+    would silently mismatch decode shape vs. recorder buffer state.
+    Assert to surface a future code path that violates this."""
+    from spinlab.capture.reference import ReferenceController
+    from spinlab.condition_registry import ConditionRegistry
+    from spinlab.db import Database
+
+    db = Database(tmp_path / "ref.db")
+    db.upsert_game("g", "Game", "any%")
+    rc = ReferenceController(db=db, emu=None)  # type: ignore[arg-type]
+    # Simulate active recording state.
+    rc.recorder.capture_run_id = "active-run"
+    new_registry = ConditionRegistry()  # empty, distinct instance
+
+    import pytest as _pytest
+    with _pytest.raises(AssertionError, match="ConditionRegistry"):
+        rc.set_condition_registry(new_registry)

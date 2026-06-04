@@ -9,6 +9,15 @@ Stop is non-destructive: it ends the current session and leaves the run paused.
 Resume creates a new session under the existing paused run. Finalize promotes
 the draft to saved and activates; event rows are already in attempts from the
 recorder writing them as each segment closed.
+
+Invariants:
+- `ConditionRegistry` is installed via `set_condition_registry()` exactly
+  before recording begins. The install path is SessionManager._handle_rom_info
+  → install_condition_registry → set_condition_registry, which runs under the
+  same `route_event` await as any subsequent reference-start. Replacing the
+  registry mid-record would silently mismatch decode shapes; an assertion in
+  set_condition_registry surfaces a violation if a future code path breaks
+  this ordering.
 """
 from __future__ import annotations
 
@@ -87,6 +96,13 @@ class ReferenceController:
         self.replay_total: int = 0
 
     def set_condition_registry(self, registry: ConditionRegistry) -> None:
+        # See module docstring "Invariants": install must run before any
+        # recording starts. A registry swap mid-record desyncs decoder
+        # state and corrupts the buffered events.
+        assert not self.is_recording, (
+            "ConditionRegistry replaced mid-record — install must precede "
+            "reference-start. See capture/reference.py module docstring."
+        )
         self.condition_registry = registry
         self.recorder.set_condition_registry(registry)
 
