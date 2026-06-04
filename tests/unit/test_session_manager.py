@@ -621,6 +621,14 @@ class TestDisconnectAndShutdown:
         assert emu.is_connected is False
 
 
+async def test_invalidate_current_attempt_dispatches_to_handler(db, emu):
+    """Public method routes through the same handler as the event dispatch table."""
+    sm = make_sm(db, emu)
+    sm.game_id = "game1"
+    # No active practice attempt — handler is a no-op, but must not raise.
+    await sm.invalidate_current_attempt()
+
+
 async def test_capture_event_routed_while_recording_even_if_mode_lags(db, emu):
     """The race C3 fixes: between capture.start_replay setting is_recording=True
     and the SessionManager's mode flipping to REPLAY, the poller can emit a

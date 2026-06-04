@@ -577,6 +577,15 @@ class SessionManager:
             return ActionResult(status=Status.STOPPED)
         raise NotRunningError()
 
+    async def invalidate_current_attempt(self) -> None:
+        """Mark the current practice attempt as invalidated.
+
+        Public entry point for the dashboard's invalidate button. Delegates
+        to the same handler used by route_event(AttemptInvalidatedEvent) so
+        the in-flight emu event path and the route path stay aligned.
+        """
+        await self._handle_attempt_invalidated(AttemptInvalidatedEvent())
+
 
     async def start_hyper_play(self) -> ActionResult:
         if self.capture.has_paused_run:
