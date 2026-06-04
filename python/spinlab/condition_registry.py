@@ -12,6 +12,7 @@ Used in two roles, both backed by the same registry instance:
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Protocol
@@ -21,6 +22,8 @@ import yaml
 if TYPE_CHECKING:
     from spinlab.models import ConditionMap
     from spinlab.protocol import ConditionSpec
+
+logger = logging.getLogger(__name__)
 
 # Default death penalty: time added per death to account for death animation
 # + respawn in a standard SMW retry (~3.2 s measured from SMW NTSC timing).
@@ -195,10 +198,27 @@ def load_registry_for_game(
     game_id: str,
     games_root: Path | None = None,
 ) -> ConditionRegistry:
-    """Load per-game conditions.yaml; return empty registry if file missing."""
+    """Load per-game conditions.yaml; return empty registry if file missing.
+
+    Emits a WARNING when no YAML is found so an unexpected empty conditions
+    channel is visible in spinlab.log — without this, every event downstream
+    silently carries ``conditions={}`` with no breadcrumb.
+    """
     if games_root is None:
         games_root = Path(__file__).parent / "games"
     yaml_path = games_root / game_id / "conditions.yaml"
     if not yaml_path.exists():
+        logger.warning(
+            "no conditions.yaml found for game_id=%r (expected at %s); "
+            "poller will emit events with conditions={}",
+            game_id, yaml_path,
+        )
         return ConditionRegistry(definitions=[])
-    return ConditionRegistry.from_yaml(yaml_path)
+    registry = ConditionRegistry.from_yaml(yaml_path)
+    if not registry.definitions:
+        logger.warning(
+            "conditions.yaml at %s loaded with 0 definitions; "
+            "poller will emit events with conditions={}",
+            yaml_path,
+        )
+    return registry
