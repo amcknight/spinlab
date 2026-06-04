@@ -27,12 +27,12 @@ from spinlab.estimators.em_suite_sampler import (
     process_event,
 )
 from spinlab.models import DEFAULT_DEATH_PENALTY_MS, EventAttempt
-from spinlab.scheduler import _events_from_rows
+from spinlab.scheduler import events_from_rows
 
 
 def _load_events(db: Database, segment_id: str) -> list[EventAttempt]:
     rows = db.get_segment_event_rows(segment_id)
-    return list(_events_from_rows(rows))
+    return list(events_from_rows(rows))
 
 
 def _score_pair(

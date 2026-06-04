@@ -555,13 +555,13 @@ class SessionManager:
         DB. Tests can override this method to bypass DB/scheduler plumbing.
         """
         from spinlab.estimators.em_suite_sampler import replay_with_history
-        from spinlab.scheduler import _events_from_rows
+        from spinlab.scheduler import events_from_rows
 
         if self.scheduler is None or self.state.game_id is None:
             return []
         out = []
         for seg in self.db.get_active_segments(self.state.game_id):
-            events = _events_from_rows(self.db.get_segment_event_rows(seg.id))
+            events = events_from_rows(self.db.get_segment_event_rows(seg.id))
             state, _hist = replay_with_history(events)
             episodes = self.db.get_segment_attempts(seg.id)
             out.append((seg.id, state, episodes))

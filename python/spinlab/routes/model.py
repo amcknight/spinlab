@@ -18,7 +18,7 @@ from spinlab.api_schemas import (
 )
 from spinlab.cold_distribution import compute_cold_distribution
 from spinlab.db import Database
-from spinlab.scheduler import _attempts_from_rows, _events_from_rows
+from spinlab.scheduler import attempts_from_rows, events_from_rows
 from spinlab.session_manager import SessionManager
 
 from ._deps import get_db, get_session
@@ -82,13 +82,13 @@ def segment_history(
         raise HTTPException(status_code=404, detail=f"Segment not found: {segment_id}")
 
     raw_rows = db.get_segment_attempts(segment_id)
-    # _attempts_from_rows already drops invalidated; filter to completed too.
-    all_records = _attempts_from_rows(raw_rows)
+    # attempts_from_rows already drops invalidated; filter to completed too.
+    all_records = attempts_from_rows(raw_rows)
     completed = [a for a in all_records if a.completed and a.time_ms is not None]
 
     # Load events once for the sampler.
     event_rows = db.get_segment_event_rows(segment_id)
-    events = _events_from_rows(event_rows)
+    events = events_from_rows(event_rows)
 
     attempts = []
     for i, a in enumerate(completed):
@@ -166,7 +166,7 @@ def get_em_suite_matrix(
         raise HTTPException(status_code=404, detail=f"Segment not found: {segment_id}")
 
     event_rows = db.get_segment_event_rows(segment_id)
-    events = _events_from_rows(event_rows)
+    events = events_from_rows(event_rows)
     # replay_with_history both produces the final state and the per-snapshot
     # history (drives the time-series view); no need to also call rebuild_state.
     state, param_history = replay_with_history(events)
@@ -204,7 +204,7 @@ def get_segment_progress(
         logger.warning("get_segment_progress: unknown segment %r", segment_id)
         raise HTTPException(status_code=404, detail=f"Segment not found: {segment_id}")
 
-    events = _events_from_rows(db.get_segment_event_rows(segment_id))
+    events = events_from_rows(db.get_segment_event_rows(segment_id))
     state, _history = replay_with_history(events)
     gold_row = db.compute_golds(seg.game_id).get(segment_id)
     gold_ms = gold_row["gold_ms"] if gold_row else None
@@ -242,7 +242,7 @@ def get_segment_live(
         logger.warning("get_segment_live: unknown segment %r", segment_id)
         raise HTTPException(status_code=404, detail=f"Segment not found: {segment_id}")
 
-    events = _events_from_rows(db.get_segment_event_rows(segment_id))
+    events = events_from_rows(db.get_segment_event_rows(segment_id))
     state, _history = replay_with_history(events)
     episodes = db.get_segment_attempts(segment_id)
 
@@ -289,7 +289,7 @@ def get_route_summary(
     if snap is not None:
         floor_improvement_ms = 0.0
     for seg in db.get_active_segments(game_id):
-        events = _events_from_rows(db.get_segment_event_rows(seg.id))
+        events = events_from_rows(db.get_segment_event_rows(seg.id))
         state, _history = replay_with_history(events)
         states.append(state)
         # Aggregate floor improvement vs baseline. Per-segment improvement =

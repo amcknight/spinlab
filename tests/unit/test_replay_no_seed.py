@@ -5,7 +5,7 @@ meaningless for the sampler. Events tagged source=REPLAY are written to the DB
 for provenance but must be excluded from the estimator's ingestion path.
 
 Fixture: write some REFERENCE events and some REPLAY events for the same
-segment, then hydrate via _events_from_rows (the scheduler's sampler-ingestion
+segment, then hydrate via events_from_rows (the scheduler's sampler-ingestion
 seam) and verify that only the REFERENCE events appear.
 """
 from __future__ import annotations
@@ -32,12 +32,12 @@ class TestReplayEventsNotSeeded:
         return run_id
 
     def test_reference_events_are_included(self):
-        """REFERENCE events flow through _events_from_rows unchanged."""
+        """REFERENCE events flow through events_from_rows unchanged."""
         from datetime import datetime
 
         from spinlab.db import Database
         from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
-        from spinlab.scheduler import _events_from_rows
+        from spinlab.scheduler import events_from_rows
 
         db = Database(":memory:")
         game_id = "replay_seed_ref_only"
@@ -53,12 +53,12 @@ class TestReplayEventsNotSeeded:
         ))
 
         rows = db.get_segment_event_rows(segment_id)
-        events = _events_from_rows(rows)
+        events = events_from_rows(rows)
         assert len(events) == 1
         assert events[0].source is AttemptSource.REFERENCE
 
     def test_replay_events_excluded_from_model_ingestion(self):
-        """REPLAY events are present in the DB but excluded from _events_from_rows.
+        """REPLAY events are present in the DB but excluded from events_from_rows.
 
         This verifies the sampler-ingestion seam: if the filter is absent,
         both events come through and n_attempts_total == 2.
@@ -67,7 +67,7 @@ class TestReplayEventsNotSeeded:
 
         from spinlab.db import Database
         from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
-        from spinlab.scheduler import _events_from_rows
+        from spinlab.scheduler import events_from_rows
 
         db = Database(":memory:")
         game_id = "replay_seed_filter"
@@ -98,7 +98,7 @@ class TestReplayEventsNotSeeded:
         )
 
         # Only the REFERENCE event reaches the sampler.
-        events = _events_from_rows(all_rows)
+        events = events_from_rows(all_rows)
         assert len(events) == 1, (
             f"Expected 1 event after replay filter, got {len(events)}: {events}"
         )
@@ -108,7 +108,7 @@ class TestReplayEventsNotSeeded:
         """The EMA sampler's n_attempts_total reflects only non-replay events.
 
         Writes 2 REFERENCE + 3 REPLAY events for one segment, hydrates via
-        _events_from_rows + rebuild_state, and asserts the sampler saw exactly
+        events_from_rows + rebuild_state, and asserts the sampler saw exactly
         2 attempts (the reference ones).
         """
         from datetime import datetime
@@ -116,7 +116,7 @@ class TestReplayEventsNotSeeded:
         from spinlab.db import Database
         from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
         from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
-        from spinlab.scheduler import _events_from_rows
+        from spinlab.scheduler import events_from_rows
 
         db = Database(":memory:")
         game_id = "replay_seed_sampler"
@@ -154,7 +154,7 @@ class TestReplayEventsNotSeeded:
         all_rows = db.get_segment_event_rows(segment_id)
         assert len(all_rows) == 5, "All 5 rows must be in DB for provenance"
 
-        events = _events_from_rows(all_rows)
+        events = events_from_rows(all_rows)
         assert len(events) == 2, (
             f"Expected 2 events after replay filter, got {len(events)}"
         )

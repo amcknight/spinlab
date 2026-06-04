@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover — only fires without [fits]
 _MIN_EVENTS_FOR_FIT = 5
 
 
-def _attempts_from_rows(rows: list[AttemptRow]) -> list[AttemptRecord]:
+def attempts_from_rows(rows: list[AttemptRow]) -> list[AttemptRecord]:
     return [
         AttemptRecord(
             time_ms=r["time_ms"],
@@ -50,7 +50,7 @@ def _attempts_from_rows(rows: list[AttemptRow]) -> list[AttemptRecord]:
     ]
 
 
-def _events_from_rows(rows: list[EventAttemptRow]) -> list[EventAttempt]:
+def events_from_rows(rows: list[EventAttemptRow]) -> list[EventAttempt]:
     """Shared model-ingestion hydration: convert raw event_attempt rows into
     EventAttempt dataclass instances for estimator consumption.
 
@@ -251,8 +251,8 @@ class Scheduler:
             if r["estimator"] != "em_suite_sampler" or not r["state_json"]:
                 continue
             seg_id = r["segment_id"]
-            attempts = _attempts_from_rows(self.db.get_segment_attempts(seg_id))
-            events = _events_from_rows(self.db.get_segment_event_rows(seg_id))
+            attempts = attempts_from_rows(self.db.get_segment_attempts(seg_id))
+            events = events_from_rows(self.db.get_segment_event_rows(seg_id))
             out[seg_id] = self.estimator.rebuild_state(attempts, events=events)
         return out
 
@@ -264,11 +264,11 @@ class Scheduler:
         persisted before invoking this.
         """
         attempt_rows = self.db.get_segment_attempts(segment_id)
-        all_attempts = _attempts_from_rows(attempt_rows)
+        all_attempts = attempts_from_rows(attempt_rows)
         if not all_attempts:
             return
         event_rows = self.db.get_segment_event_rows(segment_id)
-        events = _events_from_rows(event_rows)
+        events = events_from_rows(event_rows)
         try:
             state = self.estimator.rebuild_state(all_attempts, events=events)
             output = self.estimator.model_output(state, all_attempts, events=events)
@@ -314,9 +314,9 @@ class Scheduler:
             attempt_rows = self.db.get_segment_attempts(segment_id)
             if not attempt_rows:
                 continue
-            all_attempts = _attempts_from_rows(attempt_rows)
+            all_attempts = attempts_from_rows(attempt_rows)
             event_rows = self.db.get_segment_event_rows(segment_id)
-            events = _events_from_rows(event_rows)
+            events = events_from_rows(event_rows)
             try:
                 state = self.estimator.rebuild_state(all_attempts, events=events)
                 output = self.estimator.model_output(state, all_attempts, events=events)
