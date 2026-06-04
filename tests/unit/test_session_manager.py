@@ -681,3 +681,72 @@ async def test_capture_event_routed_while_recording_even_if_mode_lags(db, emu):
         "LevelEntranceEvent must be routed to capture while is_recording=True, "
         "regardless of mode"
     )
+
+
+async def test_start_cold_fill_flips_mode_when_new_mode_is_cold_fill(db, emu, monkeypatch):
+    """When cold_fill.start() reports new_mode=COLD_FILL, SessionManager flips mode."""
+    from spinlab.models import ActionResult, Mode, Status
+
+    sm = make_sm(db, emu)
+    sm.game_id = "g"
+    sm.mode = Mode.IDLE
+
+    captured: dict = {}
+
+    async def fake_start(game_id: str, run_id: str) -> ActionResult:
+        captured["game_id"] = game_id
+        captured["run_id"] = run_id
+        return ActionResult(status=Status.STARTED, new_mode=Mode.COLD_FILL)
+
+    monkeypatch.setattr(sm.cold_fill, "start", fake_start)
+    monkeypatch.setattr(sm.db, "get_active_capture_run", lambda gid: "run-123")
+
+    result = await sm.start_cold_fill()
+
+    assert captured == {"game_id": "g", "run_id": "run-123"}
+    assert sm.mode == Mode.COLD_FILL
+    assert result.status == Status.STARTED
+
+
+async def test_start_cold_fill_no_gaps_does_not_flip_mode(db, emu, monkeypatch):
+    """When cold_fill.start() reports new_mode=None (NO_GAPS), mode stays IDLE."""
+    from spinlab.models import ActionResult, Mode, Status
+
+    sm = make_sm(db, emu)
+    sm.game_id = "g"
+    sm.mode = Mode.IDLE
+
+    async def fake_start(game_id: str, run_id: str) -> ActionResult:
+        return ActionResult(status=Status.NO_GAPS, new_mode=None)
+
+    monkeypatch.setattr(sm.cold_fill, "start", fake_start)
+    monkeypatch.setattr(sm.db, "get_active_capture_run", lambda gid: "run-123")
+
+    result = await sm.start_cold_fill()
+
+    assert sm.mode == Mode.IDLE
+    assert result.status == Status.NO_GAPS
+
+
+async def test_start_cold_fill_raises_wrong_mode_when_not_idle(db, emu):
+    """If the session is mid-PRACTICE, start_cold_fill raises WrongModeError(current_mode=PRACTICE)."""
+    from spinlab.errors import WrongModeError
+    from spinlab.models import Mode
+
+    sm = make_sm(db, emu)
+    sm.game_id = "g"
+    sm.mode = Mode.PRACTICE
+
+    with pytest.raises(WrongModeError) as ei:
+        await sm.start_cold_fill()
+    assert ei.value.current_mode == Mode.PRACTICE
+
+
+async def test_start_cold_fill_raises_no_game_when_no_game(db, emu):
+    """Without a loaded game, raise NoGameLoadedError (HTTP 409)."""
+    from spinlab.errors import NoGameLoadedError
+
+    sm = make_sm(db, emu)
+    # sm.game_id is None by default
+    with pytest.raises(NoGameLoadedError):
+        await sm.start_cold_fill()

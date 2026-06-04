@@ -9,6 +9,11 @@ Each subclass sets:
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .models import Mode
+
 
 class ActionError(Exception):
     """Base for all controller-layer action failures."""
@@ -28,6 +33,21 @@ class NoGameLoadedError(ActionError):
     """No game is loaded; the requested action needs an active game context."""
     http_code = 409
     detail = "no_game_loaded"
+
+
+class WrongModeError(ActionError):
+    """Action is incompatible with the current Mode.
+
+    Use when an action requires a specific mode (e.g., cold-fill start requires
+    IDLE, stop_replay requires REPLAY) and the system is in something else.
+    Sets `current_mode` so the route can surface a human-readable reason.
+    """
+    http_code = 409
+    detail = "wrong_mode"
+
+    def __init__(self, current_mode: "Mode") -> None:
+        super().__init__()
+        self.current_mode = current_mode
 
 
 class DraftPendingError(ActionError):

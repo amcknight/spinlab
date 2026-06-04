@@ -23,7 +23,7 @@ from spinlab.api_schemas import (
 from spinlab.config import AppConfig
 from spinlab.dashboard import SSE_KEEPALIVE_S
 from spinlab.db import Database
-from spinlab.errors import NotConnectedError, NotRunningError
+from spinlab.errors import NotRunningError
 from spinlab.models import Mode, Status
 from spinlab.session_manager import SessionManager
 
@@ -66,24 +66,11 @@ def api_sessions(session: SessionManager = Depends(get_session), db: Database = 
 
 
 @router.post("/cold-fill/start", response_model=OkResponse)
-async def start_cold_fill(
-    session: SessionManager = Depends(get_session),
-    db: Database = Depends(get_db),
-):
-    if not session.game_id:
-        raise HTTPException(status_code=400, detail="No game loaded")
-    if session.mode != Mode.IDLE:
-        raise HTTPException(status_code=409, detail=f"Cannot start cold fill: mode is {session.mode.value}")
-    run_id = db.get_active_capture_run(session.game_id)
-    if run_id is None:
-        raise HTTPException(status_code=400, detail="No active reference run — select one in Manage first")
-    try:
-        result = await session.cold_fill.start(session.game_id, run_id=run_id)
-    except NotConnectedError:
-        raise HTTPException(status_code=503, detail="Emulator not connected")
-    if result.new_mode == Mode.COLD_FILL:
-        session.mode = Mode.COLD_FILL
-    await session._notify_sse()
+async def start_cold_fill(session: SessionManager = Depends(get_session)):
+    """Start the cold-fill capture loop. SessionManager owns the transition;
+    the dashboard's ActionError handler maps WrongModeError/NoGameLoadedError
+    to 409 and NotConnectedError to 503."""
+    result = await session.start_cold_fill()
     return {"status": "ok" if result.status != Status.NO_GAPS else "no_gaps"}
 
 

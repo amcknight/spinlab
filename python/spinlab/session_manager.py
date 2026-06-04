@@ -18,6 +18,7 @@ from .errors import (
     NoGameLoadedError,
     NotConnectedError,
     NotRunningError,
+    WrongModeError,
 )
 from .models import ActionResult, Mode, Status
 from .protocol import (
@@ -440,6 +441,35 @@ class SessionManager:
         return await self._apply_result(
             await self.fill_gap.start(segment_id)
         )
+
+    async def start_cold_fill(self) -> ActionResult:
+        """Start the cold-fill capture loop for the current game.
+
+        Routes call this directly; it owns the full transition (game-loaded
+        check, current-mode check, active-run lookup, controller dispatch,
+        mode flip, SSE broadcast). The route layer only translates
+        ActionError → HTTPException via the boundary handler.
+        """
+        game_id = self.require_game()  # raises NoGameLoadedError if no game
+        if self.mode != Mode.IDLE:
+            raise WrongModeError(self.mode)
+        run_id = self.db.get_active_capture_run(game_id)
+        if run_id is None:
+            # No active reference run; cold fill has nothing to fill. The
+            # router maps this same condition to a 400 today; we surface it
+            # as a mode-conflict-adjacent failure — but there's no
+            # NoActiveRunError in the V5 hierarchy yet. Until one lands,
+            # raise WrongModeError with a clear detail at the route boundary.
+            #
+            # NOTE: this branch could justify its own ActionError subclass
+            # (NoActiveRunError(404)) in a follow-up; for now the route
+            # surfaces "wrong_mode" via the ActionError handler.
+            raise WrongModeError(self.mode)  # mode=IDLE, but no run to fill
+        result = await self.cold_fill.start(game_id, run_id=run_id)
+        if result.new_mode == Mode.COLD_FILL:
+            self.mode = Mode.COLD_FILL
+        await self._notify_sse()
+        return result
 
     async def skip_cold_fill(self) -> ActionResult:
         result = await self.cold_fill.skip()

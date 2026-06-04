@@ -121,24 +121,29 @@ class TestColdFillStart:
         db.create_capture_run("r1", GAME_ID, "R1", kind="live")
         db.set_active_capture_run("r1")
 
-    def test_400_when_no_game_loaded(self, db, tmp_path):
+    def test_409_when_no_game_loaded(self, db, tmp_path):
+        # SessionManager.start_cold_fill raises NoGameLoadedError (409); the
+        # dashboard's ActionError handler turns it into {"detail": "no_game_loaded"}.
         client = _make_client(db, tmp_path=tmp_path)
         client.app.state.session.game_id = None
         resp = client.post("/api/cold-fill/start")
-        assert resp.status_code == 400
-        assert "No game loaded" in resp.json()["detail"]
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "no_game_loaded"
 
     def test_409_when_mode_not_idle(self, db, tmp_path):
         client = _make_client(db, tmp_path=tmp_path)
         client.app.state.session.mode = Mode.REFERENCE
         resp = client.post("/api/cold-fill/start")
         assert resp.status_code == 409
+        assert resp.json()["detail"] == "wrong_mode"
 
-    def test_400_when_no_active_run(self, db, tmp_path):
+    def test_409_when_no_active_run(self, db, tmp_path):
+        # No active capture run → SessionManager raises WrongModeError as the
+        # closest fit until a NoActiveRunError(404) lands; route returns 409.
         client = _make_client(db, tmp_path=tmp_path)
         resp = client.post("/api/cold-fill/start")
-        assert resp.status_code == 400
-        assert "active" in resp.json()["detail"].lower()
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "wrong_mode"
 
     def test_503_when_not_connected(self, db, tmp_path):
         client = _make_client(db, tmp_path=tmp_path)
