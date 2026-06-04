@@ -67,7 +67,7 @@ def get_state(
     # Route deliberately reaches past the engine to enumerate every persisted
     # sampler row (gated AND ungated). The engine's matrix only knows about
     # gated columns, so it can't surface "needs ≥2 of each" diagnostics.
-    states = sched._load_all_sampler_states()
+    states = sched.sampler_states()
     segs = {s.id: s for s in db.get_active_segments(session.game_id)}
     golds = db.compute_golds(session.game_id)
 

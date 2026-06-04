@@ -224,13 +224,13 @@ class Scheduler:
         """Lazy practice simulation engine. Built on first access from current SamplerStates."""
         if self._engine is None:
             self._engine = PracticeEngine(
-                sampler_states=self._load_all_sampler_states(),
+                sampler_states=self.sampler_states(),
                 N=self._practice_engine_rollouts,
                 rng_seed=_DEFAULT_PRACTICE_ENGINE_RNG_SEED,
             )
         return self._engine
 
-    def _load_all_sampler_states(self) -> dict[str, SamplerState]:
+    def sampler_states(self) -> dict[str, SamplerState]:
         """Hydrate all SamplerState objects for this game's segments.
 
         Rebuilds each state from the event table (the source of truth) rather than
