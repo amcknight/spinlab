@@ -34,8 +34,8 @@ async def test_reset_logs_warning_with_game_id(db, emu, caplog):
     sm.game_id = "abc123"
     sm.mode = Mode.IDLE
 
-    with caplog.at_level(logging.WARNING, logger="spinlab.routes.system"):
-        result = await reset_data(session=sm, db=db)
+    with caplog.at_level(logging.WARNING, logger="spinlab.session_manager"):
+        result = await reset_data(session=sm)
 
     assert result == {"status": "ok"}
     assert any(
@@ -50,8 +50,8 @@ async def test_reset_does_not_log_when_no_game_loaded(db, emu, caplog):
     sm = SessionManager(db=db, emu=emu, rom_dir=None, default_category="any%")
     sm.game_id = None
 
-    with caplog.at_level(logging.WARNING, logger="spinlab.routes.system"):
-        result = await reset_data(session=sm, db=db)
+    with caplog.at_level(logging.WARNING, logger="spinlab.session_manager"):
+        result = await reset_data(session=sm)
 
     assert result == {"status": "ok"}
     assert all(

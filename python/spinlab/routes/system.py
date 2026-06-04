@@ -23,7 +23,6 @@ from spinlab.api_schemas import (
 from spinlab.config import AppConfig
 from spinlab.dashboard import SSE_KEEPALIVE_S
 from spinlab.db import Database
-from spinlab.errors import NotRunningError
 from spinlab.models import Mode, Status
 from spinlab.session_manager import SessionManager
 
@@ -91,19 +90,9 @@ async def abort_cold_fill(session: SessionManager = Depends(get_session)):
 
 
 @router.post("/reset", response_model=OkResponse)
-async def reset_data(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
-    try:
-        await session.stop_practice()
-    except NotRunningError:
-        pass
-    if session.mode == Mode.REFERENCE:
-        session._clear_ref_and_idle()
-    gid = session.game_id
-    if gid:
-        logger.warning("reset: clearing all data for game=%s", gid)
-        db.reset_game_data(gid)
-    session.scheduler = None
-    session.mode = Mode.IDLE
+async def reset_data(session: SessionManager = Depends(get_session)):
+    """Reset all data for the current game. SessionManager owns the sequence."""
+    await session.reset_data()
     return {"status": "ok"}
 
 

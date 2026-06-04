@@ -750,3 +750,68 @@ async def test_start_cold_fill_raises_no_game_when_no_game(db, emu):
     # sm.game_id is None by default
     with pytest.raises(NoGameLoadedError):
         await sm.start_cold_fill()
+
+
+async def test_reset_data_clears_scheduler_and_mode(db, emu, monkeypatch):
+    """reset_data: stop practice (if any), clear ref state (if REFERENCE),
+    DB-reset, clear scheduler, return to IDLE."""
+    from spinlab.models import Mode
+
+    sm = make_sm(db, emu)
+    sm.game_id = "g"
+    # Force scheduler to be set so we can verify it's cleared.
+    sm.scheduler = object()  # type: ignore[assignment]  # any truthy sentinel
+    sm.mode = Mode.IDLE
+
+    db_reset_calls: list[str] = []
+    monkeypatch.setattr(sm.db, "reset_game_data", lambda gid: db_reset_calls.append(gid))
+
+    await sm.reset_data()
+
+    assert sm.scheduler is None
+    assert sm.mode == Mode.IDLE
+    assert db_reset_calls == ["g"]
+
+
+async def test_reset_data_clears_reference_mode_first(db, emu, monkeypatch):
+    """If currently in REFERENCE mode, reset_data must clear-and-idle the
+    capture controller before DB-reset to avoid a half-finalized run."""
+    from spinlab.models import Mode
+
+    sm = make_sm(db, emu)
+    sm.game_id = "g"
+    sm.mode = Mode.REFERENCE
+
+    cleared = {"called": False}
+    original_clear = sm.capture.clear_and_idle
+
+    def spy_clear():
+        cleared["called"] = True
+        return original_clear()
+
+    monkeypatch.setattr(sm.capture, "clear_and_idle", spy_clear)
+    monkeypatch.setattr(sm.db, "reset_game_data", lambda gid: None)
+
+    await sm.reset_data()
+
+    assert cleared["called"] is True
+    assert sm.mode == Mode.IDLE
+
+
+async def test_reset_data_no_game_is_noop_for_db(db, emu, monkeypatch):
+    """Without a loaded game, reset still clears scheduler+mode but skips DB."""
+    from spinlab.models import Mode
+
+    sm = make_sm(db, emu)
+    # game_id stays None
+    sm.scheduler = object()  # type: ignore[assignment]
+    sm.mode = Mode.IDLE
+
+    called: list[str] = []
+    monkeypatch.setattr(sm.db, "reset_game_data", lambda gid: called.append(gid))
+
+    await sm.reset_data()
+
+    assert sm.scheduler is None
+    assert sm.mode == Mode.IDLE
+    assert called == []

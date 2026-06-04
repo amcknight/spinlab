@@ -490,6 +490,31 @@ class SessionManager:
         await self._notify_sse()
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
 
+    async def reset_data(self) -> None:
+        """Reset all practice/reference data for the current game.
+
+        Full sequence: stop practice (if running), clear reference state
+        (if in REFERENCE mode), nuke the per-game DB rows, clear the
+        cached scheduler, return to IDLE. Replaces the per-route mutation
+        sequence that routes/system.py:reset_data used to drive directly.
+
+        NOTE: this does not broadcast SSE — the caller (typically the
+        /reset route) returns immediately and the user-driven action is
+        complete. State pushes happen on the next event.
+        """
+        try:
+            await self.stop_practice()
+        except NotRunningError:
+            pass
+        if self.mode == Mode.REFERENCE:
+            self._clear_ref_and_idle()
+        gid = self.game_id
+        if gid:
+            logger.warning("reset: clearing all data for game=%s", gid)
+            self.db.reset_game_data(gid)
+        self.scheduler = None
+        self.mode = Mode.IDLE
+
     async def finalize_run(self, name: str) -> ActionResult:
         scheduler = self.get_scheduler() if self.game_id else None
         result = await self.capture.finalize_run(name, scheduler=scheduler)
