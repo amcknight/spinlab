@@ -359,7 +359,8 @@ def test_practice_session_uses_injected_scheduler(tmp_path):
     scheduler = Scheduler(db, "g")
 
     ps = PracticeSession(
-        emu=emu, db=db, game_id="g",
+        emu=emu,  # type: ignore[arg-type]  # FakeEmuBackend.on_disconnect vs EmuBackend.on_disconnect — protocol invariance, pre-existing project pattern
+        db=db, game_id="g",
         death_penalty_ms=3200,
         scheduler=scheduler,
     )
