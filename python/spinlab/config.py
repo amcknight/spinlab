@@ -10,7 +10,6 @@ import yaml
 @dataclass
 class NetworkConfig:
     host: str = "127.0.0.1"
-    port: int = 15482
     dashboard_port: int = 15483
     nci_port: int = 55355  # RetroArch Network Command Interface port
 
@@ -74,7 +73,6 @@ class AppConfig:
         return cls(
             network=NetworkConfig(
                 host=net.get("host", "127.0.0.1"),
-                port=net.get("port", 15482),
                 dashboard_port=net.get("dashboard_port", 15483),
                 nci_port=net.get("nci_port", 55355),
             ),

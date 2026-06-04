@@ -245,7 +245,6 @@ def replay_ra_dashboard(
     config = AppConfig(
         network=NetworkConfig(
             host="127.0.0.1",
-            port=15482,  # unused — RA backend uses NCI, not TCP
             dashboard_port=dashboard_port,
             nci_port=ra_harness_love_yourself_no_reset.client.port,
         ),

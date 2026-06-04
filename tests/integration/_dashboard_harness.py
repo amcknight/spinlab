@@ -85,19 +85,12 @@ class DashboardHarness(AbstractContextManager):
     def fake(
         cls, *, tmp_path_root: Path, startup_timeout_s: float = 10.0,
     ) -> "DashboardHarness":
-        """Construct a fake-backed harness with throwaway config.
-
-        The dashboard port is picked from the free range. NetworkConfig.port
-        is a free port that nothing will bind to, so the event_loop's
-        connect-retries fail fast.
-        """
+        """Construct a fake-backed harness with throwaway config."""
         tmp = Path(tempfile.mkdtemp(prefix="spinlab_fake_", dir=tmp_path_root))
         dashboard_port = _free_port()
-        fake_tcp_port = _free_port()
         config = AppConfig(
             network=NetworkConfig(
                 host="127.0.0.1",
-                port=fake_tcp_port,
                 dashboard_port=dashboard_port,
             ),
             emulator=EmulatorConfig(

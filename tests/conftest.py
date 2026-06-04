@@ -18,7 +18,7 @@ def make_test_config(**overrides) -> AppConfig:
         spinlab_state_dir=Path("/tmp/test-spinlab-states"),
     )
     return AppConfig(
-        network=NetworkConfig(port=overrides.get("port", 59999)),
+        network=overrides.get("network", NetworkConfig()),
         emulator=overrides.get("emulator", default_emu),
         practice_engine=overrides.get("practice_engine", PracticeEngineConfig()),
         data_dir=overrides.get("data_dir", Path("data")),

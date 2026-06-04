@@ -76,14 +76,11 @@ def _load_config_or_die(config_path_str: str) -> AppConfig:
 
 
 def _write_ports_file(
-    project_dir: Path, tcp_port: int, dashboard_port: int, vite_port: int = 0,
+    project_dir: Path, dashboard_port: int, vite_port: int = 0,
 ) -> None:
     """Write .spinlab-ports for external tools (AHK scripts, etc.)."""
     ports_file = project_dir / ".spinlab-ports"
-    lines = [
-        f"tcp_port={tcp_port}",
-        f"dashboard_port={dashboard_port}",
-    ]
+    lines = [f"dashboard_port={dashboard_port}"]
     if vite_port:
         lines.append(f"vite_port={vite_port}")
     ports_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -141,7 +138,7 @@ def _run_dashboard(parsed: argparse.Namespace) -> None:
     app = create_app(db=db, config=config, vite_process=vite_proc)
     _write_ports_file(
         Path(parsed.config).parent,
-        config.network.port, dashboard_port, vite_port=VITE_PORT,
+        dashboard_port, vite_port=VITE_PORT,
     )
     print(f"SpinLab Dashboard: http://localhost:{VITE_PORT}")
     uvicorn.run(app, host="0.0.0.0", port=dashboard_port, log_level="warning")
