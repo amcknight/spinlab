@@ -221,6 +221,91 @@ def test_take_session_snapshot_real_baseline_exercises_closed_form(monkeypatch, 
     assert 0.0 <= base.death_rate <= 1.0
 
 
+def test_snapshot_inputs_reads_from_scheduler_cache(tmp_path):
+    """_snapshot_inputs pulls SamplerStates from scheduler.sampler_states()
+    rather than re-replaying the event log per segment.
+
+    Test strategy: substitute a fake scheduler whose sampler_states() returns
+    a sentinel object that replay_with_history cannot produce. If the snapshot
+    surfaces that sentinel, we know it came from the cache, not a fresh
+    rebuild. Catches a regression where someone re-introduces a replay path.
+    """
+    from spinlab.db import Database
+    from spinlab.estimators.em_suite_sampler import SamplerState
+    from spinlab.models import EndpointType, Segment
+    from spinlab.session_manager import SessionManager
+    from spinlab.system_state import SystemState
+
+    db = Database(tmp_path / "sm.db")
+    db.upsert_game("g", "Game", "any%")
+    db.upsert_segment(Segment(
+        id="s0", game_id="g", level_number=1,
+        start_type=EndpointType.ENTRANCE, start_ordinal=0,
+        end_type=EndpointType.GOAL, end_ordinal=0,
+    ))
+
+    sentinel_state = SamplerState()
+    # Tag it so we can identify it on the other side.
+    sentinel_state.n_attempts_total = 9999
+
+    class FakeScheduler:
+        def sampler_states(self):
+            return {"s0": sentinel_state}
+
+    sm = SessionManager.__new__(SessionManager)
+    sm.practice_session_snapshot = None
+    sm.state = SystemState()
+    sm.state.game_id = "g"
+    sm.db = db
+    sm.scheduler = FakeScheduler()  # type: ignore[assignment]
+
+    inputs = sm._snapshot_inputs()  # type: ignore[attr-defined]
+
+    by_seg = {seg_id: (state, eps) for seg_id, state, eps in inputs}
+    assert by_seg["s0"][0] is sentinel_state
+
+
+def test_snapshot_inputs_uses_empty_sampler_state_when_cache_misses(tmp_path):
+    """Segments without a saved model_state row (newly added, no events yet)
+    are absent from scheduler.sampler_states(). _snapshot_inputs must fall
+    back to a default-constructed SamplerState so downstream gates still see
+    a below-gate state and yield a None baseline, matching the prior
+    replay-of-empty-events behavior."""
+    from spinlab.db import Database
+    from spinlab.estimators.em_suite_sampler import SamplerState
+    from spinlab.models import EndpointType, Segment
+    from spinlab.session_manager import SessionManager
+    from spinlab.system_state import SystemState
+
+    db = Database(tmp_path / "sm.db")
+    db.upsert_game("g", "Game", "any%")
+    db.upsert_segment(Segment(
+        id="s_new", game_id="g", level_number=1,
+        start_type=EndpointType.ENTRANCE, start_ordinal=0,
+        end_type=EndpointType.GOAL, end_ordinal=0,
+    ))
+
+    class FakeScheduler:
+        def sampler_states(self):
+            return {}  # cache miss for s_new
+
+    sm = SessionManager.__new__(SessionManager)
+    sm.practice_session_snapshot = None
+    sm.state = SystemState()
+    sm.state.game_id = "g"
+    sm.db = db
+    sm.scheduler = FakeScheduler()  # type: ignore[assignment]
+
+    inputs = sm._snapshot_inputs()  # type: ignore[attr-defined]
+    by_seg = {seg_id: state for seg_id, state, _eps in inputs}
+    assert "s_new" in by_seg
+    fallback = by_seg["s_new"]
+    assert isinstance(fallback, SamplerState)
+    # A default SamplerState is below the prediction gate.
+    assert fallback.n_successes == 0
+    assert fallback.n_deaths == 0
+
+
 async def test_start_practice_rolls_back_on_snapshot_failure(tmp_path, monkeypatch):
     """If _take_session_snapshot raises inside start_practice, the session
     must roll back: mode=IDLE, practice_session=None, practice_task cancelled,

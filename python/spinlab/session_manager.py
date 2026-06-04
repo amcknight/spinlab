@@ -550,19 +550,20 @@ class SessionManager:
     def _snapshot_inputs(self):
         """Sequence of (seg_id, SamplerState, episodes) for every active segment.
 
-        Called by _take_session_snapshot. Pulls per-segment SamplerStates by
-        replaying the segment's event rows and the observed attempts from the
-        DB. Tests can override this method to bypass DB/scheduler plumbing.
+        Called by _take_session_snapshot. Pulls per-segment SamplerStates from
+        the scheduler's cached map; segments without a saved model_state row
+        fall back to an empty SamplerState (which fails gate_passes and yields
+        a None-baseline, matching the prior replay-of-empty-events behavior).
+        Tests can override this method to bypass DB/scheduler plumbing.
         """
-        from spinlab.estimators.em_suite_sampler import replay_with_history
-        from spinlab.scheduler import events_from_rows
+        from spinlab.estimators.em_suite_sampler import SamplerState
 
         if self.scheduler is None or self.state.game_id is None:
             return []
+        cached = self.scheduler.sampler_states()
         out = []
         for seg in self.db.get_active_segments(self.state.game_id):
-            events = events_from_rows(self.db.get_segment_event_rows(seg.id))
-            state, _hist = replay_with_history(events)
+            state = cached.get(seg.id) or SamplerState()
             episodes = self.db.get_segment_attempts(seg.id)
             out.append((seg.id, state, episodes))
         return out
