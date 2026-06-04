@@ -43,6 +43,8 @@ class PracticeSession:
         emu: "EmuBackend",
         db: "Database",
         game_id: str,
+        *,
+        scheduler: Scheduler,
         auto_advance_delay_ms: int = 1000,
         death_penalty_ms: int = 3200,
         on_attempt: Callable | None = None,
@@ -55,7 +57,7 @@ class PracticeSession:
         self.death_penalty_ms = death_penalty_ms
         self.on_attempt = on_attempt
 
-        self.scheduler = Scheduler(db, game_id)
+        self.scheduler = scheduler
         self.session_id = session_id or uuid.uuid4().hex
         self.started_at = datetime.now(UTC).isoformat()
         # Attempts FK to sessions(id); the row must exist before any attempt

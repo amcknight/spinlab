@@ -4,7 +4,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from tests.conftest import make_seg_with_state
+from tests.conftest import FakeEmuBackend, make_seg_with_state
 
 from spinlab.db import Database
 from spinlab.models import Attempt, AttemptSource, Segment, Waypoint
@@ -22,7 +22,7 @@ async def test_practice_session_picks_and_sends(practice_db):
     mock_emu.send = AsyncMock()
     mock_emu.send_command = AsyncMock()
 
-    session = PracticeSession(emu=mock_emu, db=practice_db, game_id="g")
+    session = PracticeSession(emu=mock_emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
     session.is_running = True
 
     # Deliver result via receive_result after a short delay
@@ -50,7 +50,7 @@ async def test_practice_session_picks_and_sends(practice_db):
 
 @pytest.mark.asyncio
 async def test_practice_session_state(practice_db):
-    session = PracticeSession(emu=AsyncMock(), db=practice_db, game_id="g")
+    session = PracticeSession(emu=AsyncMock(), db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
     assert session.is_running is False
     assert session.current_segment_id is None
     assert session.segments_attempted == 0
@@ -67,7 +67,7 @@ class TestReceiveResult:
 
         seg_id = practice_db._test_seg_id
 
-        ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
         ps.is_running = True
 
         # Schedule receive_result after a short delay
@@ -100,7 +100,7 @@ def test_snapshot_expected_times_at_start(practice_db):
 
     emu = AsyncMock()
     emu.is_connected = True
-    ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+    ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
     ps.start()
 
     assert ps.initial_expected_total_ms is not None
@@ -140,7 +140,7 @@ def test_snapshot_skips_segments_without_state_path(practice_db, tmp_path):
 
     emu = AsyncMock()
     emu.is_connected = True
-    ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+    ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
     ps.start()
 
     # Only seg_id had a real state_path; seg2 contributes nothing.
@@ -158,7 +158,7 @@ def test_snapshot_all_missing_returns_none(practice_db):
     emu = AsyncMock()
     emu.is_connected = True
     # No process_attempt call -> no model state -> no expected_ms
-    ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+    ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
     ps.start()
 
     assert ps.initial_expected_total_ms is None
@@ -173,7 +173,11 @@ async def test_practice_session_passes_death_penalty_ms(practice_db):
     mock_emu.is_connected = True
     mock_emu.send_command = AsyncMock()
 
-    session = PracticeSession(emu=mock_emu, db=practice_db, game_id="g", death_penalty_ms=2500)
+    session = PracticeSession(
+        emu=mock_emu, db=practice_db, game_id="g",
+        scheduler=Scheduler(practice_db, "g"),
+        death_penalty_ms=2500,
+    )
     session.is_running = True
 
     async def deliver():
@@ -243,7 +247,7 @@ def test_process_result_does_not_double_count_attempts(practice_db):
     seg_id = practice_db._test_seg_id
     emu = AsyncMock()
     emu.is_connected = True
-    ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+    ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
 
     ps._process_result(
         AttemptResultEvent(segment_id=seg_id, completed=True, time_ms=10000),
@@ -270,7 +274,7 @@ def test_current_expected_times_reflects_model_updates(practice_db):
 
     emu = AsyncMock()
     emu.is_connected = True
-    ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+    ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
     ps.start()
     initial_total = ps.initial_expected_total_ms
     assert initial_total is not None
@@ -297,7 +301,7 @@ class TestReloadOnDeath:
         emu.is_connected = True
         emu.load_state = AsyncMock()
 
-        ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
         ps._current_state_path = "/states/seg_x.state"
 
         await ps.handle_death()
@@ -310,7 +314,7 @@ class TestReloadOnDeath:
         emu.is_connected = True
         emu.load_state = AsyncMock()
 
-        ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
         # _current_state_path defaults to None.
 
         await ps.handle_death()
@@ -324,7 +328,7 @@ class TestReloadOnDeath:
         emu.is_connected = True
         emu.load_state = AsyncMock()
 
-        ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
         ps._current_state_path = "/states/seg_y.state"
 
         await ps.handle_level_exit_abort()
@@ -335,10 +339,28 @@ class TestReloadOnDeath:
         """Race fix: clear the armed flag the moment attempt_result arrives,
         so a Death event arriving in the same handler batch doesn't trigger
         a spurious post-attempt reload."""
-        ps = PracticeSession(emu=AsyncMock(), db=practice_db, game_id="g")
+        ps = PracticeSession(
+            emu=AsyncMock(), db=practice_db, game_id="g",
+            scheduler=Scheduler(practice_db, "g"),
+        )
         ps._current_state_path = "/states/seg_z.state"
 
         ps.receive_result(AttemptResultEvent(
             segment_id="seg_z", completed=True, time_ms=1000,
         ))
         assert ps._current_state_path is None
+
+
+def test_practice_session_uses_injected_scheduler(tmp_path):
+    """PracticeSession must accept a Scheduler and not construct its own."""
+    db = Database(tmp_path / "p.db")
+    db.upsert_game("g", "Game", "any%")
+    emu = FakeEmuBackend(connected=True)
+    scheduler = Scheduler(db, "g")
+
+    ps = PracticeSession(
+        emu=emu, db=db, game_id="g",
+        death_penalty_ms=3200,
+        scheduler=scheduler,
+    )
+    assert ps.scheduler is scheduler  # same instance — no construction

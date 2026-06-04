@@ -611,6 +611,7 @@ class SessionManager:
         from .practice import PracticeSession
         ps = PracticeSession(
             emu=self.emu, db=self.db, game_id=self.require_game(),
+            scheduler=self.get_scheduler(),
             death_penalty_ms=self.capture.condition_registry.death_penalty_ms,
             on_attempt=lambda _: asyncio.create_task(self._notify_sse()),
         )

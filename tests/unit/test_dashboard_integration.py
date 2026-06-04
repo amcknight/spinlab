@@ -123,8 +123,10 @@ def active_client(seeded_db):
 
     mock_emu = AsyncMock()
     mock_emu.is_connected = True
+    from spinlab.scheduler import Scheduler
     ps = PracticeSession(
         emu=mock_emu, db=seeded_db, game_id=GAME_ID, session_id="sess1",
+        scheduler=Scheduler(seeded_db, GAME_ID),
     )
     ps.is_running = True
     ps.current_segment_id = "s1"

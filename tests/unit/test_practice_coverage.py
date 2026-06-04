@@ -6,6 +6,7 @@ import pytest
 
 from spinlab.practice import PracticeSession
 from spinlab.protocol import AttemptResultEvent, PracticeLoadCmd, PracticeStopCmd
+from spinlab.scheduler import Scheduler
 
 
 def _make_tcp():
@@ -19,7 +20,7 @@ class TestRunLoopLifecycle:
     async def test_run_loop_creates_and_ends_session(self, practice_db):
         seg_id = practice_db._test_seg_id
         emu = _make_tcp()
-        ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
 
         # Deliver a result then stop
         async def deliver_and_stop():
@@ -43,7 +44,7 @@ class TestRunLoopLifecycle:
     @pytest.mark.asyncio
     async def test_run_loop_sends_practice_stop_on_exit(self, practice_db):
         emu = _make_tcp()
-        ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
 
         # Stop immediately
         async def stop_soon():
@@ -66,6 +67,7 @@ class TestOnAttemptCallback:
         received = []
         ps = PracticeSession(
             emu=emu, db=practice_db, game_id="g",
+            scheduler=Scheduler(practice_db, "g"),
             on_attempt=lambda a: received.append(a),
         )
         ps.is_running = True
@@ -88,7 +90,7 @@ class TestDisconnectDuringWait:
     @pytest.mark.asyncio
     async def test_run_one_exits_on_disconnect(self, practice_db):
         emu = _make_tcp()
-        ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
         ps.is_running = True
 
         async def disconnect():
@@ -109,7 +111,7 @@ class TestOverlayLabelGeneration:
         # Clear description so auto-label kicks in
         practice_db.update_segment(seg_id, description="")
         emu = _make_tcp()
-        ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
         ps.is_running = True
 
         async def deliver():
@@ -134,7 +136,7 @@ class TestOverlayLabelGeneration:
         # Update segment to have a description
         practice_db.update_segment(seg_id, description="My custom segment")
         emu = _make_tcp()
-        ps = PracticeSession(emu=emu, db=practice_db, game_id="g")
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
         ps.is_running = True
 
         async def deliver():
