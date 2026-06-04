@@ -135,3 +135,14 @@ class BackendNotImplementedError(ActionError):
     """
     http_code = 501
     detail = "backend_not_implemented"
+
+
+class SnapshotFailedError(ActionError):
+    """The practice/hyper-play session snapshot could not be computed.
+
+    Raised by SessionManager.start_practice/start_hyper_play when the
+    baseline snapshot build raises. The session is rolled back to IDLE
+    before this is raised, so the caller can safely retry.
+    """
+    http_code = 500
+    detail = "snapshot_failed"

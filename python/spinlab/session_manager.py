@@ -569,20 +569,36 @@ class SessionManager:
 
     def _take_session_snapshot(self) -> None:
         """Capture an in-memory baseline of every active segment + the route
-        aggregate. Called from practice/hyper-play start."""
+        aggregate. Called from practice/hyper-play start.
+
+        On failure: log WARNING, clear snapshot to None, re-raise so the
+        caller (start_practice/start_hyper_play) can roll back the session.
+        Silent failure would leave the live view emitting all-None diffs
+        with no observable cause."""
         import time as _time
 
         from spinlab.estimators.session_snapshot import snapshot_from_segments
 
-        self.practice_session_snapshot = snapshot_from_segments(
-            started_at=_time.time(),
-            segments=self._snapshot_inputs(),
-        )
+        try:
+            inputs = self._snapshot_inputs()
+            self.practice_session_snapshot = snapshot_from_segments(
+                started_at=_time.time(),
+                segments=inputs,
+            )
+            logger.info(
+                "snapshot captured: n_segments=%d", len(inputs),
+            )
+        except Exception:
+            self.practice_session_snapshot = None
+            logger.warning("snapshot capture failed", exc_info=True)
+            raise
 
     def _clear_session_snapshot(self) -> None:
         self.practice_session_snapshot = None
 
     async def start_practice(self) -> ActionResult:
+        from .errors import SnapshotFailedError
+
         if self.capture.has_paused_run:
             raise DraftPendingError()
         if self.practice_session and self.practice_session.is_running:
@@ -602,7 +618,19 @@ class SessionManager:
         self.practice_task = asyncio.create_task(ps.run_loop())
         self.practice_task.add_done_callback(self._on_practice_done)
         self.mode = Mode.PRACTICE
-        self._take_session_snapshot()
+        try:
+            self._take_session_snapshot()
+        except Exception as exc:
+            # Roll back the half-started session so the caller can retry.
+            # The done-callback would also clear mode eventually, but the
+            # route needs a clean IDLE *now* and a typed error to surface.
+            ps.is_running = False
+            self.practice_task.cancel()
+            self.practice_session = None
+            self.practice_task = None
+            self.mode = Mode.IDLE
+            self._clear_session_snapshot()
+            raise SnapshotFailedError() from exc
         await self._notify_sse()
         return ActionResult(status=Status.STARTED, session_id=ps.session_id)
 
@@ -643,6 +671,8 @@ class SessionManager:
 
 
     async def start_hyper_play(self) -> ActionResult:
+        from .errors import SnapshotFailedError
+
         if self.capture.has_paused_run:
             raise DraftPendingError()
         if self.hyper_play_session and self.hyper_play_session.is_running:
@@ -665,7 +695,16 @@ class SessionManager:
         self.hyper_play_task = asyncio.create_task(sr.run_loop())
         self.hyper_play_task.add_done_callback(self._on_hyper_play_done)
         self.mode = Mode.HYPER_PLAY
-        self._take_session_snapshot()
+        try:
+            self._take_session_snapshot()
+        except Exception as exc:
+            sr.is_running = False
+            self.hyper_play_task.cancel()
+            self.hyper_play_session = None
+            self.hyper_play_task = None
+            self.mode = Mode.IDLE
+            self._clear_session_snapshot()
+            raise SnapshotFailedError() from exc
         await self._notify_sse()
         return ActionResult(status=Status.STARTED, session_id=sr.session_id)
 
