@@ -101,8 +101,15 @@ def segment_history(
             "created_at": a.created_at,
         })
 
-    from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
-    est = EmSuiteSamplerEstimator()
+    sched = session.get_scheduler() if session.game_id is not None else None
+    if sched is not None:
+        est = sched.estimator
+    else:
+        # No game loaded - segment_history still works for a segment row that
+        # exists in the DB (e.g. a segment from a previously-loaded game),
+        # so build a stateless estimator just for this rendering pass.
+        from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
+        est = EmSuiteSamplerEstimator()
     final_state = est.rebuild_state(all_records, events=events)
     final_out = est.model_output(final_state, completed, events=events)
     estimator_curves: dict[str, dict] = {
@@ -115,7 +122,6 @@ def segment_history(
         }
     }
 
-    sched = session.get_scheduler() if session.game_id is not None else None
     selected_model = sched.estimator.name if sched is not None else None
 
     # Cold-only distribution for the segment-detail panel (histogram + hazard).
