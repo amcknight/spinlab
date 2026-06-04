@@ -621,12 +621,34 @@ class TestDisconnectAndShutdown:
         assert emu.is_connected is False
 
 
-async def test_invalidate_current_attempt_dispatches_to_handler(db, emu):
-    """Public method routes through the same handler as the event dispatch table."""
+async def test_invalidate_current_attempt_dispatches_to_handler(db, emu, monkeypatch):
+    """Public method routes through the same handler as the event dispatch table.
+
+    Installs a fake practice_session and stubs the DB lookups so the handler
+    reaches set_attempt_invalidated; asserts that call happened with the
+    expected (attempt_id, True) arguments. Without this, the early-return on
+    practice_session=None would let the test pass even if the public method's
+    body were replaced with `pass`.
+    """
     sm = make_sm(db, emu)
     sm.game_id = "game1"
-    # No active practice attempt — handler is a no-op, but must not raise.
+
+    fake_ps = MagicMock()
+    fake_ps.session_id = "sess-abc"
+    sm.practice_session = fake_ps
+
+    monkeypatch.setattr(sm.db, "get_last_practice_attempt", lambda session_id: 42)
+
+    captured: list[tuple[int, bool]] = []
+    monkeypatch.setattr(
+        sm.db,
+        "set_attempt_invalidated",
+        lambda aid, inv: captured.append((aid, inv)),
+    )
+
     await sm.invalidate_current_attempt()
+
+    assert captured == [(42, True)]
 
 
 async def test_capture_event_routed_while_recording_even_if_mode_lags(db, emu):
