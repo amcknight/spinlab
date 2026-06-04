@@ -553,8 +553,12 @@ class PracticeEngineSegmentState(_BaseResponse):
     start_ordinal: int
     end_type: str
     end_ordinal: int
-    e_sample_0_ms: float
-    e_sample_1_ms: float
+    # None when the closed-form expected_episode_time_scalar refuses to compute
+    # (p_die >= 1 - LOGIT_EPS: geometric mean diverges as p -> 1). Empirically
+    # samplable segments in that corner remain gated but show "—" here; previously
+    # the route returned a fabricated 0.0 (silent fallback violates model_principles).
+    e_sample_0_ms: float | None
+    e_sample_1_ms: float | None
     pool_success: int
     pool_death: int
     gold_ms: int | None = None  # backs the "fill from gold" dashboard helper

@@ -85,8 +85,9 @@ def get_state(
             # E[sample(0)] from the closed-form scalar; precise per-segment
             # draws live in /evaluate. e_sample_1 is a cheap closed-form
             # placeholder here — /evaluate fills in real draws via
-            # PracticeEngine.per_segment_values.
-            e0 = expected_episode_time_scalar(state) or 0.0
+            # PracticeEngine.per_segment_values. None propagates honestly when
+            # the scalar refuses to compute (p_die ~= 1).
+            e0 = expected_episode_time_scalar(state)
             gated.append(PracticeEngineSegmentState(
                 seg_id=seg_id,
                 description=meta.description or "",
@@ -95,8 +96,8 @@ def get_state(
                 start_ordinal=meta.start_ordinal,
                 end_type=meta.end_type,
                 end_ordinal=meta.end_ordinal,
-                e_sample_0_ms=float(e0),
-                e_sample_1_ms=float(e0),
+                e_sample_0_ms=e0,
+                e_sample_1_ms=e0,
                 pool_success=n_succ,
                 pool_death=n_death,
                 gold_ms=gold_ms,
