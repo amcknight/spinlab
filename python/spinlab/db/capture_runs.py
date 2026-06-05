@@ -186,7 +186,11 @@ class CaptureRunsMixin:
                       NULL AS state_path
                FROM segments s
                LEFT JOIN capture_sessions cs ON s.capture_session_id = cs.id
-               WHERE s.capture_run_id = ? AND s.active = 1
+               WHERE s.active = 1
+                 AND s.id IN (
+                   SELECT DISTINCT a.segment_id FROM attempts a
+                   WHERE a.capture_run_id = ? AND a.invalidated = 0
+                 )
                ORDER BY s.ordinal""",
             (capture_run_id,),
         )
