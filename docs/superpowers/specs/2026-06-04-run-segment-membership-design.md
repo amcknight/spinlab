@@ -1,90 +1,81 @@
 # Run↔Segment Membership — Design
 
 **Date:** 2026-06-04
-**Status:** Approved (brainstorm)
-**Topic:** Replace single-owner `capture_run_id` on segments with a many-to-many run↔segment membership; make replays independent and non-contributing to practice data.
+**Status:** Approved (brainstorm) — **Design X (minimal)**
+**Topic:** Make the Manage tab's run-scoped segment views use **traversal membership** (already recorded in `attempts`) instead of single-owner `capture_run_id`, so a run that re-records existing levels shows the segments it captured.
 
 ## Problem
 
-A segment's `id` is **geography-keyed** (`game_id:level:start.ord:end.ord:start_wp:end_wp` — see `Segment.make_id` in `python/spinlab/models.py`). It carries no run or category. So segment rows are shared across every run that traverses the same geography. The run↔segment relationship is, in reality, **many-to-many** (a run captures many geographies; a geography is captured by many runs).
+A segment's `id` is **geography-keyed** (`game_id:level:start.ord:end.ord:start_wp:end_wp` — `Segment.make_id` in `python/spinlab/models.py`); it carries no run or category. So segment rows are shared across every run that traverses the same geography. `segments.capture_run_id` records the **first** run to create the row and is never overwritten (`upsert_segment` ON CONFLICT keeps the first owner — the 2026-05-29 `48e47e3` replay-clobber fix).
 
-Today that many-to-many is stored as a **one-to-many** via a single `segments.capture_run_id` "owner" column, set on first capture and deliberately never overwritten (`upsert_segment` ON CONFLICT keeps the first owner — the 2026-05-29 `48e47e3` replay-clobber fix). Consequences observed in the 2026-06-04 smoke (game `5d5f596431889601` "Cute Kaizo"):
+Observed 2026-06-04 (game `5d5f596431889601` "Cute Kaizo"): a new reference run that re-records existing levels **owns zero** segments (they stay owned by the first run). The Manage tab's Segments section is run-scoped via `get_segments_by_reference` → `WHERE s.capture_run_id = ?`, so it shows "No segments" even though the run's header counter showed `2` captured. (DB confirmed: run `live_95f6be8c` owns 0; all 4 segments owned by older `live_75a45cfd`.)
 
-- A new reference run that re-records existing levels owns **zero** segments (they stay owned by the first run). The Manage tab's Segments section is **run-scoped** (`get_segments_by_reference` → `WHERE capture_run_id=? AND active=1`), so it shows "No segments" even though the run's header counter showed `2` captured during the run. (DB confirmed: run `live_95f6be8c` owns 0; all 4 segments owned by the older `live_75a45cfd`.)
-- The Model tab is **geography/game-scoped** (`/api/model` → `get_all_segments_with_model(game_id, primary_only=True)`); it shows the shared primaries and never reflects "which run," so switching the active reference run does nothing to it. This is correct pooling behavior, but reads as "stuck on one reference run."
-- "Ownership" is conceptually confusing because one key (`segment_id` = geography) is doing two jobs: the **artifact key** ("what a run captured") and the **modeling/pooling key** (`attempts`, `model_state`, `segment_fits` all join on `segment_id`).
+## Key finding — membership already exists
+
+The mechanism to fix this is **already in the codebase**; only two read queries use the wrong key.
+
+- The recorder writes a per-event row stamped with `capture_run_id` + `segment_id` for **every** segment any run closes — live (`source=REFERENCE`) and replay (`source=REPLAY`). So `attempts` already records run↔segment **traversal** for every run.
+- `count_segments_traversed_in_run` (`python/spinlab/db/segments.py`) already derives the honest "segments this run captured" count from that: `SELECT COUNT(DISTINCT segment_id) FROM attempts WHERE capture_run_id=? AND invalidated=0`. Its docstring describes this exact bug. This is why the header counter correctly showed `2`.
+- **Replays already don't pollute the model.** `events_from_rows` (`python/spinlab/scheduler.py:53-70`) is the single sampler-ingestion seam and skips `source==REPLAY`; the fit gate does too (`scheduler.py:350-351`). So replay event rows are recorded (for provenance/membership) but excluded from every model view.
+- The model **already pools across runs by geography**, category-agnostic (keyed on `segment_id`). Save-states are **already geography-attached** (`waypoint_save_states`, keyed by waypoint).
+
+So everything the user wants (pool across runs/categories; replays independent and non-contributing; geography-attached save-states) already holds. The only defect is that **Manage queries ownership where it means traversal**.
+
+"Ownership" stays meaningful and is **not** removed: `count_segments_for_run` (ownership) answers a different question — "did this run create any *new* geography rows?" — used for the recorder ordinal and replay cleanup. Membership ("which segments did this run go through") is the `attempts`-derived view. The bug was using the former where the latter was meant.
 
 ## Goals
 
-1. Model run↔segment as a real **many-to-many membership**; remove the "owner" concept.
-2. Keep **geography as the universal pooling unit**: modeling data stays keyed on `segment_id`, pooling across all runs of a game regardless of category or route. Category is **not** a first-class structural key.
-3. Keep **save-states attached to geography** (canonical cold/hot per geography — the existing `waypoint_save_states` model). Re-recording (any run, including replay) **updates** the canonical save-state.
-4. Make **replays independent**: a replay gets membership and may refresh save-states, but writes **no** practice/modeling attempts (which also stops it double-counting the original run's data into the pooled model).
-5. Fix the user-visible symptoms: Manage shows each run's captured segments; the Model's geography-pooling behavior is preserved (and intentional).
+1. Manage's run-scoped Segments view shows the segments a run **traversed** (captured), including re-records of existing levels.
+2. Run-scoped cold-fill (`segments_missing_cold(game_id, run_id=)`) likewise scopes by traversal, not ownership.
+3. No new schema, no migration, no recorder/replay changes — reuse the existing `attempts`-derived membership.
 
-## Non-goals
+## Non-goals (and why)
 
-- Per-run or per-category save-states (explicitly rejected — geography-attached canonical is the chosen model).
-- Cross-category pooling as new work: it falls out for free because the geography key is already category-agnostic.
-- The "some loads feel different" capture-quality issue (likely cold-state captured mid-respawn-animation). Filed separately, not part of this refactor.
-- Any change to how the Model tab scopes data (it stays geography/game-pooled by design).
+- **A `run_segments` membership table** — considered and rejected: it would duplicate membership that already lives in `attempts`. Its only edge over Design X is robust per-session grouping for re-recorded *multi-session* runs (see caveat); not worth a new table + migration.
+- Dropping `segments.capture_run_id`/`capture_session_id` — they still serve ownership semantics (`count_segments_for_run`, recorder ordinal, replay cleanup). Leave them.
+- Any model/replay/save-state change — already correct.
 
-## Data model
+## Design
 
-**Unchanged:**
-- `segments` rows stay geography-keyed; `attempts`, `model_state`, `segment_fits` keep joining on `segment_id`.
-- `waypoints` and `waypoint_save_states` (canonical cold/hot per geography) — unchanged.
-- `capture_runs` (`id, game_id, name, status, active, kind`) — `kind` already distinguishes `live`/`replay`. Category remains an optional label only; no structural use.
+Two query rewrites in the DB layer; nothing else.
 
-**New — `run_segments` membership join:**
+**1. `get_segments_by_reference(capture_run_id)` (`python/spinlab/db/capture_runs.py`)** — replace the ownership predicate with traversal membership:
 
-```
-run_segments(
-  capture_run_id     TEXT NOT NULL,   -- FK capture_runs.id
-  segment_id         TEXT NOT NULL,   -- FK segments.id (geography)
-  capture_session_id TEXT,            -- session within the run that (last) captured it
-  ordinal            INTEGER,         -- capture order within the run (for display)
-  captured_at        TEXT NOT NULL,
-  PRIMARY KEY (capture_run_id, segment_id)
-)
+```sql
+-- was:  WHERE s.capture_run_id = ? AND s.active = 1
+-- now:
+WHERE s.active = 1
+  AND s.id IN (
+    SELECT DISTINCT a.segment_id FROM attempts a
+    WHERE a.capture_run_id = ? AND a.invalidated = 0
+  )
+ORDER BY s.ordinal
 ```
 
-A run's geographies = `SELECT ... FROM segments s JOIN run_segments rs ON rs.segment_id = s.id WHERE rs.capture_run_id = ? AND s.active = 1`. `capture_session_id` on the join preserves Manage's per-session grouping (`session_ordinal`).
+The SELECT list (incl. `s.capture_run_id`, `s.capture_session_id`, `cs.ordinal AS session_ordinal`) is unchanged so the response shape (`ReferenceSegmentRow`) is unchanged. **Caveat:** `session_ordinal` comes from the segment's owner session (`s.capture_session_id`); for a segment re-recorded by a *different* run that's the original owner's session, so per-session grouping degrades for re-records. Acceptable (display-only; Andrew accepted).
 
-**Removed (after backfill):** `segments.capture_run_id`, `segments.capture_session_id`. Membership now lives only in `run_segments`. `Segment.capture_run_id` / `capture_session_id` (dataclass in `models.py`) become inputs the recorder uses to write the membership row, not persisted columns on the segment.
+**2. Run-scoped `segments_missing_cold(game_id, run_id)` (`python/spinlab/db/segments.py`)** — the `run_id`-scoped branch uses traversal instead of ownership:
 
-## Behavior
+```sql
+-- was:  run_clause = "AND s.capture_run_id = ?"
+-- now:
+run_clause = "AND s.id IN (SELECT DISTINCT segment_id FROM attempts WHERE capture_run_id = ? AND invalidated = 0)"
+```
 
-**Capture (recorder, `python/spinlab/capture/recorder.py`):** when a geography is captured/closed, in addition to `upsert_segment` (geography def) and the save-state write, insert/replace a `run_segments` membership row for the active `(capture_run_id, capture_session_id, ordinal)`. `upsert_segment` no longer needs the keep-first-owner ON CONFLICT carve-out for `capture_run_id` (the column is gone); re-recording naturally adds a membership row for the new run.
+`run_id=None` (whole-game) branch is unchanged.
 
-**Re-record updates canonical save-state:** any run (live or replay) that re-captures a geography updates its canonical cold/hot save-state. No ownership gate.
-
-**Replays (`kind=replay`):** get `run_segments` membership and may refresh save-states, but the recorder must **not** write event-attempts when the run is a replay. Today `_close_segment` writes event-attempts unconditionally via `self._source` (recorder.py:251-262); gate that write on the run not being a replay. [Plan: confirm how `kind`/`_source` is threaded into the recorder and pick the cleanest gate — likely skip `log_event_attempt` when `kind == "replay"`.]
-
-## Queries / API
-
-- `get_segments_by_reference` (`db/capture_runs.py`), run-scoped `segments_missing_cold` (`db/segments.py`), and any `sections_captured`/run-scoped count → rewrite to JOIN `run_segments` instead of `WHERE capture_run_id=`.
-- `/api/segments` (`get_all_segments_with_model`) and `/api/model` — unchanged (geography/game-scoped; their SELECTs don't reference the dropped columns). The dropped columns appear only in `get_segments_by_reference`'s SELECT, which the JOIN rewrite above replaces (`rs.capture_run_id`, `rs.capture_session_id`).
-- Manage frontend (`frontend/src/manage.ts`) keeps calling `/api/references/{id}/segments`; it now returns the run's membership-joined segments. No frontend logic change required (fixes "segments vanish").
-
-## Migration (`python/spinlab/db/migrations/0008_run_segments.sql`)
-
-1. `CREATE TABLE run_segments (...)`.
-2. Backfill: one membership row per existing segment from its current `capture_run_id` / `capture_session_id` (`INSERT INTO run_segments SELECT capture_run_id, id, capture_session_id, ordinal, COALESCE(updated_at, created_at) FROM segments WHERE capture_run_id IS NOT NULL`).
-3. Drop `segments.capture_run_id` and `segments.capture_session_id` (SQLite: table rebuild per the existing migration-runner conventions).
-
-Migrations are immutable once shipped; any correction is a later migration.
+Frontend (`frontend/src/manage.ts`) and the `/api/references/{id}/segments` route are unchanged — the endpoint now returns the run's traversed segments.
 
 ## Testing (Red-Green)
 
-- **The core bug:** a second run that re-records the same geographies yields its own `run_segments` membership; `get_segments_by_reference(new_run)` returns those segments (currently returns `[]`). Red before, green after.
-- **Replays don't contribute:** a replay run produces membership + (optionally) refreshed save-states but writes **zero** new event-attempts; the geography's attempt/model data is unchanged after a replay (no double-count).
-- **Pooling preserved:** attempts from two different runs over the same geography both feed `get_segment_attempts(segment_id)` / the model — unchanged across the refactor.
-- **Migration backfill:** an existing DB's segments each get exactly one membership row matching their pre-migration `capture_run_id`; run-scoped queries return the same sets they did pre-migration for single-run geographies.
+Mirror `test_count_segments_traversed_in_run_counts_segments_owned_by_other_runs` (`tests/unit/db/test_db_segments.py`): a segment owned by run "old", an `EventAttempt` stamped `capture_run_id="new"`.
+
+- **`get_segments_by_reference`** (`tests/unit/db/test_db_references.py`): a segment owned by "old" but traversed by "new" is returned by `get_segments_by_reference("new")` (Red: returns `[]`; Green: returns it). Invalidated-only traversal is excluded. Existing `test_get_segments_by_reference` (owner == traverser) still passes.
+- **`segments_missing_cold`** (`tests/unit/db/test_db_segments.py`): a segment with hot-but-no-cold, owned by "old", traversed by "new", appears in `segments_missing_cold("g", run_id="new")` (Red: excluded; Green: included). Whole-game (`run_id=None`) behavior unchanged.
 - Full `python -m pytest` (incl. emulator + frontend smoke) green before merge.
 
-## Risks / notes
+## Notes / risks
 
-- `segments_missing_cold` run-scoping and cold-fill depend on the membership join — verify cold-fill's run-scoped path (`session_manager._launch... / capture/cold_fill.py`) reads via the join.
-- Confirm nothing else reads `segments.capture_run_id` directly before dropping the column (grep at plan time).
-- `attempts.capture_run_id` stays (provenance of practice attempts); only the `segments` columns move to the join.
+- Relies on every captured segment having ≥1 non-invalidated event row — the same assumption `count_segments_traversed_in_run` already makes and that the live counter already trusts.
+- Confirm no other caller of `get_segments_by_reference` depends on ownership semantics (only the `/references/{id}/segments` route → Manage).
+- "Model stuck on one reference run" needs no code change: the model is geography-pooled by design; switching the active run intentionally changes only the Manage listing, not the model. Communicate in UI if confusing (out of scope here).
