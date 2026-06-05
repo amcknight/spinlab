@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { groupByLevel, formatConditions, renderSegmentsView, coldCaptureButtonEnabled } from "./segments-view";
+import { groupByLevel, formatConditions, renderSegmentsView, coldCaptureButtonEnabled, coldCaptureButtonVisible } from "./segments-view";
 
 describe("groupByLevel", () => {
   it("groups segments by level_number preserving ordinal order", () => {
@@ -43,6 +43,14 @@ describe("coldCaptureButtonEnabled", () => {
     expect(coldCaptureButtonEnabled("idle", false, true)).toBe(false);
     expect(coldCaptureButtonEnabled("cold_fill", true, true)).toBe(false);
     expect(coldCaptureButtonEnabled("reference", true, true)).toBe(false);
+  });
+});
+
+describe("coldCaptureButtonVisible", () => {
+  it("shows only when the active run has at least one missing-cold segment", () => {
+    expect(coldCaptureButtonVisible(0)).toBe(false);
+    expect(coldCaptureButtonVisible(1)).toBe(true);
+    expect(coldCaptureButtonVisible(5)).toBe(true);
   });
 });
 

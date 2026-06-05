@@ -7,7 +7,12 @@ import {
   initModelTab,
 } from "./model";
 import { fetchManage, initManageTab, updateManageState } from "./manage";
-import { fetchSegments, renderSegmentsView, coldCaptureButtonEnabled } from "./segments-view";
+import {
+  fetchSegments,
+  renderSegmentsView,
+  coldCaptureButtonEnabled,
+  coldCaptureButtonVisible,
+} from "./segments-view";
 import { initPracticeEnginePanel } from "./practice-engine";
 import type { AppState } from "./types";
 
@@ -16,10 +21,16 @@ let _currentGameId: string | null = null;
 function updateColdCaptureButton(data: AppState): void {
   const btn = document.getElementById("btn-start-cold-fill") as HTMLButtonElement | null;
   if (!btn) return;
+  // Hide entirely unless there's actually cold-fill work for the active run —
+  // a disabled-but-visible button when there's nothing to capture is noise.
+  const visible = coldCaptureButtonVisible(data.segments_missing_cold);
+  btn.style.display = visible ? "" : "none";
+  if (!visible) return;
   btn.disabled = !coldCaptureButtonEnabled(data.mode, data.has_active_run, data.emu_connected);
-  btn.title = data.has_active_run
-    ? "Capture cold states for the active run"
-    : "Select a reference run in Manage first";
+  btn.textContent = `Start Cold Capture (${data.segments_missing_cold})`;
+  btn.title = data.emu_connected
+    ? "Capture the missing cold states for the active run"
+    : "Connect the emulator to capture cold states";
 }
 
 function updateFromState(data: AppState): void {

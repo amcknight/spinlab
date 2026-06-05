@@ -42,6 +42,14 @@ class StateBuilder:
         active_run_id = session.capture.active_run_id
         game_id = session.game_id
 
+        # The active *reference* run (the one cold-fill scopes to) — distinct
+        # from active_run_id above, which is the currently-*recording* run and
+        # is None outside REFERENCE/REPLAY. Read once for has_active_run and the
+        # cold-gap count below so both reflect the same snapshot.
+        ref_run_id = (
+            self.db.get_active_capture_run(game_id) if game_id is not None else None
+        )
+
         sections_captured: int | None = None
         if is_recording and active_run_id is not None:
             # Count segments this run *traversed* (recorded an event for), not
@@ -70,9 +78,13 @@ class StateBuilder:
             "replay": None,
             "paused_run": None,
             "cold_fill": None,
-            "has_active_run": (
-                game_id is not None
-                and self.db.get_active_capture_run(game_id) is not None
+            "has_active_run": ref_run_id is not None,
+            # Run-scoped gap count — same (game_id, run_id) the cold-fill start
+            # path uses, so the button shows iff start_cold_fill would find work.
+            "segments_missing_cold": (
+                len(self.db.segments_missing_cold(game_id, ref_run_id))
+                if ref_run_id is not None and game_id is not None
+                else 0
             ),
         }
 

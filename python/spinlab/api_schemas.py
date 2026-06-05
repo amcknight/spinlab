@@ -136,6 +136,10 @@ class AppState(_BaseResponse):
     paused_run: PausedRunState | None
     cold_fill: ColdFillState | None
     has_active_run: bool
+    # Count of active-run segments whose start has a hot but no cold save state
+    # (i.e. cold-fill has something to do). 0 when there's no active run.
+    # Drives the cold-capture button's visibility on the frontend.
+    segments_missing_cold: int
 
 
 # ---------------------------------------------------------------------------

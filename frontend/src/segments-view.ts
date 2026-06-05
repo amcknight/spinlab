@@ -5,6 +5,14 @@ export function coldCaptureButtonEnabled(mode: string, hasActiveRun: boolean, em
   return mode === "idle" && hasActiveRun && emuConnected;
 }
 
+/** Whether the cold-capture button should be shown at all. Hidden unless the
+ * active run actually has cold states left to capture — a count of 0 (no run,
+ * or every gap already filled, possibly from another run) means there's
+ * nothing to do, so the button stays out of the way. */
+export function coldCaptureButtonVisible(segmentsMissingCold: number): boolean {
+  return segmentsMissingCold > 0;
+}
+
 export function groupByLevel(segs: ApiSegment[]): Record<string, ApiSegment[]> {
   const out: Record<string, ApiSegment[]> = {};
   for (const s of segs) {

@@ -19,13 +19,9 @@ Spec: `docs/superpowers/specs/2026-06-01-practice-ui-overhaul-design.md`. Plans 
 
 ### 2026-06-04 smoke breakages — triage before resuming Plan D
 
-Found clicking around Cute Kaizo. These block core flows; recommend fixing before more UI work. Sizes are estimates pending diagnosis.
+Found clicking around Cute Kaizo. The three hard breakages shipped on main: `/api/state` 500 on launch (launch-race retry `3e36144`) and both the empty Segments section + the Model-tab-not-following-the-selected-run (the run↔segment traversal-membership refactor, `8444b31`/`e44c48e`/`11cbbb9`). The cold-capture button polish is fixed (working tree): `segments_missing_cold` count now rides on `AppState`, the button hides when there's nothing to capture and is styled (`.btn-primary`). Remaining:
 
-- **[M] `/api/state` returns 500 on dashboard launch.** Hard crash on first load ("running the dashboard the first time doesn't work"). Investigate the state route + its init dependencies. Likely the root of the next two items.
-- **[M] Segments section of Manage tab shows nothing.** No segments listed after stop / replay / save. Visibility regression — check whether it's downstream of the `/api/state` 500.
-- **[M] Model tab doesn't follow the selected reference run.** Stuck on one run; switching run in Manage doesn't update Model. Selection isn't propagating (may partly dissolve when tabs merge, but the wiring is broken).
-- **[M] Practice/lifecycle lag + 6s flicker.** After the thread-local-connection fix, UI is still slow: ~4s game-select, ~2s stop→Draft, ~4-5s Draft→Idle, ~3-4s Close→Idle, plus a major full-tab flicker every ~6s on Practice (segment times only update right after the flicker — looks like a full `innerHTML` re-render on a slow poll, not a diff). Use the `perf:` BE logs + `[perf]` FE console timing already in place to localize: per-SSE-push double-fetch, synchronous MC evaluate, or full re-render.
-- **[S] Cold-capture button polish.** "Start Cold Capture" is unstyled and shows even when there are no missing-cold segments — gate on the actual `segments_missing_cold` count, not just `has_active_run`. ("Didn't trigger" when a cold state already exists from another run is correct behavior, not a bug.)
+- **[M] Practice/lifecycle transition lag.** ~4s game-select, ~2s stop→Draft, ~4-5s Draft→Idle, ~3-4s Close→Idle. The major ~6s full-repaint flicker that rode alongside this is **fixed** (working tree): `loadAndRenderLiveView` blanked all three practice panels via `destroyLiveView()` *before* awaiting its two fetches on every SSE push — the empty→fetch→refill gap was the flash. It now cancels the 1s tick without wiping the DOM and re-renders each panel atomically once data arrives (`frontend/src/live-view.ts`; regression test in `live-view.test.ts`). **Live confirmation still pending.** The transition *lag* is a separate root cause and is unaddressed — use the `perf:` BE logs + `[perf]` FE timing to localize (per-SSE-push double-fetch, synchronous MC evaluate). See [[project_perf_instrumentation]].
 
 ## High-priority follow-ups
 

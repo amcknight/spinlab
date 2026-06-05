@@ -11,6 +11,7 @@ function baseState(over: Partial<AppState>): AppState {
     current_segment: null, recent: [], session: null, sections_captured: null,
     allocator_weights: null, estimator: null, capture_run_id: null,
     replay: null, paused_run: null, cold_fill: null, has_active_run: false,
+    segments_missing_cold: 0,
     ...over,
   } as AppState;
 }

@@ -224,3 +224,26 @@ class TestHasActiveRun:
         db.create_capture_run("r1", GAME_ID, "R1", kind="live")
         db.set_active_capture_run("r1")
         assert client.get("/api/state").json()["has_active_run"] is True
+
+
+# ---------------------------------------------------------------------------
+# GET /api/state — segments_missing_cold (drives the cold-capture button gate)
+# ---------------------------------------------------------------------------
+
+class TestSegmentsMissingCold:
+    def test_zero_without_active_run(self, db, tmp_path):
+        client = _make_client(db, tmp_path=tmp_path)
+        # No active run -> nothing to cold-fill -> count is 0 (button hidden).
+        assert client.get("/api/state").json()["segments_missing_cold"] == 0
+
+    def test_counts_gaps_for_active_run(self, db, tmp_path):
+        from unittest.mock import MagicMock
+
+        client = _make_client(db, tmp_path=tmp_path)
+        db.create_capture_run("r1", GAME_ID, "R1", kind="live")
+        db.set_active_capture_run("r1")
+        # Stub the gap query (count semantics are covered by the db-layer tests);
+        # here we only assert the route surfaces len() of the run-scoped gaps.
+        db.segments_missing_cold = MagicMock(return_value=[{}, {}, {}])
+        assert client.get("/api/state").json()["segments_missing_cold"] == 3
+        db.segments_missing_cold.assert_called_with(GAME_ID, "r1")
