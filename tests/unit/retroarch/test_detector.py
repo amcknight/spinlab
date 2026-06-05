@@ -56,6 +56,30 @@ def test_no_phantom_checkpoint_on_level_entrance_with_cp_entrance_shift():
     assert len(events) == 1
 
 
+def test_no_phantom_checkpoint_when_level_num_is_stale_at_entry():
+    """Backlog E residual (2026-06-05, "L3 still doubles"): on a level->level
+    transition $13BF (level_num) is STALE at the entry frame — it still reads the
+    PREVIOUS level and only catches up a frame or more later (confirmed: live
+    entrance events report the prior level number). So arming first_room on a
+    level_num shift misses the entry frame, and the cp_entrance shift to the
+    entry room fires a phantom CheckpointEvent. first_room must instead be armed
+    on the level-start entry edge (level_start 0->1), which is the signal that
+    actually fires on the entry frame. See feedback_smw_memory_timing."""
+    d = TransitionDetector()
+    # prev: mid-play in the previous level (3); level_num already settled there.
+    d.step(_snap(level_num=3, room_num=3, level_start=0, cp_entrance=10), timestamp_ms=0)
+    # entry frame: level_start 0->1 and cp_entrance shifts to the entry room (20),
+    # room_num=20 — but level_num is STILL 3 (stale; it lags the real entry).
+    events = d.step(
+        _snap(level_num=3, room_num=20, level_start=1, cp_entrance=20), timestamp_ms=16
+    )
+
+    assert any(isinstance(e, LevelEntranceEvent) for e in events)
+    assert not any(isinstance(e, CheckpointEvent) for e in events), \
+        "stale level_num must not let a phantom checkpoint through on the entry frame"
+    assert len(events) == 1
+
+
 def test_death_emits_once_per_anim_transition():
     d = TransitionDetector()
     d.step(_snap(player_anim=0), timestamp_ms=0)

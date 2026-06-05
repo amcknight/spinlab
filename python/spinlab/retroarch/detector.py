@@ -145,14 +145,27 @@ class TransitionDetector:
             events.append(DeathEvent(timestamp_ms=timestamp_ms, level_num=curr.level_num))
             self._state.died_flag = True
 
-        # Record the entry room when the level number changes, BEFORE the
-        # checkpoint check, so check_checkpoint_hit can exclude the cp_entrance
-        # shift that always accompanies a fresh level entry (cp_entrance shifts
-        # to the entry room). Mirrors kaizosplits' firstRoom (Watchers.cs): set
-        # on a levelNum shift, cleared when a CP fires. Without it the entrance
-        # frame emits a phantom CheckpointEvent (→ a spurious second save
-        # state). Backlog E: two save states on one level start.
-        if curr.level_num != prev.level_num:
+        # Record the entry room BEFORE the checkpoint check, so
+        # check_checkpoint_hit can exclude the cp_entrance shift that always
+        # accompanies a fresh level entry (cp_entrance shifts to the entry room).
+        # Mirrors kaizosplits' firstRoom (Watchers.cs), set on entry and cleared
+        # when a CP fires. Without it the entrance frame emits a phantom
+        # CheckpointEvent (→ a spurious second save state). Backlog E.
+        #
+        # kaizosplits arms on Shifted(levelNum), but SpinLab's level_num ($13BF)
+        # is STALE at the entry frame — it still reads the previous level and
+        # catches up a frame or more later (live entrance events report the prior
+        # level number; see feedback_smw_memory_timing). So we arm on the
+        # level-start entry edge (level_start 0->1, the signal that actually
+        # fires the LevelEntranceEvent below), gated to fresh entries (not death
+        # respawns). The level_num shift is kept as a belt-and-suspenders catch.
+        # Backlog E residual (2026-06-05 "L3 still doubles" on level->level).
+        level_entry_edge = (
+            curr.level_start == LEVEL_START_ACTIVE
+            and prev.level_start == 0
+            and not self._state.died_flag
+        )
+        if curr.level_num != prev.level_num or level_entry_edge:
             self._state.first_room = curr.room_num
 
         # 2. Checkpoint.
