@@ -154,8 +154,10 @@ class SegmentsMixin:
                               run_id: str | None = None) -> list[MissingColdRow]:
         """Return segments whose start waypoint has hot but not cold save state.
 
-        ``run_id`` scopes to segments whose ``capture_run_id`` matches (None =
-        whole game). See the design note on capture_run_id overwrite semantics.
+        ``run_id`` scopes to segments the run *traversed* (at least one
+        non-invalidated attempt in the ``attempts`` table), not segments it
+        owns; ``None`` = whole game. Mirrors ``get_segments_by_reference`` and
+        ``count_segments_traversed_in_run``.
         """
         params: list = [game_id]
         run_clause = ""
