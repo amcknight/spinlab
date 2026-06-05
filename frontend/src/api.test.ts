@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fetchJSON, postJSON } from "./api";
+import { fetchJSON, postJSON, fetchStateWithRetry } from "./api";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -50,6 +50,39 @@ describe("fetchJSON", () => {
     expect(result).toBeNull();
     const toast = document.getElementById("toast");
     expect(toast?.textContent).toContain("Failed to fetch");
+  });
+});
+
+describe("fetchStateWithRetry", () => {
+  const err500 = () => ({
+    ok: false,
+    statusText: "Internal Server Error",
+    json: () => Promise.reject(new Error("no json")),
+  });
+
+  it("retries on failure and returns data once the backend is reachable", async () => {
+    mockFetch
+      .mockResolvedValueOnce(err500())
+      .mockResolvedValueOnce(err500())
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ mode: "idle" }) });
+    const result = await fetchStateWithRetry(5, 0);
+    expect(result).toEqual({ mode: "idle" });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not show a toast while retrying (silent startup)", async () => {
+    mockFetch
+      .mockResolvedValueOnce(err500())
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ mode: "idle" }) });
+    await fetchStateWithRetry(5, 0);
+    expect(document.getElementById("toast")).toBeNull();
+  });
+
+  it("returns null after exhausting attempts", async () => {
+    mockFetch.mockResolvedValue(err500());
+    const result = await fetchStateWithRetry(3, 0);
+    expect(result).toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 });
 

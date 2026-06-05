@@ -3,6 +3,19 @@ import type { AppState } from "./types";
 const TOAST_TIMEOUT_MS = 8000;
 const FALLBACK_POLL_MS = 5000;
 
+// Bootstrap state-fetch retry. In dev the Vite dev server (the page's origin)
+// comes up before the FastAPI backend binds its port, so the very first
+// `/api/state` is proxied to a not-yet-listening backend and Vite returns a
+// 500. Retry silently until the backend answers rather than greeting the user
+// with an "Internal Server Error" toast on first launch.
+// 20 × 250ms = 5s, comfortably covering the gap between Vite-ready and uvicorn
+// bound (import + prewarm is typically ~1-3s after Vite starts serving).
+const BOOTSTRAP_RETRY_ATTEMPTS = 20;
+const BOOTSTRAP_RETRY_DELAY_MS = 250;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 // Click-to-SSE perf tracking. perfMarkLastAction stamps when a mode/lifecycle
 // POST returned 2xx; connectSSE measures the gap to the next SSE message and
 // logs it as the "post→SSE" latency for that action. Window for correlation:
@@ -61,6 +74,29 @@ export async function fetchJSON<T = unknown>(
     showToast("Request failed: " + ((e as Error).message || url));
     return null;
   }
+}
+
+/**
+ * Fetch `/api/state` with silent retry, for the page bootstrap. Returns the
+ * state once the backend answers 2xx, or null after `attempts` tries. Unlike
+ * `fetchJSON` it shows no toast on transient failure — a cold backend during
+ * launch is expected, not an error to surface. Callers open the SSE stream
+ * AFTER this resolves so SSE doesn't also race the cold proxy.
+ */
+export async function fetchStateWithRetry(
+  attempts: number = BOOTSTRAP_RETRY_ATTEMPTS,
+  delayMs: number = BOOTSTRAP_RETRY_DELAY_MS,
+): Promise<AppState | null> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch("/api/state");
+      if (res.ok) return (await res.json()) as AppState;
+    } catch (_) {
+      // Backend not reachable yet during startup — fall through to retry.
+    }
+    if (i < attempts - 1) await sleep(delayMs);
+  }
+  return null;
 }
 
 export async function postJSON<T = unknown>(

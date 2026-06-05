@@ -1,4 +1,4 @@
-import { connectSSE, fetchJSON, formatClientError, postJSON } from "./api";
+import { connectSSE, fetchStateWithRetry, formatClientError, postJSON } from "./api";
 import { initHeader, updateHeader } from "./header";
 import {
   updatePracticeCard,
@@ -88,7 +88,10 @@ document.getElementById("btn-start-cold-fill")?.addEventListener("click", async 
   }
 });
 
-connectSSE(updateFromState);
-fetchJSON<AppState>("/api/state").then((data) => {
+// Fetch initial state with retry first (the Vite dev server outlives a
+// cold backend on launch), THEN open the SSE stream — opening SSE only once
+// the backend has answered avoids it racing the not-yet-bound backend too.
+fetchStateWithRetry().then((data) => {
   if (data) updateFromState(data);
+  connectSSE(updateFromState);
 });
