@@ -10,6 +10,9 @@
   --yellow: #ffc107;
   --red: #f44336;
   --orange: #ff9800;
+  /* Speedrun "gold split" color — the Floor / Floors stat is a best-ever floor,
+     so it reads gold. Distinct from --yellow (warmer, metallic). */
+  --gold: #ffd24a;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -963,6 +966,11 @@ h3 {
 .ss-diff.good { color: var(--green); }
 .ss-diff.bad { color: var(--red); }
 .ss-diff.neutral { color: var(--text-dim); }
+
+/* Floor stats (route bar "Floors", segment summary "Floor") render gold — they
+   represent a best-ever floor, the gold-split of the run. */
+.rb-floors .ss-label, .rb-floors .ss-value,
+.sg-floor .ss-label, .sg-floor .ss-value { color: var(--gold); }
 
 /* Graph slot — wraps episode-graph.ts output */
 .lv-graph-slot { background: var(--surface); border-radius: 6px; padding: 8px; }

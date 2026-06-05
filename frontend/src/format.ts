@@ -9,10 +9,43 @@ export function segmentName(s: SegmentLike): string {
   return "L" + s.level_number + " " + shortEndpoint(s.start_type, s.start_ordinal) + " → " + shortEndpoint(s.end_type, s.end_ordinal);
 }
 
+// Time-unit divisors. We work in deciseconds (tenths of a second) so that
+// rounding to one decimal happens ONCE on the whole duration — this keeps a
+// value like 119.96s from rendering "1m60.0s" (rounds to 120.0s → "2m00.0s").
+const DECISECONDS_PER_SECOND = 10;
+const SECONDS_PER_MINUTE = 60;
+const SECONDS_PER_HOUR = 3600;
+const SECONDS_PER_DAY = 86400;
+
+/** Two-digit zero-padded integer, for the carried-over h/m/s fields. */
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/**
+ * ms → human duration with smart units. Sub-minute stays "X.Xs"; above that it
+ * carries into m/h/d, zero-padding the lower fields ("1m52.6s", "1h01m01.5s",
+ * "1d01h01m01.5s"). One decimal of seconds throughout; negatives get a "-".
+ */
 export function formatTime(ms: number | null | undefined): string {
   if (ms == null) return "—";
-  const s = ms / 1000;
-  return s.toFixed(1) + "s";
+  const neg = ms < 0;
+  const totalDs = Math.round(Math.abs(ms) / 100);  // deciseconds, rounded once
+  const tenth = totalDs % DECISECONDS_PER_SECOND;
+  let totalSec = Math.floor(totalDs / DECISECONDS_PER_SECOND);
+  const days = Math.floor(totalSec / SECONDS_PER_DAY);
+  totalSec %= SECONDS_PER_DAY;
+  const hours = Math.floor(totalSec / SECONDS_PER_HOUR);
+  totalSec %= SECONDS_PER_HOUR;
+  const minutes = Math.floor(totalSec / SECONDS_PER_MINUTE);
+  const seconds = totalSec % SECONDS_PER_MINUTE;
+
+  let out: string;
+  if (days > 0) out = `${days}d${pad2(hours)}h${pad2(minutes)}m${pad2(seconds)}.${tenth}s`;
+  else if (hours > 0) out = `${hours}h${pad2(minutes)}m${pad2(seconds)}.${tenth}s`;
+  else if (minutes > 0) out = `${minutes}m${pad2(seconds)}.${tenth}s`;
+  else out = `${seconds}.${tenth}s`;
+  return (neg ? "-" : "") + out;
 }
 
 export function elapsedStr(startedAt: string | null | undefined): string {

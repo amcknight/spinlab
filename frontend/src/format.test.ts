@@ -66,6 +66,41 @@ describe("formatTime", () => {
   it("formats zero", () => {
     expect(formatTime(0)).toBe("0.0s");
   });
+
+  it("breaks into minutes at and above 60s", () => {
+    expect(formatTime(112_600)).toBe("1m52.6s");
+  });
+
+  it("zero-pads the seconds in minute form", () => {
+    expect(formatTime(62_600)).toBe("1m02.6s");
+  });
+
+  it("keeps seconds form just under a minute", () => {
+    expect(formatTime(59_900)).toBe("59.9s");
+  });
+
+  it("shows a clean minute as Xm00.0s", () => {
+    expect(formatTime(60_000)).toBe("1m00.0s");
+  });
+
+  it("breaks into hours above an hour", () => {
+    // 1h 1m 1.5s
+    expect(formatTime(3_661_500)).toBe("1h01m01.5s");
+  });
+
+  it("breaks into days above a day", () => {
+    // 1d 1h 1m 1.5s
+    expect(formatTime(90_061_500)).toBe("1d01h01m01.5s");
+  });
+
+  it("prefixes a minus sign for negative durations", () => {
+    expect(formatTime(-112_600)).toBe("-1m52.6s");
+  });
+
+  it("rounds tenths without rolling seconds to 60", () => {
+    // 119.96s rounds to 120.0s → 2m00.0s, not 1m60.0s
+    expect(formatTime(119_960)).toBe("2m00.0s");
+  });
 });
 
 describe("elapsedStr", () => {
