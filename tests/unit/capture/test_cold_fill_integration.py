@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from spinlab.db import Database
-from spinlab.models import Mode, Segment, Status, Waypoint, WaypointSaveState
+from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt, Mode, Segment, Status, Waypoint, WaypointSaveState
 from spinlab.protocol import ColdFillLoadCmd, SpawnEvent
 from spinlab.session_manager import SessionManager
 
@@ -90,6 +90,11 @@ def _create_segments_with_hot_only(db, tmp_path=None):
     ]
     for s in segs:
         db.upsert_segment(s)
+        db.log_event_attempt(EventAttempt(
+            segment_id=s.id, episode_id=f"ep_{s.id}",
+            outcome=AttemptOutcome.SURVIVED, time_ms=1000,
+            capture_run_id="run1", source=AttemptSource.REFERENCE,
+        ))
 
     # Entrance segment: cold save state (entrance IS the cold start)
     db.add_save_state(WaypointSaveState(wp_entrance.id, "cold", _path("cold0.mss")))

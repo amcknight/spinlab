@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from spinlab.db import Database
-from spinlab.models import ActionResult, Segment, Status
+from spinlab.models import ActionResult, AttemptOutcome, AttemptSource, EventAttempt, Segment, Status
 
 
 @pytest.fixture
@@ -305,6 +305,11 @@ class TestReferenceSegments:
                     end_type="goal", end_ordinal=0,
                     capture_run_id="ref1")
         db.upsert_segment(s)
+        db.log_event_attempt(EventAttempt(
+            segment_id="s1", episode_id="ep1",
+            outcome=AttemptOutcome.SURVIVED, time_ms=1000,
+            capture_run_id="ref1", source=AttemptSource.REFERENCE,
+        ))
 
         resp = client.get("/api/references/ref1/segments")
         assert resp.status_code == 200

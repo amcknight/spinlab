@@ -10,7 +10,7 @@ from tests.conftest import FakeEmuBackend
 from spinlab.capture import ReferenceController
 from spinlab.db import Database
 from spinlab.errors import DraftPendingError, SessionDeleteAfterFinalizeError
-from spinlab.models import Mode, Status
+from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt, Mode, Status
 from spinlab.protocol import LevelEntranceEvent, LevelExitEvent
 
 
@@ -339,6 +339,12 @@ def test_get_segments_by_reference_includes_session_ordinal(db):
         "datetime('now'), datetime('now'))"
     )
     db.conn.commit()
+    for seg_id in ("a", "b", "c"):
+        db.log_event_attempt(EventAttempt(
+            segment_id=seg_id, episode_id=f"ep_{seg_id}",
+            outcome=AttemptOutcome.SURVIVED, time_ms=1000,
+            capture_run_id="run_z", source=AttemptSource.REFERENCE,
+        ))
     segs = db.get_segments_by_reference("run_z")
     by_id = {s["id"]: s for s in segs}
     assert by_id["a"]["session_ordinal"] == 1
