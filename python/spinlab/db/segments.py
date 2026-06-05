@@ -160,7 +160,8 @@ class SegmentsMixin:
         params: list = [game_id]
         run_clause = ""
         if run_id is not None:
-            run_clause = "AND s.capture_run_id = ?"
+            run_clause = ("AND s.id IN (SELECT DISTINCT segment_id FROM attempts "
+                          "WHERE capture_run_id = ? AND invalidated = 0)")
             params.append(run_id)
         rows = self.conn.execute(
             f"""SELECT s.id AS segment_id, hot.state_path AS hot_state_path,

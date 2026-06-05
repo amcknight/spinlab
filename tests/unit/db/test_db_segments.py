@@ -1,6 +1,6 @@
 """Tests for segment capture_session_id round-trip."""
 from spinlab.db import Database
-from spinlab.models import EndpointType, Segment, Waypoint
+from spinlab.models import AttemptOutcome, AttemptSource, EndpointType, EventAttempt, Segment, Waypoint, WaypointSaveState
 
 
 def test_segment_persists_capture_session_id():
@@ -134,12 +134,53 @@ def test_segments_missing_cold_scoped_by_run(tmp_path):
 
     mk("segA", "rA", 1)
     mk("segB", "rB", 2)
+    db.log_event_attempt(EventAttempt(
+        segment_id="segA", episode_id="epA",
+        outcome=AttemptOutcome.SURVIVED, time_ms=1000,
+        capture_run_id="rA", source=AttemptSource.REFERENCE,
+    ))
+    db.log_event_attempt(EventAttempt(
+        segment_id="segB", episode_id="epB",
+        outcome=AttemptOutcome.SURVIVED, time_ms=1000,
+        capture_run_id="rB", source=AttemptSource.REFERENCE,
+    ))
 
     all_gaps = {g["segment_id"] for g in db.segments_missing_cold("g1")}
     assert all_gaps == {"segA", "segB"}
     scoped = {g["segment_id"] for g in db.segments_missing_cold("g1", run_id="rA")}
     assert scoped == {"segA"}
 
+    db.close()
+
+
+def test_segments_missing_cold_scoped_by_traversal_not_ownership(tmp_path):
+    """Cold-fill for a run must include segments the run traversed, even when
+    an earlier run owns the row."""
+    db = Database(tmp_path / "t.db")
+    db.upsert_game("g", "G", "any%")
+    db.create_capture_run("old", "g", "Old", kind="live")
+    db.promote_draft("old", "Old")
+    db.create_capture_run("new", "g", "New", kind="live")
+
+    wp = Waypoint.make("g", 1, "checkpoint", 1, {})
+    db.upsert_waypoint(wp)
+    db.upsert_segment(Segment(
+        id="segX", game_id="g", level_number=1,
+        start_type="checkpoint", start_ordinal=1,
+        end_type="goal", end_ordinal=0,
+        start_waypoint_id=wp.id, end_waypoint_id=wp.id,
+        capture_run_id="old",
+    ))
+    db.add_save_state(WaypointSaveState(wp.id, "hot", "/segX.state"))
+    # 'new' traverses segX (no cold state exists yet).
+    db.log_event_attempt(EventAttempt(
+        segment_id="segX", episode_id="epX",
+        outcome=AttemptOutcome.SURVIVED, time_ms=1000,
+        capture_run_id="new", source=AttemptSource.REFERENCE,
+    ))
+
+    scoped = {g["segment_id"] for g in db.segments_missing_cold("g", run_id="new")}
+    assert scoped == {"segX"}
     db.close()
 
 
