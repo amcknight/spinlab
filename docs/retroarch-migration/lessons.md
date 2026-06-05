@@ -41,7 +41,7 @@ If you're porting any other Lua detection logic, **drive it with a real death sc
 
 Lua's `state_just_loaded` re-sync replaces the prev snapshot to suppress phantom edges. Direct port: `_prev = snapshot`. Done, right?
 
-No. The detector also tracks `died_flag`, `cp_acquired`, `cp_ordinal`, `first_cp_entrance`, and `_exit_this_frame`. After a state load, all of these MUST be reset to baseline. Otherwise:
+No. The detector also tracks `died_flag`, `cp_acquired`, `cp_ordinal`, `first_room`, and `_exit_this_frame`. After a state load, all of these MUST be reset to baseline. Otherwise:
 
 - `died_flag` stuck → no Death event ever fires again for the rest of the session
 - `cp_acquired` stuck → first respawn after load is misclassified as cold spawn

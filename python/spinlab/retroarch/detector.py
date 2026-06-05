@@ -145,12 +145,22 @@ class TransitionDetector:
             events.append(DeathEvent(timestamp_ms=timestamp_ms, level_num=curr.level_num))
             self._state.died_flag = True
 
+        # Record the entry room when the level number changes, BEFORE the
+        # checkpoint check, so check_checkpoint_hit can exclude the cp_entrance
+        # shift that always accompanies a fresh level entry (cp_entrance shifts
+        # to the entry room). Mirrors kaizosplits' firstRoom (Watchers.cs): set
+        # on a levelNum shift, cleared when a CP fires. Without it the entrance
+        # frame emits a phantom CheckpointEvent (→ a spurious second save
+        # state). Backlog E: two save states on one level start.
+        if curr.level_num != prev.level_num:
+            self._state.first_room = curr.room_num
+
         # 2. Checkpoint.
         cp_type = check_checkpoint_hit(prev, curr, self._state)
         if cp_type is not None:
             self._state.cp_ordinal += 1
             self._cp_acquired = True
-            self._state.first_cp_entrance = 0  # opens cp_entrance shifts after first hit
+            self._state.first_room = 0  # kaizosplits clears firstRoom after a CP
             events.append(
                 CheckpointEvent(
                     timestamp_ms=timestamp_ms,
@@ -236,11 +246,11 @@ class TransitionDetector:
                 )
                 self._state.died_flag = False
             else:
-                # Fresh level entry.
+                # Fresh level entry. (first_room is captured by the
+                # levelNum-shift block above, kaizosplits-style.)
                 self._state.cp_ordinal = 0
                 self._cp_acquired = False
                 self._finish_emitted = False
-                self._state.first_cp_entrance = curr.cp_entrance
                 self._level_start_frame = self._frame_counter
                 events.append(
                     LevelEntranceEvent(

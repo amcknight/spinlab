@@ -142,6 +142,98 @@ async def test_disconnect_stops_poller_and_closes_raclient(tmp_path):
 
 
 # ------------------------------------------------------------------
+# ROM-change re-detection (dashboard tracks whatever ROM RA has loaded)
+# ------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_rom_change_after_connect_emits_new_rom_info(tmp_path):
+    """If RA loads a different ROM after the orchestrator is already
+    connected (the user switches games in RA's Quick Menu, or relaunches),
+    the periodic GET_STATUS check must re-emit RomInfoEvent so the dashboard
+    switches games. Regression: backlog item B — the dashboard stayed stuck
+    on the first ROM because RomInfoEvent was only ever emitted from connect()."""
+    orch, raclient, _, _, _ = _build_orchestrator(tmp_path)
+    await orch.connect()
+    first = await orch.events.get()
+    assert isinstance(first, RomInfoEvent)
+    assert first.filename == "Test Game"
+
+    raclient.rom_filename = "Love Yourself"
+    await orch._check_rom_change()
+
+    ev = await asyncio.wait_for(orch.events.get(), timeout=0.1)
+    assert isinstance(ev, RomInfoEvent)
+    assert ev.filename == "Love Yourself"
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_rom_change_refreshes_raclient_basename(tmp_path):
+    """On a detected ROM switch, the RAClient's cached game_basename must be
+    refreshed too — movie record/replay staging builds paths from it, so a
+    stale basename would stage a new game's movie under the old game's name
+    (backlog D #2)."""
+    orch, raclient, _, _, _ = _build_orchestrator(tmp_path)
+    await orch.connect()
+    await orch.events.get()  # rom_info
+    assert raclient.game_basename == "Test Game"
+
+    raclient.rom_filename = "Love Yourself"
+    await orch._check_rom_change()
+
+    assert raclient.game_basename == "Love Yourself"
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_rom_check_emits_nothing_when_rom_unchanged(tmp_path):
+    """The common case: ROM hasn't changed since last check → no event, so
+    we don't churn switch_game (and its checksum + condition-registry reload)
+    every 2s."""
+    orch, raclient, _, _, _ = _build_orchestrator(tmp_path)
+    await orch.connect()
+    await orch.events.get()  # rom_info
+
+    await orch._check_rom_change()
+
+    assert orch.events.empty()
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_rom_check_ignores_empty_rom(tmp_path):
+    """GET_STATUS returns an empty game field while RA is between ROMs (Quick
+    Menu open, core unloaded). Don't emit a RomInfoEvent with an empty
+    filename — that would be a spurious switch toward 'no game'."""
+    orch, raclient, _, _, _ = _build_orchestrator(tmp_path)
+    await orch.connect()
+    await orch.events.get()  # rom_info
+
+    raclient.rom_filename = ""
+    await orch._check_rom_change()
+
+    assert orch.events.empty()
+    await orch.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_rom_check_survives_get_status_failure(tmp_path):
+    """RA died between checks → GET_STATUS raises. The background ROM check
+    must swallow it (the poller's own reconnect path handles socket recovery)
+    rather than crash the tick loop."""
+    raclient = FakeRAClient()
+    orch, _, _, _, _ = _build_orchestrator(tmp_path, raclient=raclient)
+    await orch.connect()
+    await orch.events.get()  # rom_info
+
+    raclient.raise_on_get_status = NotReachableError("RA gone")
+    await orch._check_rom_change()  # must not raise
+
+    assert orch.events.empty()
+    await orch.disconnect()
+
+
+# ------------------------------------------------------------------
 # Practice
 # ------------------------------------------------------------------
 

@@ -108,6 +108,26 @@ async def test_start_playback_movie_error_emits_replay_error(mc, movie_io, event
 
 
 @pytest.mark.asyncio
+async def test_start_playback_resumes_paused_emulator(mc, raclient):
+    """Replay-start must unpause RA before PLAY_REPLAY, or a replay launched
+    while RA is paused loads the embedded state and then sits frozen (the
+    WRAM-advance verify never sees a frame change). Backlog D."""
+    await mc.start_playback(Path("/x.replay"), speed=1)
+    assert raclient.resume_if_paused_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_stop_playback_resumes_so_replay_never_ends_paused(mc, raclient):
+    """RA auto-pauses when a movie ends; a finished replay must leave RA
+    running so the next replay starts from a live emulator (Andrew: 'running a
+    replay should not end with a pause'). Backlog D."""
+    await mc.start_playback(Path("/x.replay"), speed=1)
+    calls_after_start = raclient.resume_if_paused_calls
+    await mc.stop_playback()
+    assert raclient.resume_if_paused_calls == calls_after_start + 1
+
+
+@pytest.mark.asyncio
 async def test_stop_playback_symmetric_toggle(mc, raclient, events):
     await mc.start_playback(Path("/x.replay"), speed=SPEED_UNCAPPED)
     assert raclient.fast_forward_toggles == 1

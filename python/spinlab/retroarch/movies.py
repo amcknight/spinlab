@@ -142,6 +142,12 @@ class MovieController:
         # entrance consumes it as a single combined event.
         self._on_replay_started()
 
+        # Ensure RA is running before PLAY_REPLAY. A replay started while RA is
+        # paused (e.g. RA auto-paused when a prior movie ended) loads the
+        # embedded state but never advances a frame, so the WRAM-advance verify
+        # in play_movie fails — the "loads state, starts, then stops" bug.
+        await self._raclient.resume_if_paused()
+
         try:
             self._active_playback = await self._movie_io.play_movie(path)
         except MoviePlaybackError as exc:
@@ -229,5 +235,8 @@ class MovieController:
             if self._fast_forwarding:
                 await asyncio.to_thread(self._raclient.fast_forward_toggle)
                 self._fast_forwarding = False
+        # RA auto-pauses when a movie finishes; leave it running so the next
+        # replay starts from a live emulator (a replay should not end paused).
+        await self._raclient.resume_if_paused()
         self._on_event(ReplayFinishedEvent())
         logger.info("Movie replay stopped")

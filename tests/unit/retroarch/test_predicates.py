@@ -68,23 +68,34 @@ def test_goal_type_abort():
 
 def test_check_checkpoint_hit_midway():
     """Midway tape: midway 0 -> 1, no goal/orb/key/fadeout."""
-    state = TransitionState(first_cp_entrance=0)
+    state = TransitionState(first_room=0)
     prev = _snap(midway=0)
     curr = _snap(midway=1)
     assert check_checkpoint_hit(prev, curr, state) == "midway"
 
 
 def test_check_checkpoint_hit_cp_entrance():
-    """ASM-style cp_entrance change while in level, distinct from first."""
-    state = TransitionState(first_cp_entrance=0x10)
+    """ASM-style cp_entrance change while in level, to a value other than the
+    entry room — a real mid-level checkpoint."""
+    state = TransitionState(first_room=0x05)
     prev = _snap(level_num=1, cp_entrance=0x10)
     curr = _snap(level_num=1, cp_entrance=0x20)
     assert check_checkpoint_hit(prev, curr, state) == "cp_entrance"
 
 
+def test_check_checkpoint_hit_excludes_shift_to_entry_room():
+    """The cp_entrance shift to the level's entry room (firstRoom) is just
+    entering the level, not a checkpoint — kaizosplits' !ShiftTo(cpEntrance,
+    firstRoom). Backlog E: phantom checkpoint on level start."""
+    state = TransitionState(first_room=0x20)
+    prev = _snap(level_num=1, cp_entrance=0x10)
+    curr = _snap(level_num=1, cp_entrance=0x20)  # shifts TO firstRoom (0x20)
+    assert check_checkpoint_hit(prev, curr, state) is None
+
+
 def test_check_checkpoint_hit_suppressed_during_goal():
     """midway hit is ignored if the goal also fired this frame."""
-    state = TransitionState(first_cp_entrance=0)
+    state = TransitionState(first_room=0)
     prev = _snap(midway=0)
     curr = _snap(midway=1, fanfare=1)
     assert check_checkpoint_hit(prev, curr, state) is None

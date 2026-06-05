@@ -37,7 +37,7 @@ python/spinlab/retroarch/
 ├── snapshot.py         MemorySnapshot dataclass + read_snapshot(NCIClient) helper.
 ├── addresses.py        SMW WRAM offsets (single source of truth for the RA backend).
 ├── predicates.py       Pure detection functions: is_death_frame, is_exit_frame, goal_type, check_checkpoint_hit.
-├── transition_state.py Mutable per-segment state (died_flag, cp_ordinal, first_cp_entrance).
+├── transition_state.py Mutable per-segment state (died_flag, cp_ordinal, first_room).
 ├── detector.py         TransitionDetector. step(snap, ts) -> list of protocol events.
 ├── cold_fill.py        ColdFillSpawnDetector. step(snap, ts) -> SpawnEvent | None. Activated externally.
 ├── poller.py           Async loop. Owns TransitionDetector + ColdFillSpawnDetector. ~60 Hz.

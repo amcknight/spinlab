@@ -234,6 +234,20 @@ class ReferenceController:
         else:
             self._enter_idle()
 
+    def _discard_if_empty(self, run_id: str | None) -> None:
+        """Delete an ephemeral capture run that owns no segments, then drop to
+        idle. A 0-segment draft row would otherwise strand a phantom draft that
+        blocks the next Replay/Reference with DraftPendingError (backlog D).
+
+        Used by the two replay-stop paths that run AFTER _end_current_session
+        (stop_replay, handle_replay_finished). handle_replay_error counts
+        segments BEFORE _end_current_session, so it is intentionally not folded
+        in here.
+        """
+        if run_id and self.db.count_segments_for_run(run_id) == 0:
+            self.db.hard_delete_capture_run(run_id)
+            self._enter_idle()
+
     def _create_new_session(self, run_id: str, data_dir: Path, game_id: str) -> tuple[str, int]:
         """Create a new capture_session row. Returns (session_id, ordinal)."""
         next_ord = self.db.max_session_ordinal_for_run(run_id) + 1
@@ -440,17 +454,11 @@ class ReferenceController:
         # already ran from the event flow and drove the paused/idle
         # transition. A second call would see an empty recorder and run
         # _enter_idle, wiping the paused_run_id the event handler just set.
-        if run_id:
-            seg_count = self.db.count_segments_for_run(run_id)
-            if seg_count == 0:
-                # Nothing captured — no value in keeping the run; delete it.
-                # The event handler also drops to idle on no-segments via the
-                # draft check, but we still need to delete the empty draft row.
-                self.db.hard_delete_capture_run(run_id)
-                self._enter_idle()
-        # If segments were captured, the run stays paused so the user can finalize.
-        # recover_paused_capture_run excludes replay_ IDs, so this won't clobber
-        # real paused reference runs on the next dashboard restart.
+        #
+        # Drop the empty draft row if nothing was captured; a run that captured
+        # segments stays paused so the user can finalize. recover_paused_capture_run
+        # excludes replay_ IDs, so this won't clobber real paused reference runs.
+        self._discard_if_empty(run_id)
         return ActionResult(status=Status.STOPPED, new_mode=Mode.IDLE)
 
 
@@ -513,11 +521,20 @@ class ReferenceController:
         self.replay_total = event.frame_count
 
     def handle_replay_finished(self) -> None:
-        # End the session and leave the run paused — the user can finalize or discard.
-        # recover_paused_capture_run excludes replay_ IDs, so this draft won't clobber
-        # a real paused reference run on the next dashboard restart.
+        # End the session, then clean up an ephemeral replay run. A replay that
+        # owns NO segments (it re-traversed geography another run already owns —
+        # the normal case, since keep-first-owner keeps the original reference
+        # as owner) is deleted, so it can't strand a phantom 0-segment draft
+        # that blocks the next Replay/Reference with DraftPendingError (backlog
+        # D: "first click no-op → Idle"). A replay that DID create its own
+        # segments (the first run for a game, or the replay→reference pipeline)
+        # is left paused so it can be finalized — deleting it would drop that
+        # geography. Mirrors stop_replay; the auto-end path previously skipped
+        # this and paused unconditionally.
         self.replay_total = 0
+        run_id = self.recorder.capture_run_id
         self._end_current_session(end_reason="stopped")
+        self._discard_if_empty(run_id)
 
     def handle_replay_error(self) -> None:
         self.replay_total = 0

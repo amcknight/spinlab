@@ -24,8 +24,6 @@ Found clicking around Cute Kaizo. These block core flows; recommend fixing befor
 - **[M] `/api/state` returns 500 on dashboard launch.** Hard crash on first load ("running the dashboard the first time doesn't work"). Investigate the state route + its init dependencies. Likely the root of the next two items.
 - **[M] Segments section of Manage tab shows nothing.** No segments listed after stop / replay / save. Visibility regression — check whether it's downstream of the `/api/state` 500.
 - **[M] Model tab doesn't follow the selected reference run.** Stuck on one run; switching run in Manage doesn't update Model. Selection isn't propagating (may partly dissolve when tabs merge, but the wiring is broken).
-- **[S] Two save-states appear on level start in Reference Run (expected 1).** Possibly an entrance double-state, or leftover staged replay-slot files.
-- **[M] Replay + Fast Replay regressed again.** Replay first-click no-op + bounces back to Idle (movie maybe unsaved); Fast Replay loads state then does a short Start→Stop without playing. The 2026-05-29 window-slot staging fix isn't holding on the live path. Instrumentation branch `debug/replay-slot-instrumentation` (commit `d743942`, unmerged) re-captures the slot story — re-run the decisive test, then make playback deterministic despite no NCI set-slot command.
 - **[M] Practice/lifecycle lag + 6s flicker.** After the thread-local-connection fix, UI is still slow: ~4s game-select, ~2s stop→Draft, ~4-5s Draft→Idle, ~3-4s Close→Idle, plus a major full-tab flicker every ~6s on Practice (segment times only update right after the flicker — looks like a full `innerHTML` re-render on a slow poll, not a diff). Use the `perf:` BE logs + `[perf]` FE console timing already in place to localize: per-SSE-push double-fetch, synchronous MC evaluate, or full re-render.
 - **[S] Cold-capture button polish.** "Start Cold Capture" is unstyled and shows even when there are no missing-cold segments — gate on the actual `segments_missing_cold` count, not just `has_active_run`. ("Didn't trigger" when a cold state already exists from another run is correct behavior, not a bug.)
 
@@ -52,7 +50,7 @@ Found clicking around Cute Kaizo. These block core flows; recommend fixing befor
 
 - **[M] No live test for SpeedRunTiming under RA.** Unit tests pass; never exercised in a real session. Speed-run mode is the riskiest untested code path in the new backend.
 - **[S] Anonymous state-key resolver leaks abstraction.** `StateIO.resolve_event_path` returns paths keyed by `entrance_<level>_<room>` and `cp_<level>_<ord>_hot` for events whose true `segment_id` isn't known yet; F-live does the bridging downstream. Cleaner: orchestrator looks up segment_id before calling resolve.
-- **[S] `config.ra_game_basename` is now informational only.** Orchestrator overrides it from `GET_STATUS` at connect; keeping the field invites confusion. Either remove it or document it as "ignored — auto-detected at connect."
+- **[S] `config.ra_game_basename` is now informational only.** Orchestrator seeds the cached basename from `GET_STATUS` at connect AND refreshes it on every mid-session ROM swap (`RAClient.set_game_basename`), so the config field is never read after build. Either remove it or document it as "ignored — auto-detected at connect and on ROM switch."
 
 ## Emulator-test isolation (from 2026-05-11 test audit)
 

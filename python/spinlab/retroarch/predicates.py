@@ -61,10 +61,19 @@ def check_checkpoint_hit(
     blocked = got_orb or got_goal or got_key or got_fadeout
 
     midway_hit = (prev.midway == 0 and curr.midway == 1) and not blocked
+    # cp_entrance fired = the death-respawn entrance shifted this frame, EXCEPT
+    # the shift to the level's entry room — that one is just entering the level,
+    # not a mid-level checkpoint. Mirrors kaizosplits Watchers.cs CPEntrance:
+    #   Shifted(cpEntrance) && !ShiftTo(cpEntrance, firstRoom)
+    # where firstRoom is the entry room captured on the levelNum shift.
+    shifted = curr.cp_entrance != prev.cp_entrance
+    shift_to_first_room = (
+        curr.cp_entrance == state.first_room and prev.cp_entrance != state.first_room
+    )
     cp_entrance_hit = (
         curr.level_num != 0
-        and curr.cp_entrance != prev.cp_entrance
-        and curr.cp_entrance != state.first_cp_entrance
+        and shifted
+        and not shift_to_first_room
         and not blocked
     )
 

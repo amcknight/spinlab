@@ -85,6 +85,40 @@ async def test_connect_returns_info_on_success(client):
 
 
 @pytest.mark.asyncio
+async def test_resume_if_paused_unpauses_when_paused(client):
+    """A replay started while RA is paused loads the movie's embedded state but
+    never advances a frame (RA auto-pauses when a prior movie ends) — the
+    'loads state, starts, then stops' replay bug. resume_if_paused unpauses so
+    playback can run."""
+    client._nci.get_status.return_value = StatusInfo(
+        state="PAUSED", game="X", system="SNES", crc32="x",
+    )
+    await client.resume_if_paused()
+    client._nci.pause_toggle.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_resume_if_paused_noop_when_playing(client):
+    """PAUSE_TOGGLE is a blind flip, so resume must check state first and only
+    toggle when actually paused — otherwise it would pause a running RA."""
+    client._nci.get_status.return_value = StatusInfo(
+        state="PLAYING", game="X", system="SNES", crc32="x",
+    )
+    await client.resume_if_paused()
+    client._nci.pause_toggle.assert_not_called()
+
+
+def test_set_game_basename_refreshes_cached_basename(client):
+    """After a ROM switch (detected by the orchestrator's GET_STATUS poll), the
+    cached basename must be refreshable so movie record/replay staging uses the
+    live ROM name instead of the stale one from connect() (backlog D #2: a
+    Love Yourself movie was staged at 'Beto.replay*' after a switch)."""
+    client._game_basename = "Beto"
+    client.set_game_basename("Love Yourself")
+    assert client.game_basename == "Love Yourself"
+
+
+@pytest.mark.asyncio
 async def test_connect_raises_not_reachable_when_version_fails(client):
     client._nci.version.side_effect = NCIError("timeout")
     with pytest.raises(NotReachableError, match="NCI not reachable"):

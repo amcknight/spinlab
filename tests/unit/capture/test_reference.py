@@ -126,12 +126,14 @@ class TestStopReplay:
 
 
 class TestHandleReplayFinished:
-    async def test_pauses_run_after_replay_finishes(self, controller, db):
-        """handle_replay_finished leaves the run paused (draft=1, not deleted).
+    async def test_replay_finish_with_no_owned_segments_leaves_no_draft(self, controller, db):
+        """A finished replay that owns no segments must NOT leave a paused draft.
 
-        Replay-derived runs that complete are left paused so the user can finalize
-        or discard them. recover_paused_capture_run excludes replay_ IDs, so the
-        draft won't silently destroy a real paused reference run on dashboard restart.
+        That's the normal case: the replay re-traversed geography another run
+        already owns (keep-first-owner). The auto-end path used to pause the
+        still-draft=1 replay run, stranding a phantom 0-segment draft that then
+        blocked the next Replay with DraftPendingError. Regression: backlog D,
+        Andrew's "first click no-op → Idle / Fast Replay short Start→Stop."
         """
         await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
         run_id = controller.recorder.capture_run_id
@@ -139,18 +141,52 @@ class TestHandleReplayFinished:
         controller.handle_replay_finished()
 
         row = db.conn.execute(
+            "SELECT id FROM capture_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        assert row is None, "0-segment replay run should be deleted, not paused"
+        assert controller.paused_run_id is None
+
+    async def test_replay_finish_keeps_run_that_owns_segments(self, controller, db):
+        """A replay that created its OWN segments (the first run for a game, or
+        the replay→reference pipeline) is left paused so it can be finalized —
+        deleting it would drop that geography. Only 0-segment ephemeral replays
+        are deleted. Mirrors stop_replay; regression for the replay-fixture
+        integration test, which replays into a fresh DB and finalizes the run."""
+        await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
+        run_id = controller.recorder.capture_run_id
+        # Simulate the replay capturing a segment it owns (no prior reference).
+        db.upsert_segment(Segment(
+            id="seg_replay_owned", game_id="g1", level_number=1,
+            start_type=EndpointType.ENTRANCE, start_ordinal=0,
+            end_type=EndpointType.GOAL, end_ordinal=0,
+            capture_run_id=run_id,
+        ))
+
+        controller.handle_replay_finished()
+
+        row = db.conn.execute(
             "SELECT id, status FROM capture_runs WHERE id = ?", (run_id,)
         ).fetchone()
-        assert row is not None, "replay capture_run should remain in DB as paused"
-        assert row[1] == "draft", "replay capture_run should still be a draft"
+        assert row is not None, "replay run that owns segments must be kept"
+        assert row[1] == "draft"
         assert controller.paused_run_id == run_id
+
+    async def test_replay_finish_does_not_block_next_replay(self, controller, db):
+        """The actual user-facing symptom: after one replay finishes, the next
+        Replay must start cleanly instead of bouncing off DraftPendingError."""
+        await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
+        controller.handle_replay_finished()
+
+        # Second replay must not raise DraftPendingError.
+        result = await controller.start_replay(Mode.IDLE, "g1", "/tmp/foo.spinrec")
+        assert result.status == Status.STARTED
+        assert result.new_mode == Mode.REPLAY
 
     async def test_recovery_non_clobber_after_replay(self, controller, db, tmp_path):
         """After replay, recover_paused_capture_run returns the real paused run.
 
-        The replay run is left as draft=1, but its 'replay_' ID prefix causes
-        recover_paused_capture_run to skip it entirely. The real live_ paused run
-        is returned instead and is never deleted by the recovery logic.
+        The ephemeral replay run is deleted on finish, so it can't shadow or
+        clobber a real live_ paused run from a previous session.
 
         Note: start_replay guards against a live paused_run_id, so we simulate the
         crash/restart scenario by writing the real run directly to the DB.
@@ -167,11 +203,10 @@ class TestHandleReplayFinished:
 
         controller.handle_replay_finished()
 
-        # Replay run is still in DB as paused
+        # Replay run is gone; recovery returns the real live_ run.
         assert db.conn.execute(
             "SELECT id FROM capture_runs WHERE id = ?", (replay_run_id,)
-        ).fetchone() is not None
-        # Recovery must return the real live_ run, not the replay_ run
+        ).fetchone() is None
         recovered = db.recover_paused_capture_run("g1")
         assert recovered == real_run_id
 

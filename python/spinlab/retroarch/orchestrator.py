@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -46,6 +47,12 @@ logger = logging.getLogger(__name__)
 # burning unnecessary CPU. The poller already runs at ~60 Hz; this only
 # drives timing deadlines, not frame-by-frame detection.
 TICK_INTERVAL_SEC = 0.05
+
+# How often the tick loop re-checks RA's loaded ROM (backlog item B). Game
+# switches are human-initiated and infrequent, so a coarse interval is plenty;
+# it matches the dashboard's reconnect cadence and keeps the extra GET_STATUS
+# traffic off the 60 Hz poller's (lock-shared) NCI socket down to a trickle.
+ROM_CHECK_INTERVAL_SEC = 2.0
 
 
 class RetroArchOrchestrator:
@@ -87,6 +94,11 @@ class RetroArchOrchestrator:
         self._running = False
         self._poller_task: asyncio.Task | None = None
         self._tick_task: asyncio.Task | None = None
+
+        # ROM basename last reported to the session, so the tick loop only
+        # re-emits RomInfoEvent when RA actually swaps ROMs. See
+        # ``_check_rom_change``. Seeded by ``connect()``.
+        self._last_rom_basename: str | None = None
 
         # Suppress the "NCI not reachable" warning after the first one in a
         # disconnect streak. The dashboard's event_loop polls connect() every
@@ -146,6 +158,7 @@ class RetroArchOrchestrator:
 
         self._not_reachable_warning_logged = False
         self.events.put_nowait(RomInfoEvent(filename=info.rom_filename))
+        self._last_rom_basename = info.rom_filename
 
         self._connected = True
         self._running = True
@@ -298,11 +311,46 @@ class RetroArchOrchestrator:
     # Background tasks
     # ------------------------------------------------------------------
 
+    async def _check_rom_change(self) -> None:
+        """Re-emit RomInfoEvent if RA has loaded a different ROM since the last
+        check.
+
+        RomInfoEvent is otherwise emitted only once, from ``connect()``. But RA
+        can load a different ROM while we stay connected — the user switches
+        games in RA's Quick Menu or relaunches RA — and the poller's
+        socket-level reconnect never re-runs ``connect()``. Without this poll
+        the dashboard stays stuck on the first ROM (backlog item B). The
+        downstream ``switch_game`` is idempotent, so emitting only on an actual
+        change keeps its checksum + condition-registry reload off the hot path.
+        """
+        try:
+            status = await self._raclient.get_status()
+        except Exception as exc:
+            # RA may have died between checks; the poller's own reconnect path
+            # handles socket recovery. A best-effort poll must not crash the
+            # tick loop.
+            logger.debug("rom-change check: get_status failed: %s", exc)
+            return
+        rom = status.game or ""
+        if not rom or rom == self._last_rom_basename:
+            return
+        logger.info("rom-change detected: %r -> %r", self._last_rom_basename, rom)
+        self._last_rom_basename = rom
+        # Refresh RAClient's cached basename so movie record/replay staging uses
+        # the live ROM name, not the stale one from connect() (backlog D #2).
+        self._raclient.set_game_basename(rom)
+        self.events.put_nowait(RomInfoEvent(filename=rom))
+
     async def _tick_loop(self) -> None:
+        last_rom_check = time.monotonic()
         while self._running:
             try:
                 self._practice_timing.tick()
                 self._hyper_play_timing.tick()
+                now = time.monotonic()
+                if now - last_rom_check >= ROM_CHECK_INTERVAL_SEC:
+                    last_rom_check = now
+                    await self._check_rom_change()
             except Exception as exc:
                 log.error(
                     logger, "RetroArchOrchestrator: tick error",

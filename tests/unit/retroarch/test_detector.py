@@ -35,6 +35,27 @@ def test_level_entrance_on_level_start_edge():
     assert events[0].level == 5
 
 
+def test_no_phantom_checkpoint_on_level_entrance_with_cp_entrance_shift():
+    """Backlog E: at a fresh level entry the cp_entrance byte shifts to the
+    entry room number. The detector records first_room on the levelNum shift and
+    excludes that shift (kaizosplits' !ShiftTo(cpEntrance, firstRoom)), so the
+    entrance frame must NOT emit a phantom CheckpointEvent (→ a spurious second
+    save state) — only the LevelEntranceEvent."""
+    d = TransitionDetector()
+    # prev: a different level (3), not on the level-start splash.
+    d.step(_snap(level_num=3, room_num=3, level_start=0, cp_entrance=10), timestamp_ms=0)
+    # curr: fresh entry to level 5, entry room 20 — level_start 0->1 and
+    # cp_entrance shifts to the entry room (20), exactly as the game does.
+    events = d.step(
+        _snap(level_num=5, room_num=20, level_start=1, cp_entrance=20), timestamp_ms=16
+    )
+
+    assert any(isinstance(e, LevelEntranceEvent) for e in events)
+    assert not any(isinstance(e, CheckpointEvent) for e in events), \
+        "no phantom checkpoint may fire on the level-entrance frame"
+    assert len(events) == 1
+
+
 def test_death_emits_once_per_anim_transition():
     d = TransitionDetector()
     d.step(_snap(player_anim=0), timestamp_ms=0)

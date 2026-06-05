@@ -199,8 +199,39 @@ class RAClient:
 
     @property
     def game_basename(self) -> str | None:
-        """ROM basename from the last GET_STATUS. ``None`` until ``connect()`` succeeds."""
+        """ROM basename cached at ``connect()`` (or refreshed via
+        ``set_game_basename``). ``None`` until ``connect()`` succeeds.
+
+        This is a *cached* value, not the live GET_STATUS ROM — movie
+        record/replay staging builds file paths from it, so it must be
+        refreshed when RA swaps ROMs mid-session (see ``set_game_basename``).
+        """
         return self._game_basename
+
+    def set_game_basename(self, basename: str) -> None:
+        """Refresh the cached ROM basename after a mid-session ROM switch.
+
+        ``connect()`` is the only other writer, and it doesn't re-run while the
+        socket stays up — so without this, a switch left ``game_basename``
+        stale and movie staging used the old game's name (backlog D #2). The
+        orchestrator's GET_STATUS ROM-change poll calls this on a detected swap.
+        """
+        self._game_basename = basename
+
+    async def resume_if_paused(self) -> None:
+        """Unpause RA if it is currently paused.
+
+        RA auto-pauses when a movie finishes playing. A replay started while
+        RA is paused loads the movie's embedded savestate but never advances a
+        frame — the "loads state, starts, then stops without doing anything"
+        replay bug (backlog D). The replay path calls this both before
+        PLAY_REPLAY (so playback runs) and after a replay ends (so a replay
+        never leaves RA paused). PAUSE_TOGGLE is a blind flip with no state
+        query, so we must read GET_STATUS first and only toggle when paused.
+        """
+        status = await self.get_status()
+        if status.state == "PAUSED":
+            await asyncio.to_thread(self._nci.pause_toggle)
 
     @property
     def state_version(self) -> int:

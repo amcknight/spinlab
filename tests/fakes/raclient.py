@@ -41,6 +41,7 @@ class FakeRAClient:
 
     # Failure injection.
     raise_on_connect: Exception | None = None
+    raise_on_get_status: Exception | None = None
 
     # Call recording.
     def __post_init__(self) -> None:
@@ -53,8 +54,15 @@ class FakeRAClient:
         self.disconnect_calls = 0
         self.read_ram_calls: list[tuple[int, int]] = []
         self.write_ram_calls: list[tuple[int, bytes]] = []
+        self.resume_if_paused_calls = 0
         self._state_version = 0
         self._connected = False
+        # Cached ROM basename, set at connect() and refreshable via
+        # set_game_basename — mirrors the real RAClient, where game_basename is
+        # NOT the live GET_STATUS value but a value cached at connect time. This
+        # distinction matters: get_status() reflects RA's current ROM, while
+        # game_basename can go stale after a switch until refreshed.
+        self._game_basename_cache: str | None = None
 
     # --- Properties matching RAClient ---
 
@@ -64,7 +72,10 @@ class FakeRAClient:
 
     @property
     def game_basename(self) -> str | None:
-        return self.rom_filename if self._connected else None
+        return self._game_basename_cache
+
+    def set_game_basename(self, basename: str) -> None:
+        self._game_basename_cache = basename
 
     @property
     def is_connected(self) -> bool:
@@ -84,6 +95,7 @@ class FakeRAClient:
         if self.raise_on_connect is not None:
             raise self.raise_on_connect
         self._connected = True
+        self._game_basename_cache = self.rom_filename or None
         return ConnectInfo(
             rom_filename=self.rom_filename,
             system=self.system,
@@ -97,6 +109,8 @@ class FakeRAClient:
     # --- Memory ---
 
     async def get_status(self) -> StatusInfo:
+        if self.raise_on_get_status is not None:
+            raise self.raise_on_get_status
         return StatusInfo(
             state="PAUSED" if self._connected else "CONTENTLESS",
             system=self.system,
@@ -134,6 +148,9 @@ class FakeRAClient:
 
     def fast_forward_toggle(self) -> None:
         self.fast_forward_toggles += 1
+
+    async def resume_if_paused(self) -> None:
+        self.resume_if_paused_calls += 1
 
 
 @dataclass
