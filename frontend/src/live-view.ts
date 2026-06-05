@@ -40,7 +40,14 @@ let _lastRouteData: RouteBarData | null = null;
 let _lastHosts: LiveViewHosts | null = null;
 
 export async function loadAndRenderLiveView(opts: LiveViewLoadOptions): Promise<void> {
-  destroyLiveView();
+  // Cancel the old elapsed-tick but DO NOT blank the DOM: this runs on every
+  // SSE push, and wiping innerHTML before the (awaited) fetch leaves all three
+  // panels empty for the fetch latency, then refills them — the visible
+  // "MAJOR flicker". Keeping the prior content lets each render below replace
+  // its host atomically once data arrives (the same flicker-free path the 1s
+  // tickRouteBar already uses). Only true teardown (destroyLiveView, on exit
+  // from practice) blanks the DOM.
+  stopTick();
   _lastHosts = opts.hosts;
 
   const [live, summary] = await Promise.all([
@@ -71,8 +78,16 @@ function tickRouteBar(): void {
   renderRouteBar(_lastHosts.routeBar, _lastRouteData);
 }
 
-export function destroyLiveView(): void {
+/** Cancel the elapsed-tick timer without touching the DOM. Used by
+ * loadAndRenderLiveView on every reload so the prior content survives the
+ * in-flight fetch (no blank flash). destroyLiveView() is the DOM-blanking
+ * teardown for leaving practice mode. */
+function stopTick(): void {
   if (_tickHandle != null) { clearInterval(_tickHandle); _tickHandle = null; }
+}
+
+export function destroyLiveView(): void {
+  stopTick();
   _lastRouteData = null;
   if (_lastHosts) {
     _lastHosts.routeBar.innerHTML = "";

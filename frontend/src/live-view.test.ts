@@ -48,6 +48,37 @@ describe("loadAndRenderLiveView", () => {
     expect(hosts.segmentSummary.innerHTML).toContain("L1");
     expect(hosts.graph.querySelector("svg")).not.toBeNull();
   });
+  it("keeps prior content visible while a reload's fetch is in flight (no blank flash)", async () => {
+    const hosts = setupHosts();
+    await loadAndRenderLiveView({
+      segmentId: "s0", gameId: "g0", segmentName: "L1",
+      title: "Beto · any%", hosts,
+    });
+    expect(hosts.routeBar.innerHTML).toContain("Beto");
+    expect(hosts.segmentSummary.innerHTML).toContain("L1");
+
+    // Reload with both fetches held in-flight so we can inspect the DOM
+    // mid-load. A re-render on every SSE push must not blank the panels
+    // first (that empty -> fetch-latency -> refill gap is the flicker).
+    const api = await import("./api");
+    let release!: () => void;
+    const pending = new Promise<null>((res) => { release = () => res(null); });
+    (api.fetchJSON as ReturnType<typeof vi.fn>)
+      .mockReturnValueOnce(pending)
+      .mockReturnValueOnce(pending);
+
+    const reload = loadAndRenderLiveView({
+      segmentId: "s1", gameId: "g0", segmentName: "L2",
+      title: "Beto · any%", hosts,
+    });
+    // Before the in-flight fetch resolves, the prior content must remain.
+    expect(hosts.routeBar.innerHTML).toContain("Beto");
+    expect(hosts.segmentSummary.innerHTML).toContain("L1");
+
+    release();
+    await reload;
+    destroyLiveView();
+  });
   it("renders inline error per host on fetch failure", async () => {
     const api = await import("./api");
     (api.fetchJSON as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
