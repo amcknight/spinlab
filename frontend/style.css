@@ -181,29 +181,6 @@ header {
 }
 .mode-stop:hover { color: var(--red); }
 
-/* Tabs */
-nav#tabs {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--card);
-}
-.tab {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  padding: 8px 16px;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  font-size: 14px;
-  font-family: inherit;
-}
-.tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-.tab-content { display: none; }
-.tab-content.active { display: block; }
-
 /* Cards */
 .card {
   margin: 6px 8px;
@@ -977,3 +954,48 @@ h3 {
 
 /* Live view inline errors */
 .lv-error { padding: 8px; font-size: 12px; }
+
+/* --- Phase D two-tab sweep shell --- */
+#sweep-viewport { overflow-x: hidden; }
+#sweep-track {
+  display: flex;
+  width: 200%;
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#sweep-track > .page {
+  width: 50%;
+  flex: 0 0 50%;
+  box-sizing: border-box;
+}
+/* Slide to the Setup page. */
+#sweep-shell[data-page="setup"] #sweep-track { transform: translateX(-50%); }
+
+/* Subtle per-page tint so you always know where you are. */
+#sweep-shell[data-page="play"]  { background: #15201a; }
+#sweep-shell[data-page="setup"] { background: #1c1622; }
+
+/* Edge tab: clings to the side it sweeps toward; flips across on toggle. */
+#sweep-shell { position: relative; }
+.sweep-tab {
+  position: absolute;
+  top: 64px;                /* below the header band; refine placement later */
+  z-index: 5;
+  cursor: pointer;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 10px 3px;
+  border: 1px solid;
+  background: transparent;
+  transition: all 0.35s ease;
+}
+#sweep-shell[data-page="play"]  .sweep-tab {
+  right: 0; left: auto; border-radius: 6px 0 0 6px; border-right: none;
+  color: #c77dff; border-color: #5a4170; background: #2a1e3a;
+}
+#sweep-shell[data-page="setup"] .sweep-tab {
+  left: 0; right: auto; border-radius: 0 6px 6px 0; border-left: none;
+  color: #6fcf97; border-color: #3a5a44; background: #15201a;
+}
