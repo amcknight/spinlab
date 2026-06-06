@@ -40,6 +40,14 @@ export interface LiveViewLoadOptions {
 let _tickHandle: ReturnType<typeof setInterval> | null = null;
 let _lastRouteData: RouteBarData | null = null;
 let _lastHosts: LiveViewHosts | null = null;
+// Monotonic render generation. SSE pushes trigger overlapping
+// loadAndRenderLiveView calls; only the latest may apply its render + start a
+// tick. Without this guard a stale in-flight call (e.g. a live render still
+// fetching when the frozen stop render begins) resolves last and starts an
+// elapsed-tick interval that the newer frozen call never clears (its top-of-
+// function stopTick already ran) — the route bar then ticks forever showing a
+// frozen summary. Stale calls bail after their fetch, so they can't orphan one.
+let _renderGen = 0;
 
 export async function loadAndRenderLiveView(opts: LiveViewLoadOptions): Promise<void> {
   // Cancel the old elapsed-tick but DO NOT blank the DOM: this runs on every
@@ -49,6 +57,7 @@ export async function loadAndRenderLiveView(opts: LiveViewLoadOptions): Promise<
   // its host atomically once data arrives (the same flicker-free path the 1s
   // tickRouteBar already uses). Only true teardown (destroyLiveView, on exit
   // from practice) blanks the DOM.
+  const myGen = ++_renderGen;
   stopTick();
   _lastHosts = opts.hosts;
 
@@ -58,6 +67,10 @@ export async function loadAndRenderLiveView(opts: LiveViewLoadOptions): Promise<
     fetchJSON<RouteSummary>(`/api/games/${encodeURIComponent(opts.gameId)}/live-summary`)
       .catch((e: unknown) => { renderError(opts.hosts.routeBar, "route summary", e); return null; }),
   ]);
+
+  // A newer call started while we were fetching — it owns the render and tick
+  // lifecycle now. Bail before rendering or starting an interval.
+  if (myGen !== _renderGen) return;
 
   // Frozen sessions (clean-stopped) carry session_ended_at; pin the elapsed clock
   // to that instant and skip the 1s tick so the idle view stays static.

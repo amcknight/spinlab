@@ -134,6 +134,61 @@ describe("loadAndRenderLiveView", () => {
     spy.mockRestore();
     destroyLiveView();
   });
+  it("a stale live render resolving before a newer frozen render leaves no ticking interval", async () => {
+    // Repro of the freeze-tick race: an in-flight live render (call #1) and a
+    // newer frozen render (call #2, e.g. the stop SSE) overlap. If the live call
+    // resolves first it starts an interval; the frozen call's top-of-function
+    // stopTick already ran, so it never clears that interval -> the route bar
+    // ticks forever while showing the frozen summary. The render-generation
+    // guard must make the stale call #1 bail, so no interval is ever started.
+    const api = await import("./api");
+    const mk = () => {
+      let resolve!: (v: unknown) => void;
+      const p = new Promise<unknown>((r) => { resolve = r; });
+      return { p, resolve };
+    };
+    const d1seg = mk(), d1sum = mk(), d2seg = mk(), d2sum = mk();
+    (api.fetchJSON as ReturnType<typeof vi.fn>)
+      .mockImplementationOnce(() => d1seg.p)   // call #1 segment
+      .mockImplementationOnce(() => d1sum.p)   // call #1 summary (live)
+      .mockImplementationOnce(() => d2seg.p)   // call #2 segment
+      .mockImplementationOnce(() => d2sum.p);  // call #2 summary (frozen)
+
+    const segment = {
+      segment_id: "s0", ready: true, expected_episode_ms: 21_800, practice_gain_ms: 500,
+      death_rate: 0.62, floor_ms: 12_800, last_episode_ms: 16_800, last_clean_ms: 13_600,
+      last_deaths: 1, last_rank: 2,
+      series: [{ episode_ms: 16800, deaths: 1, clean_ms: 13600, running_floor_ms: 12800 }],
+      n_successes: 6, n_deaths: 5,
+      expected_episode_diff_ms: null, practice_gain_diff_ms: null,
+      floor_diff_ms: null, death_rate_diff: null,
+    };
+    const base = {
+      game_id: "g0", exp_run_ms: 115_000, exp_deaths: 3.5, n_estimable: 8, n_skipped: 0,
+      exp_run_diff_ms: null, exp_deaths_diff: null, practice_saved_ms: 6200,
+      floor_improvement_ms: null, run_series: [120000, 115000],
+      baseline_exp_run_ms: 121200, floor_total_ms: 110000, session_started_at: 1000,
+    };
+    const liveSum = { ...base, session_ended_at: null };
+    const frozenSum = { ...base, session_ended_at: 1060 };
+
+    const setSpy = vi.spyOn(globalThis, "setInterval");
+    const hosts = setupHosts();
+    const opts = { segmentId: "s0", gameId: "g0", segmentName: "L1", title: "Beto · any%", hosts };
+    const p1 = loadAndRenderLiveView(opts);   // call #1 (older) -> live
+    const p2 = loadAndRenderLiveView(opts);   // call #2 (newer) -> frozen, must win
+    // Resolve the OLDER live call first, then the NEWER frozen call.
+    d1seg.resolve(segment); d1sum.resolve(liveSum);
+    await p1;
+    d2seg.resolve(segment); d2sum.resolve(frozenSum);
+    await p2;
+
+    // Newest render is frozen -> no elapsed-tick interval may exist.
+    expect(setSpy).not.toHaveBeenCalled();
+    expect(hosts.routeBar.textContent).toContain("(frozen)");
+    setSpy.mockRestore();
+    destroyLiveView();
+  });
   it("renders inline error per host on fetch failure", async () => {
     const api = await import("./api");
     (api.fetchJSON as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
