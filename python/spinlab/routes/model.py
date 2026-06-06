@@ -19,6 +19,7 @@ from spinlab.api_schemas import (
 from spinlab.cold_distribution import compute_cold_distribution
 from spinlab.db import Database
 from spinlab.estimators.session_snapshot import running_min_clean
+from spinlab.models import EventAttempt
 from spinlab.scheduler import attempts_from_rows, events_from_rows
 from spinlab.session_manager import SessionManager
 
@@ -294,7 +295,7 @@ def get_route_summary(
     snap = session.practice_session_snapshot
 
     states = []
-    segment_events: list[list] = []
+    segment_events: list[list[EventAttempt]] = []
     floor_total_ms: float | None = None
     floor_improvement_ms: float | None = None
     if snap is not None:
