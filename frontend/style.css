@@ -916,6 +916,17 @@ h3 {
   margin: 0 0 12px 0;
 }
 
+/* Frozen idle card: keep only the live view (route bar + run graph + segment
+   summary + segment graph) visible; hide the practice-only widgets. */
+#practice-card[data-frozen="true"] > h3,
+#practice-card[data-frozen="true"] #recent,
+#practice-card[data-frozen="true"] .practice-footer,
+#practice-card[data-frozen="true"] .allocator-weights,
+#practice-card[data-frozen="true"] .em-suite-panel,
+#practice-card[data-frozen="true"] .lv-improvement {
+  display: none;
+}
+
 /* Route bar */
 .rb-root {
   display: flex; justify-content: space-between; align-items: flex-start;

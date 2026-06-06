@@ -1,5 +1,6 @@
 import { describe, it, expect, test } from "vitest";
 import { selectedEstimate, currentEstimate, formatTrend, canStartPractice, canStartHyperPlay } from "./model-logic";
+import { practiceCardState } from "./model-logic";
 import type { ModelSegment, CurrentSegment, Estimate, AppState } from "./types";
 
 const ESTIMATE: Estimate = {
@@ -204,4 +205,34 @@ test("canStartHyperPlay returns false during practice", () => {
     has_frozen_session: false,
   };
   expect(canStartHyperPlay(state)).toBe(false);
+});
+
+describe("practiceCardState", () => {
+  const args = (over: Partial<Parameters<typeof practiceCardState>[0]>) => ({
+    mode: "idle", hasCurrentSegment: false, hasFrozenSession: false,
+    hasLastPracticed: false, hasGameId: true, ...over,
+  });
+
+  it("is live while practicing with a current segment", () => {
+    expect(practiceCardState(args({ mode: "practice", hasCurrentSegment: true }))).toBe("live");
+  });
+  it("is live during hyper_play with a current segment", () => {
+    expect(practiceCardState(args({ mode: "hyper_play", hasCurrentSegment: true }))).toBe("live");
+  });
+  it("is hidden while practicing with no current segment yet", () => {
+    expect(practiceCardState(args({ mode: "practice", hasCurrentSegment: false }))).toBe("hidden");
+  });
+  it("is frozen when idle with a frozen session and a remembered segment", () => {
+    expect(practiceCardState(args({
+      mode: "idle", hasFrozenSession: true, hasLastPracticed: true, hasGameId: true,
+    }))).toBe("frozen");
+  });
+  it("is hidden when frozen-session exists but no remembered segment (e.g. fresh reload)", () => {
+    expect(practiceCardState(args({
+      mode: "idle", hasFrozenSession: true, hasLastPracticed: false,
+    }))).toBe("hidden");
+  });
+  it("is hidden when idle with no frozen session", () => {
+    expect(practiceCardState(args({ mode: "idle", hasFrozenSession: false }))).toBe("hidden");
+  });
 });

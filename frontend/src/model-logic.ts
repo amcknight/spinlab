@@ -27,3 +27,22 @@ export function canStartPractice(state: AppState): boolean {
 export function canStartHyperPlay(state: AppState): boolean {
   return state.emu_connected && state.game_id !== null && state.mode === "idle";
 }
+
+export type PracticeCardState = "live" | "frozen" | "hidden";
+
+/** Decide the practice card's state. `live` = actively practicing/hyper-playing
+ *  a segment; `frozen` = idle but a clean-stopped session persists and we have a
+ *  remembered segment to re-render; `hidden` otherwise. */
+export function practiceCardState(args: {
+  mode: string;
+  hasCurrentSegment: boolean;
+  hasFrozenSession: boolean;
+  hasLastPracticed: boolean;
+  hasGameId: boolean;
+}): PracticeCardState {
+  const isLive = (args.mode === "practice" || args.mode === "hyper_play")
+    && args.hasCurrentSegment;
+  if (isLive) return "live";
+  if (args.hasFrozenSession && args.hasLastPracticed && args.hasGameId) return "frozen";
+  return "hidden";
+}

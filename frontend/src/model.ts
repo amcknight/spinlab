@@ -1,4 +1,4 @@
-import { canStartPractice, canStartHyperPlay } from "./model-logic";
+import { canStartPractice, canStartHyperPlay, practiceCardState } from "./model-logic";
 import type { AppState, ModelData } from "./types";
 import {
   loadAndRenderEmSuitePanel,
@@ -26,6 +26,7 @@ import {
 
 let _currentWeights: Record<string, number> | null = null;
 let _currentSegmentId: string | null = null;
+let _lastPracticed: { id: string; name: string } | null = null;
 
 export async function fetchModel(): Promise<void> {
   const data = await fetchModelData();
@@ -67,32 +68,60 @@ function hideSegmentDetail(): void {
 
 export function updatePracticeCard(data: AppState): void {
   const card = document.getElementById("practice-card") as HTMLElement;
-  if ((data.mode !== "practice" && data.mode !== "hyper_play") || !data.current_segment) {
+  const cs = data.current_segment;
+  const state = practiceCardState({
+    mode: data.mode,
+    hasCurrentSegment: cs != null,
+    hasFrozenSession: data.has_frozen_session,
+    hasLastPracticed: _lastPracticed != null,
+    hasGameId: data.game_id != null,
+  });
+
+  if (state === "hidden") {
     card.style.display = "none";
+    card.removeAttribute("data-frozen");
     destroyEmSuitePanel();
     destroyImprovementView();
     destroyLiveView();
     return;
   }
-  card.style.display = "";
 
-  // Live view (route bar + segment summary + episode graph). Fetches both
-  // /segments/{id}/live and /games/{id}/live-summary in parallel. Requires
-  // game_id on AppState — when null (no game loaded) we shouldn't be in
-  // practice mode anyway, but skip the mount defensively.
-  const cs = data.current_segment;
+  const hosts = {
+    routeBar: document.getElementById("live-route-bar")!,
+    runGraph: document.getElementById("live-run-graph")!,
+    segmentSummary: document.getElementById("live-segment-summary")!,
+    graph: document.getElementById("live-graph-slot")!,
+  };
+
+  if (state === "frozen") {
+    // Idle with a clean-stopped session: keep the live view visible, rendered
+    // from the persisted (frozen) snapshot. CSS [data-frozen] hides the
+    // practice-only widgets (recent, session stats, weights, panels).
+    card.style.display = "";
+    card.dataset.frozen = "true";
+    destroyEmSuitePanel();
+    destroyImprovementView();
+    void loadAndRenderLiveView({
+      segmentId: _lastPracticed!.id,
+      gameId: data.game_id!,
+      segmentName: _lastPracticed!.name,
+      title: data.game_name ?? data.game_id!,
+      hosts,
+    });
+    return;
+  }
+
+  // state === "live"
+  card.style.display = "";
+  card.removeAttribute("data-frozen");
+  _lastPracticed = { id: cs!.id, name: segmentName(cs!) };
   if (data.game_id) {
     void loadAndRenderLiveView({
-      segmentId: cs.id,
+      segmentId: cs!.id,
       gameId: data.game_id,
-      segmentName: segmentName(cs),
+      segmentName: segmentName(cs!),
       title: data.game_name ?? data.game_id,
-      hosts: {
-        routeBar: document.getElementById("live-route-bar")!,
-        runGraph: document.getElementById("live-run-graph")!,
-        segmentSummary: document.getElementById("live-segment-summary")!,
-        graph: document.getElementById("live-graph-slot")!,
-      },
+      hosts,
     });
   }
 
@@ -113,7 +142,7 @@ export function updatePracticeCard(data: AppState): void {
 
   const improvementHost = document.getElementById("improvement-view") as HTMLElement;
   if (improvementHost) {
-    void loadAndRenderImprovementView(data.current_segment.id, improvementHost);
+    void loadAndRenderImprovementView(cs!.id, improvementHost);
   }
 
   // EMA-suite panel. Fired per SSE app-state push, so updates per attempt
@@ -121,7 +150,7 @@ export function updatePracticeCard(data: AppState): void {
   // panel host without blocking the rest of the card.
   const emSuiteHost = document.getElementById("em-suite-panel") as HTMLElement;
   if (emSuiteHost) {
-    void loadAndRenderEmSuitePanel(data.current_segment.id, emSuiteHost);
+    void loadAndRenderEmSuitePanel(cs!.id, emSuiteHost);
   }
 }
 
