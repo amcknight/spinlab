@@ -70,6 +70,19 @@ def _client_with_session(tmp_path) -> tuple[TestClient, str, str]:
     return TestClient(app), seg_id, game_id
 
 
+def _client_with_frozen_session(tmp_path) -> tuple[TestClient, str, str]:
+    db, seg_id, game_id = _seed_db(tmp_path)
+    snapshot = SessionSnapshot(
+        started_at=0.0, ended_at=60.0, segments={},
+        route=RouteBaseline(exp_run_ms=250000.0, exp_deaths=20.0),
+    )
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_session] = lambda: _ActiveSessionStub(snapshot)
+    return TestClient(app), seg_id, game_id
+
+
 class TestLiveRoutes:
     def test_segment_live_ready(self, tmp_path):
         client, seg_id, _ = _client(tmp_path)
@@ -107,19 +120,6 @@ class TestLiveRoutes:
         # baseline echoes the snapshot route; no baseline segments -> floor_improvement 0.
         assert body["baseline_exp_run_ms"] == 250000.0
         assert body["floor_improvement_ms"] == 0.0
-
-
-def _client_with_frozen_session(tmp_path) -> tuple[TestClient, str, str]:
-    db, seg_id, game_id = _seed_db(tmp_path)
-    snapshot = SessionSnapshot(
-        started_at=0.0, ended_at=60.0, segments={},
-        route=RouteBaseline(exp_run_ms=250000.0, exp_deaths=20.0),
-    )
-    app = FastAPI()
-    app.include_router(router)
-    app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_session] = lambda: _ActiveSessionStub(snapshot)
-    return TestClient(app), seg_id, game_id
 
 
 class TestFrozenLiveSummary:
