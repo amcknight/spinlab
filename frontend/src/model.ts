@@ -1,5 +1,5 @@
 import { canStartPractice, canStartHyperPlay } from "./model-logic";
-import type { AppState, ModelData, SessionInfo } from "./types";
+import type { AppState, ModelData } from "./types";
 import {
   loadAndRenderEmSuitePanel,
   destroyEmSuitePanel,
@@ -22,7 +22,6 @@ import {
   renderModelTable,
   renderRecentList,
   renderSessionStats,
-  renderSavingsPanel,
 } from "./model-render";
 
 let _currentWeights: Record<string, number> | null = null;
@@ -66,10 +65,6 @@ function hideSegmentDetail(): void {
   fetchModel();
 }
 
-export function updateSavingsPanel(session: SessionInfo | null): void {
-  renderSavingsPanel(session);
-}
-
 export function updatePracticeCard(data: AppState): void {
   const card = document.getElementById("practice-card") as HTMLElement;
   if ((data.mode !== "practice" && data.mode !== "hyper_play") || !data.current_segment) {
@@ -80,7 +75,6 @@ export function updatePracticeCard(data: AppState): void {
     return;
   }
   card.style.display = "";
-  updateSavingsPanel(data.session);
 
   // Live view (route bar + segment summary + episode graph). Fetches both
   // /segments/{id}/live and /games/{id}/live-summary in parallel. Requires

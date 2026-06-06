@@ -1,41 +1,6 @@
-import { segmentName, formatTime, elapsedStr, formatSavings } from "./format";
+import { segmentName, formatTime, elapsedStr } from "./format";
 import { selectedEstimate } from "./model-logic";
-import type { AppState, ModelData, SessionInfo } from "./types";
-
-export function renderSavingsPanel(session: SessionInfo | null): void {
-  const panel = document.getElementById("savings-panel") as HTMLElement | null;
-  if (!panel) return;
-
-  const totalStr = session ? formatSavings(session.saved_total_ms) : null;
-  const cleanStr = session ? formatSavings(session.saved_clean_ms) : null;
-
-  if (totalStr === null && cleanStr === null) {
-    panel.style.display = "none";
-    return;
-  }
-  panel.style.display = "";
-
-  const totalEl = document.getElementById("savings-total")!;
-  const cleanEl = document.getElementById("savings-clean")!;
-
-  if (totalStr !== null) {
-    totalEl.textContent = totalStr + " total";
-    totalEl.className =
-      "savings-value " + ((session!.saved_total_ms ?? 0) >= 0 ? "positive" : "negative");
-  } else {
-    totalEl.textContent = "";
-    totalEl.className = "savings-value";
-  }
-
-  if (cleanStr !== null) {
-    cleanEl.textContent = cleanStr + " clean";
-    cleanEl.className =
-      "savings-value " + ((session!.saved_clean_ms ?? 0) >= 0 ? "positive" : "negative");
-  } else {
-    cleanEl.textContent = "";
-    cleanEl.className = "savings-value";
-  }
-}
+import type { AppState, ModelData } from "./types";
 
 export const ALLOCATOR_COLORS: Record<string, string> = {
   greedy: "#4caf50",
