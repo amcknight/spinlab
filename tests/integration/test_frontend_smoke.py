@@ -150,6 +150,20 @@ async def test_practice_card_renders(page):
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_practice_card_frozen_layout_targets_exist(page):
+    pg, _errors = page
+    # The frozen idle view (Plan 2) hides practice-only widgets via
+    # #practice-card[data-frozen="true"] selectors. Assert those targets exist
+    # so the CSS contract can't drift. (Live frozen behavior is verified by the
+    # vitest model-logic / live-view tests + the manual live look.)
+    assert await pg.locator("#practice-card #recent").count() == 1
+    assert await pg.locator("#practice-card .practice-footer").count() == 1
+    assert await pg.locator("#practice-card .em-suite-panel").count() == 1
+    assert await pg.locator("#practice-card .lv-improvement").count() == 1
+    assert await pg.locator("#practice-card .lv-run-graph").count() == 1
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_segments_tab_lists_seeded_segments(page):
     pg, _errors = page
     await _goto_setup(pg)
