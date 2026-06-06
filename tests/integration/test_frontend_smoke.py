@@ -24,6 +24,12 @@ pytestmark = []  # not RA-backed; clear emulator marker inherited from integrati
 # python/spinlab/static/ (precondition: `cd frontend && npm run build`).
 _STATIC_ROOT = Path(__file__).resolve().parents[2] / "python" / "spinlab" / "static"
 
+
+async def _goto_setup(pg):
+    """Sweep from Play to the Setup page."""
+    await pg.click("#sweep-tab")
+    await pg.wait_for_selector('#sweep-shell[data-page="setup"]', timeout=5000)
+
 _CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js":   "application/javascript; charset=utf-8",
@@ -57,9 +63,6 @@ async def _serve_static(route, request):
         status=200, body=fs_path.read_bytes(), headers={"Content-Type": ct},
     )
 
-# The nav exposes four tabs; the "practice" UI lives inside the model tab as
-# #practice-card, not as its own tab button. "practice-engine" is the Simulator.
-TABS = ("model", "manage", "segments", "practice-engine")
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
@@ -116,13 +119,13 @@ async def page(browser, fake_dashboard_server):
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_all_tabs_render_without_console_errors(page):
+async def test_both_pages_render_without_console_errors(page):
     pg, errors = page
-    for tab in TABS:
-        await pg.click(f'nav#tabs button.tab[data-tab="{tab}"]')
-        # Tab content section becomes .active on click; wait for that instead
-        # of networkidle (SSE keeps the network busy indefinitely).
-        await pg.wait_for_selector(f"section#tab-{tab}.active", timeout=5000)
+    # Play page is default — assert key Play content is present without any click.
+    await pg.wait_for_selector("#model-table", timeout=5000)
+    # Sweep to Setup page and assert Setup content is present.
+    await _goto_setup(pg)
+    await pg.wait_for_selector("#segments-view-container", timeout=5000)
     assert not errors, f"console/page errors: {errors}"
 
 
@@ -137,16 +140,16 @@ async def test_sse_delivers_state_update(page):
 @pytest.mark.asyncio(loop_scope="session")
 async def test_practice_card_renders(page):
     pg, _errors = page
-    # #practice-card is inside the model tab; it's hidden until a practice
-    # session starts, but the element itself must exist in the DOM.
-    await pg.click('nav#tabs button.tab[data-tab="model"]')
+    # #practice-card is on the Play page (default); no navigation needed.
+    # It's hidden until a practice session starts, but the element itself must
+    # exist in the DOM.
     assert await pg.locator("#practice-card").count() == 1
 
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_segments_tab_lists_seeded_segments(page):
     pg, _errors = page
-    await pg.click('nav#tabs button.tab[data-tab="segments"]')
+    await _goto_setup(pg)
     # segments-view.ts renders one <section.segments-level> per distinct
     # level_number. seed_basic_game seeds three distinct levels.
     await pg.wait_for_selector("#segments-view-container section.segments-level", timeout=5000)
@@ -164,8 +167,7 @@ async def test_segments_tab_lists_seeded_segments(page):
 @pytest.mark.asyncio(loop_scope="session")
 async def test_manage_tab_shows_reference(page):
     pg, _errors = page
-    await pg.click('nav#tabs button.tab[data-tab="manage"]')
-    await pg.wait_for_selector("section#tab-manage.active", timeout=5000)
+    await _goto_setup(pg)
     # seed_basic_game creates a reference named "FakeRef" and marks it active;
     # manage.ts populates #ref-select with one <option> per reference. The
     # active option's text is "FakeRef " + U+25CF (black circle).
@@ -179,7 +181,7 @@ async def test_manage_tab_shows_reference(page):
 @pytest.mark.asyncio(loop_scope="session")
 async def test_model_tab_renders_model_table(page):
     pg, _errors = page
-    await pg.click('nav#tabs button.tab[data-tab="model"]')
+    # #model-table is on the Play page (default); no navigation needed.
     # model.ts fetchModel() -> updateModel() builds #model-body rows, one per
     # seeded segment. seed_basic_game seeds 3 segments with completed attempts.
     await pg.wait_for_selector("#model-body tr", timeout=5000)
@@ -206,7 +208,7 @@ async def test_simulator_tab_renders_segment_names_not_undefined(page, simulator
     """Regression: empty-description segments must resolve to structural names
     (no 'cpundefined'). Gated names appear in the ranked list, ungated inline."""
     pg, errors = page
-    await pg.click('nav#tabs button.tab[data-tab="practice-engine"]')
+    # Simulator is on the Play page (default) and inits on load; no navigation needed.
     # Auto-recompute on open populates the ranked list (default objective needs no input).
     await pg.wait_for_selector("#pe-rank-body li", timeout=5000)
     panel_text = await pg.locator("#practice-engine-panel").inner_text()
@@ -224,7 +226,7 @@ async def test_simulator_ranks_gated_segments(page, simulator_seeded):
     """Regression: the panel auto-ranks gated segments best-first with plain
     payoffs — no scientific notation, no Value/sec column, controls behind Advanced."""
     pg, errors = page
-    await pg.click('nav#tabs button.tab[data-tab="practice-engine"]')
+    # Simulator is on the Play page (default) and inits on load; no navigation needed.
     await pg.wait_for_selector("#pe-rank-body li", timeout=5000)
     rows = await pg.locator("#pe-rank-body li").count()
     assert rows >= 1
