@@ -235,4 +235,14 @@ describe("practiceCardState", () => {
   it("is hidden when idle with no frozen session", () => {
     expect(practiceCardState(args({ mode: "idle", hasFrozenSession: false }))).toBe("hidden");
   });
+  it("is hidden when the frozen session was cleared (e.g. game switch) despite a remembered segment", () => {
+    expect(practiceCardState(args({
+      mode: "idle", hasFrozenSession: false, hasLastPracticed: true,
+    }))).toBe("hidden");
+  });
+  it("is hidden when frozen + remembered but no game is loaded", () => {
+    expect(practiceCardState(args({
+      mode: "idle", hasFrozenSession: true, hasLastPracticed: true, hasGameId: false,
+    }))).toBe("hidden");
+  });
 });
