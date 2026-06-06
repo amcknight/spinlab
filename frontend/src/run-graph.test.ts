@@ -28,6 +28,16 @@ describe("renderRunGraph", () => {
     expect(host.querySelector("svg")).toBeNull();
   });
 
+  it("draws a marker for a single-point series", () => {
+    renderRunGraph(host, base({
+      run_series: [258000],
+      baseline_exp_run_ms: 258000,
+      floor_total_ms: 231000,
+    }));
+    expect(host.querySelector("svg")).not.toBeNull();
+    expect(host.querySelector(".rg-last")).not.toBeNull();
+  });
+
   it("draws curve, baseline, floor and a last-point marker", () => {
     renderRunGraph(host, base({
       run_series: [258000, 255000, 252000],

@@ -28,7 +28,8 @@ export function renderRunGraph(host: HTMLElement, data: RouteSummary): void {
     return;
   }
   const floor = data.floor_total_ms ?? null;
-  // Scale spans the floor (bottom) to the highest of baseline / series (top).
+  // Y-scale: bottom = floor when known, else the fastest in-session run; top = the
+  // slowest of baseline / series. Keeps the whole curve and both lines in frame.
   const lo = floor ?? Math.min(...series);
   const hi = Math.max(baseline, ...series);
   const curve = linePoints(series, lo, hi, GEO);
