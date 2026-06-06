@@ -205,6 +205,9 @@ def route_series(
     ``expected_episode_time_scalar`` over all segments, skipping segments whose
     scalar is still None (under-gated or p->1). Returns [] when there is no
     session window or no in-session event produces an estimable route.
+    Events sharing the same ``created_at`` across different segments are ordered
+    by segment index (stable sort tie-break); this is insignificant for the
+    route sum, which is order-independent within a single timestamp.
 
     Exact closed form, same as route_summary; no Monte-Carlo, no new constants.
     """

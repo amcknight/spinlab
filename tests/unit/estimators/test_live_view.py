@@ -122,6 +122,10 @@ def test_route_series_emits_floats_for_in_session_events():
     series = route_series([warm + in_session], session_start=start)
     assert series, "expected at least one in-session estimable point"
     assert all(isinstance(x, float) for x in series)
+    # All 3 in-session events (00:00:10, 00:00:11, 00:00:12) are >= session_start
+    # and the EMAs are warm enough after the 3 warm-up events, so each should
+    # yield an estimable point.
+    assert len(series) == 3
 
 
 def test_route_series_sums_across_segments():
