@@ -48,6 +48,7 @@ class PracticeSession:
         auto_advance_delay_ms: int = 1000,
         death_penalty_ms: int = 3200,
         on_attempt: Callable | None = None,
+        on_segment_load: Callable | None = None,
         session_id: str | None = None,
     ) -> None:
         self.emu = emu
@@ -56,6 +57,10 @@ class PracticeSession:
         self.auto_advance_delay_ms = auto_advance_delay_ms
         self.death_penalty_ms = death_penalty_ms
         self.on_attempt = on_attempt
+        # Fired in run_one once a segment is picked and its load cmd is sent,
+        # so a fresh state broadcast carries current_segment and the live
+        # practice card renders immediately (not just after the first result).
+        self.on_segment_load = on_segment_load
 
         self.scheduler = scheduler
         self.session_id = session_id or uuid.uuid4().hex
@@ -270,6 +275,11 @@ class PracticeSession:
             auto_advance_delay_ms=cmd.auto_advance_delay_ms,
             death_penalty_ms=cmd.death_penalty_ms,
         ))
+
+        # The segment is now the current one; broadcast so the dashboard's
+        # live practice card renders before any attempt result lands.
+        if self.on_segment_load is not None:
+            self.on_segment_load(cmd.id)
 
         # Wait for attempt_result via receive_result() (set by SessionManager)
         self._result_event.clear()

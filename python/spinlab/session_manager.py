@@ -615,6 +615,7 @@ class SessionManager:
             scheduler=self.get_scheduler(),
             death_penalty_ms=self.capture.condition_registry.death_penalty_ms,
             on_attempt=lambda _: asyncio.create_task(self._notify_sse()),
+            on_segment_load=lambda _: asyncio.create_task(self._notify_sse()),
         )
         self.practice_session = ps
         self.practice_task = asyncio.create_task(ps.run_loop())

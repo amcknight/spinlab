@@ -49,6 +49,54 @@ async def test_practice_session_picks_and_sends(practice_db):
 
 
 @pytest.mark.asyncio
+async def test_run_one_notifies_on_segment_load(practice_db):
+    """run_one fires on_segment_load once the segment is picked + load cmd
+    sent, BEFORE the attempt result arrives — and current_segment_id is set
+    at notify time.
+
+    Regression: start_practice broadcast SSE before run_loop had selected a
+    segment, and nothing re-broadcast when the segment loaded, so the live
+    practice card stayed hidden (current_segment null) until the first attempt
+    result. HyperPlay was unaffected (its current_segment is available at
+    start). The callback gives Practice the same immediate render.
+    """
+    seg_id = practice_db._test_seg_id
+    mock_emu = AsyncMock()
+    mock_emu.is_connected = True
+    mock_emu.send_command = AsyncMock()
+
+    seen: list[tuple[str, str | None]] = []
+
+    session = PracticeSession(
+        emu=mock_emu,
+        db=practice_db,
+        game_id="g",
+        scheduler=Scheduler(practice_db, "g"),
+        on_segment_load=lambda sid: seen.append((sid, session.current_segment_id)),
+    )
+    session.is_running = True
+
+    async def deliver():
+        await asyncio.sleep(0.05)
+        session.receive_result(AttemptResultEvent(
+            segment_id=seg_id,
+            completed=True,
+            time_ms=4500,
+        ))
+
+    asyncio.create_task(deliver())
+    await session.run_one()
+
+    assert seen, "on_segment_load was never called"
+    notified_id, current_at_notify = seen[0]
+    assert notified_id == seg_id
+    assert current_at_notify == seg_id, (
+        "current_segment_id must be populated when on_segment_load fires, "
+        "so the broadcast state carries current_segment"
+    )
+
+
+@pytest.mark.asyncio
 async def test_practice_session_state(practice_db):
     session = PracticeSession(emu=AsyncMock(), db=practice_db, game_id="g", scheduler=Scheduler(practice_db, "g"))
     assert session.is_running is False
