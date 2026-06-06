@@ -110,6 +110,50 @@ def test_on_hyper_play_done_crash_clears_snapshot(monkeypatch):
     assert sm.practice_session_snapshot is None
 
 
+def test_on_practice_done_clean_completion_freezes_snapshot(monkeypatch):
+    """A clean task finish (no crash, no cancel) while still in PRACTICE — e.g. the
+    loop exits normally — must FREEZE the snapshot, not clear it, so the idle view
+    persists exactly as a user stop would."""
+    from spinlab.models import Mode
+
+    sm = _make_sm_with_segments(["s0"])
+    sm.mode = Mode.PRACTICE
+    monkeypatch.setattr(time, "time", lambda: 1717_000_000.0)
+    sm._take_session_snapshot()  # type: ignore[attr-defined]
+    monkeypatch.setattr(time, "time", lambda: 1717_000_060.0)
+    monkeypatch.setattr(sm, "_notify_sse", lambda: None)
+    import asyncio as _asyncio
+    monkeypatch.setattr(_asyncio, "create_task", lambda coro: None)
+
+    sm._on_practice_done(_fake_task())  # clean: not cancelled, no exception
+
+    assert sm.mode == Mode.IDLE
+    assert sm.practice_session_snapshot is not None
+    assert sm.practice_session_snapshot.ended_at == 1717_000_060.0
+
+
+def test_on_hyper_play_done_clean_completion_freezes_snapshot(monkeypatch):
+    """Completing all hyper-play levels ends the task cleanly while mode is still
+    HYPER_PLAY (no stop was called). That must FREEZE the snapshot so the finished
+    session's view persists — the bug was that completion cleared it."""
+    from spinlab.models import Mode
+
+    sm = _make_sm_with_segments(["s0"])
+    sm.mode = Mode.HYPER_PLAY
+    monkeypatch.setattr(time, "time", lambda: 1717_000_000.0)
+    sm._take_session_snapshot()  # type: ignore[attr-defined]
+    monkeypatch.setattr(time, "time", lambda: 1717_000_060.0)
+    monkeypatch.setattr(sm, "_notify_sse", lambda: None)
+    import asyncio as _asyncio
+    monkeypatch.setattr(_asyncio, "create_task", lambda coro: None)
+
+    sm._on_hyper_play_done(_fake_task())  # clean completion
+
+    assert sm.mode == Mode.IDLE
+    assert sm.practice_session_snapshot is not None
+    assert sm.practice_session_snapshot.ended_at == 1717_000_060.0
+
+
 def test_take_session_snapshot_logs_segment_count_on_success(caplog):
     """Successful snapshot capture emits an INFO log with the segment count."""
     import logging

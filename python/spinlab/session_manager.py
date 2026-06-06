@@ -655,13 +655,23 @@ class SessionManager:
         return ActionResult(status=Status.STARTED, session_id=ps.session_id)
 
     def _on_practice_done(self, task: asyncio.Task) -> None:
-        if not task.cancelled():
+        clean = False
+        if task.cancelled():
+            pass  # abnormal teardown (rollback/cancel) — not a clean finish
+        else:
             exc = task.exception()
             if exc is not None:
                 logger.error("practice task crashed", exc_info=exc)
+            else:
+                clean = True
         if self.mode == Mode.PRACTICE:
             self.mode = Mode.IDLE
-            self._clear_session_snapshot()
+            # A clean finish freezes the snapshot so the idle view persists, the
+            # same as a user stop; a crash/cancel clears it (no stale baseline).
+            if clean:
+                self._freeze_session_snapshot()
+            else:
+                self._clear_session_snapshot()
             asyncio.create_task(self._notify_sse())
 
     async def stop_practice(self) -> ActionResult:
@@ -729,13 +739,24 @@ class SessionManager:
         return ActionResult(status=Status.STARTED, session_id=sr.session_id)
 
     def _on_hyper_play_done(self, task: asyncio.Task) -> None:
-        if not task.cancelled():
+        clean = False
+        if task.cancelled():
+            pass  # abnormal teardown (rollback/cancel) — not a clean finish
+        else:
             exc = task.exception()
             if exc is not None:
                 logger.error("hyper_play task crashed", exc_info=exc)
+            else:
+                clean = True
         if self.mode == Mode.HYPER_PLAY:
             self.mode = Mode.IDLE
-            self._clear_session_snapshot()
+            # Completing all levels ends the task cleanly while still HYPER_PLAY —
+            # freeze so the finished session's view persists, like a user stop. A
+            # crash/cancel clears it instead.
+            if clean:
+                self._freeze_session_snapshot()
+            else:
+                self._clear_session_snapshot()
             asyncio.create_task(self._notify_sse())
 
     async def stop_hyper_play(self) -> ActionResult:
