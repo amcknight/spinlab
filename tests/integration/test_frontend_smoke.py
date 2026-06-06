@@ -158,6 +158,7 @@ async def test_practice_card_frozen_layout_targets_exist(page):
     # vitest model-logic / live-view tests + the manual live look.)
     assert await pg.locator("#practice-card #recent").count() == 1
     assert await pg.locator("#practice-card .practice-footer").count() == 1
+    assert await pg.locator("#practice-card .allocator-weights").count() == 1
     assert await pg.locator("#practice-card .em-suite-panel").count() == 1
     assert await pg.locator("#practice-card .lv-improvement").count() == 1
     assert await pg.locator("#practice-card .lv-run-graph").count() == 1
