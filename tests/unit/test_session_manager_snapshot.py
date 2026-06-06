@@ -1,6 +1,7 @@
 """SessionManager — practice/hyper-play start captures a session snapshot;
-stop clears it. The snapshot is taken from the current sampler states + the
-observed attempts for each segment, with started_at = time.time()."""
+a clean stop FREEZES it (stamps ended_at) so the idle view persists; crash
+and game-switch clear it. The snapshot is taken from the current sampler
+states + the observed attempts for each segment, with started_at = time.time()."""
 from __future__ import annotations
 
 import time
@@ -361,6 +362,8 @@ async def test_stop_practice_freezes_snapshot(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stop_hyper_play_freezes_snapshot(monkeypatch):
+    """Clean stop must FREEZE (not clear) the hyper-play snapshot — mirror of
+    test_stop_practice_freezes_snapshot, mode==HYPER_PLAY branch."""
     from spinlab.models import Mode
 
     sm = _make_sm_with_segments(["s0"])

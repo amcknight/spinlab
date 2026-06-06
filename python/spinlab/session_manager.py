@@ -94,8 +94,9 @@ class SessionManager:
         self.hyper_play_session = None  # HyperPlaySession | None
         self.hyper_play_task: asyncio.Task | None = None
 
-        # Practice-session snapshot — captured at practice/hyper-play start
-        # to anchor the live view's session diffs. Cleared on stop.
+        # Practice-session snapshot — captured at practice/hyper-play start to
+        # anchor the live view's session diffs. A clean stop FREEZES it (stamps
+        # ended_at) so the idle view persists; crash and game-switch clear it.
         self.practice_session_snapshot = None  # SessionSnapshot | None
 
         self.capture = ReferenceController(db, emu)
@@ -609,7 +610,9 @@ class SessionManager:
         snap = self.practice_session_snapshot
         if snap is None or snap.ended_at is not None:
             return
-        self.practice_session_snapshot = replace(snap, ended_at=_time.time())
+        frozen = replace(snap, ended_at=_time.time())
+        self.practice_session_snapshot = frozen
+        logger.info("snapshot frozen: ended_at=%.1f", frozen.ended_at)
 
     async def start_practice(self) -> ActionResult:
         from .errors import SnapshotFailedError
