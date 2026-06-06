@@ -306,6 +306,77 @@ def test_snapshot_inputs_uses_empty_sampler_state_when_cache_misses(tmp_path):
     assert fallback.n_deaths == 0
 
 
+def test_freeze_session_snapshot_stamps_ended_at(monkeypatch):
+    sm = _make_sm_with_segments(["s0", "s1"])
+    monkeypatch.setattr(time, "time", lambda: 1717_000_000.0)
+    sm._take_session_snapshot()  # type: ignore[attr-defined]
+    assert sm.practice_session_snapshot.ended_at is None
+    monkeypatch.setattr(time, "time", lambda: 1717_000_060.0)
+    sm._freeze_session_snapshot()  # type: ignore[attr-defined]
+    snap = sm.practice_session_snapshot
+    assert snap is not None
+    assert snap.ended_at == 1717_000_060.0
+    assert snap.started_at == 1717_000_000.0  # preserved
+    assert set(snap.segments.keys()) == {"s0", "s1"}  # preserved
+
+
+def test_freeze_session_snapshot_idempotent(monkeypatch):
+    sm = _make_sm_with_segments(["s0"])
+    monkeypatch.setattr(time, "time", lambda: 1717_000_000.0)
+    sm._take_session_snapshot()  # type: ignore[attr-defined]
+    monkeypatch.setattr(time, "time", lambda: 1717_000_060.0)
+    sm._freeze_session_snapshot()  # type: ignore[attr-defined]
+    monkeypatch.setattr(time, "time", lambda: 1717_000_999.0)
+    sm._freeze_session_snapshot()  # second freeze must not move ended_at
+    assert sm.practice_session_snapshot.ended_at == 1717_000_060.0
+
+
+def test_freeze_session_snapshot_noop_when_none():
+    sm = _make_sm_with_segments(["s0"])
+    assert sm.practice_session_snapshot is None
+    sm._freeze_session_snapshot()  # type: ignore[attr-defined]
+    assert sm.practice_session_snapshot is None
+
+
+@pytest.mark.asyncio
+async def test_stop_practice_freezes_snapshot(monkeypatch):
+    """Clean stop must FREEZE (not clear) the snapshot so the idle view persists.
+    Exercises the mode==PRACTICE / no-running-session branch of stop_practice,
+    which returns without an SSE notify."""
+    from spinlab.models import Mode
+
+    sm = _make_sm_with_segments(["s0"])
+    sm.practice_session = None
+    sm.mode = Mode.PRACTICE
+    monkeypatch.setattr(time, "time", lambda: 1717_000_000.0)
+    sm._take_session_snapshot()  # type: ignore[attr-defined]
+    monkeypatch.setattr(time, "time", lambda: 1717_000_060.0)
+
+    await sm.stop_practice()
+
+    assert sm.mode == Mode.IDLE
+    assert sm.practice_session_snapshot is not None
+    assert sm.practice_session_snapshot.ended_at == 1717_000_060.0
+
+
+@pytest.mark.asyncio
+async def test_stop_hyper_play_freezes_snapshot(monkeypatch):
+    from spinlab.models import Mode
+
+    sm = _make_sm_with_segments(["s0"])
+    sm.hyper_play_session = None
+    sm.mode = Mode.HYPER_PLAY
+    monkeypatch.setattr(time, "time", lambda: 1717_000_000.0)
+    sm._take_session_snapshot()  # type: ignore[attr-defined]
+    monkeypatch.setattr(time, "time", lambda: 1717_000_060.0)
+
+    await sm.stop_hyper_play()
+
+    assert sm.mode == Mode.IDLE
+    assert sm.practice_session_snapshot is not None
+    assert sm.practice_session_snapshot.ended_at == 1717_000_060.0
+
+
 async def test_start_practice_rolls_back_on_snapshot_failure(tmp_path, monkeypatch):
     """If _take_session_snapshot raises inside start_practice, the session
     must roll back: mode=IDLE, practice_session=None, practice_task cancelled,

@@ -50,10 +50,18 @@ class RouteBaseline:
 
 @dataclass(frozen=True)
 class SessionSnapshot:
-    """Taken at practice/hyper-play start. Read-only thereafter."""
+    """Taken at practice/hyper-play start. Read-only thereafter.
+
+    While live, ended_at is None. On a clean stop (stop_practice /
+    stop_hyper_play), the snapshot is frozen via dataclasses.replace with the
+    wall-clock time so the idle view can display the last-session results.
+    Crash paths (_on_practice_done / _on_hyper_play_done) clear the snapshot
+    instead of freezing it — ended_at is never set on those paths.
+    """
     started_at: float  # epoch seconds (time.time())
     segments: Mapping[str, SegmentBaseline]
     route: RouteBaseline
+    ended_at: float | None = None  # epoch seconds; None while live, set on clean stop
 
 
 def _baseline_for_segment(

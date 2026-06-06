@@ -203,6 +203,7 @@ class SessionManager:
         self.game_name = game_name
         self.scheduler = None
         self.mode = Mode.IDLE
+        self._clear_session_snapshot()
         self.capture.recover_paused_run(game_id)
         await self._notify_sse()
 
@@ -597,6 +598,19 @@ class SessionManager:
     def _clear_session_snapshot(self) -> None:
         self.practice_session_snapshot = None
 
+    def _freeze_session_snapshot(self) -> None:
+        """Stamp the live snapshot's ended_at so it survives the stop transition
+        for the idle 'frozen session' view. Idempotent; no-op when there is no
+        snapshot or it is already frozen. Uses dataclasses.replace because
+        SessionSnapshot is frozen."""
+        import time as _time
+        from dataclasses import replace
+
+        snap = self.practice_session_snapshot
+        if snap is None or snap.ended_at is not None:
+            return
+        self.practice_session_snapshot = replace(snap, ended_at=_time.time())
+
     async def start_practice(self) -> ActionResult:
         from .errors import SnapshotFailedError
 
@@ -654,12 +668,12 @@ class SessionManager:
             # its finally block within one SEGMENT_LOAD_TIMEOUT_S cycle (~1s).
             # Awaiting it was the source of the UI lag.
             self.mode = Mode.IDLE
-            self._clear_session_snapshot()
+            self._freeze_session_snapshot()
             await self._notify_sse()
             return ActionResult(status=Status.STOPPED)
         if self.mode == Mode.PRACTICE:
             self.mode = Mode.IDLE
-            self._clear_session_snapshot()
+            self._freeze_session_snapshot()
             return ActionResult(status=Status.STOPPED)
         raise NotRunningError()
 
@@ -726,12 +740,12 @@ class SessionManager:
             self.hyper_play_session.is_running = False
             # Don't await the task — same rationale as stop_practice.
             self.mode = Mode.IDLE
-            self._clear_session_snapshot()
+            self._freeze_session_snapshot()
             await self._notify_sse()
             return ActionResult(status=Status.STOPPED)
         if self.mode == Mode.HYPER_PLAY:
             self.mode = Mode.IDLE
-            self._clear_session_snapshot()
+            self._freeze_session_snapshot()
             return ActionResult(status=Status.STOPPED)
         raise NotRunningError()
 
