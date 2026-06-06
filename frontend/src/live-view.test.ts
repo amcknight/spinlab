@@ -96,7 +96,7 @@ describe("loadAndRenderLiveView", () => {
   });
   it("frozen summary skips the 1s tick and pins elapsed to ended_at", async () => {
     const api = await import("./api");
-    (api.fetchJSON as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
+    const frozenImpl = async (url: string) => {
       if (url.includes("/live-summary")) {
         return {
           game_id: "g0", exp_run_ms: 115_000, exp_deaths: 3.5,
@@ -116,7 +116,13 @@ describe("loadAndRenderLiveView", () => {
         expected_episode_diff_ms: null, practice_gain_diff_ms: null,
         floor_diff_ms: null, death_rate_diff: null,
       };
-    });
+    };
+    // loadAndRenderLiveView makes exactly two fetchJSON calls (/live + /live-summary).
+    // Use mockImplementationOnce twice so the override reverts to the default module
+    // mock afterward and does not leak into later tests.
+    (api.fetchJSON as ReturnType<typeof vi.fn>)
+      .mockImplementationOnce(frozenImpl)
+      .mockImplementationOnce(frozenImpl);
     const spy = vi.spyOn(globalThis, "setInterval");
     const hosts = setupHosts();
     await loadAndRenderLiveView({
