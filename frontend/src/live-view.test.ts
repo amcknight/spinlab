@@ -11,6 +11,9 @@ vi.mock("./api", () => ({
         session_started_at: null,
         exp_run_diff_ms: null, exp_deaths_diff: null,
         practice_saved_ms: null, floor_improvement_ms: null,
+        run_series: [115000, 114000],
+        baseline_exp_run_ms: 116000,
+        floor_total_ms: 110000,
       };
     }
     return {
@@ -28,10 +31,11 @@ vi.mock("./api", () => ({
 
 function setupHosts() {
   document.body.innerHTML = `
-    <div id="rb"></div><div id="ss"></div><div id="gs"></div>
+    <div id="rb"></div><div id="rg2"></div><div id="ss"></div><div id="gs"></div>
   `;
   return {
     routeBar: document.getElementById("rb")!,
+    runGraph: document.getElementById("rg2")!,
     segmentSummary: document.getElementById("ss")!,
     graph: document.getElementById("gs")!,
   };
@@ -78,6 +82,16 @@ describe("loadAndRenderLiveView", () => {
     release();
     await reload;
     destroyLiveView();
+  });
+  it("renders the run graph from the summary payload", async () => {
+    const hosts = setupHosts();
+    await loadAndRenderLiveView({
+      segmentId: "s0", gameId: "g0", segmentName: "L1",
+      title: "Beto · any%", hosts,
+    });
+    expect(hosts.runGraph.querySelector("svg")).not.toBeNull();
+    destroyLiveView();
+    expect(hosts.runGraph.innerHTML).toBe("");
   });
   it("renders inline error per host on fetch failure", async () => {
     const api = await import("./api");

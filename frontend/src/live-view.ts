@@ -10,6 +10,7 @@ import { fetchJSON } from "./api";
 import { renderRouteBar, type RouteBarData } from "./route-bar";
 import { renderSegmentSummary } from "./segment-summary";
 import { renderEpisodeGraph } from "./episode-graph";
+import { renderRunGraph } from "./run-graph";
 import type { LiveSegmentView, RouteSummary } from "./types";
 
 // 1s matches human time perception for a wall-clock display and matches the
@@ -19,6 +20,7 @@ const TICK_INTERVAL_MS = 1000;
 
 export interface LiveViewHosts {
   routeBar: HTMLElement;
+  runGraph: HTMLElement;
   segmentSummary: HTMLElement;
   graph: HTMLElement;
 }
@@ -63,6 +65,7 @@ export async function loadAndRenderLiveView(opts: LiveViewLoadOptions): Promise<
       routeSummary: summary, nowSeconds: Date.now() / 1000,
     };
     renderRouteBar(opts.hosts.routeBar, _lastRouteData);
+    renderRunGraph(opts.hosts.runGraph, summary);
   }
   if (live) {
     renderSegmentSummary(opts.hosts.segmentSummary, { name: opts.segmentName, live });
@@ -91,6 +94,7 @@ export function destroyLiveView(): void {
   _lastRouteData = null;
   if (_lastHosts) {
     _lastHosts.routeBar.innerHTML = "";
+    _lastHosts.runGraph.innerHTML = "";
     _lastHosts.segmentSummary.innerHTML = "";
     _lastHosts.graph.innerHTML = "";
     _lastHosts = null;

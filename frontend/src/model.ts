@@ -89,6 +89,7 @@ export function updatePracticeCard(data: AppState): void {
       title: data.game_name ?? data.game_id,
       hosts: {
         routeBar: document.getElementById("live-route-bar")!,
+        runGraph: document.getElementById("live-run-graph")!,
         segmentSummary: document.getElementById("live-segment-summary")!,
         graph: document.getElementById("live-graph-slot")!,
       },
