@@ -127,6 +127,39 @@ def test_abort_drops_in_flight_segment(db, registry):
     assert seg_count == 0
 
 
+def test_duplicate_checkpoint_does_not_create_self_loop_segment(db, registry):
+    """A checkpoint re-firing at the same ordinal (e.g. a replay re-crossing
+    cp1) must NOT create a degenerate cp1->cp1 segment whose start waypoint
+    equals its end waypoint. Such a segment can never end and stalls the
+    practice loop (the cp1->cp1 phantom from the 2026-06-06 live session)."""
+    cap = _make_cap(db, registry)
+    cap.handle_entrance(LevelEntranceEvent(level=1, timestamp_ms=1000, state_path="/s.mss"))
+    cap.handle_checkpoint(
+        CheckpointEvent(level_num=1, cp_ordinal=1, timestamp_ms=4000), "g1",
+    )
+    # Duplicate cp1 crossing — must be ignored, not turned into cp1->cp1.
+    cap.handle_checkpoint(
+        CheckpointEvent(level_num=1, cp_ordinal=1, timestamp_ms=5000), "g1",
+    )
+    cap.handle_exit(LevelExitEvent(level=1, goal="normal", timestamp_ms=7000), "g1")
+
+    segs = db.conn.execute(
+        "SELECT start_type, start_ordinal, end_type, end_ordinal, "
+        "start_waypoint_id, end_waypoint_id FROM segments WHERE game_id = 'g1'",
+    ).fetchall()
+    for s in segs:
+        assert s["start_waypoint_id"] != s["end_waypoint_id"], \
+            f"degenerate self-loop segment created: {dict(s)}"
+    pairs = {
+        (s["start_type"], s["start_ordinal"], s["end_type"], s["end_ordinal"])
+        for s in segs
+    }
+    assert ("checkpoint", 1, "checkpoint", 1) not in pairs
+    # The two legitimate segments still record.
+    assert ("entrance", 0, "checkpoint", 1) in pairs
+    assert ("checkpoint", 1, "goal", 0) in pairs
+
+
 def test_clear_drops_in_flight_buffer(db, registry):
     """clear() drops the in-flight segment's buffered events. Events from
     previously-closed segments stay in attempts (clear is per-session

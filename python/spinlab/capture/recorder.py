@@ -180,6 +180,17 @@ class SegmentRecorder:
         wp_start = Waypoint.make(game_id, level, start.type,
                                  start.ordinal, start_conds)
         wp_end = Waypoint.make(game_id, level, end_type, end_ordinal, end_conds)
+        # Guard against degenerate self-loop segments: if the end boundary is
+        # the SAME waypoint as the buffered start (e.g. a checkpoint re-firing
+        # at the same ordinal during a replay), there is no segment to record.
+        # A waypoint-to-itself segment can never end and stalls the practice
+        # loop — drop it (and its buffered events) instead of persisting it.
+        if wp_start.id == wp_end.id:
+            logger.info(
+                "Ignoring self-loop boundary (waypoint %s, end=%s.%d) — "
+                "no segment recorded", wp_start.id, end_type, end_ordinal,
+            )
+            return
         seg_id = Segment.make_id(
             game_id, level, start.type, start.ordinal,
             end_type, end_ordinal, wp_start.id, wp_end.id,
