@@ -622,6 +622,16 @@ class EmSuiteSamplerEstimator(Estimator):
         events: list[EventAttempt] | None = None,
     ) -> ModelOutput:
         scalar = expected_episode_time_scalar(state)
+        # Floor = running-min CLEAN clear so far (the final-success time with no
+        # deaths) — the unreachable-without-a-perfect-run target. min over
+        # completed attempts' clean_tail_ms; None until a clean clear exists.
+        # (NB: the table's "Best" column is gold_ms, a separate metric — the two
+        # may overlap; the Best/Floor/Expected/Room redesign reconciles them.)
+        floor = min(
+            (a.clean_tail_ms for a in all_attempts
+             if a.completed and a.clean_tail_ms is not None),
+            default=None,
+        )
         # total carries the headline scalar in BOTH expected_ms (table) and
         # ms_per_attempt (greedy allocator). Note: ms_per_attempt here is the
         # absolute expected episode time, NOT an improvement slope (the other
@@ -630,7 +640,7 @@ class EmSuiteSamplerEstimator(Estimator):
         # in Plan 1 — the "Success Attempt" distribution lands with the UI work
         # (Spec #2).
         total = Estimate(
-            expected_ms=scalar, ms_per_attempt=scalar, floor_ms=None,
+            expected_ms=scalar, ms_per_attempt=scalar, floor_ms=floor,
         )
         clean = Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None)
         return ModelOutput(total=total, clean=clean, extras=None)

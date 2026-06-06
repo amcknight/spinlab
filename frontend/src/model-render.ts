@@ -1,5 +1,5 @@
 import { segmentName, formatTime, elapsedStr, formatSavings } from "./format";
-import { selectedEstimate, formatTrend } from "./model-logic";
+import { selectedEstimate } from "./model-logic";
 import type { AppState, ModelData, SessionInfo } from "./types";
 
 export function renderSavingsPanel(session: SessionInfo | null): void {
@@ -186,7 +186,6 @@ export function renderModelTable(
 
     const restHtml =
       "<td>" + formatTime(est?.expected_ms ?? null) + "</td>" +
-      "<td>" + (formatTrend(est) ?? "\u2014") + "</td>" +
       "<td>" + formatTime(est?.floor_ms ?? null) + "</td>" +
       "<td>" + s.n_completed + "</td>" +
       "<td>" + formatTime(s.gold_ms) + "</td>";

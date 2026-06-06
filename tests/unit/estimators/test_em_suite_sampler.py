@@ -986,3 +986,26 @@ class TestModelOutput:
         out = EmSuiteSamplerEstimator().model_output(st, [])
         assert out.total.expected_ms is None
         assert out.total.ms_per_attempt is None
+
+    def test_model_output_floor_is_running_min_clean(self):
+        # Floor = running-min clean clear (clean_tail_ms) over completed
+        # attempts; deaths (no clean tail) are ignored.
+        from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
+        from tests.factories import make_attempt_record, make_incomplete
+        st = _seed_balanced(SamplerState())
+        attempts = [
+            make_attempt_record(time_ms=20_000, completed=True, clean_tail_ms=18_000),
+            make_attempt_record(time_ms=16_000, completed=True, clean_tail_ms=13_600),
+            make_incomplete(),  # a death — no clean tail, ignored
+        ]
+        out = EmSuiteSamplerEstimator().model_output(st, attempts)
+        assert out.total.floor_ms == 13_600
+
+    def test_model_output_floor_none_without_clean_clears(self):
+        from spinlab.estimators.em_suite_sampler import EmSuiteSamplerEstimator
+        from tests.factories import make_incomplete
+        st = _seed_balanced(SamplerState())
+        out = EmSuiteSamplerEstimator().model_output(
+            st, [make_incomplete(), make_incomplete()],
+        )
+        assert out.total.floor_ms is None
