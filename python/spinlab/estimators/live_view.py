@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 
 from spinlab.db.attempts import AttemptRow
 from spinlab.estimators.em_suite_sampler import (
@@ -260,8 +260,8 @@ def floor_series_at(
 
     Episode ``created_at`` is an ISO string (stored from a tz-aware isoformat),
     so ``datetime.fromisoformat`` yields a tz-aware value comparable directly to
-    the tz-aware ``point_times``. A naive episode time is normalized to UTC so
-    the comparison never mixes naive/aware.
+    the tz-aware ``point_times``. A naive value here would be a serialization
+    bug — we let the comparison raise rather than silently assuming UTC.
     """
     # Per segment, the clean episodes sorted ascending by created_at, paired with
     # the running-min floor *through* that episode. Computed once; each query time
@@ -276,7 +276,7 @@ def floor_series_at(
             tail = e["clean_tail_ms"]
             if tail is None:
                 continue
-            clean.append((_aware_utc(datetime.fromisoformat(e["created_at"])), float(tail)))
+            clean.append((datetime.fromisoformat(e["created_at"]), float(tail)))
         clean.sort(key=lambda c: c[0])
         running: list[tuple[datetime, float]] = []
         best: float | None = None
@@ -300,10 +300,3 @@ def floor_series_at(
                 total = seg_floor if total is None else total + seg_floor
         out.append(total)
     return out
-
-
-def _aware_utc(dt: datetime) -> datetime:
-    """Normalize a possibly-naive datetime to tz-aware UTC for safe comparison."""
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt
