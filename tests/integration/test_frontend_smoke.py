@@ -64,7 +64,6 @@ async def _serve_static(route, request):
     )
 
 
-
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def browser(fake_dashboard_server, fake_game_loaded):
     # Fail fast with a useful message if the frontend bundle hasn't been built.

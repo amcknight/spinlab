@@ -10,8 +10,6 @@ export function tabLabel(current: Page): string {
   return current === "play" ? "Setup" : "Play";
 }
 
-// --- appended to frontend/src/shell.ts ---
-
 // The root element carries data-page="play|setup"; CSS keys the slide + tint
 // off it. #sweep-tab is the edge tab; #sweep-tab-label holds its text.
 const ROOT_ID = "sweep-shell";
