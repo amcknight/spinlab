@@ -30,156 +30,149 @@
     </div>
   </header>
 
-  <nav id="tabs">
-    <button class="tab active" data-tab="model">Model</button>
-    <button class="tab" data-tab="manage">Manage</button>
-    <button class="tab" data-tab="segments">Segments</button>
-    <button class="tab" data-tab="practice-engine">Simulator</button>
-  </nav>
-
-  <main>
-    <!-- Model Tab -->
-    <section id="tab-model" class="tab-content active">
-      <!-- Live practice view (hidden when not practicing) -->
-      <div id="practice-card" style="display:none">
-        <div id="live-route-bar" class="lv-route-bar"></div>
-        <div id="live-segment-summary" class="lv-segment-summary"></div>
-        <div id="live-graph-slot" class="lv-graph-slot"></div>
-        <div id="improvement-view" class="lv-improvement"></div>
-        <div id="savings-panel" class="savings-panel" style="display:none">
-          <div class="savings-label">Time saved this session</div>
-          <div class="savings-values">
-            <span id="savings-total" class="savings-value"></span>
-            <span class="savings-sep">·</span>
-            <span id="savings-clean" class="savings-value"></span>
+  <div id="sweep-shell" data-page="play">
+    <button id="sweep-tab" class="sweep-tab" title="Switch page">
+      <span id="sweep-tab-label">Setup</span>
+    </button>
+    <div id="sweep-viewport">
+      <main id="sweep-track">
+        <section id="page-play" class="page">
+          <!-- Live practice view (hidden when not practicing) -->
+          <div id="practice-card" style="display:none">
+            <div id="live-route-bar" class="lv-route-bar"></div>
+            <div id="live-segment-summary" class="lv-segment-summary"></div>
+            <div id="live-graph-slot" class="lv-graph-slot"></div>
+            <div id="improvement-view" class="lv-improvement"></div>
+            <div id="savings-panel" class="savings-panel" style="display:none">
+              <div class="savings-label">Time saved this session</div>
+              <div class="savings-values">
+                <span id="savings-total" class="savings-value"></span>
+                <span class="savings-sep">·</span>
+                <span id="savings-clean" class="savings-value"></span>
+              </div>
+            </div>
+            <h3>Recent</h3>
+            <ul id="recent"></ul>
+            <div class="practice-footer">
+              <span id="session-stats" class="dim"></span>
+            </div>
+            <div class="allocator-weights" id="allocator-weights">
+              <div class="weight-slider" id="weight-slider"></div>
+              <div class="weight-legend" id="weight-legend"></div>
+            </div>
+            <div id="em-suite-panel" class="em-suite-panel"></div>
           </div>
-        </div>
-        <h3>Recent</h3>
-        <ul id="recent"></ul>
-        <div class="practice-footer">
-          <span id="session-stats" class="dim"></span>
-        </div>
-        <div class="allocator-weights" id="allocator-weights">
-          <div class="weight-slider" id="weight-slider"></div>
-          <div class="weight-legend" id="weight-legend"></div>
-        </div>
-        <div id="em-suite-panel" class="em-suite-panel"></div>
-      </div>
 
-      <!-- Practice controls -->
-      <div id="practice-controls" class="practice-controls">
-        <button id="btn-practice-start" class="btn-primary">Start Practice</button>
-        <button id="btn-practice-stop" class="btn-danger" style="display:none">Stop Practice</button>
-        <button id="btn-hyperplay-start" class="btn-primary">Start Hyper Play</button>
-        <button id="btn-hyperplay-stop" class="btn-danger" style="display:none">Stop Hyper Play</button>
-      </div>
+          <!-- Practice controls -->
+          <div id="practice-controls" class="practice-controls">
+            <button id="btn-practice-start" class="btn-primary">Start Practice</button>
+            <button id="btn-practice-stop" class="btn-danger" style="display:none">Stop Practice</button>
+            <button id="btn-hyperplay-start" class="btn-primary">Start Hyper Play</button>
+            <button id="btn-hyperplay-stop" class="btn-danger" style="display:none">Stop Hyper Play</button>
+          </div>
 
-      <!-- Model table (always visible) -->
-      <div class="model-header">
-        <h2>Model State</h2>
-      </div>
-      <table id="model-table">
-        <thead>
-          <tr>
-            <th title="Level section being practiced">Segment</th>
-            <th title="Expected completion time">Expected</th>
-            <th title="How your time changes per run (positive = improving)">Trend</th>
-            <th title="Theoretical best with infinite practice">Floor</th>
-            <th title="Completed practice attempts">Runs</th>
-            <th title="Your fastest completion">Best</th>
-          </tr>
-        </thead>
-        <tbody id="model-body"></tbody>
-      </table>
-
-      <!-- Segment detail drill-down (hidden by default) -->
-      <div id="segment-detail" style="display:none"></div>
-    </section>
-
-    <!-- Manage Tab -->
-    <section id="tab-manage" class="tab-content">
-      <!-- References section -->
-      <div class="manage-section">
-        <h3>References</h3>
-        <div class="ref-row">
-          <select id="ref-select"></select>
-          <button id="btn-ref-rename" class="btn-sm" title="Rename">&#9998;</button>
-          <button id="btn-ref-delete" class="btn-sm btn-danger-sm" title="Delete">&#10005;</button>
-        </div>
-        <div class="ref-actions">
-          <button id="btn-ref-start" class="btn-primary">Start Reference Run</button>
-          <button id="btn-replay" class="btn-primary" disabled>Replay</button>
-          <button id="btn-fast-replay" class="btn-primary" disabled
-                  title="Replay at uncapped speed (fast — regenerates states/events)">Fast Replay</button>
-        </div>
-      </div>
-
-      <!-- Live recording indicator (shown while mode == "reference") -->
-      <div id="recording-indicator" class="manage-section" style="display:none">
-        <p>Recording &mdash; <span id="recording-seg-count">0</span> segments captured this run</p>
-      </div>
-
-      <!-- Paused run card (replaces old draft prompt) -->
-      <div id="paused-run-card" class="manage-section paused-run-card" style="display:none">
-        <h3>Run paused</h3>
-        <p id="paused-run-summary"></p>
-        <input id="finalize-name" type="text" placeholder="Name this run...">
-        <div class="paused-run-actions">
-          <button id="btn-save-and-finish" class="btn-primary">Save &amp; Finish Run</button>
-          <button id="btn-resume" class="btn-primary">Resume</button>
-          <button id="btn-discard-run" class="btn-danger">Discard</button>
-        </div>
-        <details>
-          <summary>Sessions</summary>
-          <table id="sessions-table">
-            <thead><tr><th>#</th><th>Started</th><th>Ended</th><th>Reason</th><th>Segs</th><th></th></tr></thead>
-            <tbody id="sessions-body"></tbody>
+          <!-- Model table (always visible) -->
+          <div class="model-header">
+            <h2>Model State</h2>
+          </div>
+          <table id="model-table">
+            <thead>
+              <tr>
+                <th title="Level section being practiced">Segment</th>
+                <th title="Expected completion time">Expected</th>
+                <th title="How your time changes per run (positive = improving)">Trend</th>
+                <th title="Theoretical best with infinite practice">Floor</th>
+                <th title="Completed practice attempts">Runs</th>
+                <th title="Your fastest completion">Best</th>
+              </tr>
+            </thead>
+            <tbody id="model-body"></tbody>
           </table>
-        </details>
-      </div>
 
-      <!-- Segments table -->
-      <div class="manage-section">
-        <h3>Segments</h3>
-        <div id="segments-toolbar">
-          <button id="btn-start-cold-fill" class="btn-primary" style="display:none"
-                  title="Capture the missing cold states for the active run">Start Cold Capture</button>
-        </div>
-        <div id="cold-fill-banner" style="display:none"></div>
-        <table id="segment-table">
-          <thead>
-            <tr>
-              <th>Session</th>
-              <th>Name</th>
-              <th>Level</th>
-              <th>Segment</th>
-              <th>State</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="segment-body"></tbody>
-        </table>
-      </div>
+          <!-- Segment detail drill-down (hidden by default) -->
+          <div id="segment-detail" style="display:none"></div>
 
-      <!-- Data section -->
-      <div class="manage-section">
-        <h3>Data</h3>
-        <p class="dim">Clear all session history, attempts, and model state. Keeps segments and game config.</p>
-        <button id="btn-reset" class="btn-danger">Clear All Data</button>
-        <p id="reset-status" class="dim"></p>
-      </div>
-    </section>
+          <!-- Simulator (merged from the former Practice Engine tab) -->
+          <div id="practice-engine-panel"></div>
+        </section>
 
-    <!-- Segments Tab -->
-    <section id="tab-segments" class="tab-content">
-      <div id="segments-view-container"></div>
-    </section>
+        <section id="page-setup" class="page">
+          <!-- References section -->
+          <div class="manage-section">
+            <h3>References</h3>
+            <div class="ref-row">
+              <select id="ref-select"></select>
+              <button id="btn-ref-rename" class="btn-sm" title="Rename">&#9998;</button>
+              <button id="btn-ref-delete" class="btn-sm btn-danger-sm" title="Delete">&#10005;</button>
+            </div>
+            <div class="ref-actions">
+              <button id="btn-ref-start" class="btn-primary">Start Reference Run</button>
+              <button id="btn-replay" class="btn-primary" disabled>Replay</button>
+              <button id="btn-fast-replay" class="btn-primary" disabled
+                      title="Replay at uncapped speed (fast — regenerates states/events)">Fast Replay</button>
+            </div>
+          </div>
 
-    <!-- Practice Engine Tab -->
-    <section id="tab-practice-engine" class="tab-content">
-      <div id="practice-engine-panel"></div>
-    </section>
-  </main>
+          <!-- Live recording indicator (shown while mode == "reference") -->
+          <div id="recording-indicator" class="manage-section" style="display:none">
+            <p>Recording &mdash; <span id="recording-seg-count">0</span> segments captured this run</p>
+          </div>
+
+          <!-- Paused run card (replaces old draft prompt) -->
+          <div id="paused-run-card" class="manage-section paused-run-card" style="display:none">
+            <h3>Run paused</h3>
+            <p id="paused-run-summary"></p>
+            <input id="finalize-name" type="text" placeholder="Name this run...">
+            <div class="paused-run-actions">
+              <button id="btn-save-and-finish" class="btn-primary">Save &amp; Finish Run</button>
+              <button id="btn-resume" class="btn-primary">Resume</button>
+              <button id="btn-discard-run" class="btn-danger">Discard</button>
+            </div>
+            <details>
+              <summary>Sessions</summary>
+              <table id="sessions-table">
+                <thead><tr><th>#</th><th>Started</th><th>Ended</th><th>Reason</th><th>Segs</th><th></th></tr></thead>
+                <tbody id="sessions-body"></tbody>
+              </table>
+            </details>
+          </div>
+
+          <!-- Segments table -->
+          <div class="manage-section">
+            <h3>Segments</h3>
+            <div id="segments-toolbar">
+              <button id="btn-start-cold-fill" class="btn-primary" style="display:none"
+                      title="Capture the missing cold states for the active run">Start Cold Capture</button>
+            </div>
+            <div id="cold-fill-banner" style="display:none"></div>
+            <table id="segment-table">
+              <thead>
+                <tr>
+                  <th>Session</th>
+                  <th>Name</th>
+                  <th>Level</th>
+                  <th>Segment</th>
+                  <th>State</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="segment-body"></tbody>
+            </table>
+          </div>
+
+          <!-- Data section -->
+          <div class="manage-section">
+            <h3>Data</h3>
+            <p class="dim">Clear all session history, attempts, and model state. Keeps segments and game config.</p>
+            <button id="btn-reset" class="btn-danger">Clear All Data</button>
+            <p id="reset-status" class="dim"></p>
+          </div>
+
+          <div id="segments-view-container"></div>
+        </section>
+      </main>
+    </div>
+  </div>
 
   <script type="module" src="/src/app.ts"></script>
 </div>
