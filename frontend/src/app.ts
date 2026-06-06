@@ -14,6 +14,7 @@ import {
   coldCaptureButtonVisible,
 } from "./segments-view";
 import { initPracticeEnginePanel } from "./practice-engine";
+import { initShell, currentPage } from "./shell";
 import type { AppState } from "./types";
 
 let _currentGameId: string | null = null;
@@ -41,10 +42,12 @@ function updateFromState(data: AppState): void {
   updateManageState(data);
   updateColdCaptureButton(data);
 
-  const activeTab = document.querySelector(".tab.active") as HTMLElement | null;
-  if (activeTab?.dataset.tab === "model") fetchModel();
+  // Play hosts the model table; refresh it on every state push while visible.
+  if (currentPage() === "play") fetchModel();
+  // Manage data must refresh during capture-ish modes regardless of page, plus
+  // whenever Setup is the visible page.
   if (
-    activeTab?.dataset.tab === "manage" ||
+    currentPage() === "setup" ||
     data.mode === "reference" ||
     data.mode === "replay" ||
     data.mode === "cold_fill"
@@ -53,21 +56,16 @@ function updateFromState(data: AppState): void {
   }
 }
 
-document.querySelectorAll(".tab").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
-    document
-      .querySelectorAll(".tab-content")
-      .forEach((c) => c.classList.remove("active"));
-    (btn as HTMLElement).classList.add("active");
-    document
-      .getElementById("tab-" + (btn as HTMLElement).dataset.tab)
-      ?.classList.add("active");
-    if ((btn as HTMLElement).dataset.tab === "model") fetchModel();
-    if ((btn as HTMLElement).dataset.tab === "manage") fetchManage();
-    if ((btn as HTMLElement).dataset.tab === "segments") fetchAndRenderSegments();
-    if ((btn as HTMLElement).dataset.tab === "practice-engine") initPracticeEnginePanel();
-  });
+// Two-page sweep. Play hosts Model + Simulator; Setup hosts Manage + Segments.
+// onShow fires once for the initial page (play) and again on each toggle.
+initShell((page) => {
+  if (page === "play") {
+    fetchModel();
+    initPracticeEnginePanel();
+  } else {
+    fetchManage();
+    fetchAndRenderSegments();
+  }
 });
 
 async function fetchAndRenderSegments(): Promise<void> {
