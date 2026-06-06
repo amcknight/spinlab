@@ -15,6 +15,7 @@ const SESSION: RouteBarData = {
     exp_deaths_diff: -0.5,
     practice_saved_ms: 5_000.0,
     floor_improvement_ms: 1_500.0,
+    run_series: [], baseline_exp_run_ms: null, floor_total_ms: null,
   },
   nowSeconds: NOW_S,
 };
