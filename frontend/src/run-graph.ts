@@ -10,7 +10,9 @@ import { formatTime } from "./format";
 import { yForTime, linePoints } from "./episode-graph";
 import type { RouteSummary } from "./types";
 
-// Same viewBox geometry as the segment graph so the two stack visually aligned.
+// Same viewBox geometry as the segment graph so the two are horizontally aligned
+// (shared width + left/right gutters). The run graph renders shorter (.rg-svg is
+// 80px vs the segment graph's 140px) on purpose — it's a summary strip on top.
 const GEO = { left: 30, right: 392, top: 10, bottom: 104 } as const;
 const VIEW_W = 400;
 const VIEW_H = 124;

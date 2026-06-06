@@ -307,6 +307,10 @@ def get_route_summary(
         segment_events.append(events)
         episodes = db.get_segment_attempts(seg.id)
         seg_floor = running_min_clean(episodes)
+        # floor_total is the theoretical-best run: Σ of every segment's best clean
+        # clear. It deliberately sums over ALL floored segments — a superset of the
+        # estimable segments the run_series curve sums — so the floor stays the goal
+        # even for segments the model can't yet estimate (gate closed / p->1).
         if seg_floor is not None:
             floor_total_ms = seg_floor if floor_total_ms is None else floor_total_ms + seg_floor
         # Aggregate floor improvement vs baseline. Per-segment improvement =
