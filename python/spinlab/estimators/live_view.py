@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from spinlab.db.attempts import AttemptRow
 from spinlab.estimators.em_suite_sampler import (
@@ -21,6 +22,7 @@ from spinlab.estimators.em_suite_sampler import (
     expected_episode_time_ms,
     expected_episode_time_scalar,
     gate_passes,
+    process_event,
 )
 from spinlab.estimators.session_snapshot import (
     RouteBaseline,
@@ -28,6 +30,7 @@ from spinlab.estimators.session_snapshot import (
     route_diff,
     segment_diff,
 )
+from spinlab.models import EventAttempt
 
 
 @dataclass
@@ -187,3 +190,46 @@ def route_summary(
         exp_deaths_diff=diffs["exp_deaths_diff"],
         practice_saved_ms=diffs["practice_saved_ms"],
     )
+
+
+def route_series(
+    segment_events: Sequence[Sequence[EventAttempt]],
+    *,
+    session_start: datetime | None,
+) -> list[float]:
+    """Closed-form run-level improvement curve.
+
+    Replays every segment's events in global chronological order (by
+    ``created_at``); one ``process_event`` per step. After each event whose
+    ``created_at >= session_start`` appends the route Exp.Run — the sum of
+    ``expected_episode_time_scalar`` over all segments, skipping segments whose
+    scalar is still None (under-gated or p->1). Returns [] when there is no
+    session window or no in-session event produces an estimable route.
+
+    Exact closed form, same as route_summary; no Monte-Carlo, no new constants.
+    """
+    if session_start is None:
+        return []
+    timeline: list[tuple[datetime, int, EventAttempt]] = []
+    for seg_idx, events in enumerate(segment_events):
+        for ev in events:
+            timeline.append((ev.created_at, seg_idx, ev))
+    timeline.sort(key=lambda t: t[0])
+
+    states = [SamplerState() for _ in segment_events]
+    series: list[float] = []
+    for created_at, seg_idx, ev in timeline:
+        states[seg_idx] = process_event(states[seg_idx], ev)
+        if created_at < session_start:
+            continue
+        run_ms = 0.0
+        n_est = 0
+        for st in states:
+            exp = expected_episode_time_scalar(st)
+            if exp is None:
+                continue
+            run_ms += exp
+            n_est += 1
+        if n_est > 0:
+            series.append(run_ms)
+    return series

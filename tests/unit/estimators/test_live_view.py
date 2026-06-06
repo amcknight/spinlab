@@ -1,8 +1,9 @@
 import pytest
+from datetime import datetime
 from tests.factories import make_event_attempt
 
 from spinlab.estimators.em_suite_sampler import SamplerState, process_event
-from spinlab.estimators.live_view import live_segment_view, route_summary
+from spinlab.estimators.live_view import live_segment_view, route_series, route_summary
 from spinlab.estimators.session_snapshot import RouteBaseline, SegmentBaseline
 
 
@@ -83,3 +84,59 @@ def test_route_summary_practice_saved_is_baseline_minus_current():
     assert r.exp_deaths is not None
     assert r.exp_run_diff_ms == pytest.approx(r.exp_run_ms - 200_000.0)
     assert r.exp_deaths_diff == pytest.approx(r.exp_deaths - 10.0)
+
+
+def test_route_series_empty_when_no_session_start():
+    assert route_series([], session_start=None) == []
+
+
+def test_route_series_empty_when_events_predate_session():
+    # All events before session_start -> no in-session points.
+    seg = [
+        make_event_attempt(segment_id="s0", episode_id=f"e{i}", outcome=o,
+                           time_ms=t, created_at=f"2026-01-01T00:00:0{i}")
+        for i, (o, t) in enumerate(
+            [("survived", 2000), ("died", 500), ("survived", 2100),
+             ("died", 600), ("survived", 1900), ("died", 550)])
+    ]
+    start = datetime.fromisoformat("2026-01-01T00:01:00")  # after every event
+    assert route_series([seg], session_start=start) == []
+
+
+def test_route_series_emits_floats_for_in_session_events():
+    # 3 warm-up events (pre-session) seed the EMAs so the route is estimable,
+    # then 3 in-session events each yield a route Exp.Run point.
+    warm = [
+        make_event_attempt(segment_id="s0", episode_id=f"e{i}", outcome=o,
+                           time_ms=t, created_at=f"2026-01-01T00:00:0{i}")
+        for i, (o, t) in enumerate(
+            [("survived", 2000), ("died", 500), ("survived", 2100)])
+    ]
+    in_session = [
+        make_event_attempt(segment_id="s0", episode_id=f"e{i + 3}", outcome=o,
+                           time_ms=t, created_at=f"2026-01-01T00:00:1{i}")
+        for i, (o, t) in enumerate(
+            [("died", 600), ("survived", 1900), ("died", 550)])
+    ]
+    start = datetime.fromisoformat("2026-01-01T00:00:10")
+    series = route_series([warm + in_session], session_start=start)
+    assert series, "expected at least one in-session estimable point"
+    assert all(isinstance(x, float) for x in series)
+
+
+def test_route_series_sums_across_segments():
+    # Two identical segments -> each route point is ~2x a single segment's.
+    def seg(seg_id):
+        return [
+            make_event_attempt(segment_id=seg_id, episode_id=f"{seg_id}_e{i}",
+                               outcome=o, time_ms=t,
+                               created_at=f"2026-01-01T00:00:1{i}")
+            for i, (o, t) in enumerate(
+                [("survived", 2000), ("died", 500), ("survived", 2100),
+                 ("died", 600), ("survived", 1900), ("died", 550)])
+        ]
+    start = datetime.fromisoformat("2026-01-01T00:00:00")
+    one = route_series([seg("s0")], session_start=start)
+    two = route_series([seg("s0"), seg("s1")], session_start=start)
+    assert one and two
+    assert two[-1] == pytest.approx(2 * one[-1], rel=1e-6)
