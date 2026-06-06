@@ -336,6 +336,7 @@ def get_route_summary(
         "n_estimable": s.n_estimable,
         "n_skipped": s.n_skipped,
         "session_started_at": snap.started_at if snap else None,
+        "session_ended_at": snap.ended_at if snap else None,
         "exp_run_diff_ms": s.exp_run_diff_ms,
         "exp_deaths_diff": s.exp_deaths_diff,
         "practice_saved_ms": s.practice_saved_ms,

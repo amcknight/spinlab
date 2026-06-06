@@ -79,6 +79,13 @@ class StateBuilder:
             "paused_run": None,
             "cold_fill": None,
             "has_active_run": ref_run_id is not None,
+            # True only when a *frozen* snapshot persists (a clean stop stamped
+            # ended_at). Distinguishes "idle with a frozen session to show" from
+            # "idle, never practiced" for the frontend's practice-card state.
+            "has_frozen_session": (
+                session.practice_session_snapshot is not None
+                and session.practice_session_snapshot.ended_at is not None
+            ),
             # Run-scoped gap count — same (game_id, run_id) the cold-fill start
             # path uses, so the button shows iff start_cold_fill would find work.
             "segments_missing_cold": (

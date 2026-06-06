@@ -30,6 +30,7 @@ const IDLE_STATE: AppState = {
   cold_fill: null,
   has_active_run: false,
   segments_missing_cold: 0,
+  has_frozen_session: false,
 };
 
 const PRACTICE_STATE: AppState = {
@@ -89,6 +90,7 @@ const PRACTICE_STATE: AppState = {
   cold_fill: null,
   has_active_run: false,
   segments_missing_cold: 0,
+  has_frozen_session: false,
 };
 
 const MODEL_RESPONSE: ModelData = {

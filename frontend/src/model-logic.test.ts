@@ -82,6 +82,7 @@ describe("canStartPractice", () => {
     cold_fill: null,
     has_active_run: false,
     segments_missing_cold: 0,
+    has_frozen_session: false,
   };
 
   it("returns true when idle, connected, and game loaded", () => {
@@ -177,6 +178,7 @@ test("canStartHyperPlay returns true when idle and connected", () => {
     cold_fill: null,
     has_active_run: false,
     segments_missing_cold: 0,
+    has_frozen_session: false,
   };
   expect(canStartHyperPlay(state)).toBe(true);
 });
@@ -199,6 +201,7 @@ test("canStartHyperPlay returns false during practice", () => {
     cold_fill: null,
     has_active_run: false,
     segments_missing_cold: 0,
+    has_frozen_session: false,
   };
   expect(canStartHyperPlay(state)).toBe(false);
 });

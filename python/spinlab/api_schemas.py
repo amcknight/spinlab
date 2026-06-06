@@ -140,6 +140,9 @@ class AppState(_BaseResponse):
     # (i.e. cold-fill has something to do). 0 when there's no active run.
     # Drives the cold-capture button's visibility on the frontend.
     segments_missing_cold: int
+    # True when a frozen (clean-stopped) practice snapshot persists; drives the
+    # idle "frozen session" practice-card state on the frontend.
+    has_frozen_session: bool
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +547,7 @@ class RouteSummaryResponse(_BaseResponse):
     run_series: list[float] = []           # route Exp.Run after each in-session event
     baseline_exp_run_ms: float | None = None  # session-start Exp.Run (the "start" line)
     floor_total_ms: float | None = None    # sum of segment floors (theoretical best run)
+    session_ended_at: float | None = None  # epoch seconds; set when the session is frozen
 
 
 # ---------------------------------------------------------------------------

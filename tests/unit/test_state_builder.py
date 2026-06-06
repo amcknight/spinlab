@@ -184,6 +184,33 @@ class TestSectionsCaptured:
         assert state["sections_captured"] == 1
 
 
+class TestFrozenSessionSignal:
+    def _frozen_snap(self, *, ended_at):
+        from spinlab.estimators.session_snapshot import (
+            RouteBaseline,
+            SessionSnapshot,
+        )
+        return SessionSnapshot(
+            started_at=1717_000_000.0, segments={},
+            route=RouteBaseline(exp_run_ms=None, exp_deaths=None),
+            ended_at=ended_at,
+        )
+
+    def test_no_snapshot_has_frozen_session_false(self, practice_db, mock_emu):
+        sm = _make_sm(practice_db, mock_emu)
+        assert sm.get_state()["has_frozen_session"] is False
+
+    def test_live_snapshot_has_frozen_session_false(self, practice_db, mock_emu):
+        sm = _make_sm(practice_db, mock_emu)
+        sm.practice_session_snapshot = self._frozen_snap(ended_at=None)
+        assert sm.get_state()["has_frozen_session"] is False
+
+    def test_frozen_snapshot_has_frozen_session_true(self, practice_db, mock_emu):
+        sm = _make_sm(practice_db, mock_emu)
+        sm.practice_session_snapshot = self._frozen_snap(ended_at=1717_000_060.0)
+        assert sm.get_state()["has_frozen_session"] is True
+
+
 class TestDraftBranch:
     def test_paused_run_state_included_when_active(self, practice_db, mock_emu):
         sm = _make_sm(practice_db, mock_emu)
