@@ -9,6 +9,7 @@ function base(overrides: Partial<RouteSummary>): RouteSummary {
     session_started_at: null, exp_run_diff_ms: null, exp_deaths_diff: null,
     practice_saved_ms: null, floor_improvement_ms: null,
     run_series: [], baseline_exp_run_ms: null, floor_total_ms: null,
+    floor_series: [],
     ...overrides,
   } as RouteSummary;
 }
@@ -49,6 +50,33 @@ describe("renderRunGraph", () => {
     expect(host.querySelector(".rg-baseline")).not.toBeNull();
     expect(host.querySelector(".rg-floor")).not.toBeNull();
     expect(host.querySelector(".rg-last")).not.toBeNull();
+  });
+
+  it("draws a declining floor polyline when floor_series is provided", () => {
+    renderRunGraph(host, base({
+      run_series: [258000, 255000, 252000],
+      baseline_exp_run_ms: 258000,
+      floor_total_ms: 231000,
+      floor_series: [240000, 235000, 231000],
+    }));
+    const floor = host.querySelector(".rg-floor");
+    expect(floor).not.toBeNull();
+    // The declining floor is a polyline (per-point), not a flat <line>.
+    expect(floor!.tagName.toLowerCase()).toBe("polyline");
+    // The flat-line fallback should NOT be used in this case.
+    expect(host.querySelector("line.rg-floor")).toBeNull();
+  });
+
+  it("falls back to a flat floor line when floor_series is empty", () => {
+    renderRunGraph(host, base({
+      run_series: [258000, 255000, 252000],
+      baseline_exp_run_ms: 258000,
+      floor_total_ms: 231000,
+      floor_series: [],
+    }));
+    const floor = host.querySelector(".rg-floor");
+    expect(floor).not.toBeNull();
+    expect(floor!.tagName.toLowerCase()).toBe("line");
   });
 
   it("renders y-axis tick labels", () => {

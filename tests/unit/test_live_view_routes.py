@@ -115,8 +115,11 @@ class TestLiveRoutes:
         assert "run_series" in body and isinstance(body["run_series"], list)
         assert "baseline_exp_run_ms" in body
         assert "floor_total_ms" in body
+        assert "floor_series" in body and isinstance(body["floor_series"], list)
         # Active session with in-session events -> the series should populate.
         assert len(body["run_series"]) >= 1
+        # floor_series is aligned point-for-point with run_series.
+        assert len(body["floor_series"]) == len(body["run_series"])
         # baseline echoes the snapshot route; no baseline segments -> floor_improvement 0.
         assert body["baseline_exp_run_ms"] == 250000.0
         assert body["floor_improvement_ms"] == 0.0

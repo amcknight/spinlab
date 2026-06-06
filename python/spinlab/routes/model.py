@@ -289,13 +289,19 @@ def get_route_summary(
     Session-overlay fields populated only when a practice session is active."""
     from datetime import UTC, datetime
 
+    from spinlab.db.attempts import AttemptRow
     from spinlab.estimators.em_suite_sampler import replay_with_history
-    from spinlab.estimators.live_view import route_series, route_summary
+    from spinlab.estimators.live_view import (
+        floor_series_at,
+        route_series,
+        route_summary,
+    )
 
     snap = session.practice_session_snapshot
 
     states = []
     segment_events: list[list[EventAttempt]] = []
+    segment_episodes: list[list[AttemptRow]] = []
     floor_total_ms: float | None = None
     floor_improvement_ms: float | None = None
     if snap is not None:
@@ -306,6 +312,7 @@ def get_route_summary(
         states.append(state)
         segment_events.append(events)
         episodes = db.get_segment_attempts(seg.id)
+        segment_episodes.append(episodes)
         seg_floor = running_min_clean(episodes)
         # floor_total is the theoretical-best run: Σ of every segment's best clean
         # clear. It deliberately sums over ALL floored segments — a superset of the
@@ -326,7 +333,11 @@ def get_route_summary(
     # (datetime.now(UTC), round-tripped through isoformat). A naive datetime here
     # would raise on the created_at < session_start comparison in route_series.
     session_start_dt = datetime.fromtimestamp(snap.started_at, tz=UTC) if snap else None
-    run_series = route_series(segment_events, session_start=session_start_dt)
+    points = route_series(segment_events, session_start=session_start_dt)
+    run_series = [p.exp_run_ms for p in points]
+    # Floor-over-time aligned to the run-curve event times: the floor drops only
+    # when a clean PB lands, so we sample it at each run point's timestamp.
+    floor_series = floor_series_at([p.created_at for p in points], segment_episodes)
 
     s = route_summary(states, baseline=snap.route if snap else None)
     return {
@@ -344,6 +355,7 @@ def get_route_summary(
         "run_series": run_series,
         "baseline_exp_run_ms": snap.route.exp_run_ms if snap else None,
         "floor_total_ms": floor_total_ms,
+        "floor_series": floor_series,
     }
 
 

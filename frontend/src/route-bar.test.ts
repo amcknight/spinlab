@@ -16,6 +16,7 @@ const SESSION: RouteBarData = {
     practice_saved_ms: 5_000.0,
     floor_improvement_ms: 1_500.0,
     run_series: [], baseline_exp_run_ms: null, floor_total_ms: null,
+    floor_series: [],
     session_ended_at: null,
   },
   nowSeconds: NOW_S,

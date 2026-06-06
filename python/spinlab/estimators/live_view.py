@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 
 from spinlab.db.attempts import AttemptRow
 from spinlab.estimators.em_suite_sampler import (
@@ -31,6 +31,13 @@ from spinlab.estimators.session_snapshot import (
     segment_diff,
 )
 from spinlab.models import EventAttempt
+
+
+@dataclass(frozen=True)
+class RoutePoint:
+    """One in-session run-curve point: the event time and the route Exp.Run."""
+    created_at: datetime
+    exp_run_ms: float
 
 
 @dataclass
@@ -196,7 +203,7 @@ def route_series(
     segment_events: Sequence[Sequence[EventAttempt]],
     *,
     session_start: datetime | None,
-) -> list[float]:
+) -> list[RoutePoint]:
     """Closed-form run-level improvement curve.
 
     Replays every segment's events in global chronological order (by
@@ -220,7 +227,7 @@ def route_series(
     timeline.sort(key=lambda t: t[0])
 
     states = [SamplerState() for _ in segment_events]
-    series: list[float] = []
+    series: list[RoutePoint] = []
     for created_at, seg_idx, ev in timeline:
         states[seg_idx] = process_event(states[seg_idx], ev)
         if created_at < session_start:
@@ -234,5 +241,69 @@ def route_series(
             run_ms += exp
             n_est += 1
         if n_est > 0:
-            series.append(run_ms)
+            series.append(RoutePoint(created_at=created_at, exp_run_ms=run_ms))
     return series
+
+
+def floor_series_at(
+    point_times: Sequence[datetime],
+    segment_episodes: Sequence[Sequence[AttemptRow]],
+) -> list[float | None]:
+    """Floor-over-time aligned to ``point_times`` (the run-curve event times).
+
+    For each query time ``t`` the floor is the sum, over segments, of that
+    segment's running-min ``clean_tail_ms`` among its completed, non-invalidated
+    episodes whose ``created_at <= t``. A segment with no qualifying clean
+    episode by ``t`` contributes nothing (skipped). When no segment has a floor
+    at ``t``, that entry is ``None`` — mirroring ``route_series``'s
+    "no estimable segment -> no point" honesty.
+
+    Episode ``created_at`` is an ISO string (stored from a tz-aware isoformat),
+    so ``datetime.fromisoformat`` yields a tz-aware value comparable directly to
+    the tz-aware ``point_times``. A naive episode time is normalized to UTC so
+    the comparison never mixes naive/aware.
+    """
+    # Per segment, the clean episodes sorted ascending by created_at, paired with
+    # the running-min floor *through* that episode. Computed once; each query time
+    # then bisects to the latest episode at or before t. running_min_clean's key
+    # reads (completed, invalidated, clean_tail_ms) are mirrored exactly here.
+    per_seg_timeline: list[list[tuple[datetime, float]]] = []
+    for episodes in segment_episodes:
+        clean: list[tuple[datetime, float]] = []
+        for e in episodes:
+            if not e["completed"] or e["invalidated"]:
+                continue
+            tail = e["clean_tail_ms"]
+            if tail is None:
+                continue
+            clean.append((_aware_utc(datetime.fromisoformat(e["created_at"])), float(tail)))
+        clean.sort(key=lambda c: c[0])
+        running: list[tuple[datetime, float]] = []
+        best: float | None = None
+        for ts, tail in clean:
+            best = tail if best is None else min(best, tail)
+            running.append((ts, best))
+        per_seg_timeline.append(running)
+
+    out: list[float | None] = []
+    for t in point_times:
+        total: float | None = None
+        for running in per_seg_timeline:
+            # Latest running-min whose episode time is <= t (None if none qualify).
+            seg_floor: float | None = None
+            for ts, best in running:
+                if ts <= t:
+                    seg_floor = best
+                else:
+                    break
+            if seg_floor is not None:
+                total = seg_floor if total is None else total + seg_floor
+        out.append(total)
+    return out
+
+
+def _aware_utc(dt: datetime) -> datetime:
+    """Normalize a possibly-naive datetime to tz-aware UTC for safe comparison."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt

@@ -14,6 +14,7 @@ vi.mock("./api", () => ({
         run_series: [115000, 114000],
         baseline_exp_run_ms: 116000,
         floor_total_ms: 110000,
+        floor_series: [],
         session_ended_at: null,
       };
     }
@@ -104,6 +105,7 @@ describe("loadAndRenderLiveView", () => {
           session_started_at: 1000, exp_run_diff_ms: null, exp_deaths_diff: null,
           practice_saved_ms: 6200, floor_improvement_ms: null,
           run_series: [120000, 115000], baseline_exp_run_ms: 121200, floor_total_ms: 110000,
+          floor_series: [],
           session_ended_at: 1060,
         };
       }
@@ -168,6 +170,7 @@ describe("loadAndRenderLiveView", () => {
       exp_run_diff_ms: null, exp_deaths_diff: null, practice_saved_ms: 6200,
       floor_improvement_ms: null, run_series: [120000, 115000],
       baseline_exp_run_ms: 121200, floor_total_ms: 110000, session_started_at: 1000,
+      floor_series: [],
     };
     const liveSum = { ...base, session_ended_at: null };
     const frozenSum = { ...base, session_ended_at: 1060 };

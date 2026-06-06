@@ -30,6 +30,7 @@ export function renderRunGraph(host: HTMLElement, data: RouteSummary): void {
     return;
   }
   const floor = data.floor_total_ms ?? null;
+  const floorSeries = (data.floor_series ?? []) as (number | null)[];
   // Y-scale: bottom = floor when known, else the fastest in-session run; top = the
   // slowest of baseline / series. Keeps the whole curve and both lines in frame.
   const lo = floor ?? Math.min(...series);
@@ -46,9 +47,19 @@ export function renderRunGraph(host: HTMLElement, data: RouteSummary): void {
   parts.push(`<line class="rg-baseline" x1="${GEO.left}" y1="${baseY.toFixed(1)}" x2="${GEO.right}" y2="${baseY.toFixed(1)}"/>`);
   parts.push(`<text x="${GEO.left}" y="${(baseY - 3).toFixed(1)}" class="rg-baseline-label">session start ${formatTime(baseline)}</text>`);
   if (floor != null) {
-    const floorY = yForTime(floor, lo, hi, GEO.top, GEO.bottom);
-    parts.push(`<line class="rg-floor" x1="${GEO.left}" y1="${floorY.toFixed(1)}" x2="${GEO.right}" y2="${floorY.toFixed(1)}"/>`);
-    parts.push(`<text x="${(GEO.right - 64).toFixed(1)}" y="${(floorY - 3).toFixed(1)}" class="rg-floor-label">floor ${formatTime(floor)}</text>`);
+    // Prefer the declining floor-over-time polyline (one point per run point,
+    // dropping as clean PBs land). Fall back to a flat line at the current Σ
+    // floor when floor_series is absent/misaligned (degenerate case).
+    if (floorSeries.length === series.length && floorSeries.length > 0) {
+      const floorCurve = linePoints(floorSeries, lo, hi, GEO);
+      parts.push(`<polyline class="rg-floor" fill="none" points="${floorCurve}"/>`);
+    } else {
+      const floorY = yForTime(floor, lo, hi, GEO.top, GEO.bottom);
+      parts.push(`<line class="rg-floor" x1="${GEO.left}" y1="${floorY.toFixed(1)}" x2="${GEO.right}" y2="${floorY.toFixed(1)}"/>`);
+    }
+    // Label always uses the current Σ floor (the goal value), positioned at it.
+    const labelY = yForTime(floor, lo, hi, GEO.top, GEO.bottom);
+    parts.push(`<text x="${(GEO.right - 64).toFixed(1)}" y="${(labelY - 3).toFixed(1)}" class="rg-floor-label">floor ${formatTime(floor)}</text>`);
   }
   parts.push(`<polyline class="rg-line" fill="none" points="${curve}"/>`);
 

@@ -547,6 +547,7 @@ class RouteSummaryResponse(_BaseResponse):
     run_series: list[float] = []           # route Exp.Run after each in-session event
     baseline_exp_run_ms: float | None = None  # session-start Exp.Run (the "start" line)
     floor_total_ms: float | None = None    # sum of segment floors (theoretical best run)
+    floor_series: list[float | None] = []  # floor-over-time, aligned point-for-point with run_series; None when no segment has a floor yet
     session_ended_at: float | None = None  # epoch seconds; set when the session is frozen
 
 
