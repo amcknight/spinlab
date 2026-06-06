@@ -60,6 +60,9 @@ function diffDeaths(delta: number | null | undefined): StatDiff | null {
 
 export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
   const rs = data.routeSummary;
+  const frozenBadge = rs.session_ended_at != null
+    ? ` <span class="rb-frozen">(frozen)</span>`
+    : "";
   const sessionStartedAt = rs.session_started_at ?? null;
   const sessionActive = sessionStartedAt != null;
   const elapsedSec = sessionActive ? Math.max(0, data.nowSeconds - sessionStartedAt) : 0;
@@ -98,7 +101,7 @@ export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
   host.innerHTML = `
     <div class="rb-root">
       <div class="rb-left">
-        <div class="rb-title">${escapeHtml(data.title)}</div>
+        <div class="rb-title">${escapeHtml(data.title)}${frozenBadge}</div>
         ${savedBlock}
         ${skippedBlock}
       </div>

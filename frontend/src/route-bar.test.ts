@@ -16,6 +16,7 @@ const SESSION: RouteBarData = {
     practice_saved_ms: 5_000.0,
     floor_improvement_ms: 1_500.0,
     run_series: [], baseline_exp_run_ms: null, floor_total_ms: null,
+    session_ended_at: null,
   },
   nowSeconds: NOW_S,
 };
@@ -62,6 +63,27 @@ describe("renderRouteBar", () => {
     const host = document.getElementById("h")!;
     renderRouteBar(host, { ...SESSION, routeSummary: { ...SESSION.routeSummary, n_skipped: 4 } });
     expect((host.textContent ?? "").toLowerCase()).toContain("estimable");
+  });
+  it("shows a (frozen) badge when the session is frozen", () => {
+    document.body.innerHTML = `<div id="h"></div>`;
+    const host = document.getElementById("h")!;
+    renderRouteBar(host, {
+      title: "Beto · any%", gameId: "g", nowSeconds: 1060,
+      routeSummary: { ...SESSION.routeSummary, session_started_at: 1000, session_ended_at: 1060 },
+    });
+    expect(host.querySelector(".rb-frozen")).not.toBeNull();
+    expect(host.textContent).toContain("(frozen)");
+    // Elapsed is pinned by caller-supplied nowSeconds (= ended_at): 60s.
+    expect(host.textContent).toContain("0:01:00");
+  });
+  it("shows no (frozen) badge for a live session", () => {
+    document.body.innerHTML = `<div id="h"></div>`;
+    const host = document.getElementById("h")!;
+    renderRouteBar(host, {
+      title: "Beto · any%", gameId: "g", nowSeconds: 1030,
+      routeSummary: { ...SESSION.routeSummary, session_started_at: 1000, session_ended_at: null },
+    });
+    expect(host.querySelector(".rb-frozen")).toBeNull();
   });
   it("hides Practice saved when no active session", () => {
     document.body.innerHTML = `<div id="h"></div>`;

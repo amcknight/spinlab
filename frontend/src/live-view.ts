@@ -59,10 +59,15 @@ export async function loadAndRenderLiveView(opts: LiveViewLoadOptions): Promise<
       .catch((e: unknown) => { renderError(opts.hosts.routeBar, "route summary", e); return null; }),
   ]);
 
+  // Frozen sessions (clean-stopped) carry session_ended_at; pin the elapsed clock
+  // to that instant and skip the 1s tick so the idle view stays static.
+  let frozen = false;
   if (summary) {
+    frozen = summary.session_ended_at != null;
     _lastRouteData = {
       title: opts.title, gameId: opts.gameId,
-      routeSummary: summary, nowSeconds: Date.now() / 1000,
+      routeSummary: summary,
+      nowSeconds: frozen ? summary.session_ended_at! : Date.now() / 1000,
     };
     renderRouteBar(opts.hosts.routeBar, _lastRouteData);
     renderRunGraph(opts.hosts.runGraph, summary);
@@ -72,7 +77,9 @@ export async function loadAndRenderLiveView(opts: LiveViewLoadOptions): Promise<
     renderEpisodeGraph(opts.hosts.graph, live);
   }
 
-  _tickHandle = setInterval(tickRouteBar, TICK_INTERVAL_MS);
+  if (!frozen) {
+    _tickHandle = setInterval(tickRouteBar, TICK_INTERVAL_MS);
+  }
 }
 
 function tickRouteBar(): void {
