@@ -143,6 +143,10 @@ async def test_practice_card_renders(page):
     # It's hidden until a practice session starts, but the element itself must
     # exist in the DOM.
     assert await pg.locator("#practice-card").count() == 1
+    # The run-graph host lives above the segment summary in the live view. It
+    # only populates during an active practice session (Plan 2 adds idle
+    # persistence), so here we assert only that the host element is present.
+    assert await pg.locator("#live-run-graph").count() == 1
 
 
 @pytest.mark.asyncio(loop_scope="session")

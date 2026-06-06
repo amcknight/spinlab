@@ -1,5 +1,6 @@
-import pytest
 from datetime import datetime
+
+import pytest
 from tests.factories import make_event_attempt
 
 from spinlab.estimators.em_suite_sampler import SamplerState, process_event
