@@ -7,7 +7,7 @@
  * See the iter-2 spec, Part 1.
  */
 import { formatTime } from "./format";
-import { yForTime, linePoints } from "./episode-graph";
+import { yForTime, linePoints, niceTimeTicks } from "./episode-graph";
 import type { RouteSummary } from "./types";
 
 // Same viewBox geometry as the segment graph so the two are horizontally aligned
@@ -38,6 +38,11 @@ export function renderRunGraph(host: HTMLElement, data: RouteSummary): void {
   const baseY = yForTime(baseline, lo, hi, GEO.top, GEO.bottom);
 
   const parts: string[] = [];
+  // Y-axis tick labels at the left gutter, mirroring the segment graph's .eg-axis.
+  for (const tick of niceTimeTicks(lo, hi)) {
+    const ty = (yForTime(tick, lo, hi, GEO.top, GEO.bottom) + 3).toFixed(1);
+    parts.push(`<text x="2" y="${ty}" class="rg-axis">${formatTime(tick)}</text>`);
+  }
   parts.push(`<line class="rg-baseline" x1="${GEO.left}" y1="${baseY.toFixed(1)}" x2="${GEO.right}" y2="${baseY.toFixed(1)}"/>`);
   parts.push(`<text x="${GEO.left}" y="${(baseY - 3).toFixed(1)}" class="rg-baseline-label">start ${formatTime(baseline)}</text>`);
   if (floor != null) {

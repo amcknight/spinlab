@@ -48,9 +48,13 @@ function diffRate(delta: number | null | undefined): StatDiff | null {
 }
 
 function practiceStack(gainMs: number | null): StatStack {
-  // Practice gain has no diff slot; the sign is conveyed by the value's prefix.
-  const text = gainMs == null ? null : (gainMs > 0 ? "+" : "") + formatTime(gainMs);
-  return { label: "Practice", value: text, diff: null };
+  // Practice gain has no diff slot; the sign is conveyed by the value's prefix
+  // and a green/red tint (positive gain = improvement = green, matching the
+  // route bar's Saved tint).
+  if (gainMs == null) return { label: "Practice", value: null, diff: null };
+  const tint = gainMs === 0 ? "" : gainMs > 0 ? " good" : " bad";
+  const text = (gainMs > 0 ? "+" : "") + formatTime(gainMs);
+  return { label: "Practice", value: `<span class="sg-practice-val${tint}">${text}</span>`, diff: null };
 }
 
 export function renderSegmentSummary(host: HTMLElement, data: SegmentSummaryData): void {

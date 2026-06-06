@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  yForTime, linePoints, axisTicks, deathLabels, renderEpisodeGraph,
+  yForTime, linePoints, axisTicks, niceTimeTicks, deathLabels, renderEpisodeGraph,
 } from "./episode-graph";
 import type { EpisodePoint, LiveSegmentView } from "./types";
 
@@ -40,14 +40,31 @@ describe("linePoints", () => {
 });
 
 describe("axisTicks", () => {
-  it("returns labeled tick values within [lo, hi]", () => {
-    const ticks = axisTicks(12800, 31000, 3);
-    expect(ticks.length).toBe(3);
+  it("returns round-number labeled tick values within [lo, hi]", () => {
+    const ticks = axisTicks(12800, 31000, 4);
+    expect(ticks.length).toBeGreaterThanOrEqual(1);
     for (const t of ticks) {
       expect(t.ms).toBeGreaterThanOrEqual(12800);
       expect(t.ms).toBeLessThanOrEqual(31000);
       expect(t.label).toMatch(/s$/);
     }
+  });
+});
+
+describe("niceTimeTicks", () => {
+  it("returns round-number tick values within range, count >= 3", () => {
+    const ticks = niceTimeTicks(39100, 400100, 4);
+    expect(ticks.length).toBeGreaterThanOrEqual(3);
+    // All ticks share a single nice step → every tick is a multiple of it.
+    const step = ticks[1]! - ticks[0]!;
+    for (const t of ticks) {
+      expect(t % step).toBeCloseTo(0, 6);
+      expect(t).toBeGreaterThanOrEqual(39100);
+      expect(t).toBeLessThanOrEqual(400100);
+    }
+  });
+  it("returns a single tick when range is non-positive", () => {
+    expect(niceTimeTicks(5000, 5000, 4)).toEqual([5000]);
   });
 });
 
@@ -80,6 +97,21 @@ describe("renderEpisodeGraph", () => {
     expect(html).not.toContain("NaN");
     expect(html).not.toContain("undefined");
     expect(html).toContain("floor");
+  });
+
+  it("omits the death label for a 0-death completion", () => {
+    document.body.innerHTML = `<div id="h"></div>`;
+    const host = document.getElementById("h")!;
+    const pts: EpisodePoint[] = [
+      { episode_ms: 31000, deaths: 4, clean_ms: 14200, running_floor_ms: 14200 },
+      { episode_ms: 14000, deaths: 0, clean_ms: 14000, running_floor_ms: 14000 },
+      { episode_ms: 16800, deaths: 1, clean_ms: 12800, running_floor_ms: 12800 },
+    ];
+    renderEpisodeGraph(host, { ...READY, series: pts as unknown as Record<string, never>[] });
+    const deathEls = host.querySelectorAll(".eg-death");
+    // 3 completions but one has 0 deaths → only 2 labels.
+    expect(deathEls.length).toBe(2);
+    for (const el of deathEls) expect(el.textContent).not.toBe("0");
   });
 
   it("renders a placeholder (no svg) when not ready", () => {

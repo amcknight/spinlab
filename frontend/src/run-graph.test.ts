@@ -50,4 +50,13 @@ describe("renderRunGraph", () => {
     expect(host.querySelector(".rg-floor")).not.toBeNull();
     expect(host.querySelector(".rg-last")).not.toBeNull();
   });
+
+  it("renders y-axis tick labels", () => {
+    renderRunGraph(host, base({
+      run_series: [258000, 255000, 252000],
+      baseline_exp_run_ms: 258000,
+      floor_total_ms: 231000,
+    }));
+    expect(host.querySelectorAll(".rg-axis").length).toBeGreaterThanOrEqual(1);
+  });
 });

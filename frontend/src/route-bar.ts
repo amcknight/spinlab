@@ -67,9 +67,14 @@ export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
   const sessionActive = sessionStartedAt != null;
   const elapsedSec = sessionActive ? Math.max(0, data.nowSeconds - sessionStartedAt) : 0;
 
+  // Tint Saved + rate green when the session is ahead (saved_ms > 0), red when
+  // behind (< 0), neutral otherwise. Lower run time = saved time = improvement.
+  const savedMs = rs.practice_saved_ms ?? null;
+  const savedTint = savedMs == null || savedMs === 0
+    ? "" : savedMs > 0 ? " rb-saved-good" : " rb-saved-bad";
   const savedBlock = sessionActive
-    ? `<div class="rb-saved">Saved ${formatTime(rs.practice_saved_ms ?? null)} · `
-      + `${formatRate(rs.practice_saved_ms ?? null, elapsedSec)} · `
+    ? `<div class="rb-saved">Saved <span class="rb-saved-val${savedTint}">${formatTime(savedMs)}</span> · `
+      + `<span class="rb-saved-val${savedTint}">${formatRate(savedMs, elapsedSec)}</span> · `
       + `${formatElapsedHMS(elapsedSec)}</div>`
     : "";
 

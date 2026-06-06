@@ -42,6 +42,20 @@ describe("renderRouteBar", () => {
     expect(saved.textContent).toContain("Saved 5.0s");
     expect(saved.textContent).toMatch(/1:00:00|01:00:00/);  // session elapsed
   });
+  it("tints Saved + rate green for a positive (ahead) session", () => {
+    document.body.innerHTML = `<div id="h"></div>`;
+    const host = document.getElementById("h")!;
+    renderRouteBar(host, SESSION);  // practice_saved_ms = +5000
+    expect(host.querySelectorAll(".rb-saved-good").length).toBeGreaterThanOrEqual(1);
+    expect(host.querySelector(".rb-saved-bad")).toBeNull();
+  });
+  it("tints Saved + rate red for a negative (behind) session", () => {
+    document.body.innerHTML = `<div id="h"></div>`;
+    const host = document.getElementById("h")!;
+    renderRouteBar(host, { ...SESSION, routeSummary: { ...SESSION.routeSummary, practice_saved_ms: -3000 } });
+    expect(host.querySelectorAll(".rb-saved-bad").length).toBeGreaterThanOrEqual(1);
+    expect(host.querySelector(".rb-saved-good")).toBeNull();
+  });
   it("renders Exp. Run + Exp. Deaths stat columns with colored diffs", () => {
     document.body.innerHTML = `<div id="h"></div>`;
     const host = document.getElementById("h")!;

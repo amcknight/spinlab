@@ -16,7 +16,9 @@ const GEO = { left: 30, right: 392, top: 10, bottom: 104 } as const;
 const VIEW_W = 400;
 const VIEW_H = 124;
 const DEATH_Y = 120;
-const AXIS_TICKS = 3;
+// Target number of y-axis ticks. niceTimeTicks rounds to a clean time step, so
+// the actual count varies; 4 is the aim point for a readable, uncrowded axis.
+const AXIS_TICKS = 4;
 
 /** Map a time (ms) to a y pixel: lower time = lower on the chart (larger y),
  *  higher time = top. NaN-safe when lo == hi. */
@@ -48,18 +50,36 @@ export function linePoints(
   return out.join(" ");
 }
 
-/** Evenly spaced y-axis ticks across [lo, hi], formatted in seconds. */
+// Nice tick steps in ms, ascending: 0.1s, 0.25s, 0.5s, 1s, 2s, 5s, 10s, 15s,
+// 30s, 1m, 2m, 5m, 10m. niceTimeTicks snaps to the smallest of these that is
+// >= the raw step, so labels land on human-friendly round time values.
+const NICE_TIME_STEPS_MS = [
+  100, 250, 500, 1000, 2000, 5000, 10000, 15000, 30000, 60000, 120000, 300000, 600000,
+];
+// Float-comparison slop (ms) so the loop's final tick at exactly hiMs isn't
+// dropped by accumulated addition error.
+const TICK_EPSILON_MS = 1e-6;
+
+/** Round-number y-axis tick values (ms) across [loMs, hiMs], aiming for
+ *  ~targetCount ticks but snapping to a clean time step (see NICE_TIME_STEPS_MS). */
+export function niceTimeTicks(loMs: number, hiMs: number, targetCount = 4): number[] {
+  const range = hiMs - loMs;
+  if (range <= 0) return [loMs];
+  const rawStep = range / targetCount;
+  const step = NICE_TIME_STEPS_MS.find(s => s >= rawStep) ?? NICE_TIME_STEPS_MS[NICE_TIME_STEPS_MS.length - 1]!;
+  const first = Math.ceil(loMs / step) * step;
+  const ticks: number[] = [];
+  for (let t = first; t <= hiMs + TICK_EPSILON_MS; t += step) ticks.push(t);
+  return ticks;
+}
+
+/** Round-number y-axis ticks across [lo, hi], formatted in seconds. */
 export function axisTicks(
   lo: number, hi: number, count: number,
 ): { ms: number; label: string }[] {
   if (count < 1) return [];
   if (count === 1) return [{ ms: hi, label: formatTime(hi) }];
-  const ticks: { ms: number; label: string }[] = [];
-  for (let i = 0; i < count; i++) {
-    const ms = hi - (i * (hi - lo)) / (count - 1);
-    ticks.push({ ms, label: formatTime(ms) });
-  }
-  return ticks;
+  return niceTimeTicks(lo, hi, count).map(ms => ({ ms, label: formatTime(ms) }));
 }
 
 /** x position + death count for each completed episode. */
@@ -99,6 +119,7 @@ export function renderEpisodeGraph(host: HTMLElement, data: LiveSegmentView): vo
     .map(t => `<text x="2" y="${(yForTime(t.ms, lo, hi, GEO.top, GEO.bottom) + 3).toFixed(1)}" class="eg-axis">${t.label}</text>`)
     .join("");
   const deaths = deathLabels(points, GEO)
+    .filter(d => d.deaths > 0)  // a clean (0-death) completion gets no label
     .map(d => `<text x="${d.x.toFixed(1)}" y="${DEATH_Y}" class="eg-death" text-anchor="middle">${d.deaths}</text>`)
     .join("");
   const lastX = (GEO.left + (points.length > 1 ? GEO.right - GEO.left : 0)).toFixed(1);

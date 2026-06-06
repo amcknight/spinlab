@@ -36,6 +36,14 @@ describe("renderSegmentSummary", () => {
     expect(stacks.length).toBe(4);  // Practice + Floor + Expected + Deaths
     expect(host.querySelectorAll(".ss-diff.good").length).toBeGreaterThanOrEqual(1);
   });
+  it("tints the Practice gain green when positive, red when negative", () => {
+    document.body.innerHTML = `<div id="h"></div>`;
+    const host = document.getElementById("h")!;
+    renderSegmentSummary(host, { name: "L1", live: READY });  // practice_gain_ms = +500
+    expect(host.querySelector(".sg-practice-val.good")).not.toBeNull();
+    renderSegmentSummary(host, { name: "L1", live: { ...READY, practice_gain_ms: -700 } });
+    expect(host.querySelector(".sg-practice-val.bad")).not.toBeNull();
+  });
   it("renders the 'last completion' headline with rank + decomposition", () => {
     document.body.innerHTML = `<div id="h"></div>`;
     const host = document.getElementById("h")!;

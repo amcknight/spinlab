@@ -891,7 +891,7 @@ h3 {
 .eg-svg { width: 100%; height: 140px; display: block; }
 .eg-line { stroke: var(--accent); stroke-width: 2.5; }
 .eg-floor { stroke: var(--green); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.75; }
-.eg-last { fill: var(--accent); }
+.eg-last { fill: var(--yellow); }
 .eg-axis { fill: var(--text-dim); font-size: 9px; }
 .eg-floor-label { fill: var(--green); font-size: 9px; }
 .eg-death { fill: var(--red); font-size: 8px; }
@@ -899,10 +899,11 @@ h3 {
 
 /* Run-level improvement graph — pairs visually with the segment graph below it. */
 .lv-run-graph { background: var(--surface); border-radius: 6px; padding: 8px; }
-.rg-svg { width: 100%; height: 80px; display: block; }
+.rg-svg { width: 100%; height: 120px; display: block; }
 .rg-line { stroke: var(--accent); stroke-width: 2; }
 .rg-baseline { stroke: var(--text-dim); stroke-width: 1; stroke-dasharray: 2 3; }
 .rg-floor { stroke: var(--green); stroke-width: 1; stroke-dasharray: 4 3; }
+.rg-axis { fill: var(--text-dim); font-size: 9px; }
 .rg-baseline-label { fill: var(--text-dim); font-size: 9px; }
 .rg-floor-label { fill: var(--green); font-size: 9px; }
 .rg-last { fill: var(--yellow); }
@@ -937,6 +938,8 @@ h3 {
 .rb-title { font-weight: 600; font-size: 14px; }
 .rb-frozen { color: var(--text-dim); font-size: 11px; font-weight: 400; margin-left: 4px; }
 .rb-saved { font-size: 12px; color: var(--text-dim); }
+.rb-saved-good { color: var(--green); }
+.rb-saved-bad { color: var(--red); }
 .rb-skipped { font-size: 11px; }
 .rb-stats { display: flex; gap: 18px; }
 
@@ -954,6 +957,8 @@ h3 {
 .sg-headline-rank { font-size: 12px; color: var(--text-dim); }
 .sg-headline-decomp { font-size: 12px; color: var(--text-dim); }
 .sg-empty { color: var(--text-dim); font-size: 13px; padding: 8px 0; }
+.sg-practice-val.good { color: var(--green); }
+.sg-practice-val.bad { color: var(--red); }
 
 /* Stat stack (shared by route bar + segment summary) */
 .ss-stack {
