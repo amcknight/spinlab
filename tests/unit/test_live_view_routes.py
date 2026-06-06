@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from spinlab.db import Database
+from spinlab.estimators.session_snapshot import RouteBaseline, SessionSnapshot
 from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt, Segment
 from spinlab.routes._deps import get_db, get_session
 from spinlab.routes.model import router
@@ -19,7 +20,13 @@ class _NoSessionStub:
     practice_session_snapshot = None
 
 
-def _client(tmp_path) -> tuple[TestClient, str, str]:
+class _ActiveSessionStub:
+    """SessionManager stand-in with an active practice snapshot."""
+    def __init__(self, snapshot: SessionSnapshot) -> None:
+        self.practice_session_snapshot = snapshot
+
+
+def _seed_db(tmp_path) -> tuple[Database, str, str]:
     db = Database(str(tmp_path / "t.db"))
     db.upsert_game("g1", "G", "any%")
     seg_id = "g1:6:entrance.0:checkpoint.1:aa:bb"
@@ -34,11 +41,33 @@ def _client(tmp_path) -> tuple[TestClient, str, str]:
                 segment_id=seg_id, session_id="g1:s", episode_id=f"{outcome.value}{i}",
                 outcome=outcome, time_ms=t, source=AttemptSource.PRACTICE,
                 created_at=datetime.now(UTC)))
+    return db, seg_id, "g1"
+
+
+def _client(tmp_path) -> tuple[TestClient, str, str]:
+    db, seg_id, game_id = _seed_db(tmp_path)
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_session] = lambda: _NoSessionStub()
-    return TestClient(app), seg_id, "g1"
+    return TestClient(app), seg_id, game_id
+
+
+def _client_with_session(tmp_path) -> tuple[TestClient, str, str]:
+    db, seg_id, game_id = _seed_db(tmp_path)
+    # started_at=0.0 (1970 UTC) is before every just-logged event, so all events
+    # count as in-session and route_series produces points. Also exercises the
+    # tz-aware comparison: a naive session_start here would raise.
+    snapshot = SessionSnapshot(
+        started_at=0.0,
+        segments={},
+        route=RouteBaseline(exp_run_ms=250000.0, exp_deaths=20.0),
+    )
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_session] = lambda: _ActiveSessionStub(snapshot)
+    return TestClient(app), seg_id, game_id
 
 
 class TestLiveRoutes:
@@ -64,3 +93,14 @@ class TestLiveRoutes:
         b = r.json()
         assert b["game_id"] == game_id
         assert b["n_estimable"] + b["n_skipped"] >= 1
+
+    def test_live_summary_includes_run_series_fields(self, tmp_path):
+        client, _, game_id = _client_with_session(tmp_path)
+        r = client.get(f"/api/games/{game_id}/live-summary")
+        assert r.status_code == 200
+        body = r.json()
+        assert "run_series" in body and isinstance(body["run_series"], list)
+        assert "baseline_exp_run_ms" in body
+        assert "floor_total_ms" in body
+        # Active session with in-session events -> the series should populate.
+        assert len(body["run_series"]) >= 1

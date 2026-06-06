@@ -286,12 +286,16 @@ def get_route_summary(
 ):
     """Closed-form whole-run aggregate for the route bar. Pure read; no MC.
     Session-overlay fields populated only when a practice session is active."""
+    from datetime import UTC, datetime
+
     from spinlab.estimators.em_suite_sampler import replay_with_history
-    from spinlab.estimators.live_view import route_summary
+    from spinlab.estimators.live_view import route_series, route_summary
 
     snap = session.practice_session_snapshot
 
     states = []
+    segment_events: list[list] = []
+    floor_total_ms: float | None = None
     floor_improvement_ms: float | None = None
     if snap is not None:
         floor_improvement_ms = 0.0
@@ -299,17 +303,25 @@ def get_route_summary(
         events = events_from_rows(db.get_segment_event_rows(seg.id))
         state, _history = replay_with_history(events)
         states.append(state)
+        segment_events.append(events)
+        episodes = db.get_segment_attempts(seg.id)
+        seg_floor = running_min_clean(episodes)
+        if seg_floor is not None:
+            floor_total_ms = seg_floor if floor_total_ms is None else floor_total_ms + seg_floor
         # Aggregate floor improvement vs baseline. Per-segment improvement =
         # max(0, baseline_floor - current_running_min_clean). None on either side -> skip.
         # max(0, ...) because a new floor only ever drops; clipping to 0 prevents
         # paradoxical "regression" if an invalidation flips the running-min back up.
         if snap is not None and floor_improvement_ms is not None:
             base = snap.segments.get(seg.id)
-            if base is not None and base.floor_ms is not None:
-                episodes = db.get_segment_attempts(seg.id)
-                cur = running_min_clean(episodes)
-                if cur is not None:
-                    floor_improvement_ms += max(0.0, base.floor_ms - cur)
+            if base is not None and base.floor_ms is not None and seg_floor is not None:
+                floor_improvement_ms += max(0.0, base.floor_ms - seg_floor)
+
+    # session_start must be tz-aware: event created_at values are tz-aware
+    # (datetime.now(UTC), round-tripped through isoformat). A naive datetime here
+    # would raise on the created_at < session_start comparison in route_series.
+    session_start_dt = datetime.fromtimestamp(snap.started_at, tz=UTC) if snap else None
+    run_series = route_series(segment_events, session_start=session_start_dt)
 
     s = route_summary(states, baseline=snap.route if snap else None)
     return {
@@ -323,6 +335,9 @@ def get_route_summary(
         "exp_deaths_diff": s.exp_deaths_diff,
         "practice_saved_ms": s.practice_saved_ms,
         "floor_improvement_ms": floor_improvement_ms,
+        "run_series": run_series,
+        "baseline_exp_run_ms": snap.route.exp_run_ms if snap else None,
+        "floor_total_ms": floor_total_ms,
     }
 
 

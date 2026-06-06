@@ -541,6 +541,9 @@ class RouteSummaryResponse(_BaseResponse):
     exp_deaths_diff: float | None = None
     practice_saved_ms: float | None = None
     floor_improvement_ms: float | None = None  # Sum over segments of max(0, baseline_floor - current_floor), positive = improved
+    run_series: list[float] = []           # route Exp.Run after each in-session event
+    baseline_exp_run_ms: float | None = None  # session-start Exp.Run (the "start" line)
+    floor_total_ms: float | None = None    # sum of segment floors (theoretical best run)
 
 
 # ---------------------------------------------------------------------------
