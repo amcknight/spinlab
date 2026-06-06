@@ -914,7 +914,7 @@ h3 {
    (right-aligned, identical column widths). */
 
 .lv-route-bar, .lv-segment-summary, .lv-graph-slot, .lv-run-graph, .lv-improvement {
-  margin: 0 0 12px 0;
+  margin: 0 0 4px 0;
 }
 
 /* Frozen idle card: keep only the live view (route bar + run graph + segment
@@ -931,7 +931,7 @@ h3 {
 /* Route bar */
 .rb-root {
   display: flex; justify-content: space-between; align-items: flex-start;
-  gap: 16px; padding: 8px 12px;
+  gap: 16px; padding: 4px 12px;
   background: var(--surface); border-radius: 6px;
 }
 .rb-left { display: flex; flex-direction: column; gap: 2px; }
@@ -944,13 +944,13 @@ h3 {
 .rb-stats { display: flex; gap: 18px; }
 
 /* Segment summary */
-.sg-root { padding: 8px 12px; background: var(--surface); border-radius: 6px; }
+.sg-root { padding: 4px 12px; background: var(--surface); border-radius: 6px; }
 .sg-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .sg-name { font-weight: 600; font-size: 14px; }
 .sg-stats { display: flex; gap: 18px; }
 .sg-headline {
   display: grid; grid-template-columns: auto 1fr auto auto;
-  gap: 6px 10px; align-items: baseline; margin-top: 8px;
+  gap: 6px 10px; align-items: baseline; margin-top: 4px;
 }
 .sg-headline-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; }
 .sg-headline-value { font-size: 28px; font-weight: 600; }

@@ -44,7 +44,7 @@ export function renderRunGraph(host: HTMLElement, data: RouteSummary): void {
     parts.push(`<text x="2" y="${ty}" class="rg-axis">${formatTime(tick)}</text>`);
   }
   parts.push(`<line class="rg-baseline" x1="${GEO.left}" y1="${baseY.toFixed(1)}" x2="${GEO.right}" y2="${baseY.toFixed(1)}"/>`);
-  parts.push(`<text x="${GEO.left}" y="${(baseY - 3).toFixed(1)}" class="rg-baseline-label">start ${formatTime(baseline)}</text>`);
+  parts.push(`<text x="${GEO.left}" y="${(baseY - 3).toFixed(1)}" class="rg-baseline-label">session start ${formatTime(baseline)}</text>`);
   if (floor != null) {
     const floorY = yForTime(floor, lo, hi, GEO.top, GEO.bottom);
     parts.push(`<line class="rg-floor" x1="${GEO.left}" y1="${floorY.toFixed(1)}" x2="${GEO.right}" y2="${floorY.toFixed(1)}"/>`);

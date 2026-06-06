@@ -72,6 +72,14 @@ describe("renderRouteBar", () => {
     renderRouteBar(host, { ...SESSION, routeSummary: { ...SESSION.routeSummary, floor_improvement_ms: 0 } });
     expect(host.querySelector(".rb-floors")).toBeNull();
   });
+  it("labels the floor-improvement stat 'Floor saved' when floor_improvement_ms > 0", () => {
+    document.body.innerHTML = `<div id="h"></div>`;
+    const host = document.getElementById("h")!;
+    renderRouteBar(host, SESSION);  // floor_improvement_ms = 1500
+    const floors = host.querySelector(".rb-floors")!;
+    expect(floors).not.toBeNull();
+    expect(floors.querySelector(".ss-label")!.textContent).toBe("Floor saved");
+  });
   it("renders 'n of m segments estimable' when n_skipped > 0", () => {
     document.body.innerHTML = `<div id="h"></div>`;
     const host = document.getElementById("h")!;

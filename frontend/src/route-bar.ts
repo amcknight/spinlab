@@ -87,7 +87,7 @@ export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
   const floorImprovement = rs.floor_improvement_ms ?? 0;
   if (floorImprovement > 0) {
     stacks.push(stackHtml("rb-floors", {
-      label: "Floors",
+      label: "Floor saved",
       value: formatTime(floorImprovement),
       diff: null,  // always positive when shown
     }));
