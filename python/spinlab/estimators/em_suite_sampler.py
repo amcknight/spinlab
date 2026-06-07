@@ -623,8 +623,9 @@ class EmSuiteSamplerEstimator(Estimator):
     ) -> ModelOutput:
         scalar = expected_episode_time_scalar(state)
         # Practice gain: expected now minus expected after one trend-slide step,
-        # at the default alpha pair. Mirrors live_view.practice_gain_ms exactly.
-        # None when either side is None (gate fails / slope ungated).
+        # at the default alpha pair. Mirrors live_view.practice_gain_ms (identical
+        # at the default reload penalty, which is what every live_view caller uses
+        # today). None when either side is None (gate fails / slope ungated).
         slid = expected_episode_time_ms(
             state, DEFAULT_FAST_IDX, DEFAULT_SLOW_IDX, apply_slope=True,
         )
