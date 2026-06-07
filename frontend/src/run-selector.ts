@@ -337,11 +337,17 @@ export function updateRunSelector(state: AppState): void {
   currentGameId = state.game_id ?? null;
   gameInitialized = true;
 
+  // Disable run switching/deletion during any mode that's bound to the active
+  // run: capture modes (reference/replay/cold_fill/fill_gap) AND active play
+  // (practice/hyper_play). Switching the scoped run mid-practice desyncs the
+  // run-graph baseline snapshot, so the selector stays locked while playing.
   busy =
     state.mode === "reference" ||
     state.mode === "replay" ||
     state.mode === "cold_fill" ||
-    state.mode === "fill_gap";
+    state.mode === "fill_gap" ||
+    state.mode === "practice" ||
+    state.mode === "hyper_play";
 
   if (firstState || currentGameId !== prevGame) {
     refreshRunSelector();

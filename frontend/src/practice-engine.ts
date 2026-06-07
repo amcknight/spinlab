@@ -9,7 +9,7 @@ import type {
   PracticeEngineEvaluateRequest,
   PracticeEngineEvaluateResponse,
 } from "./types";
-import { segmentName, formatTime, formatSavings } from "./format";
+import { segmentName, formatTime, formatSavings, NO_ACTIVE_RUN_MESSAGE } from "./format";
 
 // seg_id → short display name, captured at render so the results table (which
 // only carries seg_id) can label rows the same way the rest of the dashboard does.
@@ -117,6 +117,7 @@ export async function fetchEvaluate(
 export function renderPracticeEnginePanel(
   container: HTMLElement,
   state: PracticeEngineState,
+  hasActiveRun: boolean = true,
 ): void {
   container.innerHTML = "";
 
@@ -153,10 +154,14 @@ export function renderPracticeEnginePanel(
   const total = gatedCount + state.ungated_segments.length;
   const status = document.createElement("div");
   status.className = "pe-status";
-  status.innerHTML = total === 0
-    ? "No segments tracked yet — make a reference run and practice."
-    : `<strong>${gatedCount}</strong> of ${total} segment${total === 1 ? "" : "s"} `
-      + `ready. The rest need ≥2 clears and ≥2 deaths each.`;
+  // No active run is its own empty state (spec §A.3/§D); a run with zero tracked
+  // segments keeps the existing "make a reference run and practice" copy.
+  status.innerHTML = !hasActiveRun
+    ? NO_ACTIVE_RUN_MESSAGE
+    : total === 0
+      ? "No segments tracked yet — make a reference run and practice."
+      : `<strong>${gatedCount}</strong> of ${total} segment${total === 1 ? "" : "s"} `
+        + `ready. The rest need ≥2 clears and ≥2 deaths each.`;
   container.appendChild(status);
 
   const headline = document.createElement("div");
@@ -331,11 +336,11 @@ function scheduleRecompute(container: HTMLElement): void {
   recomputeTimer = setTimeout(() => { void runRecompute(container); }, 250);
 }
 
-export async function initPracticeEnginePanel(): Promise<void> {
+export async function initPracticeEnginePanel(hasActiveRun: boolean = true): Promise<void> {
   const container = document.getElementById("practice-engine-panel");
   if (!container) return;
   const state = await fetchState();
-  renderPracticeEnginePanel(container, state);
+  renderPracticeEnginePanel(container, state, hasActiveRun);
   applyControlVisibility(container);
 
   // Recompute automatically: on load, and whenever a control changes — no

@@ -27,6 +27,9 @@ import {
 let _currentWeights: Record<string, number> | null = null;
 let _currentSegmentId: string | null = null;
 let _lastPracticed: { id: string; name: string } | null = null;
+// Latest has_active_run from app-state. The model table re-renders on its own
+// /api/model fetch (no AppState in hand), so the empty-state choice reads this.
+let _hasActiveRun = false;
 
 export async function fetchModel(): Promise<void> {
   const data = await fetchModelData();
@@ -34,7 +37,7 @@ export async function fetchModel(): Promise<void> {
 }
 
 function updateModel(data: ModelData): void {
-  renderModelTable(data, showSegmentDetail);
+  renderModelTable(data, showSegmentDetail, _hasActiveRun);
 }
 
 function showSegmentDetail(segmentId: string): void {
@@ -67,6 +70,8 @@ function hideSegmentDetail(): void {
 }
 
 export function updatePracticeCard(data: AppState): void {
+  // Tracked for the model-table empty state, which re-renders on its own fetch.
+  _hasActiveRun = data.has_active_run;
   const card = document.getElementById("practice-card") as HTMLElement;
   const cs = data.current_segment;
   const state = practiceCardState({

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { segmentName, formatTime, elapsedStr, formatSavings } from "./format";
+import { segmentName, formatTime, elapsedStr, formatSavings, emptyStateMessage, NO_ACTIVE_RUN_MESSAGE } from "./format";
 import type { SegmentLike } from "./types";
 
 describe("segmentName", () => {
@@ -148,5 +148,16 @@ describe("formatSavings", () => {
 
   it("formats zero as +0.0s", () => {
     expect(formatSavings(0)).toBe("+0.0s");
+  });
+});
+
+describe("emptyStateMessage", () => {
+  it("returns the no-active-run wording when there is no active run", () => {
+    expect(emptyStateMessage(false, "No segments")).toBe(NO_ACTIVE_RUN_MESSAGE);
+  });
+
+  it("returns the caller's no-segments copy when a run is active", () => {
+    expect(emptyStateMessage(true, "No segments")).toBe("No segments");
+    expect(emptyStateMessage(true, "No game loaded")).toBe("No game loaded");
   });
 });

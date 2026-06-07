@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { runSelectorOptions } from "./run-selector";
-import type { Reference } from "./types";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { runSelectorOptions, updateRunSelector } from "./run-selector";
+import type { AppState, Reference } from "./types";
 
 function ref(partial: { id: string; name: string; created_at: string; active?: boolean }): Reference {
   return {
@@ -77,5 +77,48 @@ describe("runSelectorOptions", () => {
     const view = runSelectorOptions(runs, true);
     expect(view.options).toHaveLength(4);
     expect(new Set(view.options.map((o) => o.id)).size).toBe(4);
+  });
+});
+
+describe("updateRunSelector busy gating", () => {
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <button id="run-selector"><span id="run-name-label"></span></button>
+      <div id="run-popover"><ul id="run-list"></ul></div>`;
+    // refreshRunSelector fetches /api/references on the first state / game
+    // change; return an empty list so it settles without error.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        ({ ok: true, json: async () => ({ references: [] }) }) as unknown as Response,
+      ),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function state(mode: string): AppState {
+    return { game_id: "g1", mode } as AppState;
+  }
+
+  it("disables the selector while practicing", () => {
+    // First push establishes the game (idle); a later push flips to practice.
+    updateRunSelector(state("idle"));
+    updateRunSelector(state("practice"));
+    expect((document.getElementById("run-selector") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("disables the selector during hyper_play", () => {
+    updateRunSelector(state("idle"));
+    updateRunSelector(state("hyper_play"));
+    expect((document.getElementById("run-selector") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("leaves the selector enabled when idle with a game", () => {
+    updateRunSelector(state("idle"));
+    updateRunSelector(state("idle"));
+    expect((document.getElementById("run-selector") as HTMLButtonElement).disabled).toBe(false);
   });
 });
