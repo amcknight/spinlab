@@ -176,8 +176,8 @@ header {
   color: var(--text);
 }
 .run-actions .btn-danger-sm:hover:not(:disabled) {
-  border-color: var(--red, #d33);
-  color: var(--red, #d33);
+  border-color: var(--red);
+  color: var(--red);
 }
 .run-actions button:disabled { opacity: 0.4; cursor: default; }
 

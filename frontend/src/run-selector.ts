@@ -75,6 +75,9 @@ let currentGameId: string | null = null;
 let popoverOpen = false;
 let busy = false;
 let onActiveChangedCb: (() => void | Promise<void>) | null = null;
+// Distinguishes "first state ever" (game may legitimately be null) from a
+// later null game, so we refresh exactly once on bootstrap.
+let gameInitialized = false;
 
 function el<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T;
@@ -98,7 +101,9 @@ function makeSectionHeader(text: string): HTMLLIElement {
 }
 
 async function activateRun(id: string): Promise<void> {
-  await postJSON("/api/references/" + id + "/activate");
+  // postJSON/fetchJSON return null + toast on failure; bail so we don't refresh
+  // or fire the callback against a mutation that didn't land.
+  if ((await postJSON("/api/references/" + id + "/activate")) === null) return;
   await refreshRunSelector();
   if (onActiveChangedCb) await onActiveChangedCb();
 }
@@ -106,11 +111,12 @@ async function activateRun(id: string): Promise<void> {
 async function renameRun(id: string, currentName: string): Promise<void> {
   const name = prompt("New name:", currentName);
   if (!name || !name.trim()) return;
-  await fetchJSON("/api/references/" + id, {
+  const res = await fetchJSON("/api/references/" + id, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: name.trim() }),
   });
+  if (res === null) return;
   await refreshRunSelector();
   if (onActiveChangedCb) await onActiveChangedCb();
 }
@@ -118,7 +124,8 @@ async function renameRun(id: string, currentName: string): Promise<void> {
 async function deleteRun(id: string): Promise<void> {
   // TODO(Task 5): replace with 3-way delete dialog (?mode=run_only|run_and_data)
   if (!confirm("Delete this reference run?")) return;
-  await fetchJSON("/api/references/" + id, { method: "DELETE" });
+  if ((await fetchJSON("/api/references/" + id, { method: "DELETE" })) === null)
+    return;
   await refreshRunSelector();
   if (onActiveChangedCb) await onActiveChangedCb();
 }
@@ -235,7 +242,7 @@ export async function refreshRunSelector(): Promise<void> {
  */
 export function updateRunSelector(state: AppState): void {
   const prevGame = currentGameId;
-  const firstState = currentGameId === null && !gameInitialized;
+  const firstState = !gameInitialized;
   currentGameId = state.game_id ?? null;
   gameInitialized = true;
 
@@ -253,10 +260,6 @@ export function updateRunSelector(state: AppState): void {
     renderList();
   }
 }
-
-// Distinguishes "first state ever" (game may legitimately be null) from a
-// later null game, so we refresh exactly once on bootstrap.
-let gameInitialized = false;
 
 /** Wire the selector button toggle + outside-click/Escape close. */
 export function initRunSelector(
