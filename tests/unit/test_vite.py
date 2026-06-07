@@ -55,7 +55,7 @@ def test_spawn_vite_raises_on_port_timeout(tmp_path):
     with patch("spinlab.vite.subprocess.Popen", return_value=mock_proc), \
          patch("spinlab.vite.wait_for_port", return_value=False), \
          patch("spinlab.vite.subprocess.run") as mock_run:
-        with pytest.raises(ViteStartupError, match="did not start"):
+        with pytest.raises(ViteStartupError, match="did not bind port"):
             spawn_vite(tmp_path)
 
     # On Windows, terminate_vite calls subprocess.run with taskkill.

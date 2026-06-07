@@ -18,7 +18,11 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 VITE_PORT = 5173
-VITE_STARTUP_TIMEOUT_S = 10
+# `npm run dev` runs gen-types (which imports the Python app to dump the OpenAPI
+# schema) BEFORE vite even starts, so a cold start legitimately exceeds 10s on a
+# busy machine. 10s produced spurious "port in use" failures; 30s covers the
+# gen-types + vite cold path.
+VITE_STARTUP_TIMEOUT_S = 30
 VITE_POLL_INTERVAL_S = 0.25
 
 # Module-global Job Object handle. Held open for the lifetime of the dashboard
@@ -224,8 +228,11 @@ def spawn_vite(frontend_dir: Path) -> subprocess.Popen:
     if not wait_for_port(VITE_PORT):
         terminate_vite(proc)
         raise ViteStartupError(
-            f"Vite did not start within {VITE_STARTUP_TIMEOUT_S}s — "
-            f"is port {VITE_PORT} in use?"
+            f"Vite did not bind port {VITE_PORT} within "
+            f"{VITE_STARTUP_TIMEOUT_S}s. Likely causes: gen-types or vite was "
+            f"slow to cold-start, port {VITE_PORT} is already held by a stale "
+            f"dev server, or npm/node failed. Check the dashboard log for npm "
+            f"output."
         )
     logger.info("Vite dev server ready on port %d", VITE_PORT)
     return proc
