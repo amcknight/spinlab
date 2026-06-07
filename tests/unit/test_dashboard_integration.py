@@ -67,8 +67,18 @@ def seeded_db(tmp_path):
     output_json. Real production state shape is owned by SamplerState; tests
     that care about state round-trips live in test_em_suite_sampler.py.
     """
+    from tests.factories import stamp_reference_traversal
+
     db = Database(tmp_path / "test.db")
     db.upsert_game(GAME_ID, "SMW Kaizo", "any%")
+
+    # An active reference run that traversed every segment. Model views are
+    # run-scoped (reference-run-selector): they show only segments the active
+    # run traversed, so the fixture must make all SEGMENTS members of it.
+    ref_id = f"{GAME_ID}:ref"
+    db.create_capture_run(ref_id, GAME_ID, "Ref", kind="live")
+    db.promote_draft(ref_id, "Ref")
+    db.set_active_capture_run(ref_id)
 
     states_dir = tmp_path / "states"
     states_dir.mkdir()
@@ -76,6 +86,10 @@ def seeded_db(tmp_path):
         state_file = states_dir / f"{seg.id}.mss"
         state_file.write_bytes(b"\x00" * 100)
         db.upsert_segment(seg)
+        # Membership via a DIED traversal: makes the segment a member of the
+        # active run without adding a COMPLETED attempt, so segment-history's
+        # completed-attempt counts (asserted below) stay exactly as ATTEMPTS.
+        stamp_reference_traversal(db, seg.id, ref_id, survived=False)
 
     db.create_session("sess1", GAME_ID)
 

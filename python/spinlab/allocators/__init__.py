@@ -47,9 +47,14 @@ class SegmentWithModel:
         db: "Database",
         game_id: str,
         selected_model: str = "em_suite_sampler",
+        run_id: str | None = None,
     ) -> list["SegmentWithModel"]:
-        """Load all segments for a game with model outputs, golds, and stats."""
-        rows = db.get_all_segments_with_model(game_id)
+        """Load all segments for a game with model outputs, golds, and stats.
+
+        ``run_id`` scopes to segments the run traversed (run-scoped model views);
+        ``None`` (default) preserves whole-game behavior for other callers.
+        """
+        rows = db.get_all_segments_with_model(game_id, run_id=run_id)
         all_model_states = db.load_all_model_states_for_game(game_id)
         golds = db.compute_golds(game_id)
 

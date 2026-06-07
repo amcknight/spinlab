@@ -562,9 +562,14 @@ class SessionManager:
 
         if self.scheduler is None or self.state.game_id is None:
             return []
+        # Scope the baseline to the active reference run's traversed segments.
+        # No active run -> no segments to snapshot.
+        active_run = self.db.get_active_capture_run(self.state.game_id)
+        if active_run is None:
+            return []
         cached = self.scheduler.sampler_states()
         out = []
-        for seg in self.db.get_active_segments(self.state.game_id):
+        for seg in self.db.get_segments_for_run(self.state.game_id, active_run):
             state = cached.get(seg.id) or SamplerState()
             episodes = self.db.get_segment_attempts(seg.id)
             out.append((seg.id, state, episodes))

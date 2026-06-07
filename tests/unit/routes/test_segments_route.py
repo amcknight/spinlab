@@ -6,13 +6,25 @@ from fastapi.testclient import TestClient
 
 from spinlab.db import Database
 from spinlab.models import Segment, Waypoint, WaypointSaveState
+from tests.factories import stamp_reference_traversal
 
 GAME_ID = "g"
+REF_ID = f"{GAME_ID}:ref"
+
+
+def _activate_ref_run(db: Database) -> None:
+    """Ensure the game has an active reference run. /api/segments is run-scoped,
+    so segments must be members of an active run to appear. Idempotent."""
+    if db.get_active_capture_run(GAME_ID) is None:
+        db.create_capture_run(REF_ID, GAME_ID, "Ref", kind="live")
+        db.promote_draft(REF_ID, "Ref")
+        db.set_active_capture_run(REF_ID)
 
 
 def _seed_segment_with_conditions(db: Database) -> Segment:
     """Seed one segment with start+end waypoints that carry conditions."""
     db.upsert_game(GAME_ID, "Game", "any%")
+    _activate_ref_run(db)
     wp_start = Waypoint.make(GAME_ID, 5, "entrance", 0, {"powerup": "big"})
     wp_end = Waypoint.make(GAME_ID, 5, "goal", 0, {"powerup": "small"})
     db.upsert_waypoint(wp_start)
@@ -27,6 +39,7 @@ def _seed_segment_with_conditions(db: Database) -> Segment:
         is_primary=True, ordinal=1,
     )
     db.upsert_segment(seg)
+    stamp_reference_traversal(db, seg.id, REF_ID)
     db.add_save_state(WaypointSaveState(
         waypoint_id=wp_start.id, variant_type="hot",
         state_path="/tmp/start.mss"))
@@ -82,6 +95,7 @@ def test_segments_endpoint_includes_decoded_conditions(db, client):
 def test_segments_endpoint_null_waypoints_produce_empty_conditions(db, tmp_path):
     """Segments without waypoints return empty dicts for conditions."""
     db.upsert_game(GAME_ID, "Game", "any%")
+    _activate_ref_run(db)
     seg = Segment(
         id="legacy-seg",
         game_id=GAME_ID, level_number=1,
@@ -91,6 +105,7 @@ def test_segments_endpoint_null_waypoints_produce_empty_conditions(db, tmp_path)
         is_primary=True, ordinal=1,
     )
     db.upsert_segment(seg)
+    stamp_reference_traversal(db, seg.id, REF_ID)
 
     from tests.conftest import make_test_config
 
@@ -110,6 +125,7 @@ def test_segments_endpoint_null_waypoints_produce_empty_conditions(db, tmp_path)
 def test_segments_endpoint_returns_non_primary_segments(db, client):
     """Dashboard /api/segments shows all segments including non-primary ones."""
     db.upsert_game(GAME_ID, "Game", "any%")
+    _activate_ref_run(db)
     wp1 = Waypoint.make(GAME_ID, 1, "entrance", 0, {"powerup": "small"})
     wp2 = Waypoint.make(GAME_ID, 1, "entrance", 0, {"powerup": "big"})
     wp_end = Waypoint.make(GAME_ID, 1, "goal", 0, {})
@@ -126,6 +142,7 @@ def test_segments_endpoint_returns_non_primary_segments(db, client):
             is_primary=primary, ordinal=ordinal,
         )
         db.upsert_segment(seg)
+        stamp_reference_traversal(db, seg.id, REF_ID)
 
     resp = client.get("/api/segments")
     assert resp.status_code == 200
@@ -208,6 +225,7 @@ def test_fill_gap_not_connected_returns_503(db, client):
 def test_has_cold_state_true_when_cold_file_exists(db, client, tmp_path):
     """✓ only when the cold-variant state file is present on disk."""
     db.upsert_game(GAME_ID, "Game", "any%")
+    _activate_ref_run(db)
     wp_start = Waypoint.make(GAME_ID, 1, "entrance", 0, {})
     wp_end = Waypoint.make(GAME_ID, 1, "goal", 0, {})
     db.upsert_waypoint(wp_start)
@@ -220,6 +238,7 @@ def test_has_cold_state_true_when_cold_file_exists(db, client, tmp_path):
         start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
         is_primary=True, ordinal=1,
     ))
+    stamp_reference_traversal(db, "seg-cold", REF_ID)
     db.add_save_state(WaypointSaveState(
         waypoint_id=wp_start.id, variant_type="cold", state_path=str(cold_file)))
     row = client.get("/api/segments").json()["segments"][0]
@@ -230,6 +249,7 @@ def test_has_cold_state_false_when_cold_file_missing(db, client, caplog):
     """Orphaned cold row (DB row present, file gone) -> ✗, and the DB/disk
     disagreement is logged so a vanished state dir isn't a silent ✗."""
     db.upsert_game(GAME_ID, "Game", "any%")
+    _activate_ref_run(db)
     wp_start = Waypoint.make(GAME_ID, 1, "entrance", 0, {})
     wp_end = Waypoint.make(GAME_ID, 1, "goal", 0, {})
     db.upsert_waypoint(wp_start)
@@ -240,6 +260,7 @@ def test_has_cold_state_false_when_cold_file_missing(db, client, caplog):
         start_waypoint_id=wp_start.id, end_waypoint_id=wp_end.id,
         is_primary=True, ordinal=1,
     ))
+    stamp_reference_traversal(db, "seg-orphan", REF_ID)
     db.add_save_state(WaypointSaveState(
         waypoint_id=wp_start.id, variant_type="cold",
         state_path="/nonexistent/cold.state"))
@@ -260,11 +281,13 @@ def test_has_cold_state_false_when_hot_only(db, client):
 def test_has_cold_state_false_when_no_start_waypoint(db, client):
     """Segment with no start waypoint -> ✗."""
     db.upsert_game(GAME_ID, "Game", "any%")
+    _activate_ref_run(db)
     db.upsert_segment(Segment(
         id="seg-nowp", game_id=GAME_ID, level_number=1,
         start_type="entrance", start_ordinal=0, end_type="goal", end_ordinal=0,
         start_waypoint_id=None, end_waypoint_id=None,
         is_primary=True, ordinal=1,
     ))
+    stamp_reference_traversal(db, "seg-nowp", REF_ID)
     row = client.get("/api/segments").json()["segments"][0]
     assert row["has_cold_state"] is False

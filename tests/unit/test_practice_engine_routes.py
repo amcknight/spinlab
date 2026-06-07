@@ -47,8 +47,15 @@ def _seed_gated_state(db, segment_id, n_events=60):
 @pytest.fixture
 def client_with_gated(tmp_path):
     from tests.conftest import make_test_config
+    from tests.factories import stamp_reference_traversal
     db = Database(str(tmp_path / "test.db"))
     db.upsert_game("g1", "Game", "any%")
+    # Simulator state is run-scoped: it shows only segments the active reference
+    # run traversed. Activate a run and make both segments members.
+    ref_id = "g1:ref"
+    db.create_capture_run(ref_id, "g1", "Ref", kind="live")
+    db.promote_draft(ref_id, "Ref")
+    db.set_active_capture_run(ref_id)
     for seg_id, level in [("s1", 1), ("s2", 2)]:
         seg = Segment(
             id=seg_id, game_id="g1", level_number=level,
@@ -58,6 +65,7 @@ def client_with_gated(tmp_path):
         )
         db.upsert_segment(seg)
         _seed_gated_state(db, seg_id)
+        stamp_reference_traversal(db, seg_id, ref_id)
     app = create_app(db=db, config=make_test_config())
     app.state.session.game_id = "g1"
     app.state.session.game_name = "Game"

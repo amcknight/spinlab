@@ -281,6 +281,8 @@ def test_snapshot_inputs_reads_from_scheduler_cache(tmp_path):
     from spinlab.session_manager import SessionManager
     from spinlab.system_state import SystemState
 
+    from tests.factories import stamp_reference_traversal
+
     db = Database(tmp_path / "sm.db")
     db.upsert_game("g", "Game", "any%")
     db.upsert_segment(Segment(
@@ -288,6 +290,12 @@ def test_snapshot_inputs_reads_from_scheduler_cache(tmp_path):
         start_type=EndpointType.ENTRANCE, start_ordinal=0,
         end_type=EndpointType.GOAL, end_ordinal=0,
     ))
+    # _snapshot_inputs is run-scoped: it only includes segments the active
+    # reference run traversed. Activate a run and make s0 a member.
+    db.create_capture_run("g:ref", "g", "Ref", kind="live")
+    db.promote_draft("g:ref", "Ref")
+    db.set_active_capture_run("g:ref")
+    stamp_reference_traversal(db, "s0", "g:ref")
 
     sentinel_state = SamplerState()
     # Tag it so we can identify it on the other side.
@@ -322,6 +330,8 @@ def test_snapshot_inputs_uses_empty_sampler_state_when_cache_misses(tmp_path):
     from spinlab.session_manager import SessionManager
     from spinlab.system_state import SystemState
 
+    from tests.factories import stamp_reference_traversal
+
     db = Database(tmp_path / "sm.db")
     db.upsert_game("g", "Game", "any%")
     db.upsert_segment(Segment(
@@ -329,6 +339,11 @@ def test_snapshot_inputs_uses_empty_sampler_state_when_cache_misses(tmp_path):
         start_type=EndpointType.ENTRANCE, start_ordinal=0,
         end_type=EndpointType.GOAL, end_ordinal=0,
     ))
+    # _snapshot_inputs is run-scoped: s_new must be a member of the active run.
+    db.create_capture_run("g:ref", "g", "Ref", kind="live")
+    db.promote_draft("g:ref", "Ref")
+    db.set_active_capture_run("g:ref")
+    stamp_reference_traversal(db, "s_new", "g:ref")
 
     class FakeScheduler:
         def sampler_states(self):

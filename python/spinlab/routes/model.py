@@ -306,7 +306,13 @@ def get_route_summary(
     floor_improvement_ms: float | None = None
     if snap is not None:
         floor_improvement_ms = 0.0
-    for seg in db.get_active_segments(game_id):
+    # Scope the aggregate to the active reference run's traversed segments.
+    # No active run -> empty scope (the loop body iterates nothing).
+    active_run = db.get_active_capture_run(game_id)
+    scoped_segments = (
+        db.get_segments_for_run(game_id, active_run) if active_run else []
+    )
+    for seg in scoped_segments:
         events = events_from_rows(db.get_segment_event_rows(seg.id))
         state, _history = replay_with_history(events)
         states.append(state)

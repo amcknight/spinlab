@@ -136,12 +136,26 @@ def make_seg_with_state(
 
 @pytest.fixture
 def practice_db(tmp_path):
-    """Real DB with one game + one entrance->goal segment for practice tests."""
+    """Real DB with one game + one entrance->goal segment for practice tests.
+
+    The practice universe is run-scoped (reference-run-selector): the scheduler
+    only considers segments the active reference run traversed. So this fixture
+    activates a reference run and stamps the seeded segment as a member.
+    ``_test_ref_id`` is exposed for tests that add further member segments.
+    """
+    from tests.factories import stamp_reference_traversal
+
     d = Database(tmp_path / "test.db")
     d.upsert_game("g", "Game", "any%")
+    ref_id = "g:ref"
+    d.create_capture_run(ref_id, "g", "Ref", kind="live")
+    d.promote_draft(ref_id, "Ref")
+    d.set_active_capture_run(ref_id)
     state_file = tmp_path / "test.mss"
     state_file.write_bytes(b"fake state")
     seg = make_seg_with_state(d, "g", 1, "entrance", "goal", state_file)
+    stamp_reference_traversal(d, seg.id, ref_id)
     d._test_seg_id = seg.id
+    d._test_ref_id = ref_id
     d._test_state_file = state_file
     return d
