@@ -336,6 +336,60 @@ def test_get_segments_for_run(tmp_path):
     db.close()
 
 
+def test_get_segments_for_run_excludes_other_games(tmp_path):
+    """game_id guard must prevent cross-game segment-id collisions from leaking in.
+
+    If a segment in game g2 shares the same segment id as one in g, and that g2
+    segment has a non-invalidated attempt stamped with the same run_id, it must
+    NOT appear in get_segments_for_run("g", run_id).
+    """
+    db = Database(tmp_path / "t.db")
+    db.upsert_game("g", "G", "any%")
+    db.upsert_game("g2", "G2", "any%")
+
+    # Both games need a live draft slot freed before we can open new live runs.
+    db.create_capture_run("base_g", "g", "Base G", kind="live")
+    db.promote_draft("base_g", "Base G")
+    db.create_capture_run("base_g2", "g2", "Base G2", kind="live")
+    db.promote_draft("base_g2", "Base G2")
+
+    db.create_capture_run("new", "g", "New", kind="live")
+    db.create_capture_run("new_g2", "g2", "New G2", kind="live")
+
+    # "seg_shared" in game g — traversed by run "new"
+    db.upsert_segment(Segment(
+        id="seg_shared", game_id="g", level_number=1,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
+        capture_run_id="new",
+    ))
+    db.log_event_attempt(EventAttempt(
+        segment_id="seg_shared", episode_id="ep_g",
+        outcome=AttemptOutcome.SURVIVED, time_ms=1000,
+        capture_run_id="new", source=AttemptSource.REFERENCE,
+    ))
+
+    # "seg_shared" also exists in game g2 (same id) — traversed by "new" run_id
+    db.upsert_segment(Segment(
+        id="seg_shared", game_id="g2", level_number=1,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
+        capture_run_id="new_g2",
+    ))
+    db.log_event_attempt(EventAttempt(
+        segment_id="seg_shared", episode_id="ep_g2",
+        outcome=AttemptOutcome.SURVIVED, time_ms=2000,
+        capture_run_id="new", source=AttemptSource.REFERENCE,
+    ))
+
+    result = db.get_segments_for_run("g", "new")
+    assert len(result) == 1
+    assert result[0].id == "seg_shared"
+    assert result[0].game_id == "g"  # the g2 row must not appear
+
+    db.close()
+
+
 def test_count_segments_traversed_in_run_is_distinct(tmp_path):
     """Multiple events for one segment count once; distinct segments add up."""
     from spinlab.db import Database

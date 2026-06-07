@@ -269,7 +269,7 @@ class SegmentsMixin:
                WHERE s.game_id = ? AND s.active = 1
                  AND s.id IN (SELECT DISTINCT a.segment_id FROM attempts a
                               WHERE a.capture_run_id = ? AND a.invalidated = 0)
-               ORDER BY s.ordinal""",
+               ORDER BY s.ordinal, s.level_number""",
             (game_id, run_id),
         ).fetchall()
         return [self._row_to_segment(r) for r in rows]
