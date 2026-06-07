@@ -1,5 +1,12 @@
-import { segmentName, formatTime, elapsedStr, emptyStateMessage } from "./format";
-import { selectedEstimate } from "./model-logic";
+import { segmentName, formatTime, elapsedStr, emptyStateMessage, formatPct } from "./format";
+import {
+  selectedEstimate,
+  selectedGain,
+  roomMs,
+  roomPct,
+  trendPct,
+  compareByRoomPctDesc,
+} from "./model-logic";
 import type { AppState, ModelData } from "./types";
 
 export const ALLOCATOR_COLORS: Record<string, string> = {
@@ -132,16 +139,19 @@ export function renderModelTable(
 ): void {
   const body = document.getElementById("model-body")!;
   if (!data.segments || !data.segments.length) {
-    // No active run is its own empty state — distinct from a run that's active
-    // but has no traversed segments yet ("No game loaded").
     const msg = emptyStateMessage(hasActiveRun, "No game loaded");
     body.innerHTML = '<tr><td colspan="6" class="dim">' + msg + "</td></tr>";
     return;
   }
   body.innerHTML = "";
-  data.segments.forEach((s) => {
+  const segments = [...data.segments].sort(compareByRoomPctDesc);
+  segments.forEach((s) => {
     const tr = document.createElement("tr");
     const est = selectedEstimate(s);
+    const gain = selectedGain(s);
+    const room = roomMs(est);
+    const rPct = roomPct(est);
+    const tPct = trendPct(gain, est);
 
     const nameTd = document.createElement("td");
     const nameLink = document.createElement("a");
@@ -153,11 +163,28 @@ export function renderModelTable(
     });
     nameTd.appendChild(nameLink);
 
+    const roomCell = room == null
+      ? '<td class="dim"></td>'
+      : "<td>" + formatTime(room) + ' <span class="pct">' + formatPct(rPct) + "</span></td>";
+
+    let practiceCell: string;
+    if (gain == null) {
+      practiceCell = '<td class="dim"></td>';
+    } else {
+      const cls = gain > 0 ? "gain-good" : gain < 0 ? "gain-bad" : "gain-neutral";
+      // down triangle = improvement, up triangle = worse
+      const arrow = gain > 0 ? "▾" : gain < 0 ? "▴" : "";
+      const pct = tPct == null ? "" : formatPct(Math.abs(tPct));
+      practiceCell = '<td class="' + cls + '">' + arrow + formatTime(Math.abs(gain))
+        + ' <span class="pct">' + pct + "</span></td>";
+    }
+
     const restHtml =
+      '<td class="gold">' + formatTime(est?.floor_ms ?? null) + "</td>" +
       "<td>" + formatTime(est?.expected_ms ?? null) + "</td>" +
-      "<td>" + formatTime(est?.floor_ms ?? null) + "</td>" +
-      "<td>" + s.n_completed + "</td>" +
-      "<td>" + formatTime(s.gold_ms) + "</td>";
+      roomCell +
+      practiceCell +
+      "<td>" + s.n_completed + "</td>";
 
     tr.innerHTML = restHtml;
     tr.prepend(nameTd);

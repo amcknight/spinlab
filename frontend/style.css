@@ -1081,3 +1081,10 @@ h3 {
   left: 0; right: auto; border-radius: 0 6px 6px 0; border-left: none;
   color: #6fcf97; border-color: #3a5a44; background: #15201a;
 }
+
+/* Planning-table Room/Practice cells */
+#model-table .pct { color: #888; font-size: 0.85em; }
+#model-table td.gold { color: var(--gold); }
+#model-table td.gain-good { color: #5fce7e; }
+#model-table td.gain-bad { color: #cc7a7a; }
+#model-table td.gain-neutral { color: #888; }
