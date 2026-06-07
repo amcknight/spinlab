@@ -134,6 +134,27 @@ def test_event_roundtrip_clean_episode(db_with_segment):
     assert rows[0]["clean_tail_ms"] == 15000
 
 
+def test_compute_golds_excludes_invalidated_attempts(db_with_segment):
+    """An invalidated (faster) clean clear must not win gold over a slower valid
+    one — the invalidate button must actually clean the Best column."""
+    db = db_with_segment
+    # Valid slower clean clear.
+    db.log_event_attempt(EventAttempt(
+        segment_id="seg1", episode_id="epValid", session_id="sess1",
+        source=AttemptSource.PRACTICE, outcome=AttemptOutcome.SURVIVED,
+        time_ms=15000, created_at=datetime.now(UTC),
+    ))
+    # Invalidated faster clean clear (a mis-bounded outlier the user dropped).
+    db.log_event_attempt(EventAttempt(
+        segment_id="seg1", episode_id="epBad", session_id="sess1",
+        source=AttemptSource.PRACTICE, outcome=AttemptOutcome.SURVIVED,
+        time_ms=9000, created_at=datetime.now(UTC), invalidated=True,
+    ))
+    golds = db.compute_golds("g1")
+    assert golds["seg1"]["gold_ms"] == 15000
+    assert golds["seg1"]["clean_gold_ms"] == 15000
+
+
 # ---------------------------------------------------------------------------
 # Test 4 — Aborted episode
 # ---------------------------------------------------------------------------

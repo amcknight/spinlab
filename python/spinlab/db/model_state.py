@@ -115,6 +115,13 @@ class ModelStateMixin:
             for row in rows:
                 if not row["completed"]:
                     continue
+                # Invalidated attempts (user marked them bad / mis-bounded) must
+                # not win gold. The estimator's Floor already excludes these via
+                # attempts_from_rows; Best (gold_ms) was the one path that still
+                # let them through. Without this, the invalidate button has no
+                # effect on the Best column.
+                if row["invalidated"]:
+                    continue
                 t = row["time_ms"]
                 if t is not None and (gold_ms is None or t < gold_ms):
                     gold_ms = t
