@@ -77,4 +77,65 @@ describe("openDeleteDialog", () => {
     openDeleteDialog(ref({ id: "r1", name: "My Run" }));
     expect(document.querySelectorAll("#" + DIALOG_ID)).toHaveLength(1);
   });
+
+  it("Escape closes the dialog without making a DELETE request", () => {
+    openDeleteDialog(ref({ id: "r1", name: "My Run" }));
+    expect(document.getElementById(DIALOG_ID)).toBeTruthy();
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    expect(document.getElementById(DIALOG_ID)).toBeNull();
+    expect(deleteCalls()).toHaveLength(0);
+  });
+
+  it("clicking the backdrop closes the dialog without making a DELETE request", () => {
+    openDeleteDialog(ref({ id: "r1", name: "My Run" }));
+    const overlay = document.getElementById(DIALOG_ID) as HTMLElement;
+    expect(overlay).toBeTruthy();
+
+    // Clicking the inner box must NOT close the dialog.
+    // The handler guards: if (e.target === overlay); box click bubbles up but
+    // e.target remains the inner node, so the guard rejects it.
+    const box = overlay.querySelector(".run-delete-box") as HTMLElement;
+    box.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(document.getElementById(DIALOG_ID)).toBeTruthy();
+
+    // Dispatching directly on the overlay node sets e.target === overlay,
+    // which satisfies the handler's guard and closes the dialog.
+    overlay.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(document.getElementById(DIALOG_ID)).toBeNull();
+    expect(deleteCalls()).toHaveLength(0);
+  });
+
+  it("a failed DELETE leaves the dialog open and does not trigger a refresh", async () => {
+    // Override fetch: DELETE returns a failure; GET returns the default success.
+    mockFetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if ((init as RequestInit | undefined)?.method === "DELETE") {
+        return {
+          ok: false,
+          statusText: "Internal Server Error",
+          json: async () => ({ detail: "backend error" }),
+        } as unknown as Response;
+      }
+      // Default success for any subsequent GET (refreshRunSelector).
+      return { ok: true, json: async () => ({ references: [] }) } as unknown as Response;
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    openDeleteDialog(ref({ id: "r1", name: "My Run" }));
+
+    (document.getElementById("run-delete-run-only") as HTMLButtonElement).click();
+
+    // Let the async performDelete settle.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Dialog must still be present — bail path did not close it.
+    expect(document.getElementById(DIALOG_ID)).toBeTruthy();
+
+    // No follow-up GET to /api/references should have been made.
+    const getCalls = mockFetch.mock.calls.filter(
+      (c) => (c[1] as RequestInit | undefined)?.method !== "DELETE",
+    );
+    expect(getCalls).toHaveLength(0);
+  });
 });
