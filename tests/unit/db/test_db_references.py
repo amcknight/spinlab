@@ -401,6 +401,30 @@ class TestRunAndDataDelete:
             (wp_s, wp_e),
         ).fetchone()[0] == 0
 
+    def test_exclusive_segment_with_fit_purged_no_fk_crash(self, db):
+        """Regression: an exclusive segment that has a segment_fits row used to
+        abort run_and_data with FOREIGN KEY constraint failed — segment_fits has
+        an enforced FK to segments(id) with no ON DELETE, and the purge never
+        deleted its rows. Fits are written on the live practice path, so the
+        first real run_and_data delete of a practiced run crashed.
+
+        After the fix: no exception AND the segment_fits row is gone."""
+        _saved(db, "refA", "g", "Run A")
+        seg_id, _wp_s, _wp_e = _seg_with_states(db, "g", 1, "refA")
+        _ref_attempt(db, seg_id, "refA", "epA")
+        db.save_segment_fit(seg_id, "segment_fit", {"n_attempts": 1, "status": {}})
+
+        # Must NOT raise FOREIGN KEY constraint failed.
+        db.delete_capture_run("refA", purge_data=True)
+
+        assert db.conn.execute(
+            f"SELECT COUNT(*) FROM segments WHERE id='{seg_id}'"
+        ).fetchone()[0] == 0
+        # The fit row for the purged segment is gone.
+        assert db.conn.execute(
+            "SELECT COUNT(*) FROM segment_fits WHERE segment_id=?", (seg_id,)
+        ).fetchone()[0] == 0
+
     def test_shared_segment_protected(self, db):
         """run_and_data on run A: a segment also traversed by run B is PROTECTED
         — segment + save-states survive; only A's attempts are removed."""

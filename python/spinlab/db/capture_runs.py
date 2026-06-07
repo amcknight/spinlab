@@ -119,10 +119,10 @@ class CaptureRunsMixin:
         attempts) and OTHER runs' attempts survive.
 
         ``run_and_data`` (``purge_data=True``): everything ``run_only`` does PLUS
-        purge segments + their save-states + their attempts + ``model_state``
-        that are EXCLUSIVE to this run — a segment with no OTHER run's
-        non-invalidated attempts referencing it. Segments SHARED with another
-        run are protected.
+        purge segments + their save-states + their attempts + ``model_state`` +
+        ``segment_fits`` that are EXCLUSIVE to this run — a segment with no OTHER
+        run's non-invalidated attempts referencing it. Segments SHARED with
+        another run are protected.
 
         Both modes null ``segments.capture_session_id`` first so the cascade
         chain (capture_runs → capture_sessions → segments via ON DELETE CASCADE)
@@ -140,7 +140,7 @@ class CaptureRunsMixin:
             game_id, was_active = run_row[0], bool(run_row[1])
 
             if purge_data:
-                self._purge_exclusive_segments(run_id, now)
+                self._purge_exclusive_segments(run_id)
 
             # Break the segments→capture_sessions cascade so surviving segments
             # stay alive when capture_sessions cascade-delete from the run.
@@ -172,14 +172,13 @@ class CaptureRunsMixin:
                 remaining = self.list_capture_runs(game_id)
                 if remaining:
                     # list_capture_runs is ORDER BY created_at asc → last is newest.
-                    newest = remaining[-1]["id"]
-                    self.conn.execute(
-                        "UPDATE capture_runs SET active = 1 WHERE id = ?", (newest,)
-                    )
+                    # set_active_capture_run is SAVEPOINT-composable under the
+                    # outer transaction and reuses the zero-all-others invariant.
+                    self.set_active_capture_run(remaining[-1]["id"])
 
-    def _purge_exclusive_segments(self, run_id: str, now: str) -> None:
-        """Delete segments (and their model_state, attempts, save-states) that
-        are EXCLUSIVE to ``run_id``. Must run BEFORE the run's ownership stamp
+    def _purge_exclusive_segments(self, run_id: str) -> None:
+        """Delete segments (and their model_state, attempts, fits, save-states)
+        that are EXCLUSIVE to ``run_id``. Must run BEFORE the run's ownership stamp
         and attempts are removed, since exclusivity is computed from both.
 
         Candidate set = segments OWNED by the run (capture_run_id = run) UNION
@@ -245,14 +244,20 @@ class CaptureRunsMixin:
             }
         purgeable_waypoints = doomed_waypoints - survivor_waypoints
 
-        # Order matters: dependents (model_state, attempts, save-states) before
-        # the segment rows they reference.
+        # Order matters: every table with an enforced FK to segments(id) and no
+        # ON DELETE CASCADE (model_state, attempts, segment_fits) must lose its
+        # rows BEFORE the segment rows they reference, or the segments DELETE
+        # aborts with FOREIGN KEY constraint failed (PRAGMA foreign_keys=ON).
         self.conn.execute(
             f"DELETE FROM model_state WHERE segment_id IN ({placeholders})",
             exclusive,
         )
         self.conn.execute(
             f"DELETE FROM attempts WHERE segment_id IN ({placeholders})",
+            exclusive,
+        )
+        self.conn.execute(
+            f"DELETE FROM segment_fits WHERE segment_id IN ({placeholders})",
             exclusive,
         )
         if purgeable_waypoints:

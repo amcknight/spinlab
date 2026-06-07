@@ -1,6 +1,8 @@
 """Reference CRUD, drafts, and replay routes."""
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from spinlab.api_schemas import (
@@ -152,9 +154,12 @@ def rename_reference(
 
 
 @router.delete("/references/{ref_id}", response_model=OkResponse)
-def delete_reference(ref_id: str, mode: str = "run_only", db: Database = Depends(get_db)):
-    if mode not in ("run_only", "run_and_data"):
-        raise HTTPException(status_code=422, detail="mode must be run_only or run_and_data")
+def delete_reference(
+    ref_id: str,
+    mode: Literal["run_only", "run_and_data"] = "run_only",
+    db: Database = Depends(get_db),
+):
+    # FastAPI natively validates the Literal and returns 422 on a bad mode.
     db.delete_capture_run(ref_id, purge_data=(mode == "run_and_data"))
     return {"status": "ok"}
 
