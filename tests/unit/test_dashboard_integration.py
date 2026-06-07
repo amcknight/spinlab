@@ -284,7 +284,7 @@ class TestModelEndpoint:
             # model_outputs has nested total/clean structure
             if seg["model_outputs"]:
                 output = next(iter(seg["model_outputs"].values()))
-                assert set(output.keys()) == {"total", "clean", "extras"}
+                assert set(output.keys()) == {"total", "clean", "extras", "practice_gain_ms"}
                 assert set(output["total"].keys()) == {"expected_ms", "ms_per_attempt", "floor_ms"}
 
     def test_api_model_segment_carries_practice_gain_key(self, active_client):
