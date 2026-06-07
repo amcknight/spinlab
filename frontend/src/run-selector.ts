@@ -121,13 +121,104 @@ async function renameRun(id: string, currentName: string): Promise<void> {
   if (onActiveChangedCb) await onActiveChangedCb();
 }
 
-async function deleteRun(id: string): Promise<void> {
-  // TODO(Task 5): replace with 3-way delete dialog (?mode=run_only|run_and_data)
-  if (!confirm("Delete this reference run?")) return;
-  if ((await fetchJSON("/api/references/" + id, { method: "DELETE" })) === null)
+// Delete mode maps directly to the backend's ?mode= query param (Task 3):
+//   run_only     — drop the reference run, keep its captured segment data
+//   run_and_data — drop the run and all data captured under it (danger)
+type DeleteMode = "run_only" | "run_and_data";
+
+const DELETE_DIALOG_ID = "run-delete-dialog";
+
+let escDeleteHandler: ((e: KeyboardEvent) => void) | null = null;
+
+/** Tear down the delete dialog and its document-level Escape listener. */
+function closeDeleteDialog(): void {
+  const dlg = document.getElementById(DELETE_DIALOG_ID);
+  if (dlg) dlg.remove();
+  if (escDeleteHandler) {
+    document.removeEventListener("keydown", escDeleteHandler);
+    escDeleteHandler = null;
+  }
+}
+
+async function performDelete(id: string, mode: DeleteMode): Promise<void> {
+  // fetchJSON returns null + toast on failure; bail without closing/refreshing
+  // so the user can retry or cancel, consistent with the other mutation paths.
+  if (
+    (await fetchJSON("/api/references/" + id + "?mode=" + mode, {
+      method: "DELETE",
+    })) === null
+  )
     return;
+  closeDeleteDialog();
   await refreshRunSelector();
   if (onActiveChangedCb) await onActiveChangedCb();
+}
+
+/**
+ * Open the 3-way delete dialog for a run: [Delete Run] (run_only),
+ * [Delete Run + Data] (run_and_data, danger), [Cancel]. Modal overlay appended
+ * to the body; closes on Cancel, overlay-click, or Escape. Guards against
+ * stacking — reopening tears down any existing dialog first.
+ */
+export function openDeleteDialog(run: RunOption | Reference): void {
+  closeDeleteDialog(); // no duplicate/stacked dialogs
+
+  const overlay = document.createElement("div");
+  overlay.id = DELETE_DIALOG_ID;
+  overlay.className = "run-delete-overlay";
+
+  const box = document.createElement("div");
+  box.className = "run-delete-box";
+  overlay.appendChild(box);
+
+  const title = document.createElement("h3");
+  title.className = "run-delete-title";
+  title.textContent = "Delete this Reference Run?";
+  box.appendChild(title);
+
+  const body = document.createElement("p");
+  body.className = "run-delete-body";
+  body.textContent = '"' + run.name + '"';
+  box.appendChild(body);
+
+  const buttons = document.createElement("div");
+  buttons.className = "run-delete-buttons";
+  box.appendChild(buttons);
+
+  const runOnlyBtn = document.createElement("button");
+  runOnlyBtn.id = "run-delete-run-only";
+  runOnlyBtn.className = "btn-sm";
+  runOnlyBtn.textContent = "Delete Run";
+  runOnlyBtn.addEventListener("click", () => performDelete(run.id, "run_only"));
+  buttons.appendChild(runOnlyBtn);
+
+  const runAndDataBtn = document.createElement("button");
+  runAndDataBtn.id = "run-delete-run-and-data";
+  runAndDataBtn.className = "btn-danger";
+  runAndDataBtn.textContent = "Delete Run + Data";
+  runAndDataBtn.addEventListener("click", () =>
+    performDelete(run.id, "run_and_data"),
+  );
+  buttons.appendChild(runAndDataBtn);
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.id = "run-delete-cancel";
+  cancelBtn.className = "btn-sm";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.addEventListener("click", closeDeleteDialog);
+  buttons.appendChild(cancelBtn);
+
+  // Click on the backdrop (outside the box) cancels.
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeDeleteDialog();
+  });
+
+  escDeleteHandler = (e: KeyboardEvent) => {
+    if (e.key === "Escape") closeDeleteDialog();
+  };
+  document.addEventListener("keydown", escDeleteHandler);
+
+  document.body.appendChild(overlay);
 }
 
 function makeRunRow(opt: RunOption): HTMLLIElement {
@@ -160,7 +251,7 @@ function makeRunRow(opt: RunOption): HTMLLIElement {
   delBtn.disabled = busy;
   delBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    deleteRun(opt.id);
+    openDeleteDialog(opt);
   });
   actions.appendChild(delBtn);
 
