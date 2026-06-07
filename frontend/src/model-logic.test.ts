@@ -1,5 +1,5 @@
 import { describe, it, expect, test } from "vitest";
-import { selectedEstimate, currentEstimate, formatTrend, canStartPractice, canStartHyperPlay } from "./model-logic";
+import { selectedEstimate, currentEstimate, formatTrend, canStartPractice, canStartHyperPlay, selectedGain, roomMs, roomPct, trendPct, compareByRoomPctDesc } from "./model-logic";
 import { practiceCardState } from "./model-logic";
 import type { ModelSegment, CurrentSegment, Estimate, AppState } from "./types";
 
@@ -244,5 +244,56 @@ describe("practiceCardState", () => {
     expect(practiceCardState(args({
       mode: "idle", hasFrozenSession: true, hasLastPracticed: true, hasGameId: false,
     }))).toBe("hidden");
+  });
+});
+
+function estOf(expected_ms: number | null, floor_ms: number | null): Estimate {
+  return { expected_ms, ms_per_attempt: expected_ms, floor_ms } as Estimate;
+}
+
+function segOf(expected_ms: number | null, floor_ms: number | null, gain: number | null): ModelSegment {
+  return {
+    selected_model: "m",
+    model_outputs: { m: { total: estOf(expected_ms, floor_ms), clean: estOf(null, null), extras: null, practice_gain_ms: gain } },
+  } as unknown as ModelSegment;
+}
+
+describe("room and trend arithmetic", () => {
+  it("roomMs = expected - floor", () => {
+    expect(roomMs(estOf(12400, 11000))).toBe(1400);
+  });
+  it("roomMs null when either side missing", () => {
+    expect(roomMs(estOf(null, 11000))).toBeNull();
+    expect(roomMs(estOf(12400, null))).toBeNull();
+    expect(roomMs(null)).toBeNull();
+  });
+  it("roomPct = (expected - floor) / floor", () => {
+    expect(roomPct(estOf(12400, 11000))).toBeCloseTo(0.1273, 4);
+  });
+  it("roomPct null when floor is 0 or missing", () => {
+    expect(roomPct(estOf(12400, 0))).toBeNull();
+    expect(roomPct(estOf(12400, null))).toBeNull();
+  });
+  it("trendPct = gain / expected", () => {
+    expect(trendPct(600, estOf(12400, 11000))).toBeCloseTo(0.0484, 4);
+  });
+  it("trendPct null when gain or expected missing/zero", () => {
+    expect(trendPct(null, estOf(12400, 11000))).toBeNull();
+    expect(trendPct(600, estOf(0, 0))).toBeNull();
+  });
+  it("selectedGain pulls practice_gain_ms from the selected output", () => {
+    expect(selectedGain(segOf(12400, 11000, 600))).toBe(600);
+    expect(selectedGain(segOf(12400, 11000, null))).toBeNull();
+  });
+});
+
+describe("compareByRoomPctDesc", () => {
+  it("sorts higher Room% first, nulls last", () => {
+    const a = segOf(24800, 17100, 1200); // 45%
+    const b = segOf(13200, 10100, 100);  // 31%
+    const c = segOf(12400, 11000, 600);  // 13%
+    const n = segOf(null, null, null);   // null -> last
+    const sorted = [c, n, a, b].sort(compareByRoomPctDesc);
+    expect(sorted).toEqual([a, b, c, n]);
   });
 });
