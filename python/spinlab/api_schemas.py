@@ -298,6 +298,23 @@ class ColdDistribution(_BaseResponse):
     halflife: int = 0                     # halflife used to compute this distribution; echoed for label/debug
 
 
+class SurgeryAttempt(_BaseResponse):
+    id: int
+    order: int
+    clean_tail_ms: int | None = None
+    total_ms: int | None = None
+    deaths: int
+    created_at: str
+    completed: bool
+    invalidated: bool
+    is_floor: bool
+
+
+class SurgeryAttemptsResponse(_BaseResponse):
+    segment_id: str
+    attempts: list[SurgeryAttempt]
+
+
 class SegmentHistory(_BaseResponse):
     segment_id: str
     description: str

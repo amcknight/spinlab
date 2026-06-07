@@ -3,12 +3,60 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from spinlab.api_schemas import AttemptPatchRequest, AttemptPatchResponse
+from spinlab.api_schemas import AttemptPatchRequest, AttemptPatchResponse, SurgeryAttemptsResponse
 from spinlab.db import Database
 
 from ._deps import get_db
 
 router = APIRouter(prefix="/api")
+
+
+def surgery_rows(attempts: list[dict]) -> list[dict]:
+    """Build SurgeryAttempt dicts from Database.get_segment_attempts output.
+
+    Order is chronological (created_at asc, 1-based). is_floor marks the row
+    whose clean_tail equals the lowest clean_tail among valid (completed,
+    non-invalidated) episodes — matching how compute_golds picks clean_gold.
+    """
+    ordered = sorted(attempts, key=lambda a: a["created_at"])
+    floor_ms = min(
+        (a["clean_tail_ms"] for a in ordered
+         if a["completed"] and not a["invalidated"] and a["clean_tail_ms"] is not None),
+        default=None,
+    )
+    rows: list[dict] = []
+    for i, a in enumerate(ordered, start=1):
+        ct = a["clean_tail_ms"]
+        rows.append({
+            "id": a["id"],
+            "order": i,
+            "clean_tail_ms": ct,
+            "total_ms": a["time_ms"],
+            "deaths": a["deaths"],
+            "created_at": a["created_at"],
+            "completed": bool(a["completed"]),
+            "invalidated": bool(a["invalidated"]),
+            "is_floor": floor_ms is not None and ct == floor_ms
+                        and bool(a["completed"]) and not bool(a["invalidated"]),
+        })
+    return rows
+
+
+@router.get(
+    "/segments/{segment_id}/attempts",
+    response_model=SurgeryAttemptsResponse,
+)
+def list_segment_attempts(
+    segment_id: str,
+    db: Database = Depends(get_db),
+):
+    """Every episode for a segment (incl. invalidated), for the surgery table.
+
+    Distinct from /history (which filters invalidated and omits the id, feeding
+    the trend chart). Carries id + invalidated so the row can be toggled.
+    """
+    raw = db.get_segment_attempts(segment_id)
+    return {"segment_id": segment_id, "attempts": surgery_rows(raw)}
 
 
 @router.patch("/attempts/{attempt_id}", response_model=AttemptPatchResponse)
