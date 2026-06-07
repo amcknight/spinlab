@@ -287,6 +287,21 @@ class TestModelEndpoint:
                 assert set(output.keys()) == {"total", "clean", "extras"}
                 assert set(output["total"].keys()) == {"expected_ms", "ms_per_attempt", "floor_ms"}
 
+    def test_api_model_segment_carries_practice_gain_key(self, active_client):
+        """Contract guard: practice_gain_ms must be present in every model output.
+
+        The frontend Practice column reads this key; if it is dropped from
+        ModelOutput.to_dict() the column breaks silently. This test fails loudly
+        instead. The value may be None (slope ungated) — only the key is asserted.
+        """
+        resp = active_client.get("/api/model")
+        assert resp.status_code == 200
+        segments = resp.json()["segments"]
+        assert segments, "expected at least one model segment"
+        for seg in segments:
+            for _name, out in seg["model_outputs"].items():
+                assert "practice_gain_ms" in out
+
 
 # -- Allocator / estimator switching -----------------------------------------
 
