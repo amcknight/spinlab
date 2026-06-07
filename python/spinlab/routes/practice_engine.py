@@ -73,7 +73,7 @@ def get_state(
     active_run = db.get_active_capture_run(session.game_id)
     segs = (
         {s.id: s for s in db.get_segments_for_run(session.game_id, active_run)}
-        if active_run else {}
+        if active_run is not None else {}
     )
     golds = db.compute_golds(session.game_id)
 

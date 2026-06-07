@@ -12,6 +12,8 @@ from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt, Segment
 from spinlab.routes._deps import get_db, get_session
 from spinlab.routes.model import router
 
+from tests.factories import stamp_reference_traversal
+
 
 class _NoSessionStub:
     """Stand-in SessionManager for route tests that don't care about session
@@ -42,11 +44,7 @@ def _seed_db(tmp_path) -> tuple[Database, str, str]:
         start_type="entrance", start_ordinal=0,
         end_type="checkpoint", end_ordinal=1, active=True))
     db.create_session("g1:s", "g1")
-    db.log_event_attempt(EventAttempt(
-        segment_id=seg_id, episode_id="reftrav",
-        outcome=AttemptOutcome.SURVIVED, time_ms=4000,
-        capture_run_id=ref_id, source=AttemptSource.REFERENCE,
-        created_at=datetime.now(UTC)))
+    stamp_reference_traversal(db, seg_id, ref_id, time_ms=4000, survived=True)
     for i in range(8):
         for outcome, t in ((AttemptOutcome.DIED, 1500), (AttemptOutcome.SURVIVED, 4200 - i * 20)):
             db.log_event_attempt(EventAttempt(

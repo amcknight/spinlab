@@ -310,7 +310,8 @@ def get_route_summary(
     # No active run -> empty scope (the loop body iterates nothing).
     active_run = db.get_active_capture_run(game_id)
     scoped_segments = (
-        db.get_segments_for_run(game_id, active_run) if active_run else []
+        db.get_segments_for_run(game_id, active_run)
+        if active_run is not None else []
     )
     for seg in scoped_segments:
         events = events_from_rows(db.get_segment_event_rows(seg.id))
