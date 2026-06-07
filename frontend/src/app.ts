@@ -1,5 +1,6 @@
-import { connectSSE, fetchStateWithRetry, formatClientError, postJSON } from "./api";
+import { connectSSE, fetchJSON, fetchStateWithRetry, formatClientError, postJSON } from "./api";
 import { initHeader, updateHeader } from "./header";
+import { initRunSelector, updateRunSelector } from "./run-selector";
 import {
   updatePracticeCard,
   updatePracticeControls,
@@ -40,6 +41,7 @@ function updateFromState(data: AppState): void {
   updatePracticeCard(data);
   updatePracticeControls(data);
   updateManageState(data);
+  updateRunSelector(data);
   updateColdCaptureButton(data);
 
   // Play hosts the model table; refresh it on every state push while visible.
@@ -86,7 +88,16 @@ async function fetchAndRenderSegments(): Promise<void> {
   }
 }
 
+// Re-fetch state and re-render the visible page. Used after a run-selector
+// mutation (activate/rename/delete) so all pages reflect the new active run —
+// updateFromState fans out to fetchModel/fetchManage/segments by page.
+async function refreshAll(): Promise<void> {
+  const data = await fetchJSON<AppState>("/api/state");
+  if (data) updateFromState(data);
+}
+
 initHeader();
+initRunSelector(refreshAll);
 initModelTab();
 initManageTab();
 

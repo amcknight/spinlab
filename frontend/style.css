@@ -147,6 +147,40 @@ header {
   pointer-events: none;
 }
 
+/* Reference-run selector popover (mirrors the game selector). The game popover
+   anchors at left:0 of .header-left; offset this one so they don't overlap when
+   both could open. */
+.run-popover { left: auto; right: 0; width: 260px; }
+.run-popover ul { max-height: 360px; }
+.popover li.run-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.popover li.run-row.active .run-name { color: var(--accent); font-weight: 600; }
+.run-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.run-actions button {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1;
+}
+.run-actions button:hover:not(:disabled) {
+  border-color: var(--card);
+  color: var(--text);
+}
+.run-actions .btn-danger-sm:hover:not(:disabled) {
+  border-color: var(--red, #d33);
+  color: var(--red, #d33);
+}
+.run-actions button:disabled { opacity: 0.4; cursor: default; }
+
 /* Mode chip */
 .mode-chip {
   display: flex;

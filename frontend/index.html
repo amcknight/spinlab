@@ -20,6 +20,13 @@
         <input id="rom-filter" type="text" placeholder="Filter ROMs..." autocomplete="off">
         <ul id="rom-list"></ul>
       </div>
+      <button id="run-selector" class="game-selector-btn run-selector-btn" title="Reference run">
+        <span id="run-name-label">No run</span>
+        <span class="caret">&#9662;</span>
+      </button>
+      <div id="run-popover" class="popover run-popover" style="display:none">
+        <ul id="run-list"></ul>
+      </div>
     </div>
     <div id="mode-chip" class="mode-chip idle">
       <span class="mode-dot"></span>
