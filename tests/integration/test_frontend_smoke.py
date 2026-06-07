@@ -183,17 +183,20 @@ async def test_segments_tab_lists_seeded_segments(page):
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_manage_tab_shows_reference(page):
+async def test_title_bar_selector_shows_active_run(page):
     pg, _errors = page
     await _goto_setup(pg)
-    # seed_basic_game creates a reference named "FakeRef" and marks it active;
-    # manage.ts populates #ref-select with one <option> per reference. The
-    # active option's text is "FakeRef " + U+25CF (black circle).
-    # <option> elements inside a closed <select> are "hidden" to Playwright's
-    # visibility checks — wait for attached state instead.
-    await pg.wait_for_selector("#ref-select option", state="attached", timeout=5000)
-    option_texts = await pg.locator("#ref-select option").all_inner_texts()
-    assert any("FakeRef" in t for t in option_texts), option_texts
+    # seed_basic_game creates a reference named "FakeRef" and marks it active.
+    # The old Setup-page #ref-select dropdown is gone; run management now lives
+    # in the title-bar run selector, whose button label (#run-name-label)
+    # reflects the active run's name.
+    await pg.wait_for_function(
+        "() => document.getElementById('run-name-label')"
+        "?.textContent?.includes('FakeRef')",
+        timeout=5000,
+    )
+    label = await pg.locator("#run-name-label").inner_text()
+    assert "FakeRef" in label, label
 
 
 @pytest.mark.asyncio(loop_scope="session")

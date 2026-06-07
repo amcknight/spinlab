@@ -337,22 +337,6 @@ h3 {
 .manage-section h3 { margin: 0 0 8px 0; }
 .manage-section p { margin-bottom: 8px; font-size: 12px; }
 
-.ref-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  margin-bottom: 8px;
-}
-.ref-row select {
-  flex: 1;
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--card);
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-family: inherit;
-  font-size: 12px;
-}
 .ref-actions {
   display: flex;
   gap: 6px;
