@@ -200,6 +200,19 @@ async def test_title_bar_selector_shows_active_run(page):
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_setup_references_list_retired(page):
+    pg, _errors = page
+    # Task 6 retired the Setup-page References list (the #ref-select dropdown +
+    # rename/delete). Run management moved to the title-bar selector, which must
+    # be present beside the game name. The recording control (#btn-ref-start)
+    # stays on Setup.
+    await _goto_setup(pg)
+    assert await pg.locator("#run-selector").count() == 1, "title-bar run selector should be present"
+    assert await pg.locator("#ref-select").count() == 0, "old Setup References dropdown should be gone"
+    assert await pg.locator("#btn-ref-start").count() == 1, "recording control should remain on Setup"
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_model_tab_renders_model_table(page):
     pg, _errors = page
     # #model-table is on the Play page (default); no navigation needed.
