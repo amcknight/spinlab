@@ -351,6 +351,10 @@ class AttemptsMixin:
 
         Returned shape matches the legacy AttemptRow TypedDict so the
         scheduler / state_builder / model-routes pipeline is unaffected.
+
+        Deliberately NOT run-scoped: pooling is by geography, so the reference
+        traversal's own row pools like any completion — that pooled reference
+        row is expected here, not a regression.
         """
         rows = self.conn.execute(
             "SELECT * FROM attempts WHERE segment_id = ? "

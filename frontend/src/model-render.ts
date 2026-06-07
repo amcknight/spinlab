@@ -1,4 +1,4 @@
-import { segmentName, formatTime, elapsedStr } from "./format";
+import { segmentName, formatTime, elapsedStr, emptyStateMessage } from "./format";
 import { selectedEstimate } from "./model-logic";
 import type { AppState, ModelData } from "./types";
 
@@ -128,10 +128,14 @@ function renderLegend(
 export function renderModelTable(
   data: ModelData,
   onSegmentClick: (segmentId: string) => void,
+  hasActiveRun: boolean,
 ): void {
   const body = document.getElementById("model-body")!;
   if (!data.segments || !data.segments.length) {
-    body.innerHTML = '<tr><td colspan="6" class="dim">No game loaded</td></tr>';
+    // No active run is its own empty state — distinct from a run that's active
+    // but has no traversed segments yet ("No game loaded").
+    const msg = emptyStateMessage(hasActiveRun, "No game loaded");
+    body.innerHTML = '<tr><td colspan="6" class="dim">' + msg + "</td></tr>";
     return;
   }
   body.innerHTML = "";

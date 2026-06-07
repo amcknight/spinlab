@@ -68,7 +68,13 @@ def get_state(
     # sampler row (gated AND ungated). The engine's matrix only knows about
     # gated columns, so it can't surface "needs ≥2 of each" diagnostics.
     states = sched.sampler_states()
-    segs = {s.id: s for s in db.get_active_segments(session.game_id)}
+    # Scope to the active reference run's traversed segments; no active run ->
+    # empty (states without a matching seg entry are skipped below).
+    active_run = db.get_active_capture_run(session.game_id)
+    segs = (
+        {s.id: s for s in db.get_segments_for_run(session.game_id, active_run)}
+        if active_run is not None else {}
+    )
     golds = db.compute_golds(session.game_id)
 
     gated: list[PracticeEngineSegmentState] = []

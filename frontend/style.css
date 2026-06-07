@@ -147,6 +147,40 @@ header {
   pointer-events: none;
 }
 
+/* Reference-run selector popover (mirrors the game selector). The game popover
+   anchors at left:0 of .header-left; offset this one so they don't overlap when
+   both could open. */
+.run-popover { left: auto; right: 0; width: 260px; }
+.run-popover ul { max-height: 360px; }
+.popover li.run-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.popover li.run-row.active .run-name { color: var(--accent); font-weight: 600; }
+.run-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.run-actions button {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1;
+}
+.run-actions button:hover:not(:disabled) {
+  border-color: var(--card);
+  color: var(--text);
+}
+.run-actions .btn-danger-sm:hover:not(:disabled) {
+  border-color: var(--red);
+  color: var(--red);
+}
+.run-actions button:disabled { opacity: 0.4; cursor: default; }
+
 /* Mode chip */
 .mode-chip {
   display: flex;
@@ -303,22 +337,6 @@ h3 {
 .manage-section h3 { margin: 0 0 8px 0; }
 .manage-section p { margin-bottom: 8px; font-size: 12px; }
 
-.ref-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  margin-bottom: 8px;
-}
-.ref-row select {
-  flex: 1;
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--card);
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-family: inherit;
-  font-size: 12px;
-}
 .ref-actions {
   display: flex;
   gap: 6px;
@@ -441,6 +459,42 @@ h3 {
   cursor: pointer;
   font-size: 12px;
 }
+
+/* Reference-run delete dialog (3-way: run_only / run_and_data / cancel) */
+.run-delete-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.run-delete-box {
+  background: var(--surface);
+  border: 1px solid var(--card);
+  border-radius: 8px;
+  padding: 18px 20px;
+  width: 300px;
+  max-width: 90%;
+}
+.run-delete-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--text);
+}
+.run-delete-body {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+  word-break: break-word;
+}
+.run-delete-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.run-delete-buttons button { width: 100%; }
 
 /* Segment table */
 #segment-table {

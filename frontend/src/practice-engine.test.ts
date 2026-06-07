@@ -83,6 +83,24 @@ describe("renderPracticeEnginePanel", () => {
     expect(s1.value).toBe("4200");
     expect(s2.value).toBe(String(4200 + 5800));
   });
+
+  it("shows the no-active-run empty state when hasActiveRun is false", () => {
+    const container = document.getElementById("practice-engine-panel")!;
+    // Even with segments present, no active run wins the empty state.
+    renderPracticeEnginePanel(container, MOCK_STATE, false);
+    const status = container.querySelector(".pe-status")?.textContent ?? "";
+    expect(status).toContain("No reference run selected");
+    expect(status).not.toContain("ready");
+  });
+
+  it("with an active run but zero tracked segments shows the no-segments copy", () => {
+    const empty: PracticeEngineState = { ...MOCK_STATE, gated_segments: [], ungated_segments: [] };
+    const container = document.getElementById("practice-engine-panel")!;
+    renderPracticeEnginePanel(container, empty, true);
+    const status = container.querySelector(".pe-status")?.textContent ?? "";
+    expect(status).toContain("No segments tracked yet");
+    expect(status).not.toContain("No reference run selected");
+  });
 });
 
 describe("updatePanelResults", () => {

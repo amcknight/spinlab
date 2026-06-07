@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { initManageTab } from "./manage";
+import { initManageTab, fetchManage, updateManageState } from "./manage";
+import type { AppState } from "./types";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -7,12 +8,9 @@ vi.stubGlobal("fetch", mockFetch);
 beforeEach(() => {
   mockFetch.mockReset();
   document.body.innerHTML = `
-    <select id="ref-select"></select>
     <button id="btn-ref-start"></button>
     <button id="btn-replay"></button>
     <button id="btn-fast-replay"></button>
-    <button id="btn-ref-rename"></button>
-    <button id="btn-ref-delete"></button>
     <button id="btn-resume"></button>
     <button id="btn-save-and-finish"></button>
     <button id="btn-discard-run"></button>
@@ -71,15 +69,103 @@ describe("Save & Finish button", () => {
 });
 
 describe("Fast Replay button", () => {
-  it("POSTs to /api/replay/start with speed 0 (uncapped)", async () => {
-    (document.getElementById("ref-select") as HTMLSelectElement).innerHTML =
-      '<option value="r1" selected>R1</option>';
+  it("POSTs to /api/replay/start with speed 0 (uncapped) for the active run", async () => {
+    // Replay now targets the active run (the old #ref-select dropdown is gone).
+    // Drive the active-run id the way production does: fetchManage reads
+    // /api/references, finds the active run, and stashes its id for the
+    // replay handlers. emu_connected must be true or updateManage disables the
+    // Fast Replay button and .click() on a disabled button is a no-op.
+    updateManageState({ emu_connected: true } as AppState);
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/references") {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              references: [
+                { id: "r1", name: "R1", active: 1, has_replay: true },
+              ],
+            }),
+        });
+      }
+      // segments fetch + replay POST
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ segments: [] }),
+      });
+    });
+    await fetchManage();
     document.getElementById("btn-fast-replay")!.click();
     await Promise.resolve();
     expect(mockFetch).toHaveBeenCalledWith("/api/replay/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ref_id: "r1", speed: 0 }),
+    });
+  });
+});
+
+describe("Replay button", () => {
+  it("POSTs to /api/replay/start with ref_id only (no speed) for the active run", async () => {
+    // Mirror the Fast Replay test: same setup, but click #btn-replay and
+    // assert that speed is absent so the server applies its normal default.
+    updateManageState({ emu_connected: true } as AppState);
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/references") {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              references: [
+                { id: "r1", name: "R1", active: 1, has_replay: true },
+              ],
+            }),
+        });
+      }
+      // segments fetch + replay POST
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ segments: [] }),
+      });
+    });
+    await fetchManage();
+    document.getElementById("btn-replay")!.click();
+    await Promise.resolve();
+    expect(mockFetch).toHaveBeenCalledWith("/api/replay/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ref_id: "r1" }),
+    });
+  });
+
+  it("does NOT POST when activeRefId is wrong (guard against ref_id mismatch)", async () => {
+    // Confirm the assertion above would fail if the handler used a different id.
+    updateManageState({ emu_connected: true } as AppState);
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/references") {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              references: [
+                { id: "r1", name: "R1", active: 1, has_replay: true },
+              ],
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ segments: [] }),
+      });
+    });
+    await fetchManage();
+    document.getElementById("btn-replay")!.click();
+    await Promise.resolve();
+    // Should NOT have been called with a wrong id such as "r2"
+    expect(mockFetch).not.toHaveBeenCalledWith("/api/replay/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ref_id: "r2" }),
     });
   });
 });

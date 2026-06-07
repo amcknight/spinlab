@@ -48,6 +48,7 @@ class TestReferenceEndpoints:
         assert refs[0]["name"] == "New"
 
     def test_delete_reference(self, client, db):
+        """Default (no mode) deletes the run as run_only."""
         _saved_run(db, "ref1", "test_game", "Run 1")
         s = Segment(id="s1", game_id="test_game", level_number=1,
                     start_type="entrance", start_ordinal=0,
@@ -57,6 +58,46 @@ class TestReferenceEndpoints:
         resp = client.delete("/api/references/ref1")
         assert resp.status_code == 200
         assert db.list_capture_runs("test_game") == []
+
+    def test_delete_reference_run_only(self, client, db):
+        """mode=run_only keeps the segment active."""
+        _saved_run(db, "ref1", "test_game", "Run 1")
+        s = Segment(id="s1", game_id="test_game", level_number=1,
+                    start_type="entrance", start_ordinal=0,
+                    end_type="goal", end_ordinal=0,
+                    capture_run_id="ref1")
+        db.upsert_segment(s)
+        resp = client.delete("/api/references/ref1?mode=run_only")
+        assert resp.status_code == 200
+        assert db.list_capture_runs("test_game") == []
+        assert db.conn.execute(
+            "SELECT active FROM segments WHERE id = 's1'"
+        ).fetchone()[0] == 1
+
+    def test_delete_reference_run_and_data(self, client, db):
+        """mode=run_and_data purges a segment exclusive to the run."""
+        _saved_run(db, "ref1", "test_game", "Run 1")
+        s = Segment(id="s1", game_id="test_game", level_number=1,
+                    start_type="entrance", start_ordinal=0,
+                    end_type="goal", end_ordinal=0,
+                    capture_run_id="ref1")
+        db.upsert_segment(s)
+        db.log_event_attempt(EventAttempt(
+            segment_id="s1", episode_id="ep1",
+            outcome=AttemptOutcome.SURVIVED, time_ms=1000,
+            capture_run_id="ref1", source=AttemptSource.REFERENCE,
+        ))
+        resp = client.delete("/api/references/ref1?mode=run_and_data")
+        assert resp.status_code == 200
+        assert db.list_capture_runs("test_game") == []
+        assert db.conn.execute(
+            "SELECT COUNT(*) FROM segments WHERE id = 's1'"
+        ).fetchone()[0] == 0
+
+    def test_delete_reference_invalid_mode(self, client, db):
+        _saved_run(db, "ref1", "test_game", "Run 1")
+        resp = client.delete("/api/references/ref1?mode=bogus")
+        assert resp.status_code == 422
 
     def test_activate_reference(self, client, db):
         _saved_run(db, "ref1", "test_game", "Run 1")

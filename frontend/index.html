@@ -20,6 +20,13 @@
         <input id="rom-filter" type="text" placeholder="Filter ROMs..." autocomplete="off">
         <ul id="rom-list"></ul>
       </div>
+      <button id="run-selector" class="game-selector-btn run-selector-btn" title="Reference run">
+        <span id="run-name-label">No run</span>
+        <span class="caret">&#9662;</span>
+      </button>
+      <div id="run-popover" class="popover run-popover" style="display:none">
+        <ul id="run-list"></ul>
+      </div>
     </div>
     <div id="mode-chip" class="mode-chip idle">
       <span class="mode-dot"></span>
@@ -89,14 +96,10 @@
         </section>
 
         <section id="page-setup" class="page">
-          <!-- References section -->
+          <!-- Recording section (run selection/rename/delete live in the
+               title-bar run selector now) -->
           <div class="manage-section">
-            <h3>References</h3>
-            <div class="ref-row">
-              <select id="ref-select"></select>
-              <button id="btn-ref-rename" class="btn-sm" title="Rename">&#9998;</button>
-              <button id="btn-ref-delete" class="btn-sm btn-danger-sm" title="Delete">&#10005;</button>
-            </div>
+            <h3>Recording</h3>
             <div class="ref-actions">
               <button id="btn-ref-start" class="btn-primary">Start Reference Run</button>
               <button id="btn-replay" class="btn-primary" disabled>Replay</button>

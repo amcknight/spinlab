@@ -158,7 +158,13 @@ class Scheduler:
 
     def pick_next(self) -> SegmentWithModel | None:
         self._sync_config_from_db()
-        segments = SegmentWithModel.load_all(self.db, self.game_id, self.estimator.name)
+        # Scope the practice universe to the active reference run. No active
+        # run -> nothing to practice (empty), never the whole game.
+        run_id = self.db.get_active_capture_run(self.game_id)
+        if run_id is None:
+            return None
+        segments = SegmentWithModel.load_all(
+            self.db, self.game_id, self.estimator.name, run_id=run_id)
         if not segments:
             return None
         practicable = [s for s in segments if s.state_path and os.path.exists(s.state_path)]
@@ -293,7 +299,13 @@ class Scheduler:
         self._maybe_refit_segment(segment_id)
 
     def get_all_model_states(self) -> list[SegmentWithModel]:
-        return SegmentWithModel.load_all(self.db, self.game_id, self.estimator.name)
+        # Drives both /api/model and the practice-loop universe. Scope to the
+        # active reference run; no active run -> empty (not the whole game).
+        run_id = self.db.get_active_capture_run(self.game_id)
+        if run_id is None:
+            return []
+        return SegmentWithModel.load_all(
+            self.db, self.game_id, self.estimator.name, run_id=run_id)
 
     def set_allocator_weights(self, weights: dict[str, int]) -> None:
         total = sum(weights.values())
@@ -308,6 +320,9 @@ class Scheduler:
         self.allocator = self._build_mix(weights)
 
     def rebuild_all_states(self) -> None:
+        # Deliberately WHOLE-GAME (no run_id): this is a maintenance/write path
+        # that recomputes model_state rows from pooled (by-geography) attempts.
+        # Every segment's model must stay fresh regardless of the active run.
         segments = self.db.get_all_segments_with_model(self.game_id)
         for row in segments:
             segment_id = row["id"]

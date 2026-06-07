@@ -78,6 +78,14 @@ def seed_basic_game(db: "Database") -> str:
             description=desc, capture_run_id=reference_id, active=True,
         ))
 
+    # Stamp a reference-traversal row per segment so each is a genuine MEMBER of
+    # the active reference run. Run-scoped model views (Model/Segments/Practice)
+    # resolve the active run and filter to its members; without these rows the
+    # practice attempts below (which carry no capture_run_id) leave every view
+    # empty and the frontend-smoke tests render nothing.
+    for seg_id in seg_ids:
+        stamp_reference_traversal(db, seg_id, reference_id)
+
     db.create_session(session_id, game_id)
     for seg_idx, offset_ms, completed, alloc_idx in _SEED_ATTEMPT_SPECS:
         _, _, _, ref_ms = _SEED_SEGMENT_SPECS[seg_idx]
@@ -113,6 +121,10 @@ def seed_sampler_states(db: "Database") -> dict[str, list[str]]:
     from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
 
     game_id = "fake_game_frontend_smoke"
+    # Same reference run seed_basic_game activates — the simulator smoke renders
+    # these segments only if they are members of the active run, so stamp each
+    # with a reference traversal below.
+    reference_id = f"{game_id}:ref"
     session_id = f"{game_id}:pe_sess"
     try:
         db.create_session(session_id, game_id)
@@ -151,6 +163,8 @@ def seed_sampler_states(db: "Database") -> dict[str, list[str]]:
         events = _events(seg_id, n)
         for ev in events:
             db.log_event_attempt(ev)
+        # Membership in the active reference run (run-scoped views filter to it).
+        stamp_reference_traversal(db, seg_id, reference_id)
         state = SamplerState()
         for ev in events:
             state = process_event(state, ev)
@@ -161,6 +175,46 @@ def seed_sampler_states(db: "Database") -> dict[str, list[str]]:
         )
         out["gated" if n >= 4 else "ungated"].append(seg_id)
     return out
+
+
+def stamp_reference_traversal(
+    db: "Database",
+    segment_id: str,
+    run_id: str,
+    *,
+    time_ms: int = 1000,
+    episode_suffix: str = "reftrav",
+    survived: bool = True,
+) -> None:
+    """Log one non-invalidated REFERENCE event for ``segment_id`` stamped with
+    ``run_id``, making the segment a genuine member of that capture run.
+
+    Membership (see ``Database.get_segments_for_run``) is defined as having at
+    least one non-invalidated row in the ``attempts`` table carrying the run's
+    ``capture_run_id``. Run-scoped model views resolve the active run and then
+    filter to its members, so a fixture that seeds segments + sets an active run
+    must also stamp traversal rows or the views render empty.
+
+    ``episode_suffix`` distinguishes multiple traversals of the same segment by
+    the same run; rows sharing an ``episode_id`` roll up into one episode.
+
+    ``survived=False`` logs a DIED episode — still a non-invalidated member, but
+    NOT a completed attempt, so it is invisible to segment-history's completed
+    filter. Use it when a fixture needs membership without adding a completed
+    attempt that would perturb history/count assertions.
+    """
+    from datetime import UTC, datetime
+
+    from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
+
+    db.log_event_attempt(EventAttempt(
+        segment_id=segment_id,
+        episode_id=f"{run_id}:{segment_id}:{episode_suffix}",
+        outcome=AttemptOutcome.SURVIVED if survived else AttemptOutcome.DIED,
+        time_ms=time_ms,
+        capture_run_id=run_id, source=AttemptSource.REFERENCE,
+        created_at=datetime.now(UTC),
+    ))
 
 
 def make_attempt_record(

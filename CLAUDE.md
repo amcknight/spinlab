@@ -4,8 +4,6 @@ Efficient practice system for SNES romhack speedrunning. Captures save states at
 
 ## Coding Guidelines
 
-- Python 3.11+. Type hints everywhere. `dataclasses` for models.
-- YAML for config (Andrew's preference).
 - The kaizosplits C# code in `reference/` is read-only reference — never import or compile it.
 
 ## Modeling & Numerics
@@ -105,13 +103,3 @@ export PATH=/tmp/spinlab-env/bin:$PATH
 ```
 
 Don't pip-install by hand or use a different venv path — reuse the script.
-
-### Line endings in sandboxes
-
-`.gitattributes` normalizes on commit, but sandbox git can still commit CRLF when Windows working-tree bytes leak through a mount. Before committing from a sandbox:
-
-```bash
-git ls-files --eol <changed files>
-```
-
-Every file should show `i/lf`. If you see `i/crlf` or `i/mixed`, `git add --renormalize <file>` and recommit.

@@ -28,7 +28,14 @@ router = APIRouter(prefix="/api")
 def api_segments(session: SessionManager = Depends(get_session), db: Database = Depends(get_db)):
     if session.game_id is None:
         return {"segments": []}
-    rows = db.get_all_segments_with_model(session.game_id, primary_only=False)
+    # Scope to the active reference run's traversed segments; no active run ->
+    # empty list (not the whole game).
+    active_run = db.get_active_capture_run(session.game_id)
+    if active_run is None:
+        rows = []
+    else:
+        rows = db.get_all_segments_with_model(
+            session.game_id, primary_only=False, run_id=active_run)
     out: list[dict] = []
     for r in rows:
         d: dict = dict(r)

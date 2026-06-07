@@ -12,6 +12,8 @@ from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt, Segment
 from spinlab.routes._deps import get_db, get_session
 from spinlab.routes.model import router
 
+from tests.factories import stamp_reference_traversal
+
 
 class _NoSessionStub:
     """Stand-in SessionManager for route tests that don't care about session
@@ -29,12 +31,20 @@ class _ActiveSessionStub:
 def _seed_db(tmp_path) -> tuple[Database, str, str]:
     db = Database(str(tmp_path / "t.db"))
     db.upsert_game("g1", "G", "any%")
+    # live-summary is run-scoped: it aggregates only segments the active
+    # reference run traversed. Activate a run and make the seeded segment a
+    # member (one non-invalidated reference traversal row).
+    ref_id = "g1:ref"
+    db.create_capture_run(ref_id, "g1", "Ref", kind="live")
+    db.promote_draft(ref_id, "Ref")
+    db.set_active_capture_run(ref_id)
     seg_id = "g1:6:entrance.0:checkpoint.1:aa:bb"
     db.upsert_segment(Segment(
         id=seg_id, game_id="g1", level_number=6,
         start_type="entrance", start_ordinal=0,
         end_type="checkpoint", end_ordinal=1, active=True))
     db.create_session("g1:s", "g1")
+    stamp_reference_traversal(db, seg_id, ref_id, time_ms=4000, survived=True)
     for i in range(8):
         for outcome, t in ((AttemptOutcome.DIED, 1500), (AttemptOutcome.SURVIVED, 4200 - i * 20)):
             db.log_event_attempt(EventAttempt(

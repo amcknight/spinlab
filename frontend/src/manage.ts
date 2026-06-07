@@ -3,11 +3,15 @@ import { fetchJSON, postJSON } from "./api";
 import type { AppState, CaptureSession, Reference, ReferenceSegment } from "./types";
 
 let lastState: AppState | null = null;
+// Id of the currently-active reference run, tracked from /api/references so the
+// Replay / Fast Replay buttons can target it (the old #ref-select dropdown that
+// used to carry the selection is gone — the title-bar selector owns it now).
+let activeRefId: string | null = null;
 
 export async function fetchManage(): Promise<void> {
   const refsData = await fetchJSON<{ references: Reference[] }>("/api/references");
   if (!refsData) return;
-  const refs = refsData.references || [];
+  const refs = refsData.references;
 
   let segments: ReferenceSegment[] = [];
   const captureId = lastState?.capture_run_id;
@@ -29,7 +33,6 @@ export async function fetchManage(): Promise<void> {
 }
 
 function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
-  const sel = document.getElementById("ref-select") as HTMLSelectElement;
   const btnStart = document.getElementById("btn-ref-start") as HTMLButtonElement;
   const btnReplay = document.getElementById("btn-replay") as HTMLButtonElement;
   const pausedRunCard = document.getElementById("paused-run-card") as HTMLElement;
@@ -41,13 +44,12 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
   const pausedRun = lastState?.paused_run || null;
   const recording = lastState?.mode === "reference";
 
-  const noRefs = refs.length === 0;
-  sel.disabled = busy || pausedRun != null;
+  // Replay targets the ACTIVE run (the title-bar selector owns run selection
+  // now that the old #ref-select dropdown is gone).
+  const activeRef = refs.find((r) => r.active);
+  activeRefId = activeRef?.id ?? null;
+
   btnStart.disabled = busy || pausedRun != null || !lastState?.emu_connected;
-  (document.getElementById("btn-ref-rename") as HTMLButtonElement).disabled =
-    busy || pausedRun != null || noRefs;
-  (document.getElementById("btn-ref-delete") as HTMLButtonElement).disabled =
-    busy || pausedRun != null || noRefs;
 
   if (pausedRun) {
     pausedRunCard.style.display = "";
@@ -74,26 +76,7 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
     recIndicator.style.display = "none";
   }
 
-  sel.innerHTML = "";
-  if (!refs.length) {
-    const opt = document.createElement("option");
-    opt.textContent = "No references";
-    opt.disabled = true;
-    sel.appendChild(opt);
-    document.getElementById("segment-body")!.innerHTML = "";
-    btnReplay.disabled = true;
-    return;
-  }
-  refs.forEach((r) => {
-    const opt = document.createElement("option");
-    opt.value = r.id;
-    opt.textContent = r.name + (r.active ? " ●" : "");
-    if (r.active) opt.selected = true;
-    sel.appendChild(opt);
-  });
-
-  const selectedRef = refs.find((r) => r.id === sel.value);
-  const hasReplayable = !!selectedRef?.has_replay;
+  const hasReplayable = !!activeRef?.has_replay;
   btnReplay.disabled =
     busy || pausedRun != null || !hasReplayable || !lastState?.emu_connected;
   const btnFastReplay = document.getElementById("btn-fast-replay") as HTMLButtonElement | null;
@@ -205,45 +188,14 @@ export function initManageTab(): void {
     fetchManage();
   });
 
-  document
-    .getElementById("ref-select")!
-    .addEventListener("change", async (e) => {
-      await postJSON(
-        "/api/references/" + (e.target as HTMLSelectElement).value + "/activate",
-      );
-      fetchManage();
-    });
-
-  document.getElementById("btn-ref-rename")!.addEventListener("click", async () => {
-    const sel = document.getElementById("ref-select") as HTMLSelectElement;
-    const name = prompt(
-      "New name:",
-      sel.options[sel.selectedIndex]?.text.replace(" ●", ""),
-    );
-    if (!name) return;
-    await fetchJSON("/api/references/" + sel.value, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    fetchManage();
-  });
-
-  document.getElementById("btn-ref-delete")!.addEventListener("click", async () => {
-    if (!confirm("Delete this reference and all its segments?")) return;
-    const sel = document.getElementById("ref-select") as HTMLSelectElement;
-    await fetchJSON("/api/references/" + sel.value, { method: "DELETE" });
-    fetchManage();
-  });
-
   document.getElementById("btn-ref-start")!.addEventListener("click", () => {
     if (!lastState?.emu_connected) return;
     postJSON("/api/reference/start");
   });
 
   document.getElementById("btn-replay")!.addEventListener("click", async () => {
-    const sel = document.getElementById("ref-select") as HTMLSelectElement;
-    await postJSON("/api/replay/start", { ref_id: sel.value });
+    if (!activeRefId) return;
+    await postJSON("/api/replay/start", { ref_id: activeRefId });
   });
 
   // Fast Replay: uncapped (fast-forward) playback for regenerating
@@ -251,8 +203,8 @@ export function initManageTab(): void {
   // the plain Replay button omits speed and gets SPEED_NORMAL server-side.
   const SPEED_UNCAPPED = 0;
   document.getElementById("btn-fast-replay")?.addEventListener("click", async () => {
-    const sel = document.getElementById("ref-select") as HTMLSelectElement;
-    await postJSON("/api/replay/start", { ref_id: sel.value, speed: SPEED_UNCAPPED });
+    if (!activeRefId) return;
+    await postJSON("/api/replay/start", { ref_id: activeRefId, speed: SPEED_UNCAPPED });
   });
 
   document.getElementById("btn-resume")?.addEventListener("click", async () => {

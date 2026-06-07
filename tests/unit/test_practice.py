@@ -42,10 +42,12 @@ async def test_practice_session_picks_and_sends(practice_db):
     cmd = mock_emu.send_command.call_args[0][0]
     assert isinstance(cmd, PracticeLoadCmd)
 
-    # Verify attempt was logged
+    # Verify attempt was logged. The fixture seeds one reference-run traversal
+    # episode (run-scoping membership), so the practice attempt is the second.
     attempts = practice_db.get_segment_attempts(seg_id)
-    assert len(attempts) == 1
-    assert attempts[0]["completed"] == 1
+    assert len(attempts) == 2
+    assert attempts[-1]["completed"] == 1
+    assert attempts[-1]["time_ms"] == 4500
 
 
 @pytest.mark.asyncio
@@ -251,6 +253,8 @@ def test_record_attempt_persists_and_updates_model_in_lockstep(practice_db):
     state, and (c) produce the same model output as a direct
     `process_attempt` call on a fresh DB — i.e., callers should never see a
     different result by going through the bundled path."""
+    from tests.factories import stamp_reference_traversal
+
     seg_id = practice_db._test_seg_id
     sched = Scheduler(practice_db, "g")
     practice_db.create_session("sess1", "g")
@@ -261,23 +265,31 @@ def test_record_attempt_persists_and_updates_model_in_lockstep(practice_db):
     )
     sched.record_attempt(attempt)
 
-    # (a) attempt persisted
+    # (a) attempt persisted. The practice_db fixture seeds one reference-run
+    # traversal episode (membership for run-scoped views), so the new practice
+    # attempt is the SECOND episode; assert on that newest row.
     rows = practice_db.get_segment_attempts(seg_id)
-    assert len(rows) == 1
-    assert rows[0]["time_ms"] == 10000
-    assert rows[0]["completed"] == 1
+    assert len(rows) == 2
+    assert rows[-1]["time_ms"] == 10000
+    assert rows[-1]["completed"] == 1
 
     # (b) model state updated — em_suite_sampler is the only active estimator
     row = practice_db.load_model_state(seg_id, "em_suite_sampler")
     assert row is not None
     output_via_record = json.loads(row["output_json"])
 
-    # (c) same output as direct process_attempt on a clean DB
+    # (c) same output as direct process_attempt on a clean DB. The clean DB must
+    # mirror the fixture's baseline reference traversal so the pooled episode
+    # set (and thus the model output) matches.
     other_db = Database(practice_db.db_path.parent / "other.db")
     other_db.upsert_game("g", "Game", "any%")
+    other_db.create_capture_run("g:ref", "g", "Ref", kind="live")
+    other_db.promote_draft("g:ref", "Ref")
+    other_db.set_active_capture_run("g:ref")
     other_seg = make_seg_with_state(
         other_db, "g", 1, "entrance", "goal", practice_db._test_state_file,
     )
+    stamp_reference_traversal(other_db, other_seg.id, "g:ref")
     other_sched = Scheduler(other_db, "g")
     other_sched.process_attempt(other_seg.id, time_ms=10000, completed=True)
     output_via_direct = json.loads(
@@ -304,12 +316,14 @@ def test_process_result_does_not_double_count_attempts(practice_db):
         AttemptResultEvent(segment_id=seg_id, completed=True, time_ms=20000),
     )
 
-    # With double-counting the state would show n_attempts=3 (not 2).
+    # The practice_db fixture seeds one reference-run traversal episode (member-
+    # ship for run-scoped views), so the baseline is n=1. Two _process_result
+    # calls add exactly two more (no double-counting) -> n_attempts=3, not 5.
     row = practice_db.load_model_state(seg_id, "em_suite_sampler")
     assert row is not None
     state = json.loads(row["state_json"])
-    assert state["n_attempts"] == 2
-    assert state["n_completed"] == 2
+    assert state["n_attempts"] == 3
+    assert state["n_completed"] == 3
 
 
 def test_current_expected_times_reflects_model_updates(practice_db):

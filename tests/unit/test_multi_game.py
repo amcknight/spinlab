@@ -162,42 +162,49 @@ def test_reset_is_game_scoped(app_with_rom_dir):
 
 def test_segments_are_game_scoped(app_with_rom_dir):
     """The /api/segments endpoint returns only segments for the active game."""
+    from tests.factories import stamp_reference_traversal
+
     app, db = app_with_rom_dir
     c_a = rom_checksum(FIXTURES / "game_a.sfc")
     c_b = rom_checksum(FIXTURES / "game_b.sfc")
 
+    # /api/segments is run-scoped: each game needs an active reference run, and
+    # its segments must be members of that run (>=1 non-invalidated traversal).
+    # The run is created after _sync_switch upserts the game row (FK on game_id).
+    ref_a, ref_b = f"{c_a}:ref", f"{c_b}:ref"
+
     # Segments for game A
     _sync_switch(app, c_a, "game_a")
+    db.create_capture_run(ref_a, c_a, "Ref A", kind="live")
+    db.promote_draft(ref_a, "Ref A")
+    db.set_active_capture_run(ref_a)
+    seg_a1 = f"{c_a}:1:entrance.0:goal.0"
+    seg_a2 = f"{c_a}:2:entrance.0:goal.0"
     db.upsert_segment(Segment(
-        id=f"{c_a}:1:entrance.0:goal.0",
-        game_id=c_a,
-        level_number=1,
-        start_type="entrance",
-        start_ordinal=0,
-        end_type="goal",
-        end_ordinal=0,
+        id=seg_a1, game_id=c_a, level_number=1,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
     ))
     db.upsert_segment(Segment(
-        id=f"{c_a}:2:entrance.0:goal.0",
-        game_id=c_a,
-        level_number=2,
-        start_type="entrance",
-        start_ordinal=0,
-        end_type="goal",
-        end_ordinal=0,
+        id=seg_a2, game_id=c_a, level_number=2,
+        start_type="entrance", start_ordinal=0,
+        end_type="goal", end_ordinal=0,
     ))
+    stamp_reference_traversal(db, seg_a1, ref_a)
+    stamp_reference_traversal(db, seg_a2, ref_a)
 
     # Segments for game B
     _sync_switch(app, c_b, "game_b")
+    db.create_capture_run(ref_b, c_b, "Ref B", kind="live")
+    db.promote_draft(ref_b, "Ref B")
+    db.set_active_capture_run(ref_b)
+    seg_b1 = f"{c_b}:1:entrance.0:checkpoint.0"
     db.upsert_segment(Segment(
-        id=f"{c_b}:1:entrance.0:checkpoint.0",
-        game_id=c_b,
-        level_number=1,
-        start_type="entrance",
-        start_ordinal=0,
-        end_type="checkpoint",
-        end_ordinal=0,
+        id=seg_b1, game_id=c_b, level_number=1,
+        start_type="entrance", start_ordinal=0,
+        end_type="checkpoint", end_ordinal=0,
     ))
+    stamp_reference_traversal(db, seg_b1, ref_b)
 
     client = TestClient(app)
 

@@ -113,7 +113,8 @@ class SegmentsMixin:
         return dict(zip(actual_cols, row))  # type: ignore[return-value]
 
     def get_all_segments_with_model(self, game_id: str, *,
-                                    primary_only: bool = True) -> list[SegmentRow]:
+                                    primary_only: bool = True,
+                                    run_id: str | None = None) -> list[SegmentRow]:
         """Get all active segments with their start-waypoint save state path.
 
         Variant precedence: prefer `cold` over `hot` for every segment. Cold
@@ -127,8 +128,18 @@ class SegmentsMixin:
             primary_only: if True (default), only return is_primary=True segments
                           (used by practice loop); if False, return all
                           (used by dashboard segments view).
+            run_id: if given, scope to segments the run *traversed* (>=1
+                    non-invalidated attempt stamped with this run). ``None``
+                    (default) = whole game. Mirrors the membership predicate in
+                    ``segments_missing_cold`` and ``get_segments_for_run``.
         """
         primary_clause = "AND s.is_primary = 1" if primary_only else ""
+        params: list = [game_id]
+        run_clause = ""
+        if run_id is not None:
+            run_clause = ("AND s.id IN (SELECT DISTINCT segment_id FROM attempts "
+                          "WHERE capture_run_id = ? AND invalidated = 0)")
+            params.append(run_id)
         cur = self.conn.execute(
             f"""SELECT s.id, s.game_id, s.level_number, s.start_type, s.start_ordinal,
                        s.end_type, s.end_ordinal, s.description,
@@ -143,9 +154,9 @@ class SegmentsMixin:
                                  END
                         LIMIT 1) AS state_path
                 FROM segments s
-                WHERE s.game_id = ? AND s.active = 1 {primary_clause}
+                WHERE s.game_id = ? AND s.active = 1 {primary_clause} {run_clause}
                 ORDER BY s.ordinal, s.level_number""",
-            (game_id,),
+            params,
         )
         actual_cols = [desc[0] for desc in cur.description]
         return [dict(zip(actual_cols, row)) for row in cur.fetchall()]  # type: ignore[return-value]
@@ -245,6 +256,34 @@ class SegmentsMixin:
         return WaypointSaveState(
             waypoint_id=row[0], variant_type=row[1], state_path=row[2],
         )
+
+    def get_segments_for_run(self, game_id: str, run_id: str) -> list[Segment]:
+        """Return active segments this run *traversed*, ordered by ordinal.
+
+        Membership = at least one non-invalidated row in the ``attempts`` table
+        stamped with ``run_id``. This is the same predicate used by
+        ``count_segments_traversed_in_run`` and ``segments_missing_cold(run_id=...)``,
+        but returns full ``Segment`` objects instead of counts or partial rows.
+
+        Contrast with ``get_active_segments``, which returns all active segments
+        for a game regardless of which run recorded them. Use this function when
+        you need to scope a view (e.g. Practice/Model/Segments) to a single
+        reference run. Pooling (``get_segment_attempts``) is unaffected — it
+        operates on the attempts table directly and is not scoped by this function.
+
+        Args:
+            game_id: game to query (guards against cross-game segment id collisions)
+            run_id: the capture run whose traversals define membership
+        """
+        rows = self.conn.execute(
+            """SELECT * FROM segments s
+               WHERE s.game_id = ? AND s.active = 1
+                 AND s.id IN (SELECT DISTINCT a.segment_id FROM attempts a
+                              WHERE a.capture_run_id = ? AND a.invalidated = 0)
+               ORDER BY s.ordinal, s.level_number""",
+            (game_id, run_id),
+        ).fetchall()
+        return [self._row_to_segment(r) for r in rows]
 
     def count_segments_for_run(self, run_id: str, *, active_only: bool = False) -> int:
         """Count segments whose ``capture_run_id`` matches ``run_id``.

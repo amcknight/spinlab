@@ -1,5 +1,22 @@
 import type { SegmentLike } from "./types";
 
+// Shown on every model view when there is no active reference run (distinct
+// from the "no segments / no data yet" message used when a run IS active but
+// has zero traversed segments). Single source so the copy can't drift across
+// the Model table, Simulator, and Segments views. See the reference-run-selector
+// design (§A.3, §D, Notes): "Empty-state (no active run) must be handled on
+// every page, not just Practice."
+export const NO_ACTIVE_RUN_MESSAGE = "No reference run selected — pick or record one";
+
+/**
+ * Pick a model-view empty-state message. No active run gets the spec wording
+ * (NO_ACTIVE_RUN_MESSAGE); a run that IS active but has zero traversed segments
+ * gets the caller's generic "no segments / no data yet" copy.
+ */
+export function emptyStateMessage(hasActiveRun: boolean, noSegmentsCopy: string): string {
+  return hasActiveRun ? noSegmentsCopy : NO_ACTIVE_RUN_MESSAGE;
+}
+
 export function shortEndpoint(type: string, ordinal: number): string {
   return type === "entrance" ? "start" : type === "goal" ? "goal" : "cp" + ordinal;
 }
