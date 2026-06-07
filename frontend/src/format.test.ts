@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { segmentName, formatTime, elapsedStr, formatSavings, emptyStateMessage, NO_ACTIVE_RUN_MESSAGE, formatPct } from "./format";
+import { segmentName, formatTime, elapsedStr, formatSavings, emptyStateMessage, NO_ACTIVE_RUN_MESSAGE, formatPct, formatAgo } from "./format";
 import type { SegmentLike } from "./types";
 
 describe("segmentName", () => {
@@ -171,5 +171,23 @@ describe("formatPct", () => {
   it("returns empty string for null/undefined", () => {
     expect(formatPct(null)).toBe("");
     expect(formatPct(undefined)).toBe("");
+  });
+});
+
+describe("formatAgo", () => {
+  const now = Date.parse("2026-06-07T12:00:00Z");
+  const ago = (iso: string) => formatAgo(iso, now);
+  it("renders compact units, months skipped", () => {
+    expect(ago("2026-06-07T11:59:57Z")).toBe("now");   // < 10s
+    expect(ago("2026-06-07T11:59:13Z")).toBe("47s");
+    expect(ago("2026-06-07T11:26:00Z")).toBe("34m");
+    expect(ago("2026-06-07T05:00:00Z")).toBe("7h");
+    expect(ago("2026-06-01T12:00:00Z")).toBe("6d");
+    expect(ago("2026-04-12T12:00:00Z")).toBe("8w");    // ~56 days -> 8w (no months)
+    expect(ago("2019-06-09T12:00:00Z")).toBe("7y");
+  });
+  it("returns empty for null/undefined", () => {
+    expect(formatAgo(null, now)).toBe("");
+    expect(formatAgo(undefined, now)).toBe("");
   });
 });
