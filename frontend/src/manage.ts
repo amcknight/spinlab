@@ -11,7 +11,7 @@ let activeRefId: string | null = null;
 export async function fetchManage(): Promise<void> {
   const refsData = await fetchJSON<{ references: Reference[] }>("/api/references");
   if (!refsData) return;
-  const refs = refsData.references || [];
+  const refs = refsData.references;
 
   let segments: ReferenceSegment[] = [];
   const captureId = lastState?.capture_run_id;

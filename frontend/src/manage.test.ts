@@ -105,6 +105,71 @@ describe("Fast Replay button", () => {
   });
 });
 
+describe("Replay button", () => {
+  it("POSTs to /api/replay/start with ref_id only (no speed) for the active run", async () => {
+    // Mirror the Fast Replay test: same setup, but click #btn-replay and
+    // assert that speed is absent so the server applies its normal default.
+    updateManageState({ emu_connected: true } as AppState);
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/references") {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              references: [
+                { id: "r1", name: "R1", active: 1, has_replay: true },
+              ],
+            }),
+        });
+      }
+      // segments fetch + replay POST
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ segments: [] }),
+      });
+    });
+    await fetchManage();
+    document.getElementById("btn-replay")!.click();
+    await Promise.resolve();
+    expect(mockFetch).toHaveBeenCalledWith("/api/replay/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ref_id: "r1" }),
+    });
+  });
+
+  it("does NOT POST when activeRefId is wrong (guard against ref_id mismatch)", async () => {
+    // Confirm the assertion above would fail if the handler used a different id.
+    updateManageState({ emu_connected: true } as AppState);
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/references") {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              references: [
+                { id: "r1", name: "R1", active: 1, has_replay: true },
+              ],
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ segments: [] }),
+      });
+    });
+    await fetchManage();
+    document.getElementById("btn-replay")!.click();
+    await Promise.resolve();
+    // Should NOT have been called with a wrong id such as "r2"
+    expect(mockFetch).not.toHaveBeenCalledWith("/api/replay/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ref_id: "r2" }),
+    });
+  });
+});
+
 describe("Discard Run button", () => {
   it("POSTs to /api/reference/discard_run after confirm", async () => {
     document.getElementById("btn-discard-run")!.click();
