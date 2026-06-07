@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { segmentName, formatTime, elapsedStr, formatSavings, emptyStateMessage, NO_ACTIVE_RUN_MESSAGE } from "./format";
+import { segmentName, formatTime, elapsedStr, formatSavings, emptyStateMessage, NO_ACTIVE_RUN_MESSAGE, formatPct } from "./format";
 import type { SegmentLike } from "./types";
 
 describe("segmentName", () => {
@@ -159,5 +159,17 @@ describe("emptyStateMessage", () => {
   it("returns the caller's no-segments copy when a run is active", () => {
     expect(emptyStateMessage(true, "No segments")).toBe("No segments");
     expect(emptyStateMessage(true, "No game loaded")).toBe("No game loaded");
+  });
+});
+
+describe("formatPct", () => {
+  it("renders a fraction as a whole-number percent", () => {
+    expect(formatPct(0.13)).toBe("13%");
+    expect(formatPct(0.455)).toBe("46%");
+    expect(formatPct(0)).toBe("0%");
+  });
+  it("returns empty string for null/undefined", () => {
+    expect(formatPct(null)).toBe("");
+    expect(formatPct(undefined)).toBe("");
   });
 });

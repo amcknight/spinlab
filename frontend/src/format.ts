@@ -81,3 +81,9 @@ export function formatSavings(ms: number | null | undefined): string | null {
   const s = Math.abs(ms) / 1000;
   return sign + s.toFixed(1) + "s";
 }
+
+/** Render a fraction (0.13) as a whole-number percent ("13%"). Empty for null. */
+export function formatPct(frac: number | null | undefined): string {
+  if (frac == null) return "";
+  return Math.round(frac * 100) + "%";
+}
