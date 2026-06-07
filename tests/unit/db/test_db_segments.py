@@ -276,6 +276,66 @@ def test_count_segments_traversed_in_run_counts_segments_owned_by_other_runs(tmp
     db.close()
 
 
+def test_get_segments_for_run(tmp_path):
+    """get_segments_for_run returns segments traversed (non-invalidated attempt)
+    by the given run, regardless of which run owns the segment row.
+
+    Assertions:
+    - A segment owned by "old" but traversed by "new" IS returned for "new".
+    - A run with no attempts returns [].
+    - A segment whose only attempt for the run is invalidated is excluded.
+    - An inactive segment (active=0) is excluded even if traversed.
+    """
+    db = Database(tmp_path / "t.db")
+    db.upsert_game("g", "G", "any%")
+    db.create_capture_run("old", "g", "Old", kind="live")
+    db.promote_draft("old", "Old")
+    db.create_capture_run("new", "g", "New", kind="live")
+
+    def _seg(seg_id: str, run_id: str = "old", ordinal: int = 0,
+             active: bool = True) -> None:
+        db.upsert_segment(Segment(
+            id=seg_id, game_id="g", level_number=1,
+            start_type="entrance", start_ordinal=ordinal,
+            end_type="goal", end_ordinal=0,
+            capture_run_id=run_id, ordinal=ordinal, active=active,
+        ))
+
+    # seg1: owned by "old", traversed by "new" via a non-invalidated attempt.
+    _seg("seg1", run_id="old", ordinal=1)
+    db.log_event_attempt(EventAttempt(
+        segment_id="seg1", episode_id="ep1",
+        outcome=AttemptOutcome.SURVIVED, time_ms=1000,
+        capture_run_id="new", source=AttemptSource.REFERENCE,
+    ))
+
+    # seg2: traversed by "new" but only with an invalidated attempt — excluded.
+    _seg("seg2", run_id="old", ordinal=2)
+    db.log_event_attempt(EventAttempt(
+        segment_id="seg2", episode_id="ep2",
+        outcome=AttemptOutcome.SURVIVED, time_ms=500,
+        capture_run_id="new", source=AttemptSource.REFERENCE,
+        invalidated=True,
+    ))
+
+    # seg3: inactive (active=0), traversed by "new" — excluded.
+    _seg("seg3", run_id="old", ordinal=3, active=False)
+    db.log_event_attempt(EventAttempt(
+        segment_id="seg3", episode_id="ep3",
+        outcome=AttemptOutcome.SURVIVED, time_ms=700,
+        capture_run_id="new", source=AttemptSource.REFERENCE,
+    ))
+
+    # "new" query should return only seg1.
+    result = db.get_segments_for_run("g", "new")
+    assert [s.id for s in result] == ["seg1"]
+
+    # A run with no attempts returns [].
+    assert db.get_segments_for_run("g", "old") == []
+
+    db.close()
+
+
 def test_count_segments_traversed_in_run_is_distinct(tmp_path):
     """Multiple events for one segment count once; distinct segments add up."""
     from spinlab.db import Database

@@ -246,6 +246,34 @@ class SegmentsMixin:
             waypoint_id=row[0], variant_type=row[1], state_path=row[2],
         )
 
+    def get_segments_for_run(self, game_id: str, run_id: str) -> list[Segment]:
+        """Return active segments this run *traversed*, ordered by ordinal.
+
+        Membership = at least one non-invalidated row in the ``attempts`` table
+        stamped with ``run_id``. This is the same predicate used by
+        ``count_segments_traversed_in_run`` and ``segments_missing_cold(run_id=...)``,
+        but returns full ``Segment`` objects instead of counts or partial rows.
+
+        Contrast with ``get_active_segments``, which returns all active segments
+        for a game regardless of which run recorded them. Use this function when
+        you need to scope a view (e.g. Practice/Model/Segments) to a single
+        reference run. Pooling (``get_segment_attempts``) is unaffected — it
+        operates on the attempts table directly and is not scoped by this function.
+
+        Args:
+            game_id: game to query (guards against cross-game segment id collisions)
+            run_id: the capture run whose traversals define membership
+        """
+        rows = self.conn.execute(
+            """SELECT * FROM segments s
+               WHERE s.game_id = ? AND s.active = 1
+                 AND s.id IN (SELECT DISTINCT a.segment_id FROM attempts a
+                              WHERE a.capture_run_id = ? AND a.invalidated = 0)
+               ORDER BY s.ordinal""",
+            (game_id, run_id),
+        ).fetchall()
+        return [self._row_to_segment(r) for r in rows]
+
     def count_segments_for_run(self, run_id: str, *, active_only: bool = False) -> int:
         """Count segments whose ``capture_run_id`` matches ``run_id``.
 
