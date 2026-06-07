@@ -1088,3 +1088,12 @@ h3 {
 #model-table td.gain-good { color: #5fce7e; }
 #model-table td.gain-bad { color: #cc7a7a; }
 #model-table td.gain-neutral { color: #888; }
+
+/* Attempt surgery table */
+.attempt-surgery { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+.attempt-surgery th { text-align: left; color: #9fb6d6; border-bottom: 1px solid #333; padding: 4px 8px; user-select: none; }
+.attempt-surgery td { padding: 4px 8px; }
+.attempt-surgery tr.invalidated { text-decoration: line-through; opacity: 0.5; color: #cc7a7a; }
+.attempt-surgery tr.floor td { color: var(--gold); }
+.attempt-surgery button { background: none; border: none; color: #7a8ba0; cursor: pointer; padding: 0; }
+.attempt-surgery button:hover { color: #cdd9e8; }

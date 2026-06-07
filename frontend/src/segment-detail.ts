@@ -14,6 +14,7 @@ import { segmentName, formatTime } from "./format";
 import type { EmSuiteMatrixResponse, SegmentHistory } from "./types";
 import { renderColdHistogram } from "./death-distribution";
 import { renderHazard } from "./hazard-render";
+import { renderAttemptTable, type AttemptRow } from "./attempt-table";
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Legend, Tooltip);
 
@@ -182,6 +183,27 @@ export async function renderSegmentDetail(
     totalBtn.classList.remove("active");
     updateChart();
   });
+
+  // --- Attempt surgery table ---
+  const surgeryHost = document.createElement("div");
+  surgeryHost.className = "attempt-surgery-host";
+  container.appendChild(surgeryHost);
+
+  const loadAttempts = async () => {
+    const resp = await fetchJSON<{ segment_id: string; attempts: AttemptRow[] }>(
+      `/api/segments/${encodeURIComponent(segmentId)}/attempts`,
+    );
+    if (!resp) return;
+    renderAttemptTable(surgeryHost, resp.attempts, async (id, nextInvalidated) => {
+      await fetch(`/api/attempts/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invalidated: nextInvalidated }),
+      });
+      await loadAttempts();  // re-fetch: reflects the recalc'd floor (★) + struck row
+    });
+  };
+  await loadAttempts();
 
   // Cold-distribution panel with Histogram/Hazard toggle.
   // The tab bar is always rendered; the Hazard tab is disabled when
