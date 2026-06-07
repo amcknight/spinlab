@@ -1009,3 +1009,47 @@ class TestModelOutput:
             st, [make_incomplete(), make_incomplete()],
         )
         assert out.total.floor_ms is None
+
+
+def test_model_output_populates_practice_gain():
+    from spinlab.estimators.em_suite_sampler import (
+        DEFAULT_FAST_IDX,
+        DEFAULT_SLOW_IDX,
+        EmSuiteSamplerEstimator,
+        SamplerState,
+        expected_episode_time_ms,
+        expected_episode_time_scalar,
+        process_event,
+    )
+    from tests.factories import make_event_attempt
+
+    # Seed a real gated state (>=2 successes and >=2 deaths) through process_event
+    # so both the scalar and the slope compute to floats, not None.
+    st = SamplerState()
+    for outcome, t in [("survived", 2000), ("died", 500), ("survived", 2100),
+                       ("died", 600), ("survived", 1900), ("died", 550)]:
+        st = process_event(st, make_event_attempt(outcome=outcome, time_ms=t))
+
+    est = EmSuiteSamplerEstimator()
+    out = est.model_output(st, [], events=None)
+
+    scalar = expected_episode_time_scalar(st)
+    slid = expected_episode_time_ms(
+        st, DEFAULT_FAST_IDX, DEFAULT_SLOW_IDX, apply_slope=True,
+    )
+    assert scalar is not None and slid is not None
+    assert out.practice_gain_ms == scalar - slid
+
+
+def test_model_output_gain_none_when_slope_ungated():
+    from spinlab.estimators.em_suite_sampler import (
+        EmSuiteSamplerEstimator,
+        SamplerState,
+    )
+    # Bare gated counters but empty accumulators -> scalar/slope short-circuit to None.
+    st = SamplerState()
+    st.n_successes = 3
+    st.n_deaths = 3
+    st.n_attempts_total = 6
+    out = EmSuiteSamplerEstimator().model_output(st, [], events=None)
+    assert out.practice_gain_ms is None

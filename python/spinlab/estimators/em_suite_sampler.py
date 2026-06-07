@@ -622,6 +622,15 @@ class EmSuiteSamplerEstimator(Estimator):
         events: list[EventAttempt] | None = None,
     ) -> ModelOutput:
         scalar = expected_episode_time_scalar(state)
+        # Practice gain: expected now minus expected after one trend-slide step,
+        # at the default alpha pair. Mirrors live_view.practice_gain_ms exactly.
+        # None when either side is None (gate fails / slope ungated).
+        slid = expected_episode_time_ms(
+            state, DEFAULT_FAST_IDX, DEFAULT_SLOW_IDX, apply_slope=True,
+        )
+        practice_gain = (
+            scalar - slid if (scalar is not None and slid is not None) else None
+        )
         # Floor = running-min CLEAN clear so far (the final-success time with no
         # deaths) — the unreachable-without-a-perfect-run target. min over
         # completed attempts' clean_tail_ms; None until a clean clear exists.
@@ -643,7 +652,10 @@ class EmSuiteSamplerEstimator(Estimator):
             expected_ms=scalar, ms_per_attempt=scalar, floor_ms=floor,
         )
         clean = Estimate(expected_ms=None, ms_per_attempt=None, floor_ms=None)
-        return ModelOutput(total=total, clean=clean, extras=None)
+        return ModelOutput(
+            total=total, clean=clean, extras=None,
+            practice_gain_ms=practice_gain,
+        )
 
     def rebuild_state(  # type: ignore[override]
         self, attempts: list[AttemptRecord],

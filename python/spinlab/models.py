@@ -365,12 +365,18 @@ class ModelOutput:
     total: Estimate
     clean: Estimate
     extras: DeathExtras | None = None
+    # Closed-form practice gain (ms): expected_now - expected_after_one_slope_step.
+    # Positive = practicing is predicted to reduce episode time. None when the
+    # slope is ungated. Mirrors live_view.practice_gain_ms; surfaced here so the
+    # planning table can show a Practice/Trend% column without a second endpoint.
+    practice_gain_ms: float | None = None
 
     def to_dict(self) -> dict:
         return {
             "total": self.total.to_dict(),
             "clean": self.clean.to_dict(),
             "extras": self.extras.to_dict() if self.extras is not None else None,
+            "practice_gain_ms": self.practice_gain_ms,
         }
 
     @classmethod
@@ -380,4 +386,5 @@ class ModelOutput:
             total=Estimate.from_dict(d["total"]),
             clean=Estimate.from_dict(d["clean"]),
             extras=DeathExtras.from_dict(extras_d) if extras_d is not None else None,
+            practice_gain_ms=d.get("practice_gain_ms"),
         )
