@@ -1,6 +1,9 @@
 """Attempt mutation routes (invalidation toggle)."""
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from spinlab.api_schemas import AttemptPatchRequest, AttemptPatchResponse, SurgeryAttemptsResponse
@@ -12,7 +15,7 @@ from ._deps import get_db, get_session
 router = APIRouter(prefix="/api")
 
 
-def surgery_rows(attempts: list[dict]) -> list[dict]:
+def surgery_rows(attempts: Sequence[Mapping[str, Any]]) -> list[dict]:
     """Build SurgeryAttempt dicts from Database.get_segment_attempts output.
 
     Order is chronological (created_at asc, 1-based). is_floor marks the row
