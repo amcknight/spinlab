@@ -337,11 +337,16 @@ def test_get_segments_for_run(tmp_path):
 
 
 def test_get_segments_for_run_excludes_other_games(tmp_path):
-    """game_id guard must prevent cross-game segment-id collisions from leaking in.
+    """game_id guard must prevent segments from a different game leaking in.
 
-    If a segment in game g2 shares the same segment id as one in g, and that g2
-    segment has a non-invalidated attempt stamped with the same run_id, it must
-    NOT appear in get_segments_for_run("g", run_id).
+    seg_g2 is a DISTINCT segment row (different PK) that lives in game g2.
+    Run "new" logs a non-invalidated attempt for seg_g2, so the only thing that
+    excludes it from get_segments_for_run("g", "new") is the game_id filter.
+
+    Sanity-check: get_segments_for_run("g2", "new") DOES return seg_g2, proving
+    the row exists and is reachable — it is purely the game_id guard that drops
+    it from the "g" query.  If that guard were removed, the "g" query would
+    return 2 rows and the len==1 assertion below would fail.
     """
     db = Database(tmp_path / "t.db")
     db.upsert_game("g", "G", "any%")
@@ -353,39 +358,47 @@ def test_get_segments_for_run_excludes_other_games(tmp_path):
     db.create_capture_run("base_g2", "g2", "Base G2", kind="live")
     db.promote_draft("base_g2", "Base G2")
 
-    db.create_capture_run("new", "g", "New", kind="live")
-    db.create_capture_run("new_g2", "g2", "New G2", kind="live")
+    db.create_capture_run("new", "g", "New G", kind="live")
 
-    # "seg_shared" in game g — traversed by run "new"
+    # seg_g — in game "g", traversed by run "new".
     db.upsert_segment(Segment(
-        id="seg_shared", game_id="g", level_number=1,
+        id="seg_g", game_id="g", level_number=1,
         start_type="entrance", start_ordinal=0,
         end_type="goal", end_ordinal=0,
         capture_run_id="new",
     ))
     db.log_event_attempt(EventAttempt(
-        segment_id="seg_shared", episode_id="ep_g",
+        segment_id="seg_g", episode_id="ep_g",
         outcome=AttemptOutcome.SURVIVED, time_ms=1000,
         capture_run_id="new", source=AttemptSource.REFERENCE,
     ))
 
-    # "seg_shared" also exists in game g2 (same id) — traversed by "new" run_id
+    # seg_g2 — a DISTINCT segment row (different PK) in game "g2".
+    # Run "new" also traversed it, so it would appear in a game_id-less query.
+    # In production, segment ids embed the game id, making collisions impossible;
+    # here we use a distinct id to guarantee a genuine second DB row.
     db.upsert_segment(Segment(
-        id="seg_shared", game_id="g2", level_number=1,
+        id="seg_g2", game_id="g2", level_number=1,
         start_type="entrance", start_ordinal=0,
         end_type="goal", end_ordinal=0,
-        capture_run_id="new_g2",
+        capture_run_id="base_g2",
     ))
     db.log_event_attempt(EventAttempt(
-        segment_id="seg_shared", episode_id="ep_g2",
+        segment_id="seg_g2", episode_id="ep_g2",
         outcome=AttemptOutcome.SURVIVED, time_ms=2000,
         capture_run_id="new", source=AttemptSource.REFERENCE,
     ))
 
-    result = db.get_segments_for_run("g", "new")
-    assert len(result) == 1
-    assert result[0].id == "seg_shared"
-    assert result[0].game_id == "g"  # the g2 row must not appear
+    # The game_id filter must keep seg_g2 out of the "g" result.
+    result_g = db.get_segments_for_run("g", "new")
+    assert len(result_g) == 1
+    assert result_g[0].id == "seg_g"
+    assert result_g[0].game_id == "g"
+
+    # Sanity-check: seg_g2 IS reachable under its own game — the guard is what excludes it.
+    result_g2 = db.get_segments_for_run("g2", "new")
+    assert len(result_g2) == 1
+    assert result_g2[0].id == "seg_g2"
 
     db.close()
 
