@@ -35,6 +35,13 @@ DEFAULT_PERIOD_SEC = 1.0 / 60.0  # one frame at 60 Hz
 # _read_failing suppresses log spam but the socket never recovers.
 _READ_RECONNECT_FAILURE_THRESHOLD = 60
 
+# How many reconnect cycles to attempt before giving up. Each cycle is
+# _READ_RECONNECT_FAILURE_THRESHOLD failed reads (~1s), so this is ~5s of total
+# unresponsiveness. Past that, RA is gone (process died / NCI socket dead), not
+# a transient hiccup — keep retrying forever and the dashboard wedges silently.
+# So we surface an error and stop the loop instead of reconnect-looping.
+_MAX_RECONNECT_ATTEMPTS = 5
+
 
 @dataclass
 class PollerDeps:
@@ -73,6 +80,9 @@ class Poller:
         # "recovered" entry per fault episode.
         self._read_failing: bool = False
         self._read_fail_count: int = 0
+        # Reconnect cycles attempted since the last successful read. Past
+        # _MAX_RECONNECT_ATTEMPTS the poller gives up (see run()).
+        self._reconnect_attempts: int = 0
         self._conditions_failing: bool = False
         self._detector_failing: bool = False
         self._cold_fill_failing: bool = False
@@ -136,9 +146,20 @@ class Poller:
                     log.warn(logger, "poller read failed", exc=exc)
                     self._read_failing = True
                 if self._read_fail_count >= _READ_RECONNECT_FAILURE_THRESHOLD:
+                    self._reconnect_attempts += 1
+                    if self._reconnect_attempts >= _MAX_RECONNECT_ATTEMPTS:
+                        log.error(
+                            logger,
+                            "poller giving up: RA unresponsive after repeated "
+                            "reconnects; stopping",
+                            reconnect_attempts=self._reconnect_attempts,
+                        )
+                        self._stopped = True
+                        break
                     log.warn(
                         logger, "poller read stuck; reconnecting NCI socket",
                         fail_count=self._read_fail_count,
+                        reconnect_attempt=self._reconnect_attempts,
                     )
                     self._deps.client.close()
                     self._read_fail_count = 0
@@ -148,6 +169,7 @@ class Poller:
                 log.info(logger, "poller read recovered")
                 self._read_failing = False
             self._read_fail_count = 0
+            self._reconnect_attempts = 0
 
             self.poll_count += 1
             ts = int(time.perf_counter() * 1000 - self._start_ms)

@@ -35,6 +35,36 @@ def _snap(**ov) -> MemorySnapshot:
 
 
 @pytest.mark.asyncio
+async def test_poller_gives_up_when_ra_is_dead(monkeypatch):
+    """A permanently failing read must make the poller surface + STOP, not
+    reconnect-loop forever (which silently wedges the dashboard)."""
+    import spinlab.retroarch.poller as poller_mod
+    # Shrink the thresholds so the give-up path is reached in a few iterations.
+    monkeypatch.setattr(poller_mod, "_READ_RECONNECT_FAILURE_THRESHOLD", 2)
+    monkeypatch.setattr(poller_mod, "_MAX_RECONNECT_ATTEMPTS", 2)
+
+    class _DeadClient:
+        def __init__(self) -> None:
+            self.closed = 0
+
+        def close(self) -> None:
+            self.closed += 1
+
+    def _always_fail(_client):
+        raise ConnectionError("RA gone")
+
+    client = _DeadClient()
+    deps = PollerDeps(
+        client=client, read_snapshot=_always_fail, on_event=lambda e: None,
+    )
+    poller = Poller(deps, period_sec=0.0001)
+    # Must terminate on its own; before the fix this hung forever.
+    await asyncio.wait_for(poller.run(), timeout=2.0)
+    assert poller._stopped is True
+    assert client.closed >= 1  # at least one reconnect attempted before giving up
+
+
+@pytest.mark.asyncio
 async def test_poller_emits_death_event():
     """Poller fed a death sequence emits a Death event to the callback."""
     snapshots = iter([
