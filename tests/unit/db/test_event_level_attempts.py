@@ -236,3 +236,46 @@ def test_event_attempt_default_is_cold(db_with_segment: "Database"):
     ))
     rows = db_with_segment.get_segment_event_rows("seg1")
     assert rows[0]["is_hot"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Surgery helpers
+# ---------------------------------------------------------------------------
+
+def test_get_attempt_segment_id(db_with_segment):
+    db = db_with_segment
+    db.log_event_attempt(EventAttempt(
+        segment_id="seg1", episode_id="epX", session_id="sess1",
+        source=AttemptSource.PRACTICE, outcome=AttemptOutcome.SURVIVED,
+        time_ms=12000, created_at=datetime.now(UTC),
+    ))
+    att = db.get_segment_attempts("seg1")[0]
+    assert db.get_attempt_segment_id(att["id"]) == "seg1"
+    assert db.get_attempt_segment_id(999_999) is None
+
+
+def test_invalidate_then_rebuild_updates_model_floor(db_with_segment):
+    import json
+
+    from spinlab.scheduler import Scheduler
+
+    db = db_with_segment
+    # Two clean clears: a fast 9s (the floor) and a slower 14s.
+    for ep, t in [("epFast", 9000), ("epSlow", 14000)]:
+        db.log_event_attempt(EventAttempt(
+            segment_id="seg1", episode_id=ep, session_id="sess1",
+            source=AttemptSource.PRACTICE, outcome=AttemptOutcome.SURVIVED,
+            time_ms=t, created_at=datetime.now(UTC),
+        ))
+    sched = Scheduler(db, "g1")  # 3rd arg is an estimator-NAME string; default is fine
+    sched.update_state_after_episode("seg1")
+    out0 = json.loads(db.load_model_state("seg1", "em_suite_sampler")["output_json"])
+    assert out0["total"]["floor_ms"] == 9000
+
+    # Invalidate the fast episode, rebuild -> floor rises to 14000.
+    fast_id = next(a["id"] for a in db.get_segment_attempts("seg1")
+                   if a["clean_tail_ms"] == 9000)
+    db.set_attempt_invalidated(fast_id, True)
+    sched.update_state_after_episode("seg1")
+    out1 = json.loads(db.load_model_state("seg1", "em_suite_sampler")["output_json"])
+    assert out1["total"]["floor_ms"] == 14000

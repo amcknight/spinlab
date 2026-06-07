@@ -36,6 +36,7 @@ from ..models import (
 
 
 class AttemptRow(TypedDict):
+    id: int  # closing-event id of the episode (stable per-episode identifier)
     segment_id: str
     completed: int
     time_ms: int | None
@@ -402,6 +403,13 @@ class AttemptsMixin:
         ).fetchall()
         return [dict(r) for r in rows]  # type: ignore[return-value]
 
+    def get_attempt_segment_id(self, attempt_id: int) -> str | None:
+        """The segment_id of the event row ``attempt_id``, or None if absent."""
+        row = self.conn.execute(
+            "SELECT segment_id FROM attempts WHERE id = ?", (attempt_id,),
+        ).fetchone()
+        return row["segment_id"] if row is not None else None
+
     def set_attempt_invalidated(self, attempt_id: int, invalidated: bool) -> None:
         """Mark the *episode* containing ``attempt_id`` invalidated.
 
@@ -462,6 +470,7 @@ def _group_episodes_to_attempt_rows(
     for ep in order:
         episode = _roll_up_episode(by_episode[ep], death_penalty_ms)
         out.append({  # type: ignore[typeddict-item]
+            "id": episode["id"],
             "segment_id": episode["segment_id"],
             "completed": episode["completed"],
             "time_ms": episode["time_ms"],

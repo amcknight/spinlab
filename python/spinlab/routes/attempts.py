@@ -5,8 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from spinlab.api_schemas import AttemptPatchRequest, AttemptPatchResponse, SurgeryAttemptsResponse
 from spinlab.db import Database
+from spinlab.session_manager import SessionManager
 
-from ._deps import get_db
+from ._deps import get_db, get_session
 
 router = APIRouter(prefix="/api")
 
@@ -64,9 +65,21 @@ def patch_attempt(
     attempt_id: int,
     body: AttemptPatchRequest,
     db: Database = Depends(get_db),
+    session: SessionManager = Depends(get_session),
 ):
-    """Toggle the invalidation flag on a single attempt."""
+    """Toggle invalidation on an attempt (episode-level) and recalc its segment.
+
+    set_attempt_invalidated flips the whole episode. We then rebuild that
+    segment's model_state so Best/Floor/Room reflect the change immediately
+    (Best/gold is computed live; Expected/Floor live in the model_state cache).
+    """
     if not db.attempt_exists(attempt_id):
         raise HTTPException(status_code=404, detail="attempt not found")
     db.set_attempt_invalidated(attempt_id, body.invalidated)
+    segment_id = db.get_attempt_segment_id(attempt_id)
+    if segment_id is not None and session.game_id is not None:
+        # update_state_after_episode uses only segment_id (not game_id) to
+        # rebuild + save model_state, so the active scheduler can recalc any
+        # of its segments. No active game -> skip; the cache refreshes later.
+        session.get_scheduler().update_state_after_episode(segment_id)
     return {"ok": True, "id": attempt_id, "invalidated": body.invalidated}
