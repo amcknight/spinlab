@@ -12,6 +12,7 @@ from spinlab import log
 
 from .capture import ColdFillController, FillGapController, ReferenceController
 from .errors import (
+    ActionError,
     AlreadyRunningError,
     DraftPendingError,
     MissingSaveStatesError,
@@ -412,14 +413,31 @@ class SessionManager:
         await self._notify_sse()
 
     async def _handle_controller_command(self, event: ControllerCommandEvent) -> None:
-        if event.command != "pause":
+        # Per-command dispatch; each command carries its own mode rule. The
+        # input layer (detector) is mode-agnostic — it just names the command.
+        if event.command == "pause":
+            # Practice-scoped: pause only applies to a practice attempt.
+            if self.mode == Mode.PRACTICE and self.practice_session:
+                await self.practice_session.toggle_pause()
+        elif event.command == "toggle_practice":
+            await self._toggle_practice_from_menu()
+        else:
             logger.warning("unknown controller command: %r", event.command)
             return
-        # Practice-scoped: the input layer is mode-agnostic but pause only
-        # applies to a practice attempt (spec — practice mode only for now).
-        if self.mode == Mode.PRACTICE and self.practice_session:
-            await self.practice_session.toggle_pause()
         await self._notify_sse()
+
+    async def _toggle_practice_from_menu(self) -> None:
+        """R+Y: start practice from IDLE, stop it from PRACTICE; ignore in any
+        other mode. Swallows ActionError (pending draft / not connected /
+        snapshot failure) — a controller chord must never crash the event loop
+        or surface a 500; it just no-ops + logs."""
+        try:
+            if self.mode == Mode.IDLE:
+                await self.start_practice()
+            elif self.mode == Mode.PRACTICE:
+                await self.stop_practice()
+        except ActionError as exc:
+            logger.info("toggle_practice ignored: %s", exc.detail)
 
 
     async def _apply_result(self, result: ActionResult) -> ActionResult:

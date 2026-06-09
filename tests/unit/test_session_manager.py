@@ -846,3 +846,52 @@ class TestRMenuRouting:
         sm.practice_session = AsyncMock()
         await sm.route_event(ControllerCommandEvent(command="pause"))
         sm.practice_session.toggle_pause.assert_not_awaited()
+
+
+class TestTogglePracticeCommand:
+    @pytest.mark.asyncio
+    async def test_toggle_from_idle_starts_practice(self, db, emu):
+        from unittest.mock import AsyncMock
+        from spinlab.protocol import ControllerCommandEvent
+        sm = make_sm(db, emu)
+        sm.mode = Mode.IDLE
+        sm.start_practice = AsyncMock()
+        sm.stop_practice = AsyncMock()
+        await sm.route_event(ControllerCommandEvent(command="toggle_practice"))
+        sm.start_practice.assert_awaited_once()
+        sm.stop_practice.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_toggle_from_practice_stops_practice(self, db, emu):
+        from unittest.mock import AsyncMock
+        from spinlab.protocol import ControllerCommandEvent
+        sm = make_sm(db, emu)
+        sm.mode = Mode.PRACTICE
+        sm.start_practice = AsyncMock()
+        sm.stop_practice = AsyncMock()
+        await sm.route_event(ControllerCommandEvent(command="toggle_practice"))
+        sm.stop_practice.assert_awaited_once()
+        sm.start_practice.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_toggle_ignored_outside_idle_practice(self, db, emu):
+        from unittest.mock import AsyncMock
+        from spinlab.protocol import ControllerCommandEvent
+        sm = make_sm(db, emu)
+        sm.mode = Mode.REFERENCE
+        sm.start_practice = AsyncMock()
+        sm.stop_practice = AsyncMock()
+        await sm.route_event(ControllerCommandEvent(command="toggle_practice"))
+        sm.start_practice.assert_not_awaited()
+        sm.stop_practice.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_toggle_swallows_action_error(self, db, emu):
+        from unittest.mock import AsyncMock
+        from spinlab.errors import DraftPendingError
+        from spinlab.protocol import ControllerCommandEvent
+        sm = make_sm(db, emu)
+        sm.mode = Mode.IDLE
+        sm.start_practice = AsyncMock(side_effect=DraftPendingError())
+        await sm.route_event(ControllerCommandEvent(command="toggle_practice"))  # must not raise
+        sm.start_practice.assert_awaited_once()
