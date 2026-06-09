@@ -427,3 +427,53 @@ def test_practice_session_uses_injected_scheduler(tmp_path):
         scheduler=scheduler,
     )
     assert ps.scheduler is scheduler  # same instance — no construction
+
+
+class TestTogglePause:
+    @pytest.mark.asyncio
+    async def test_pause_disarms_then_resume_reloads_same_segment(self, practice_db):
+        from spinlab.protocol import PracticeLoadCmd, PracticePauseCmd
+        emu = AsyncMock()
+        emu.is_connected = True
+        emu.send_command = AsyncMock()
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g",
+                             scheduler=Scheduler(practice_db, "g"))
+        ps.is_running = True
+        load_cmd = PracticeLoadCmd(id="seg1", state_path="s.state", end_type="goal")
+        ps._current_state_path = "s.state"
+        ps._current_load_cmd = load_cmd
+
+        await ps.toggle_pause()
+        assert ps.paused is True
+        assert ps.paused_at_epoch is not None
+        sent = [c.args[0] for c in emu.send_command.call_args_list]
+        assert any(isinstance(c, PracticePauseCmd) for c in sent)
+
+        await ps.toggle_pause()
+        assert ps.paused is False
+        assert ps.paused_at_epoch is None
+        assert ps.pause_offset_sec >= 0.0
+        sent = [c.args[0] for c in emu.send_command.call_args_list]
+        assert sent[-1] is load_cmd
+
+    @pytest.mark.asyncio
+    async def test_pause_noop_when_not_in_attempt(self, practice_db):
+        emu = AsyncMock(); emu.is_connected = True; emu.send_command = AsyncMock()
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g",
+                             scheduler=Scheduler(practice_db, "g"))
+        ps.is_running = True
+        ps._current_state_path = None
+        await ps.toggle_pause()
+        assert ps.paused is False
+        emu.send_command.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handle_death_ignored_while_paused(self, practice_db):
+        emu = AsyncMock(); emu.is_connected = True
+        emu.load_state = AsyncMock(); emu.send_command = AsyncMock()
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g",
+                             scheduler=Scheduler(practice_db, "g"))
+        ps._current_state_path = "s.state"
+        ps.paused = True
+        await ps.handle_death()
+        emu.load_state.assert_not_called()

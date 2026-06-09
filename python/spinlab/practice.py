@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Callable
@@ -22,6 +23,7 @@ from .protocol import (
     AttemptResultEvent,
     EventAttemptEmission,
     PracticeLoadCmd,
+    PracticePauseCmd,
     PracticeStopCmd,
 )
 from .scheduler import Scheduler
@@ -102,6 +104,18 @@ class PracticeSession:
         # arriving between result and tear-down doesn't cause a spurious
         # post-attempt reload.
         self._current_state_path: str | None = None
+
+        # --- Practice Pause (R+X) state -------------------------------------
+        # paused: True while the session clock is frozen and the in-flight
+        # attempt has been dropped (backend timing disarmed). paused_at_epoch
+        # marks the current pause's start (wall-clock epoch seconds);
+        # pause_offset_sec accumulates completed paused spans. The route bar
+        # subtracts both to freeze elapsed + savings/hr. _current_load_cmd is
+        # the segment's PracticeLoadCmd, re-sent on resume to reload + re-arm.
+        self.paused: bool = False
+        self.paused_at_epoch: float | None = None
+        self.pause_offset_sec: float = 0.0
+        self._current_load_cmd: PracticeLoadCmd | None = None
 
     def _snapshot_expected_times(
         self, estimator_name: str
@@ -206,6 +220,9 @@ class PracticeSession:
 
         No-op when not currently armed (between attempts).
         """
+        if self.paused:
+            logger.info("practice: death ignored — paused")
+            return
         path = self._current_state_path
         if not path:
             logger.info(
@@ -227,6 +244,34 @@ class PracticeSession:
         a regular Death.
         """
         await self.handle_death()
+
+    async def toggle_pause(self) -> None:
+        """R-menu pause toggle. Pause drops the in-flight attempt and freezes
+        the session clock; resume reloads the same segment fresh.
+
+        Only meaningful mid-attempt: _current_state_path is non-None exactly
+        while an attempt is armed (set in run_one, cleared in receive_result).
+        """
+        if not self.is_running or self._current_state_path is None:
+            logger.info("practice: pause ignored — no attempt in flight")
+            return
+        if not self.paused:
+            # PLAYING -> PAUSE: disarm backend timing (drops the attempt), freeze
+            # the clock. The game keeps running; handle_death no-ops while paused.
+            self.paused = True
+            self.paused_at_epoch = time.time()
+            await self.emu.send_command(PracticePauseCmd())
+            logger.info("practice: paused (segment=%s)", self.current_segment_id)
+        else:
+            # PAUSED -> RESUME: fold the paused span into the offset, then reload
+            # the SAME segment fresh (re-arms a new attempt via _on_practice_load).
+            if self.paused_at_epoch is not None:
+                self.pause_offset_sec += time.time() - self.paused_at_epoch
+            self.paused = False
+            self.paused_at_epoch = None
+            if self._current_load_cmd is not None:
+                await self.emu.send_command(self._current_load_cmd)
+            logger.info("practice: resumed (segment=%s)", self.current_segment_id)
 
     async def run_one(self) -> bool:
         """Run one pick-send-receive cycle. Returns False if no segments available."""
@@ -266,7 +311,7 @@ class PracticeSession:
         logger.info("practice: loading segment=%s label=%r state=%s",
                      cmd.id, label, cmd.state_path)
 
-        await self.emu.send_command(PracticeLoadCmd(
+        self._current_load_cmd = PracticeLoadCmd(
             id=cmd.id,
             state_path=cmd.state_path,
             description=cmd.description,
@@ -274,7 +319,8 @@ class PracticeSession:
             expected_time_ms=cmd.expected_time_ms,
             auto_advance_delay_ms=cmd.auto_advance_delay_ms,
             death_penalty_ms=cmd.death_penalty_ms,
-        ))
+        )
+        await self.emu.send_command(self._current_load_cmd)
 
         # The segment is now the current one; broadcast so the dashboard's
         # live practice card renders before any attempt result lands.
