@@ -8,6 +8,7 @@ def test_read_snapshot_maps_each_address_to_its_field(fake_nci_server):
     # Pick a unique non-zero byte per address so a wrong address->field mapping
     # would surface as a wrong field value.
     addr_to_value = {
+        0x0017: 0xCC,  # controller_held
         0x0071: 0x55,  # player_anim
         0x0100: 0x11,  # game_mode
         0x010B: 0x33,  # room_num
@@ -21,7 +22,7 @@ def test_read_snapshot_maps_each_address_to_its_field(fake_nci_server):
         0x1B403: 0xBB, # cp_entrance
     }
 
-    # read_snapshot now clusters reads into 6 contiguous ranges; build a reply
+    # read_snapshot now clusters reads into 7 contiguous ranges; build a reply
     # for each cluster, with each address's sentinel byte at its offset.
     def _cluster_reply(start: int, length: int) -> str:
         buf = bytearray(length)
@@ -32,6 +33,7 @@ def test_read_snapshot_maps_each_address_to_its_field(fake_nci_server):
         return f"READ_CORE_RAM {start:x} {hex_bytes}\n"
 
     clusters = [
+        (0x0017, 1),                    # controller_held
         (0x0071, 0x010B - 0x0071 + 1),  # player_anim, game_mode, room_num
         (0x0906, 0x0DD5 - 0x0906 + 1),  # fanfare, exit_mode
         (0x13BF, 0x13CE - 0x13BF + 1),  # level_num, boss_defeat, midway
@@ -59,3 +61,4 @@ def test_read_snapshot_maps_each_address_to_its_field(fake_nci_server):
     assert snap.boss_defeat == 0x99
     assert snap.midway == 0xAA
     assert snap.cp_entrance == 0xBB
+    assert snap.controller_held == 0xCC

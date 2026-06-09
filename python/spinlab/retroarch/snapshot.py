@@ -26,20 +26,29 @@ class MemorySnapshot:
     boss_defeat: int
     midway: int
     cp_entrance: int
+    # Controller 1 held buttons, byte 2 (A X L R). Read for the R-menu layer.
+    # Defaulted because transition detection never consults it — existing
+    # snapshot builders legitimately omit it; only read_snapshot + the menu
+    # detector set it.
+    controller_held: int = 0
 
 
 def read_snapshot(client: NCIClient) -> MemorySnapshot:
-    """Read all 11 SMW state bytes via NCI and return a snapshot.
+    """Read all 12 SMW state bytes via NCI and return a snapshot.
 
-    Clusters the 11 addresses into 6 contiguous-range READ_CORE_RAM calls
-    instead of 11 individual reads. Each NCI read is a UDP round-trip, so
-    cutting from 11 to 6 round-trips per snapshot is a measurable
+    Clusters the 12 addresses into 7 contiguous-range READ_CORE_RAM calls
+    instead of 12 individual reads. Each NCI read is a UDP round-trip, so
+    cutting from 12 to 7 round-trips per snapshot is a measurable
     speedup for the 60Hz production poller and a ~30% speedup for each
     frame of the test harness's poke loop.
 
     Cluster boundaries are picked so each reply stays well under the 4096-byte
     UDP receive buffer (each WRAM byte serializes to ~3 chars of hex+space in
     RA's text protocol).
+
+    Note: $17 (controller_held) is a lone read far below the low cluster
+    ($0071+); including it in the low cluster would pull in ~90 bytes of
+    unneeded WRAM between $17 and $0071.
     """
     # $0071..$010B: player_anim, game_mode, room_num  (155 bytes)
     c_low = client.read_ram(a.ADDR_PLAYER_ANIM, a.ADDR_ROOM_NUM - a.ADDR_PLAYER_ANIM + 1)
@@ -47,8 +56,9 @@ def read_snapshot(client: NCIClient) -> MemorySnapshot:
     c_mid = client.read_ram(a.ADDR_FANFARE, a.ADDR_EXIT_MODE - a.ADDR_FANFARE + 1)
     # $13BF..$13CE: level_num, boss_defeat, midway  (16 bytes)
     c_lv  = client.read_ram(a.ADDR_LEVEL_NUM, a.ADDR_MIDWAY - a.ADDR_LEVEL_NUM + 1)
-    # Three lone bytes far enough apart that pulling the in-between ranges
+    # Four lone bytes far enough apart that pulling the in-between ranges
     # would cost more than they save.
+    controller_held = client.read_ram(a.ADDR_CONTROLLER_HELD, 1)[0]
     level_start = client.read_ram(a.ADDR_LEVEL_START, 1)[0]
     io_port     = client.read_ram(a.ADDR_IO, 1)[0]
     cp_entrance = client.read_ram(a.ADDR_CP_ENTRANCE, 1)[0]
@@ -65,4 +75,5 @@ def read_snapshot(client: NCIClient) -> MemorySnapshot:
         level_start=level_start,
         io_port    =io_port,
         cp_entrance=cp_entrance,
+        controller_held=controller_held,
     )

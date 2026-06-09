@@ -13,6 +13,12 @@ ADDR_LEVEL_NUM = 0x13BF  # current level number
 ADDR_ROOM_NUM = 0x010B  # current room/sublevel
 ADDR_LEVEL_START = 0x1935  # 0->1 when player appears in level (entrance edge)
 ADDR_PLAYER_ANIM = 0x0071  # player animation; 9 = death
+# Controller 1 held buttons, byte 2 (A X L R - - - -). kaizosplits buttonsHeld2.
+# Read for the R-menu command layer: R (0x10) arms the menu, X (0x40) is a
+# command button. The newly-pressed twin ($18, buttonsPress2) is intentionally
+# NOT read — the menu detector edge-detects the held byte instead (see
+# retroarch/menu_detector.py).
+ADDR_CONTROLLER_HELD = 0x17
 
 # Exit / progression.
 ADDR_EXIT_MODE = 0x0DD5  # 0 = not exiting; non-zero = exiting level
