@@ -21,7 +21,10 @@ from spinlab.condition_registry import ConditionRegistry
 from spinlab.protocol import (
     ColdFillLoadCmd,
     FillGapLoadCmd,
+    HyperPlayLoadCmd,
+    HyperPlayStopCmd,
     PracticeLoadCmd,
+    PracticePauseCmd,
     PracticeStopCmd,
     ReferenceStartCmd,
     ReferenceStopCmd,
@@ -30,8 +33,6 @@ from spinlab.protocol import (
     ResetCmd,
     RomInfoEvent,
     SetConditionsCmd,
-    HyperPlayLoadCmd,
-    HyperPlayStopCmd,
 )
 from spinlab.retroarch.movies import MovieController
 from spinlab.retroarch.raclient import (
@@ -109,6 +110,7 @@ class RetroArchOrchestrator:
         self._dispatch: dict[type, Callable] = {
             PracticeLoadCmd: self._on_practice_load,
             PracticeStopCmd: self._on_practice_stop,
+            PracticePauseCmd: self._on_practice_pause,
             HyperPlayLoadCmd: self._on_hyper_play_load,
             HyperPlayStopCmd: self._on_hyper_play_stop,
             ColdFillLoadCmd: self._on_cold_fill_load,
@@ -248,6 +250,11 @@ class RetroArchOrchestrator:
         )
 
     async def _on_practice_stop(self, cmd: PracticeStopCmd) -> None:
+        self._practice_timing.disarm()
+
+    async def _on_practice_pause(self, cmd: PracticePauseCmd) -> None:
+        # Pause drops the in-flight attempt by disarming timing; resume re-arms
+        # via a fresh PracticeLoadCmd from PracticeSession.toggle_pause.
         self._practice_timing.disarm()
 
     async def _on_hyper_play_load(self, cmd: HyperPlayLoadCmd) -> None:
