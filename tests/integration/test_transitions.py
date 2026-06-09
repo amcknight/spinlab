@@ -144,3 +144,13 @@ async def test_r_menu_toggle_practice_command(run_scenario):
     cmds = [e for e in events if isinstance(e, ControllerCommandEvent)]
     assert len(cmds) == 1, f"expected 1 command, got {cmds}"
     assert cmds[0].command == "toggle_practice"
+
+
+async def test_r_menu_next_segment_command(run_scenario):
+    """Hold R, tap Right on real RA -> ControllerCommandEvent('next_segment').
+    Confirms the $15 d-pad bits read + dispatch on real RA."""
+    from spinlab.protocol import ControllerCommandEvent
+    events = await run_scenario("menu_nav.poke")
+    cmds = [e for e in events if isinstance(e, ControllerCommandEvent)]
+    assert len(cmds) == 1, f"expected 1 command, got {cmds}"
+    assert cmds[0].command == "next_segment"
