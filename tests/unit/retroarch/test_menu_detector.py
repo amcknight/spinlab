@@ -3,16 +3,19 @@ from spinlab.protocol import ControllerCommandEvent, ControllerMenuArmedEvent
 from spinlab.retroarch.menu_detector import (
     BUTTON_R,
     BUTTON_X,
+    HELD1,
+    HELD2,
     ControllerMenuDetector,
 )
 from spinlab.retroarch.snapshot import MemorySnapshot
 
 
-def _snap(controller_held: int = 0) -> MemorySnapshot:
+def _snap(controller_held: int = 0, controller_held_1: int = 0) -> MemorySnapshot:
     return MemorySnapshot(
         game_mode=0, level_num=0, room_num=0, level_start=0, player_anim=0,
         exit_mode=0, io_port=0, fanfare=0, boss_defeat=0, midway=0,
         cp_entrance=0, controller_held=controller_held,
+        controller_held_1=controller_held_1,
     )
 
 
@@ -100,3 +103,38 @@ def test_reopen_dispatches_again():
     ])
     cmds = _cmds(events)
     assert len(cmds) == 2 and all(c.command == "pause" for c in cmds)
+
+
+# A registry with one command on the $15 (HELD1) byte, to prove the (byte,bit)
+# mechanism reads the second byte. Mirrors how Phase 2 will register Y commands.
+_HELD1_REGISTRY = {(HELD1, 0x40): "toggle_test"}
+
+
+def test_command_on_held1_byte_dispatches():
+    """A command bound to a $15 bit fires when that bit is pressed after R."""
+    d = ControllerMenuDetector(commands=_HELD1_REGISTRY)
+    events = _run(d, [
+        _snap(controller_held=BUTTON_R),                          # R down -> menu open
+        _snap(controller_held=BUTTON_R, controller_held_1=0x40),  # Y pressed after
+    ])
+    cmds = _cmds(events)
+    assert len(cmds) == 1 and cmds[0].command == "toggle_test"
+
+
+def test_held1_command_already_held_at_open_is_seeded():
+    """Y already held when R goes down does NOT fire (seed), same as X."""
+    d = ControllerMenuDetector(commands=_HELD1_REGISTRY)
+    events = _run(d, [
+        _snap(controller_held_1=0x40),                            # Y held, no R
+        _snap(controller_held=BUTTON_R, controller_held_1=0x40),  # R down, Y already held
+    ])
+    assert _cmds(events) == []
+
+
+def test_pause_still_dispatches_with_default_registry():
+    """The default registry (pause on $17) is unchanged by the generalization."""
+    d = ControllerMenuDetector()
+    events = _run(d, [_snap(controller_held=BUTTON_R),
+                      _snap(controller_held=BUTTON_R | BUTTON_X)])
+    cmds = _cmds(events)
+    assert len(cmds) == 1 and cmds[0].command == "pause"
