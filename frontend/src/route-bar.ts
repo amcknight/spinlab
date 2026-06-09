@@ -65,7 +65,21 @@ export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
     : "";
   const sessionStartedAt = rs.session_started_at ?? null;
   const sessionActive = sessionStartedAt != null;
-  const elapsedSec = sessionActive ? Math.max(0, data.nowSeconds - sessionStartedAt) : 0;
+  // Freeze the clock while paused: pin "now" to the pause-start and subtract
+  // the accumulated paused span so elapsed (and savings/hr, which divides by
+  // it) stop advancing. Resume clears session_paused_at and grows the offset.
+  const pauseOffset = rs.session_pause_offset_sec ?? 0;
+  const pausedAt = rs.session_paused_at ?? null;
+  const effectiveNow = pausedAt != null ? pausedAt : data.nowSeconds;
+  const elapsedSec = sessionActive
+    ? Math.max(0, effectiveNow - sessionStartedAt - pauseOffset)
+    : 0;
+  const pausedBadge = pausedAt != null
+    ? `<span class="rb-paused">PAUSED</span>`
+    : "";
+  const menuHint = rs.menu_armed
+    ? `<div class="rb-menu-hint">R menu — X: Pause</div>`
+    : "";
 
   // Tint Saved + rate green when the session is ahead (saved_ms > 0), red when
   // behind (< 0), neutral otherwise. Lower run time = saved time = improvement.
@@ -106,8 +120,9 @@ export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
   host.innerHTML = `
     <div class="rb-root">
       <div class="rb-left">
-        <div class="rb-title">${escapeHtml(data.title)}${frozenBadge}</div>
+        <div class="rb-title">${escapeHtml(data.title)}${frozenBadge}${pausedBadge}</div>
         ${savedBlock}
+        ${menuHint}
         ${skippedBlock}
       </div>
       <div class="rb-stats">${stacks.join("")}</div>

@@ -995,6 +995,8 @@ h3 {
 .rb-saved-good { color: var(--green); }
 .rb-saved-bad { color: var(--red); }
 .rb-skipped { font-size: 11px; }
+.rb-paused { color: var(--orange); margin-left: 0.5rem; font-weight: 600; }
+.rb-menu-hint { font-size: 0.85em; margin-top: 0.15rem; color: var(--text-dim); }
 .rb-stats { display: flex; gap: 18px; }
 
 /* Segment summary */

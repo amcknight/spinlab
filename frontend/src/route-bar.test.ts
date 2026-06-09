@@ -18,6 +18,9 @@ const SESSION: RouteBarData = {
     run_series: [], baseline_exp_run_ms: null, floor_total_ms: null,
     floor_series: [],
     session_ended_at: null,
+    menu_armed: false,
+    session_paused_at: null,
+    session_pause_offset_sec: 0,
   },
   nowSeconds: NOW_S,
 };
@@ -117,5 +120,52 @@ describe("renderRouteBar", () => {
       exp_run_diff_ms: null, exp_deaths_diff: null, floor_improvement_ms: null,
     } });
     expect(host.querySelector(".rb-saved")).toBeNull();
+  });
+});
+
+describe("route bar pause + menu", () => {
+  function dataWith(overrides: Partial<RouteBarData["routeSummary"]>, nowSeconds = NOW_S): RouteBarData {
+    return { ...SESSION, nowSeconds, routeSummary: { ...SESSION.routeSummary, ...overrides } };
+  }
+
+  it("freezes elapsed at the pause-start while paused", () => {
+    document.body.innerHTML = `<div id="h"></div>`;
+    const host = document.getElementById("h")!;
+    // started_at = NOW_S - 3600 (1h ago); paused_at = NOW_S - 100 => frozen elapsed 100s,
+    // regardless of how far nowSeconds advances.
+    renderRouteBar(host, dataWith(
+      { session_paused_at: NOW_S - 100 },
+      NOW_S + 9999,  // clock advanced; must NOT affect the frozen elapsed
+    ));
+    expect(host.querySelector(".rb-paused")).not.toBeNull();
+    // elapsed = (NOW_S - 100) - (NOW_S - 3600) - 0 = 3500s = 0:58:20
+    // Wait: started_at = NOW_S - 3600, paused_at = NOW_S - 100
+    // effectiveNow = paused_at = NOW_S - 100
+    // elapsedSec = (NOW_S - 100) - (NOW_S - 3600) - 0 = 3500s = 58:20 => "0:58:20"
+    expect(host.querySelector(".rb-saved")!.textContent).toMatch(/0:58:20/);
+  });
+
+  it("subtracts the pause offset when running", () => {
+    document.body.innerHTML = `<div id="h"></div>`;
+    const host = document.getElementById("h")!;
+    // elapsed = nowSeconds - started_at - offset = (NOW_S) - (NOW_S - 3600) - 600 = 3000s = 50:00
+    renderRouteBar(host, dataWith({ session_pause_offset_sec: 600 }));
+    expect(host.querySelector(".rb-paused")).toBeNull();
+    expect(host.querySelector(".rb-saved")!.textContent).toMatch(/0:50:00/);
+  });
+
+  it("shows the R-menu hint when armed", () => {
+    document.body.innerHTML = `<div id="h"></div>`;
+    const host = document.getElementById("h")!;
+    renderRouteBar(host, dataWith({ menu_armed: true }));
+    expect(host.querySelector(".rb-menu-hint")).not.toBeNull();
+  });
+
+  it("no hint and no badge in the normal active case", () => {
+    document.body.innerHTML = `<div id="h"></div>`;
+    const host = document.getElementById("h")!;
+    renderRouteBar(host, dataWith({}));
+    expect(host.querySelector(".rb-menu-hint")).toBeNull();
+    expect(host.querySelector(".rb-paused")).toBeNull();
   });
 });
