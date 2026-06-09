@@ -1,9 +1,15 @@
 """ControllerMenuDetector — the R-menu command layer.
 
-A poller-level state machine over the per-frame held-button byte. Holding R
-(controller-1 $17, bit 0x10) for ARM_THRESHOLD_FRAMES consecutive frames arms
-a command menu. While armed, the rising edge of a command button dispatches
-the mapped command. Releasing R disarms.
+A poller-level state machine over the per-frame held-button byte. R (controller-1
+$17, bit 0x10) is a held MODIFIER: while R is down the command menu is open, and
+pressing a command button dispatches the mapped command. Releasing R closes it.
+
+R is a pure modifier with no hold-time threshold — the menu opens the instant R
+is held, so the gesture feels immediate. The only subtlety is "press X *after*
+R": a command button that was already held when R went down does NOT fire (it's
+seeded as already-seen). This keeps R+X precise and prevents an accidental
+command when a gameplay button (e.g. X = run) is held and R is tapped — you
+must press the command button fresh while R is held.
 
 Single responsibility: it knows nothing about practice/pause — it only turns
 controller input into ControllerMenuArmedEvent / ControllerCommandEvent, which
@@ -16,14 +22,8 @@ from spinlab.protocol import ControllerCommandEvent, ControllerMenuArmedEvent
 from spinlab.retroarch.snapshot import MemorySnapshot
 
 # $17 bit layout is A X L R - - - - (kaizosplits buttonsHeld2).
-BUTTON_R = 0x10  # bit 4 — arms the menu
+BUTTON_R = 0x10  # bit 4 — opens the menu (held modifier)
 BUTTON_X = 0x40  # bit 6 — first command button
-
-# Frames of continuous R-hold before the menu arms. 30 frames ~= 0.5s at 60Hz:
-# long enough that an in-play look-ahead R tap never reaches it (so the menu
-# can't arm mid-platforming), short enough to feel responsive on a deliberate
-# hold. Lives here as a named constant per the no-magic-numbers guideline.
-ARM_THRESHOLD_FRAMES = 30
 
 # Command-button bit -> command name. Extend by adding a key. The OR of all
 # keys is the mask we track for rising-edge detection.
@@ -39,15 +39,13 @@ class ControllerMenuDetector:
     """Per-frame R-menu emitter. Stateful but pure (no IO)."""
 
     def __init__(self) -> None:
-        self._r_held_frames = 0
-        self._armed = False
-        # Command-button bits seen held last frame (only meaningful while
-        # armed) — used to fire on the rising edge instead of every frame.
+        self._menu_open = False  # True while R is held
+        # Command-button bits seen held last frame (only meaningful while the
+        # menu is open) — used to fire on the rising edge instead of every frame.
         self._prev_command_bits = 0
 
     def reset(self) -> None:
-        self._r_held_frames = 0
-        self._armed = False
+        self._menu_open = False
         self._prev_command_bits = 0
 
     def step(self, snap: MemorySnapshot) -> list[_MenuEvent]:
@@ -55,24 +53,20 @@ class ControllerMenuDetector:
         held = snap.controller_held
         r_down = bool(held & BUTTON_R)
 
-        self._r_held_frames = self._r_held_frames + 1 if r_down else 0
-
-        # ARM on reaching the threshold; DISARM the moment R is released.
-        if self._r_held_frames >= ARM_THRESHOLD_FRAMES and not self._armed:
-            self._armed = True
-            # Seed prev-bits so a command button already held at the arm frame
-            # is NOT a rising edge — the menu is a deliberate two-step gesture
-            # (hold R to arm + show the hint, THEN press the command). Only a
-            # fresh press after arming dispatches.
+        if r_down and not self._menu_open:
+            # R just went down — open the menu. Seed prev-bits with whatever
+            # command buttons are ALREADY held so they don't count as a press;
+            # only a fresh press while R is held dispatches ("X after R").
+            self._menu_open = True
             self._prev_command_bits = held & COMMAND_MASK
             events.append(ControllerMenuArmedEvent(armed=True))
-        elif not r_down and self._armed:
-            self._armed = False
+        elif not r_down and self._menu_open:
+            self._menu_open = False
             self._prev_command_bits = 0
             events.append(ControllerMenuArmedEvent(armed=False))
 
-        # DISPATCH: while armed, each command button fires on its rising edge.
-        if self._armed:
+        # DISPATCH: while open, each command button fires on its rising edge.
+        if self._menu_open:
             for bit, command in COMMANDS.items():
                 if (held & bit) and not (self._prev_command_bits & bit):
                     events.append(ControllerCommandEvent(command=command))

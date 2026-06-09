@@ -1,7 +1,6 @@
-"""ControllerMenuDetector — R arms a command menu; X dispatches pause."""
+"""ControllerMenuDetector — R is a held modifier; X pressed after R = pause."""
 from spinlab.protocol import ControllerCommandEvent, ControllerMenuArmedEvent
 from spinlab.retroarch.menu_detector import (
-    ARM_THRESHOLD_FRAMES,
     BUTTON_R,
     BUTTON_X,
     ControllerMenuDetector,
@@ -24,87 +23,80 @@ def _run(detector, snaps):
     return out
 
 
-def test_r_held_below_threshold_does_not_arm():
+def _cmds(events):
+    return [e for e in events if isinstance(e, ControllerCommandEvent)]
+
+
+def _armed(events):
+    return [e.armed for e in events if isinstance(e, ControllerMenuArmedEvent)]
+
+
+def test_r_opens_menu_immediately():
     d = ControllerMenuDetector()
-    events = _run(d, [_snap(BUTTON_R)] * (ARM_THRESHOLD_FRAMES - 1))
-    assert events == []
+    events = _run(d, [_snap(BUTTON_R)])
+    assert _armed(events) == [True]
 
 
-def test_r_held_past_threshold_arms():
+def test_x_pressed_after_r_pauses():
     d = ControllerMenuDetector()
-    events = _run(d, [_snap(BUTTON_R)] * ARM_THRESHOLD_FRAMES)
-    armed = [e for e in events if isinstance(e, ControllerMenuArmedEvent)]
-    assert len(armed) == 1 and armed[0].armed is True
+    events = _run(d, [_snap(BUTTON_R), _snap(BUTTON_R | BUTTON_X)])
+    cmds = _cmds(events)
+    assert len(cmds) == 1 and cmds[0].command == "pause"
 
 
-def test_armed_then_x_press_emits_pause():
+def test_x_already_held_when_r_pressed_does_not_fire():
+    """Holding X (e.g. run) and then tapping R must NOT pause — X wasn't pressed
+    *after* R. It's seeded as already-held."""
     d = ControllerMenuDetector()
-    snaps = [_snap(BUTTON_R)] * ARM_THRESHOLD_FRAMES + [_snap(BUTTON_R | BUTTON_X)]
-    events = _run(d, snaps)
-    cmds = [e for e in events if isinstance(e, ControllerCommandEvent)]
+    events = _run(d, [_snap(BUTTON_X), _snap(BUTTON_R | BUTTON_X)])
+    assert _cmds(events) == []
+
+
+def test_simultaneous_rx_does_not_fire_but_fresh_x_does():
+    """R+X arriving on the same frame is seeded (no fire); releasing X and
+    pressing it again while R is held fires once."""
+    d = ControllerMenuDetector()
+    events = _run(d, [
+        _snap(BUTTON_R | BUTTON_X),  # same-frame chord -> seeded, no fire
+        _snap(BUTTON_R),             # X released
+        _snap(BUTTON_R | BUTTON_X),  # fresh X press -> fire
+    ])
+    cmds = _cmds(events)
     assert len(cmds) == 1 and cmds[0].command == "pause"
 
 
 def test_x_does_not_refire_while_held():
     d = ControllerMenuDetector()
-    snaps = (
-        [_snap(BUTTON_R)] * ARM_THRESHOLD_FRAMES
-        + [_snap(BUTTON_R | BUTTON_X)] * 5
-    )
-    events = _run(d, snaps)
-    cmds = [e for e in events if isinstance(e, ControllerCommandEvent)]
-    assert len(cmds) == 1
+    events = _run(d, [_snap(BUTTON_R)] + [_snap(BUTTON_R | BUTTON_X)] * 5)
+    assert len(_cmds(events)) == 1
 
 
-def test_release_r_disarms():
+def test_release_r_closes_menu():
     d = ControllerMenuDetector()
-    snaps = [_snap(BUTTON_R)] * ARM_THRESHOLD_FRAMES + [_snap(0)]
-    events = _run(d, snaps)
-    armed = [e for e in events if isinstance(e, ControllerMenuArmedEvent)]
-    assert [e.armed for e in armed] == [True, False]
+    events = _run(d, [_snap(BUTTON_R), _snap(0)])
+    assert _armed(events) == [True, False]
 
 
 def test_lone_x_without_r_does_nothing():
     d = ControllerMenuDetector()
-    events = _run(d, [_snap(BUTTON_X)] * ARM_THRESHOLD_FRAMES)
+    events = _run(d, [_snap(BUTTON_X), _snap(BUTTON_X)])
     assert events == []
 
 
-def test_rx_chord_at_arm_does_not_fire_until_fresh_press():
-    """R+X held together: arms but does NOT dispatch on the arm frame.
-    Pause fires only after X is released and pressed again while armed."""
+def test_release_r_while_x_held_closes_without_dispatch():
     d = ControllerMenuDetector()
-    # R+X held continuously through and past the arm threshold.
-    chord = [_snap(BUTTON_R | BUTTON_X)] * (ARM_THRESHOLD_FRAMES + 3)
-    events = _run(d, chord)
-    assert [e for e in events if isinstance(e, ControllerCommandEvent)] == []
-    # Release X (keep R held), then press X again -> one fresh dispatch.
-    events = _run(d, [_snap(BUTTON_R), _snap(BUTTON_R | BUTTON_X)])
-    cmds = [e for e in events if isinstance(e, ControllerCommandEvent)]
-    assert len(cmds) == 1 and cmds[0].command == "pause"
+    events = _run(d, [_snap(BUTTON_R), _snap(BUTTON_X)])  # R down, then R up / X held
+    assert _cmds(events) == []
+    assert _armed(events) == [True, False]
 
 
-def test_release_r_while_x_held_disarms_without_dispatch():
-    """Letting go of R while X is still down disarms cleanly — no command."""
+def test_reopen_dispatches_again():
+    """open -> X (fire) -> close -> reopen -> X (fire) works twice."""
     d = ControllerMenuDetector()
-    snaps = (
-        [_snap(BUTTON_R)] * ARM_THRESHOLD_FRAMES  # arm with R only
-        + [_snap(BUTTON_X)]                        # R released, X still held
-    )
-    events = _run(d, snaps)
-    assert [e for e in events if isinstance(e, ControllerCommandEvent)] == []
-    armed = [e for e in events if isinstance(e, ControllerMenuArmedEvent)]
-    assert [e.armed for e in armed] == [True, False]
-
-
-def test_disarm_then_rearm_dispatches_again():
-    """A full arm -> dispatch -> disarm -> re-arm -> dispatch cycle works twice."""
-    d = ControllerMenuDetector()
-    cycle = (
-        [_snap(BUTTON_R)] * ARM_THRESHOLD_FRAMES + [_snap(BUTTON_R | BUTTON_X)]  # fire 1
-        + [_snap(0)]                                                            # disarm
-        + [_snap(BUTTON_R)] * ARM_THRESHOLD_FRAMES + [_snap(BUTTON_R | BUTTON_X)]  # fire 2
-    )
-    events = _run(d, cycle)
-    cmds = [e for e in events if isinstance(e, ControllerCommandEvent)]
+    events = _run(d, [
+        _snap(BUTTON_R), _snap(BUTTON_R | BUTTON_X),  # fire 1
+        _snap(0),                                     # close
+        _snap(BUTTON_R), _snap(BUTTON_R | BUTTON_X),  # fire 2
+    ])
+    cmds = _cmds(events)
     assert len(cmds) == 2 and all(c.command == "pause" for c in cmds)
