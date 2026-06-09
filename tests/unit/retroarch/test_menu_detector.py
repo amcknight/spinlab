@@ -1,7 +1,9 @@
 """ControllerMenuDetector — R is a held modifier; X pressed after R = pause."""
 from spinlab.protocol import ControllerCommandEvent, ControllerMenuArmedEvent
 from spinlab.retroarch.menu_detector import (
+    BUTTON_LEFT,
     BUTTON_R,
+    BUTTON_RIGHT,
     BUTTON_X,
     BUTTON_Y,
     HELD1,
@@ -150,3 +152,23 @@ def test_y_after_r_dispatches_toggle_practice_default_registry():
     ])
     cmds = _cmds(events)
     assert len(cmds) == 1 and cmds[0].command == "toggle_practice"
+
+
+def test_right_after_r_dispatches_next_segment():
+    d = ControllerMenuDetector()
+    events = _run(d, [
+        _snap(controller_held=BUTTON_R),
+        _snap(controller_held=BUTTON_R, controller_held_1=BUTTON_RIGHT),
+    ])
+    cmds = _cmds(events)
+    assert len(cmds) == 1 and cmds[0].command == "next_segment"
+
+
+def test_left_after_r_dispatches_prev_segment():
+    d = ControllerMenuDetector()
+    events = _run(d, [
+        _snap(controller_held=BUTTON_R),
+        _snap(controller_held=BUTTON_R, controller_held_1=BUTTON_LEFT),
+    ])
+    cmds = _cmds(events)
+    assert len(cmds) == 1 and cmds[0].command == "prev_segment"
