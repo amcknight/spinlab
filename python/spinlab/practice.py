@@ -173,6 +173,11 @@ class PracticeSession:
 
     def stop(self) -> None:
         self.is_running = False
+        # A stop while paused must not leave the session displaying PAUSED. Keep
+        # pause_offset_sec (it's the real paused time the frozen view excludes);
+        # only clear the live pause flag + start mark.
+        self.paused = False
+        self.paused_at_epoch = None
         self.db.end_session(
             self.session_id, self.segments_attempted, self.segments_completed
         )
@@ -269,6 +274,10 @@ class PracticeSession:
                 self.pause_offset_sec += time.time() - self.paused_at_epoch
             self.paused = False
             self.paused_at_epoch = None
+            # The dropped attempt bypassed _process_result (no result fired), so
+            # its episode id never got cleared. Reset it now so the resumed
+            # attempt isn't mis-attributed to the dropped episode (Bug A).
+            self._current_episode_id = None
             if self._current_load_cmd is not None:
                 await self.emu.send_command(self._current_load_cmd)
             logger.info("practice: resumed (segment=%s)", self.current_segment_id)
@@ -304,6 +313,9 @@ class PracticeSession:
             death_penalty_ms=self.death_penalty_ms,
         )
 
+        # Start each cycle with no carried-over episode id (honors the __init__
+        # contract; matters when a paused attempt was dropped mid-episode).
+        self._current_episode_id = None
         self.current_segment_id = cmd.id
         # Arm reload-on-death — set BEFORE the cmd send so an immediate
         # Death event isn't dropped while the load is mid-flight.

@@ -477,3 +477,28 @@ class TestTogglePause:
         ps.paused = True
         await ps.handle_death()
         emu.load_state.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_resume_clears_stale_episode_id(self, practice_db):
+        from spinlab.protocol import PracticeLoadCmd
+        emu = AsyncMock(); emu.is_connected = True; emu.send_command = AsyncMock()
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g",
+                             scheduler=Scheduler(practice_db, "g"))
+        ps.is_running = True
+        ps._current_state_path = "s.state"
+        ps._current_load_cmd = PracticeLoadCmd(id="seg1", state_path="s.state", end_type="goal")
+        ps._current_episode_id = "E1"  # left over from a pre-pause death
+        await ps.toggle_pause()  # pause
+        await ps.toggle_pause()  # resume
+        assert ps._current_episode_id is None
+
+    @pytest.mark.asyncio
+    async def test_stop_clears_paused_flag(self, practice_db):
+        emu = AsyncMock(); emu.is_connected = True; emu.send_command = AsyncMock()
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g",
+                             scheduler=Scheduler(practice_db, "g"))
+        ps.paused = True
+        ps.paused_at_epoch = 123.0
+        ps.stop()
+        assert ps.paused is False
+        assert ps.paused_at_epoch is None
