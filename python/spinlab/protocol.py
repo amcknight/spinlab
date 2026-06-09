@@ -122,6 +122,18 @@ class AttemptInvalidatedEvent:
     pass
 
 @dataclass(frozen=True)
+class ControllerCommandEvent:
+    """An R-menu command dispatched from the controller. command is a key from
+    the menu_detector COMMANDS registry (today only "pause")."""
+    command: str = ""
+
+@dataclass(frozen=True)
+class ControllerMenuArmedEvent:
+    """The R-menu arm state changed (R held past threshold / R released).
+    Drives the dashboard's 'X — Pause' hint."""
+    armed: bool = False
+
+@dataclass(frozen=True)
 class HyperPlayCheckpointEvent:
     ordinal: int = 0
     elapsed_ms: int = 0
@@ -222,6 +234,13 @@ class PracticeLoadCmd:
 
 @dataclass
 class PracticeStopCmd:
+    pass
+
+@dataclass
+class PracticePauseCmd:
+    """Disarm the backend PracticeTiming without ending the practice loop.
+    Sent by PracticeSession.toggle_pause to drop the in-flight attempt; resume
+    re-arms by re-sending the stashed PracticeLoadCmd."""
     pass
 
 class HyperPlayCheckpoint(TypedDict):
