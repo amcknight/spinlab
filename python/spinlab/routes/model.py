@@ -347,6 +347,9 @@ def get_route_summary(
     floor_series = floor_series_at([p.created_at for p in points], segment_episodes)
 
     s = route_summary(states, baseline=snap.route if snap else None)
+    ps = session.practice_session
+    session_paused_at = ps.paused_at_epoch if (ps is not None and ps.paused) else None
+    session_pause_offset_sec = ps.pause_offset_sec if ps is not None else 0.0
     return {
         "game_id": game_id,
         "exp_run_ms": s.exp_run_ms,
@@ -363,6 +366,9 @@ def get_route_summary(
         "baseline_exp_run_ms": snap.route.exp_run_ms if snap else None,
         "floor_total_ms": floor_total_ms,
         "floor_series": floor_series,
+        "menu_armed": session.state.menu_armed,
+        "session_paused_at": session_paused_at,
+        "session_pause_offset_sec": session_pause_offset_sec,
     }
 
 

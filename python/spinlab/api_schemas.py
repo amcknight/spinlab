@@ -566,6 +566,10 @@ class RouteSummaryResponse(_BaseResponse):
     floor_total_ms: float | None = None    # sum of segment floors (theoretical best run)
     floor_series: list[float | None] = []  # floor-over-time, aligned point-for-point with run_series; None when no segment has a floor yet
     session_ended_at: float | None = None  # epoch seconds; set when the session is frozen
+    # R-menu / Practice Pause overlay.
+    menu_armed: bool = False               # R held past threshold -> show 'X — Pause' hint
+    session_paused_at: float | None = None # epoch seconds the current pause began; None = not paused
+    session_pause_offset_sec: float = 0.0  # accumulated completed-pause seconds; route bar subtracts it
 
 
 # ---------------------------------------------------------------------------

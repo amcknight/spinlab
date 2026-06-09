@@ -11,6 +11,7 @@ from spinlab.estimators.session_snapshot import RouteBaseline, SessionSnapshot
 from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt, Segment
 from spinlab.routes._deps import get_db, get_session
 from spinlab.routes.model import router
+from spinlab.system_state import SystemState
 
 from tests.factories import stamp_reference_traversal
 
@@ -20,12 +21,25 @@ class _NoSessionStub:
     state. `practice_session_snapshot=None` so diff fields fall through to
     None (matches the "no active practice session" contract)."""
     practice_session_snapshot = None
+    practice_session = None
+    state = SystemState()
 
 
 class _ActiveSessionStub:
     """SessionManager stand-in with an active practice snapshot."""
-    def __init__(self, snapshot: SessionSnapshot) -> None:
+    def __init__(self, snapshot: SessionSnapshot, practice_session=None,
+                 menu_armed: bool = False) -> None:
         self.practice_session_snapshot = snapshot
+        self.practice_session = practice_session
+        self.state = SystemState(menu_armed=menu_armed)
+
+
+class _FakePausedSession:
+    """Minimal PracticeSession stand-in exposing the pause clock fields."""
+    def __init__(self, paused: bool, paused_at_epoch, pause_offset_sec: float) -> None:
+        self.paused = paused
+        self.paused_at_epoch = paused_at_epoch
+        self.pause_offset_sec = pause_offset_sec
 
 
 def _seed_db(tmp_path) -> tuple[Database, str, str]:
@@ -148,3 +162,34 @@ class TestFrozenLiveSummary:
         r = client.get(f"/api/games/{game_id}/live-summary")
         assert r.status_code == 200
         assert r.json()["session_ended_at"] is None
+
+
+def _client_with_paused_session(tmp_path) -> tuple[TestClient, str, str]:
+    db, seg_id, game_id = _seed_db(tmp_path)
+    snapshot = SessionSnapshot(
+        started_at=0.0, segments={},
+        route=RouteBaseline(exp_run_ms=250000.0, exp_deaths=20.0),
+    )
+    ps = _FakePausedSession(paused=True, paused_at_epoch=100.0, pause_offset_sec=5.0)
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_session] = lambda: _ActiveSessionStub(
+        snapshot, practice_session=ps, menu_armed=True)
+    return TestClient(app), seg_id, game_id
+
+
+class TestPauseOverlay:
+    def test_defaults_when_no_session(self, tmp_path):
+        client, _, game_id = _client(tmp_path)
+        body = client.get(f"/api/games/{game_id}/live-summary").json()
+        assert body["menu_armed"] is False
+        assert body["session_paused_at"] is None
+        assert body["session_pause_offset_sec"] == 0.0
+
+    def test_paused_session_exposes_clock_fields(self, tmp_path):
+        client, _, game_id = _client_with_paused_session(tmp_path)
+        body = client.get(f"/api/games/{game_id}/live-summary").json()
+        assert body["menu_armed"] is True
+        assert body["session_paused_at"] == 100.0
+        assert body["session_pause_offset_sec"] == 5.0
