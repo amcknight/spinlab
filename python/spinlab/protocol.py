@@ -154,7 +154,10 @@ class HyperPlayCompleteEvent:
 # Event unions
 #
 # PollerEvent: events the Poller can emit (memory-driven transitions + the
-# infrastructure events stamped onto the same stream by the orchestrator).
+# infrastructure events stamped onto the same stream by the orchestrator + the
+# R-menu ControllerCommand/MenuArmed events). NOTE: the menu events are
+# forwarded by the poller directly, WITHOUT state_path/conditions stamping —
+# they carry neither field, so they bypass _stamp_state_path/_stamp_conditions.
 # MovieEvent: events the MovieController emits during replay playback.
 # Used as the parameter type of callback signatures so call sites stop
 # defaulting to `Any`.

@@ -1,7 +1,7 @@
 # Practice Pause + the R-menu command layer
 
 Date: 2026-06-07
-Status: design (approved in brainstorm, pending written-spec review)
+Status: SHIPPED to main 2026-06-08 (d781fd4). Plan: docs/superpowers/plans/2026-06-08-practice-pause-r-menu.md. Pending: manual live-RA smoke test.
 
 ## Motivation
 
