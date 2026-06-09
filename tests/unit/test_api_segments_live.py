@@ -17,12 +17,16 @@ from spinlab.db import Database
 from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt, Segment
 from spinlab.routes._deps import get_db, get_session
 from spinlab.routes.model import router
+from spinlab.system_state import SystemState
 
 
 class _NoSessionStub:
     """Stand-in SessionManager with no active practice session. The routes
-    only touch `practice_session_snapshot`; we don't need the full SM."""
+    touch `practice_session_snapshot` plus the pause-overlay fields
+    (`practice_session`, `state.menu_armed`); none apply with no session."""
     practice_session_snapshot = None
+    practice_session = None
+    state = SystemState()
 
 
 def _client(tmp_path) -> tuple[TestClient, str, str]:
