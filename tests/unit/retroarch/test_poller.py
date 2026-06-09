@@ -332,3 +332,35 @@ async def test_poller_reconnects_after_persistent_read_failures(caplog):
     assert any("reconnect" in r.getMessage().lower() for r in warns), (
         f"expected a reconnect warning, got: {[r.getMessage() for r in warns]}"
     )
+
+
+@pytest.mark.asyncio
+async def test_poller_forwards_menu_events():
+    """The poller steps the injected menu detector and forwards its events."""
+    from spinlab.protocol import ControllerCommandEvent
+    from spinlab.retroarch.poller import Poller, PollerDeps
+
+    class _StubMenu:
+        def __init__(self):
+            self.calls = 0
+        def reset(self):
+            pass
+        def step(self, _snap):
+            self.calls += 1
+            return [ControllerCommandEvent(command="pause")] if self.calls == 1 else []
+
+    snapshots = iter([_snap(), _snap(), _snap()])
+    received: list = []
+    deps = PollerDeps(
+        client=_FakeClient(),
+        read_snapshot=_make_snapshots(snapshots),
+        on_event=received.append,
+    )
+    poller = Poller(deps, period_sec=0.001, menu=_StubMenu())
+    task = asyncio.create_task(poller.run())
+    await asyncio.sleep(0.05)
+    poller.stop()
+    await task
+
+    cmds = [e for e in received if isinstance(e, ControllerCommandEvent)]
+    assert len(cmds) == 1 and cmds[0].command == "pause"

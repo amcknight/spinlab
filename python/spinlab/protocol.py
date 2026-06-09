@@ -168,6 +168,8 @@ PollerEvent = (
     | DeathEvent
     | SpawnEvent
     | LevelExitEvent
+    | ControllerCommandEvent
+    | ControllerMenuArmedEvent
 )
 
 MovieEvent = ReplayStartedEvent | ReplayFinishedEvent | ReplayErrorEvent

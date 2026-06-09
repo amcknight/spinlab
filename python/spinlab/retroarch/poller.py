@@ -23,6 +23,7 @@ from spinlab.condition_registry import ConditionRegistry
 from spinlab.protocol import PollerEvent
 from spinlab.retroarch.cold_fill_detector import ColdFillSpawnDetector
 from spinlab.retroarch.detector import TransitionDetector
+from spinlab.retroarch.menu_detector import ControllerMenuDetector
 from spinlab.retroarch.nci import NCIClient
 from spinlab.retroarch.snapshot import MemorySnapshot
 
@@ -63,12 +64,14 @@ class Poller:
         period_sec: float = DEFAULT_PERIOD_SEC,
         detector: TransitionDetector | None = None,
         cold_fill: ColdFillSpawnDetector | None = None,
+        menu: ControllerMenuDetector | None = None,
     ) -> None:
         self._deps = deps
         self._period = period_sec
         self._stopped = False
         self._detector = detector if detector is not None else TransitionDetector()
         self._cold_fill = cold_fill if cold_fill is not None else ColdFillSpawnDetector()
+        self._menu = menu if menu is not None else ControllerMenuDetector()
         self._start_ms = time.perf_counter() * 1000
         self._last_seen_state_version = deps.state_version()
         # Number of successful RAM reads completed (excludes polls that raised
@@ -86,6 +89,7 @@ class Poller:
         self._conditions_failing: bool = False
         self._detector_failing: bool = False
         self._cold_fill_failing: bool = False
+        self._menu_failing: bool = False
 
     def _stamp_state_path(self, ev: PollerEvent) -> PollerEvent:
         if self._deps.state_path_for is None:
@@ -237,6 +241,27 @@ class Poller:
                     log.error(
                         logger, "poller event handler raised",
                         exc=exc, event_type=type(cf_event).__name__,
+                    )
+
+            try:
+                menu_events = list(self._menu.step(snap))
+            except Exception as exc:
+                if not self._menu_failing:
+                    log.error(logger, "menu.step raised", exc=exc)
+                    self._menu_failing = True
+                menu_events = []
+            else:
+                if self._menu_failing:
+                    log.info(logger, "menu.step recovered")
+                    self._menu_failing = False
+            for mev in menu_events:
+                # Infrastructure events — no state_path/conditions stamping.
+                try:
+                    self._deps.on_event(mev)
+                except Exception as exc:
+                    log.error(
+                        logger, "poller event handler raised",
+                        exc=exc, event_type=type(mev).__name__,
                     )
 
             await asyncio.sleep(self._period)
