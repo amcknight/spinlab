@@ -27,6 +27,8 @@ from .protocol import (
     AttemptResultEvent,
     CheckpointEvent,
     ConditionSpec,
+    ControllerCommandEvent,
+    ControllerMenuArmedEvent,
     DeathEvent,
     EventAttemptEmission,
     GameContextEvent,
@@ -120,6 +122,8 @@ class SessionManager:
             ReplayFinishedEvent: self._handle_replay_finished,
             ReplayErrorEvent: self._handle_replay_error,
             AttemptInvalidatedEvent: self._handle_attempt_invalidated,
+            ControllerCommandEvent: self._handle_controller_command,
+            ControllerMenuArmedEvent: self._handle_controller_menu_armed,
             HyperPlayCheckpointEvent: self._handle_hyper_play_checkpoint,
             HyperPlayDeathEvent: self._handle_hyper_play_death,
             HyperPlayCompleteEvent: self._handle_hyper_play_complete,
@@ -402,6 +406,20 @@ class SessionManager:
             return
         self.db.set_attempt_invalidated(aid, True)
         logger.info("Marked attempt %d as invalidated", aid)
+
+    async def _handle_controller_menu_armed(self, event: ControllerMenuArmedEvent) -> None:
+        self.state.menu_armed = event.armed
+        await self._notify_sse()
+
+    async def _handle_controller_command(self, event: ControllerCommandEvent) -> None:
+        if event.command != "pause":
+            logger.warning("unknown controller command: %r", event.command)
+            return
+        # Practice-scoped: the input layer is mode-agnostic but pause only
+        # applies to a practice attempt (spec — practice mode only for now).
+        if self.mode == Mode.PRACTICE and self.practice_session:
+            await self.practice_session.toggle_pause()
+        await self._notify_sse()
 
 
     async def _apply_result(self, result: ActionResult) -> ActionResult:

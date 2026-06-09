@@ -815,3 +815,34 @@ async def test_reset_data_no_game_is_noop_for_db(db, emu, monkeypatch):
     assert sm.scheduler is None
     assert sm.mode == Mode.IDLE
     assert called == []
+
+
+class TestRMenuRouting:
+    @pytest.mark.asyncio
+    async def test_menu_armed_event_sets_state(self, db, emu):
+        from spinlab.protocol import ControllerMenuArmedEvent
+        sm = make_sm(db, emu)
+        await sm.route_event(ControllerMenuArmedEvent(armed=True))
+        assert sm.state.menu_armed is True
+        await sm.route_event(ControllerMenuArmedEvent(armed=False))
+        assert sm.state.menu_armed is False
+
+    @pytest.mark.asyncio
+    async def test_pause_command_calls_toggle_in_practice(self, db, emu):
+        from unittest.mock import AsyncMock
+        from spinlab.protocol import ControllerCommandEvent
+        sm = make_sm(db, emu)
+        sm.mode = Mode.PRACTICE
+        sm.practice_session = AsyncMock()
+        await sm.route_event(ControllerCommandEvent(command="pause"))
+        sm.practice_session.toggle_pause.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_pause_command_ignored_outside_practice(self, db, emu):
+        from unittest.mock import AsyncMock
+        from spinlab.protocol import ControllerCommandEvent
+        sm = make_sm(db, emu)
+        sm.mode = Mode.IDLE
+        sm.practice_session = AsyncMock()
+        await sm.route_event(ControllerCommandEvent(command="pause"))
+        sm.practice_session.toggle_pause.assert_not_awaited()
