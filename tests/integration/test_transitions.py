@@ -133,3 +133,14 @@ async def test_r_menu_pause_command(run_scenario):
     cmds = [e for e in events if isinstance(e, ControllerCommandEvent)]
     assert len(cmds) == 1, f"expected 1 pause command, got {cmds}"
     assert cmds[0].command == "pause"
+
+
+async def test_r_menu_toggle_practice_command(run_scenario):
+    """Hold R, tap Y on real RA -> one ControllerCommandEvent('toggle_practice').
+    Live confirmation that $15 (the B/Y/Select/d-pad held byte) reads and
+    dispatches on real RA."""
+    from spinlab.protocol import ControllerCommandEvent
+    events = await run_scenario("menu_toggle.poke")
+    cmds = [e for e in events if isinstance(e, ControllerCommandEvent)]
+    assert len(cmds) == 1, f"expected 1 command, got {cmds}"
+    assert cmds[0].command == "toggle_practice"

@@ -1,0 +1,7 @@
+# menu_toggle — hold R ($17 0x10) to open the menu, then tap Y ($15 0x40) to
+# dispatch 'toggle_practice'. R is a pure modifier (opens instantly); Y is not
+# held at the open frame, so it's a clean rising edge.
+settle: 30
+
+1: controller_held=0x10
+5: controller_held_1=0x40
