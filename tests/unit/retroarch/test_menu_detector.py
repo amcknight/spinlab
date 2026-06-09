@@ -3,6 +3,7 @@ from spinlab.protocol import ControllerCommandEvent, ControllerMenuArmedEvent
 from spinlab.retroarch.menu_detector import (
     BUTTON_R,
     BUTTON_X,
+    BUTTON_Y,
     HELD1,
     HELD2,
     ControllerMenuDetector,
@@ -138,3 +139,14 @@ def test_pause_still_dispatches_with_default_registry():
                       _snap(controller_held=BUTTON_R | BUTTON_X)])
     cmds = _cmds(events)
     assert len(cmds) == 1 and cmds[0].command == "pause"
+
+
+def test_y_after_r_dispatches_toggle_practice_default_registry():
+    """R held, then Y pressed -> toggle_practice (Y is a real $15 command now)."""
+    d = ControllerMenuDetector()
+    events = _run(d, [
+        _snap(controller_held=BUTTON_R),                              # R down -> menu open
+        _snap(controller_held=BUTTON_R, controller_held_1=BUTTON_Y),  # Y pressed after
+    ])
+    cmds = _cmds(events)
+    assert len(cmds) == 1 and cmds[0].command == "toggle_practice"

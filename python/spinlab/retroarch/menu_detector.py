@@ -34,6 +34,7 @@ HELD1 = "controller_held_1"  # $15: B Y Select Start Up Down Left Right
 # Button bits within their byte.
 BUTTON_R = 0x10  # $17 — held modifier
 BUTTON_X = 0x40  # $17 — pause
+BUTTON_Y = 0x40  # $15 — toggle practice (same bit value as X, different byte)
 
 # A button is a (snapshot-field, bit) pair.
 ButtonKey = tuple[str, int]
@@ -42,9 +43,10 @@ ButtonKey = tuple[str, int]
 MODIFIER: ButtonKey = (HELD2, BUTTON_R)
 
 # (snapshot-field, bit) -> command name. Spans both held bytes; extend by adding
-# a key. X = pause is the only command today.
+# a key. X = pause and Y = toggle_practice are the commands today.
 COMMANDS: dict[ButtonKey, str] = {
     (HELD2, BUTTON_X): "pause",
+    (HELD1, BUTTON_Y): "toggle_practice",
 }
 
 _MenuEvent = ControllerCommandEvent | ControllerMenuArmedEvent
