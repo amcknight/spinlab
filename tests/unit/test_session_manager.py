@@ -895,3 +895,37 @@ class TestTogglePracticeCommand:
         sm.start_practice = AsyncMock(side_effect=DraftPendingError())
         await sm.route_event(ControllerCommandEvent(command="toggle_practice"))  # must not raise
         sm.start_practice.assert_awaited_once()
+
+
+class TestSegmentNavCommands:
+    @pytest.mark.asyncio
+    async def test_next_segment_calls_skip_next_in_practice(self, db, emu):
+        from unittest.mock import AsyncMock
+        from spinlab.protocol import ControllerCommandEvent
+        sm = make_sm(db, emu)
+        sm.mode = Mode.PRACTICE
+        sm.practice_session = AsyncMock()
+        await sm.route_event(ControllerCommandEvent(command="next_segment"))
+        sm.practice_session.skip_next.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_prev_segment_calls_go_prev_in_practice(self, db, emu):
+        from unittest.mock import AsyncMock
+        from spinlab.protocol import ControllerCommandEvent
+        sm = make_sm(db, emu)
+        sm.mode = Mode.PRACTICE
+        sm.practice_session = AsyncMock()
+        await sm.route_event(ControllerCommandEvent(command="prev_segment"))
+        sm.practice_session.go_prev.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_nav_ignored_outside_practice(self, db, emu):
+        from unittest.mock import AsyncMock
+        from spinlab.protocol import ControllerCommandEvent
+        sm = make_sm(db, emu)
+        sm.mode = Mode.IDLE
+        sm.practice_session = AsyncMock()
+        await sm.route_event(ControllerCommandEvent(command="next_segment"))
+        await sm.route_event(ControllerCommandEvent(command="prev_segment"))
+        sm.practice_session.skip_next.assert_not_awaited()
+        sm.practice_session.go_prev.assert_not_awaited()

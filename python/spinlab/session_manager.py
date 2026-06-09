@@ -421,6 +421,12 @@ class SessionManager:
                 await self.practice_session.toggle_pause()
         elif event.command == "toggle_practice":
             await self._toggle_practice_from_menu()
+        elif event.command == "next_segment":
+            if self.mode == Mode.PRACTICE and self.practice_session:
+                await self.practice_session.skip_next()
+        elif event.command == "prev_segment":
+            if self.mode == Mode.PRACTICE and self.practice_session:
+                await self.practice_session.go_prev()
         else:
             logger.warning("unknown controller command: %r", event.command)
             return
