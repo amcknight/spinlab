@@ -569,3 +569,28 @@ class TestSegmentNavigation:
         ps._current_state_path = "s.state"; ps.paused = True
         await ps.skip_next()
         assert ps._cursor == 0 and ps._nav_pending is False
+
+    @pytest.mark.asyncio
+    async def test_nav_during_load_send_is_honored(self, practice_db):
+        """A nav command that fires WHILE run_one is awaiting send_command must
+        not be swallowed: _nav_pending must survive and run_one takes the nav
+        branch (cursor reflects the nav). Regression for the TOCTOU window."""
+        from unittest.mock import AsyncMock
+        ps = self._session(practice_db)
+        # Build a 2-entry history, cursor on the second (index 1).
+        ps._segment_at_cursor(); ps._advance_after_completion(); ps._segment_at_cursor()
+        assert ps._cursor == 1
+
+        nav_fired = []
+        async def send_then_nav(cmd):
+            # Fire a nav exactly once, simulating it arriving mid-load.
+            if not nav_fired:
+                nav_fired.append(True)
+                await ps.go_prev()   # cursor 1 -> 0; sets _nav_pending + _result_event
+        ps.emu.send_command = AsyncMock(side_effect=send_then_nav)
+
+        # With the fix, run_one returns quickly via the nav branch; with the bug
+        # the nav is wiped and run_one blocks (wait_for would time out).
+        await asyncio.wait_for(ps.run_one(), timeout=2.0)
+        assert ps._cursor == 0          # nav moved the cursor back
+        assert ps._nav_pending is False  # consumed by the nav branch

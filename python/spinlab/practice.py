@@ -396,18 +396,21 @@ class PracticeSession:
         self._last_allocator = entry.allocator
         self._current_episode_id = None
         self.current_segment_id = cmd.id
-        self._current_state_path = cmd.state_path
         self._current_load_cmd = cmd
+        # Clear nav/result state BEFORE arming + sending, so a nav command that
+        # arrives during the send await is honored (it sets _nav_pending +
+        # _result_event) instead of being wiped by a post-await reset. TOCTOU fix.
+        self._result_event.clear()
+        self._result_data = None
+        self._nav_pending = False
+        # Arm reload-on-death before the send so an immediate Death isn't dropped.
+        self._current_state_path = cmd.state_path
         logger.info("practice: loading segment=%s (cursor=%d/%d) state=%s",
                     cmd.id, self._cursor, len(self._history) - 1, cmd.state_path)
 
         await self.emu.send_command(cmd)
         if self.on_segment_load is not None:
             self.on_segment_load(cmd.id)
-
-        self._result_event.clear()
-        self._result_data = None
-        self._nav_pending = False
 
         load_timeouts = 0
         while self.is_running and self.emu.is_connected:
