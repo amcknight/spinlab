@@ -7,7 +7,7 @@ Each scenario:
      harness — the WRAM-only zeroing in step 1 cannot reach the audio chip
      or the program counter (see project_transition_state_leak).
   1. Zero every ADDR_MAP byte (per-scenario isolation).
-  2. Construct a fresh TransitionDetector.
+  2. Construct a fresh TransitionDetector and ControllerMenuDetector.
   3. Run frames in sequence; on each frame:
        a. Apply scheduled pokes for this frame to held_values.
        b. frame_advance() — runs one ROM frame; ROM may overwrite RAM.
@@ -34,10 +34,10 @@ from __future__ import annotations
 import time
 from typing import Protocol
 
-from tests.integration.addresses import ADDR_MAP
-
 from spinlab.retroarch.detector import TransitionDetector
+from spinlab.retroarch.menu_detector import ControllerMenuDetector
 from spinlab.retroarch.snapshot import read_snapshot
+from tests.integration.addresses import ADDR_MAP
 
 FRAME_PERIOD_MS = 16  # 60Hz approximation; only used for monotonic timestamps
 
@@ -102,6 +102,7 @@ class RAPokeEngine:
 
         held: dict[int, int] = {}
         detector = TransitionDetector()
+        menu = ControllerMenuDetector()
         events: list = []
         # Start the quiescence clock at last_poke_frame so we always run at
         # least QUIESCENCE_FRAMES past the last write before terminating —
@@ -120,6 +121,7 @@ class RAPokeEngine:
                 self._client.write_ram(addr, bytes([value & 0xFF]))
             snap = read_snapshot(self._client)  # type: ignore[arg-type]
             new_events = list(detector.step(snap, frame * FRAME_PERIOD_MS))
+            new_events.extend(menu.step(snap))
             events.extend(new_events)
             if new_events:
                 frame_of_last_event = frame

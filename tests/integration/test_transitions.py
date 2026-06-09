@@ -117,3 +117,19 @@ async def test_boss_defeat(run_scenario):
     exits = [e for e in events if isinstance(e, LevelExitEvent)]
     assert len(exits) == 1, f"Expected 1 exit, got {len(exits)}: {exits}"
     assert exits[0].goal == "boss", f"Expected goal='boss', got {exits[0].goal!r}"
+
+
+async def test_r_menu_pause_command(run_scenario):
+    """Hold R, press X on real RA -> one ControllerCommandEvent('pause').
+
+    This is the live confirmation of the $17 address + bit layout. If R-arm
+    never fires here, $17 is not the held A X L R byte — switch
+    ADDR_CONTROLLER_HELD to the correct held byte and re-run.
+    """
+    from spinlab.protocol import ControllerCommandEvent, ControllerMenuArmedEvent
+    events = await run_scenario("menu_pause.poke")
+    armed = [e for e in events if isinstance(e, ControllerMenuArmedEvent) and e.armed]
+    assert len(armed) >= 1, f"menu never armed: {events}"
+    cmds = [e for e in events if isinstance(e, ControllerCommandEvent)]
+    assert len(cmds) == 1, f"expected 1 pause command, got {cmds}"
+    assert cmds[0].command == "pause"

@@ -24,4 +24,5 @@ ADDR_MAP: dict[str, int] = {
     "boss_defeat": _a.ADDR_BOSS_DEFEAT,
     "midway": _a.ADDR_MIDWAY,
     "cp_entrance": _a.ADDR_CP_ENTRANCE,
+    "controller_held": _a.ADDR_CONTROLLER_HELD,
 }

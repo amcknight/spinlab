@@ -50,15 +50,24 @@ def read_snapshot(client: NCIClient) -> MemorySnapshot:
     ($0071+); including it in the low cluster would pull in ~90 bytes of
     unneeded WRAM between $17 and $0071.
     """
+    # $17 is read FIRST so it acts as the synchronous barrier that ensures any
+    # immediately-preceding WRITE_CORE_RAM 17 has been processed by RA before
+    # the rest of the snapshot reads proceed.  In the poke engine, FRAMEADVANCE
+    # is fire-and-forget: if it hasn't been processed yet when read_snapshot is
+    # called, RA serialises it between NCI commands and the $17 NMI-write could
+    # race with the later cluster reads.  Reading $17 first collapses that race:
+    # RA must drain the write queue (FRAMEADVANCE + WRITE_CORE_RAM) before
+    # replying, so by the time $17's reply arrives, the NMI has already run and
+    # our re-write has already landed.
+    controller_held = client.read_ram(a.ADDR_CONTROLLER_HELD, 1)[0]
     # $0071..$010B: player_anim, game_mode, room_num  (155 bytes)
     c_low = client.read_ram(a.ADDR_PLAYER_ANIM, a.ADDR_ROOM_NUM - a.ADDR_PLAYER_ANIM + 1)
     # $0906..$0DD5: fanfare, exit_mode  (1232 bytes)
     c_mid = client.read_ram(a.ADDR_FANFARE, a.ADDR_EXIT_MODE - a.ADDR_FANFARE + 1)
     # $13BF..$13CE: level_num, boss_defeat, midway  (16 bytes)
     c_lv  = client.read_ram(a.ADDR_LEVEL_NUM, a.ADDR_MIDWAY - a.ADDR_LEVEL_NUM + 1)
-    # Four lone bytes far enough apart that pulling the in-between ranges
+    # Three lone bytes far enough apart that pulling the in-between ranges
     # would cost more than they save.
-    controller_held = client.read_ram(a.ADDR_CONTROLLER_HELD, 1)[0]
     level_start = client.read_ram(a.ADDR_LEVEL_START, 1)[0]
     io_port     = client.read_ram(a.ADDR_IO, 1)[0]
     cp_entrance = client.read_ram(a.ADDR_CP_ENTRANCE, 1)[0]
