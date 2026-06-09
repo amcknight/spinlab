@@ -23,7 +23,10 @@ function defaultDir(column: SortColumn): "asc" | "desc" {
 }
 
 export function nextSortColumn(state: SortState, column: SortColumn): SortState {
-  if (column === state.column) return state;
+  // Re-clicking the active column reverses it; a new column uses its default dir.
+  if (column === state.column) {
+    return { column, dir: state.dir === "asc" ? "desc" : "asc" };
+  }
   return { column, dir: defaultDir(column) };
 }
 
@@ -55,8 +58,8 @@ const HEADERS: { col: SortColumn; label: string }[] = [
 ];
 
 /** Render the surgery table into `host`. onToggle(id, nextInvalidated) fires on
- *  an action click. Sort state is held locally; header click sorts, double-click
- *  flips. nowMs is injectable for tests. */
+ *  an action click. Sort state is held locally; a header click sorts, and
+ *  re-clicking the active column reverses it. nowMs is injectable for tests. */
 export function renderAttemptTable(
   host: HTMLElement,
   rows: AttemptRow[],
@@ -69,7 +72,7 @@ export function renderAttemptTable(
     const sorted = sortAttempts(rows, sort);
     const ths = HEADERS.map(h => {
       const arrow = h.col === sort.column ? (sort.dir === "asc" ? " ▲" : " ▼") : "";
-      return `<th data-col="${h.col}" style="cursor:pointer">${h.label}${arrow}</th>`;
+      return `<th data-col="${h.col}" class="num" style="cursor:pointer">${h.label}${arrow}</th>`;
     }).join("") + "<th></th>";
     const trs = sorted.map(r => {
       const star = r.is_floor ? " ★" : "";
@@ -78,9 +81,9 @@ export function renderAttemptTable(
         ? `<button data-id="${r.id}" data-next="0">⟲ restore</button>`
         : `<button data-id="${r.id}" data-next="1">⊘ invalidate</button>`;
       return `<tr class="${r.invalidated ? "invalidated" : ""}${r.is_floor ? " floor" : ""}">`
-        + `<td>${r.order}</td><td>${ct}</td>`
-        + `<td>${r.total_ms == null ? "—" : formatTime(r.total_ms)}</td>`
-        + `<td>${r.deaths}</td><td>${formatAgo(r.created_at, nowMs)}</td>`
+        + `<td class="num">${r.order}</td><td class="num">${ct}</td>`
+        + `<td class="num">${r.total_ms == null ? "—" : formatTime(r.total_ms)}</td>`
+        + `<td class="num">${r.deaths}</td><td class="num">${formatAgo(r.created_at, nowMs)}</td>`
         + `<td>${action}</td></tr>`;
     }).join("");
     host.innerHTML = `<table class="attempt-surgery"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>`;
@@ -88,7 +91,6 @@ export function renderAttemptTable(
     host.querySelectorAll<HTMLElement>("th[data-col]").forEach(th => {
       const col = th.dataset.col as SortColumn;
       th.addEventListener("click", () => { sort = nextSortColumn(sort, col); draw(); });
-      th.addEventListener("dblclick", () => { sort = flipSortDir(sort); draw(); });
     });
     host.querySelectorAll<HTMLButtonElement>("button[data-id]").forEach(btn => {
       btn.addEventListener("click", () =>

@@ -20,9 +20,12 @@ describe("sort state", () => {
   it("default is Clean Tail descending", () => {
     expect(DEFAULT_SORT).toEqual({ column: "clean_tail_ms", dir: "desc" });
   });
-  it("clicking a new column uses its default dir; same column is unchanged", () => {
+  it("clicking a new column uses its default dir; re-clicking the active column reverses", () => {
     expect(nextSortColumn(DEFAULT_SORT, "order")).toEqual({ column: "order", dir: "asc" });
-    expect(nextSortColumn(DEFAULT_SORT, "clean_tail_ms")).toEqual(DEFAULT_SORT);
+    // DEFAULT_SORT is clean_tail_ms desc; re-clicking it flips to asc, then back.
+    expect(nextSortColumn(DEFAULT_SORT, "clean_tail_ms")).toEqual({ column: "clean_tail_ms", dir: "asc" });
+    expect(nextSortColumn({ column: "clean_tail_ms", dir: "asc" }, "clean_tail_ms"))
+      .toEqual({ column: "clean_tail_ms", dir: "desc" });
   });
   it("flip reverses direction", () => {
     expect(flipSortDir({ column: "order", dir: "asc" })).toEqual({ column: "order", dir: "desc" });
@@ -68,5 +71,19 @@ describe("renderAttemptTable", () => {
     const restoreBtn = host.querySelector<HTMLButtonElement>("button[data-id='5']")!;
     restoreBtn.click();
     expect(onToggle).toHaveBeenCalledWith(5, false);
+  });
+
+  it("re-clicking the active header reverses sort; numeric cells are right-aligned", () => {
+    document.body.innerHTML = `<div id="host"></div>`;
+    const host = document.getElementById("host")!;
+    renderAttemptTable(host, [row({ id: 1 }), row({ id: 2 })], vi.fn(), Date.now());
+    // Default sort is clean_tail_ms desc (▼); the active header re-click flips to asc (▲).
+    const cleanTh = () => host.querySelector<HTMLElement>('th[data-col="clean_tail_ms"]')!;
+    expect(cleanTh().textContent).toContain("▼");
+    cleanTh().click();
+    expect(cleanTh().textContent).toContain("▲");  // reversed
+    // Numeric headers + cells carry the right-align class.
+    expect(host.querySelector('th[data-col="deaths"]')!.classList.contains("num")).toBe(true);
+    expect(host.querySelector("tbody td")!.classList.contains("num")).toBe(true);
   });
 });
