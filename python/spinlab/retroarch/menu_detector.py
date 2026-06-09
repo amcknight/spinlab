@@ -60,6 +60,11 @@ class ControllerMenuDetector:
         # ARM on reaching the threshold; DISARM the moment R is released.
         if self._r_held_frames >= ARM_THRESHOLD_FRAMES and not self._armed:
             self._armed = True
+            # Seed prev-bits so a command button already held at the arm frame
+            # is NOT a rising edge — the menu is a deliberate two-step gesture
+            # (hold R to arm + show the hint, THEN press the command). Only a
+            # fresh press after arming dispatches.
+            self._prev_command_bits = held & COMMAND_MASK
             events.append(ControllerMenuArmedEvent(armed=True))
         elif not r_down and self._armed:
             self._armed = False
