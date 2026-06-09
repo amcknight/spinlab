@@ -502,3 +502,70 @@ class TestTogglePause:
         ps.stop()
         assert ps.paused is False
         assert ps.paused_at_epoch is None
+
+
+class TestSegmentNavigation:
+    def _session(self, practice_db):
+        from unittest.mock import AsyncMock
+        emu = AsyncMock(); emu.is_connected = True; emu.send_command = AsyncMock()
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g",
+                             scheduler=Scheduler(practice_db, "g"))
+        ps.is_running = True
+        return ps
+
+    def test_segment_at_cursor_picks_and_appends_at_end(self, practice_db):
+        ps = self._session(practice_db)
+        entry = ps._segment_at_cursor()
+        assert entry is not None
+        assert len(ps._history) == 1
+        assert ps._cursor == 0
+        assert entry.load_cmd.id == ps._history[0].load_cmd.id
+
+    def test_completion_advances_cursor(self, practice_db):
+        ps = self._session(practice_db)
+        ps._segment_at_cursor()
+        ps._advance_after_completion()
+        assert ps._cursor == 1
+        ps._segment_at_cursor()
+        assert len(ps._history) == 2 and ps._cursor == 1
+
+    @pytest.mark.asyncio
+    async def test_go_prev_moves_cursor_back_and_drops_attempt(self, practice_db):
+        from spinlab.protocol import PracticePauseCmd
+        ps = self._session(practice_db)
+        ps._segment_at_cursor(); ps._advance_after_completion(); ps._segment_at_cursor()
+        assert ps._cursor == 1
+        ps._current_state_path = "s.state"
+        await ps.go_prev()
+        assert ps._cursor == 0
+        assert ps._nav_pending is True
+        sent = [c.args[0] for c in ps.emu.send_command.call_args_list]
+        assert any(isinstance(c, PracticePauseCmd) for c in sent)
+        assert ps._result_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_go_prev_at_start_is_noop(self, practice_db):
+        ps = self._session(practice_db)
+        ps._segment_at_cursor()
+        ps._current_state_path = "s.state"
+        await ps.go_prev()
+        assert ps._cursor == 0 and ps._nav_pending is False
+
+    @pytest.mark.asyncio
+    async def test_skip_next_advances_cursor(self, practice_db):
+        ps = self._session(practice_db)
+        ps._segment_at_cursor()
+        ps._current_state_path = "s.state"
+        await ps.skip_next()
+        assert ps._cursor == 1 and ps._nav_pending is True
+
+    @pytest.mark.asyncio
+    async def test_nav_ignored_when_not_armed_or_paused(self, practice_db):
+        ps = self._session(practice_db)
+        ps._segment_at_cursor()
+        ps._current_state_path = None
+        await ps.skip_next()
+        assert ps._cursor == 0 and ps._nav_pending is False
+        ps._current_state_path = "s.state"; ps.paused = True
+        await ps.skip_next()
+        assert ps._cursor == 0 and ps._nav_pending is False

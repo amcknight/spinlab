@@ -6,6 +6,7 @@ import logging
 import os
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Callable
 
@@ -17,7 +18,6 @@ from .models import (
     AttemptOutcome,
     AttemptSource,
     EventAttempt,
-    SegmentCommand,
 )
 from .protocol import (
     AttemptResultEvent,
@@ -35,6 +35,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 SEGMENT_LOAD_TIMEOUT_S = 1.0
+
+
+@dataclass(frozen=True)
+class _HistoryEntry:
+    """One visited segment: the load command to (re)send + the allocator that
+    originally surfaced it (carried into the recorded attempt)."""
+    load_cmd: PracticeLoadCmd
+    allocator: str | None
 
 
 class PracticeSession:
@@ -116,6 +124,17 @@ class PracticeSession:
         self.paused_at_epoch: float | None = None
         self.pause_offset_sec: float = 0.0
         self._current_load_cmd: PracticeLoadCmd | None = None
+
+        # --- Segment history navigation (R+left/right) ----------------------
+        # Browser-style: _history is the ordered segments loaded this session;
+        # _cursor indexes the current one. A completed attempt advances the
+        # cursor forward (+1); a fresh scheduler pick is appended when the
+        # cursor reaches the end. Nav (go_prev/skip_next) moves the cursor and
+        # DROPS the in-flight attempt (the pause disarm path, nothing recorded),
+        # then wakes run_one via _nav_pending + the existing _result_event.
+        self._history: list[_HistoryEntry] = []
+        self._cursor: int = 0
+        self._nav_pending: bool = False
 
     def _snapshot_expected_times(
         self, estimator_name: str
@@ -282,28 +301,19 @@ class PracticeSession:
                 await self.emu.send_command(self._current_load_cmd)
             logger.info("practice: resumed (segment=%s)", self.current_segment_id)
 
-    async def run_one(self) -> bool:
-        """Run one pick-send-receive cycle. Returns False if no segments available."""
-        picked = self.scheduler.pick_next()
-        if picked is None:
-            logger.info("practice: no segments available — ending loop")
-            return False
-
-        self._last_allocator = self.scheduler.last_chosen_allocator
-
+    def _build_history_entry(self, picked) -> _HistoryEntry:
+        """Build the load command + allocator for a freshly-picked segment."""
         expected_time_ms = None
         sel_out = picked.model_outputs.get(picked.selected_model)
         if sel_out and sel_out.total.expected_ms is not None and sel_out.total.expected_ms > 0:
             expected_time_ms = int(sel_out.total.expected_ms)
-
         label = picked.description
         if not label:
             start = "start" if picked.start_type == "entrance" else f"cp{picked.start_ordinal}"
             end = "goal" if picked.end_type == "goal" else f"cp{picked.end_ordinal}"
             label = f"L{picked.level_number} {start} > {end}"
-
         assert picked.state_path is not None  # scheduler only picks segments with save states
-        cmd = SegmentCommand(
+        load_cmd = PracticeLoadCmd(
             id=picked.segment_id,
             state_path=picked.state_path,
             description=label,
@@ -312,36 +322,92 @@ class PracticeSession:
             auto_advance_delay_ms=self.auto_advance_delay_ms,
             death_penalty_ms=self.death_penalty_ms,
         )
+        return _HistoryEntry(load_cmd=load_cmd, allocator=self.scheduler.last_chosen_allocator)
 
-        # Start each cycle with no carried-over episode id (honors the __init__
-        # contract; matters when a paused attempt was dropped mid-episode).
+    def _segment_at_cursor(self) -> _HistoryEntry | None:
+        """Return the history entry to load this cycle. Appends a fresh
+        scheduler pick when the cursor is at/past the end; skips forward over
+        any stale revisit target whose state file has since vanished. Returns
+        None when the scheduler has nothing left."""
+        while True:
+            if self._cursor >= len(self._history):
+                picked = self.scheduler.pick_next()
+                if picked is None:
+                    return None
+                self._history.append(self._build_history_entry(picked))
+            entry = self._history[self._cursor]
+            if os.path.exists(entry.load_cmd.state_path):
+                return entry
+            log.warn(
+                logger, "practice: history segment state missing — skipping",
+                segment_id=entry.load_cmd.id, state_path=entry.load_cmd.state_path,
+            )
+            self._cursor += 1
+
+    def _advance_after_completion(self) -> None:
+        """A real completion walks the cursor forward one (fresh pick at end)."""
+        self._cursor += 1
+
+    def _nav_ok(self) -> bool:
+        if not self.is_running or self._current_state_path is None or self.paused:
+            logger.info("practice: nav ignored — no attempt in flight / paused")
+            return False
+        return True
+
+    async def _begin_nav(self) -> None:
+        """Drop the in-flight attempt (disarm, nothing recorded) and wake
+        run_one, which then loads the segment now at the cursor."""
+        self._nav_pending = True
+        self._current_episode_id = None
+        self._current_state_path = None  # don't reload-on-death the abandoned seg
+        await self.emu.send_command(PracticePauseCmd())
+        self._result_event.set()
+        logger.info("practice: nav -> cursor=%d", self._cursor)
+
+    async def skip_next(self) -> None:
+        """R+right: abandon the in-flight attempt and advance to the next
+        segment (forward through history, or a fresh pick at the end)."""
+        if not self._nav_ok():
+            return
+        self._cursor += 1
+        await self._begin_nav()
+
+    async def go_prev(self) -> None:
+        """R+left: abandon the in-flight attempt and reload the previous segment
+        in the visit history. No-op at the start of history."""
+        if not self._nav_ok():
+            return
+        if self._cursor <= 0:
+            logger.info("practice: prev ignored — at start of history")
+            return
+        self._cursor -= 1
+        await self._begin_nav()
+
+    async def run_one(self) -> bool:
+        """Run one load-send-receive cycle. Returns False when no segments are
+        available. A nav command mid-attempt drops it and returns True so the
+        loop immediately loads the cursor's (now different) segment."""
+        entry = self._segment_at_cursor()
+        if entry is None:
+            logger.info("practice: no segments available — ending loop")
+            return False
+
+        cmd = entry.load_cmd
+        self._last_allocator = entry.allocator
         self._current_episode_id = None
         self.current_segment_id = cmd.id
-        # Arm reload-on-death — set BEFORE the cmd send so an immediate
-        # Death event isn't dropped while the load is mid-flight.
         self._current_state_path = cmd.state_path
-        logger.info("practice: loading segment=%s label=%r state=%s",
-                     cmd.id, label, cmd.state_path)
+        self._current_load_cmd = cmd
+        logger.info("practice: loading segment=%s (cursor=%d/%d) state=%s",
+                    cmd.id, self._cursor, len(self._history) - 1, cmd.state_path)
 
-        self._current_load_cmd = PracticeLoadCmd(
-            id=cmd.id,
-            state_path=cmd.state_path,
-            description=cmd.description,
-            end_type=cmd.end_type,
-            expected_time_ms=cmd.expected_time_ms,
-            auto_advance_delay_ms=cmd.auto_advance_delay_ms,
-            death_penalty_ms=cmd.death_penalty_ms,
-        )
-        await self.emu.send_command(self._current_load_cmd)
-
-        # The segment is now the current one; broadcast so the dashboard's
-        # live practice card renders before any attempt result lands.
+        await self.emu.send_command(cmd)
         if self.on_segment_load is not None:
             self.on_segment_load(cmd.id)
 
-        # Wait for attempt_result via receive_result() (set by SessionManager)
         self._result_event.clear()
         self._result_data = None
+        self._nav_pending = False
 
         load_timeouts = 0
         while self.is_running and self.emu.is_connected:
@@ -357,8 +423,17 @@ class PracticeSession:
                     )
                 continue
 
+        if self._nav_pending:
+            # A nav command woke us: the in-flight attempt was already dropped
+            # (disarmed in _begin_nav) and the cursor moved. Don't process a
+            # result — the loop's next run_one loads the cursor's segment.
+            self._nav_pending = False
+            self.current_segment_id = None
+            return True
+
         if self._result_data is not None:
             self._process_result(self._result_data)
+            self._advance_after_completion()
         else:
             log.info(
                 logger, "practice: attempt loop exited without result",
