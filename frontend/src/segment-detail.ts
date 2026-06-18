@@ -98,7 +98,7 @@ export async function renderSegmentDetail(
   // Stop button ends it. Errors (e.g. missing cold state) surface via toast.
   const grindBtn = document.createElement("button");
   grindBtn.className = "btn-grind";
-  grindBtn.textContent = "⟳ Grind this segment";
+  grindBtn.textContent = "⟳ Grind";
   grindBtn.title = "Repeat just this segment over and over to build practice depth";
   grindBtn.addEventListener("click", async () => {
     grindBtn.disabled = true;
