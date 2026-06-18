@@ -155,6 +155,34 @@ def test_compute_golds_excludes_invalidated_attempts(db_with_segment):
     assert golds["seg1"]["clean_gold_ms"] == 15000
 
 
+def test_compute_golds_includes_experimental(db_with_segment):
+    """Locks the floor-inclusion semantics: an EXPERIMENTAL ("science") clean
+    clear is excluded from the estimator (see events_from_rows) but STILL counts
+    toward floor/gold — a fast clean is achievable regardless of effort. The
+    faster experimental clear must therefore win gold.
+
+    compute_golds filters ONLY invalidated, so experimental flows through with
+    no code change. If this fails, do NOT add experimental handling to
+    compute_golds — it means the floor path filters more than expected and the
+    semantics need rethinking.
+    """
+    db = db_with_segment
+    # Normal serious clean clear.
+    db.log_event_attempt(EventAttempt(
+        segment_id="seg1", episode_id="epSerious", session_id="sess1",
+        source=AttemptSource.PRACTICE, outcome=AttemptOutcome.SURVIVED,
+        time_ms=5000, created_at=datetime.now(UTC),
+    ))
+    # Faster EXPERIMENTAL clean clear — excluded from the model, but a real PB.
+    db.log_event_attempt(EventAttempt(
+        segment_id="seg1", episode_id="epScience", session_id="sess1",
+        source=AttemptSource.PRACTICE, outcome=AttemptOutcome.SURVIVED,
+        time_ms=3000, created_at=datetime.now(UTC), experimental=True,
+    ))
+    golds = db.compute_golds("g1")
+    assert golds["seg1"]["clean_gold_ms"] == 3000
+
+
 # ---------------------------------------------------------------------------
 # Test 4 — Aborted episode
 # ---------------------------------------------------------------------------

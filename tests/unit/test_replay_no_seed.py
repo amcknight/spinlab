@@ -57,6 +57,53 @@ class TestReplayEventsNotSeeded:
         assert len(events) == 1
         assert events[0].source is AttemptSource.REFERENCE
 
+    def test_experimental_events_excluded_from_model_ingestion(self):
+        """EXPERIMENTAL ("science") events are in the DB but excluded from
+        events_from_rows — the user wasn't trying their hardest, so they must
+        not skew the estimator. The non-experimental event must still survive,
+        proving the filter discriminates rather than drops everything.
+        """
+        from datetime import datetime
+
+        from spinlab.db import Database
+        from spinlab.models import AttemptOutcome, AttemptSource, EventAttempt
+        from spinlab.scheduler import events_from_rows
+
+        db = Database(":memory:")
+        game_id = "science_seed_filter"
+        segment_id = "seg_science"
+        run_id = self._make_segment(db, game_id, segment_id)
+
+        # Normal serious attempt — must reach the estimator.
+        db.log_event_attempt(EventAttempt(
+            segment_id=segment_id, episode_id="ep_serious",
+            outcome=AttemptOutcome.SURVIVED, time_ms=5000,
+            capture_run_id=run_id,
+            source=AttemptSource.PRACTICE,
+            experimental=False,
+            created_at=datetime.fromisoformat("2026-06-18T00:00:00"),
+        ))
+        # Science/strat-hunting attempt — must be filtered out.
+        db.log_event_attempt(EventAttempt(
+            segment_id=segment_id, episode_id="ep_science",
+            outcome=AttemptOutcome.SURVIVED, time_ms=3000,
+            capture_run_id=run_id,
+            source=AttemptSource.PRACTICE,
+            experimental=True,
+            created_at=datetime.fromisoformat("2026-06-18T00:00:01"),
+        ))
+
+        all_rows = db.get_segment_event_rows(segment_id)
+        assert len(all_rows) == 2, "Both rows must be in DB for provenance"
+
+        events = events_from_rows(all_rows)
+        assert len(events) == 1, (
+            f"Expected 1 event after experimental filter, got {len(events)}: {events}"
+        )
+        # The surviving event is the serious, non-experimental one.
+        assert events[0].time_ms == 5000
+        assert events[0].experimental is False
+
     def test_replay_events_excluded_from_model_ingestion(self):
         """REPLAY events are present in the DB but excluded from events_from_rows.
 

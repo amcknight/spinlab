@@ -68,3 +68,14 @@ def testattempts_from_rows_treats_missing_key_as_valid():
     ]
     result = attempts_from_rows(rows)
     assert len(result) == 1
+
+
+def test_attempts_from_rows_excludes_experimental():
+    rows = [
+        {"time_ms": 5000, "completed": 1, "deaths": 0, "clean_tail_ms": 5000,
+         "created_at": "2026-06-18T00:00:00", "invalidated": 0, "experimental": 0},
+        {"time_ms": 3000, "completed": 1, "deaths": 0, "clean_tail_ms": 3000,
+         "created_at": "2026-06-18T00:00:01", "invalidated": 0, "experimental": 1},
+    ]
+    out = attempts_from_rows(rows)
+    assert [r.time_ms for r in out] == [5000]
