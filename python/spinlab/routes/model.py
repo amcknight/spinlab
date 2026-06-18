@@ -369,6 +369,7 @@ def get_route_summary(
         "menu_armed": session.state.menu_armed,
         "session_paused_at": session_paused_at,
         "session_pause_offset_sec": session_pause_offset_sec,
+        "experimental": ps.experimental if (ps is not None and ps.is_running) else False,
     }
 
 

@@ -536,6 +536,22 @@ class TestPracticeLifecycle:
         assert not sm.practice_task.done()
         sm.practice_task.cancel()
 
+    async def test_toggle_experimental_routes_to_session(self, practice_db, emu):
+        sm = make_sm(practice_db, emu); sm.game_id = "g"
+        await sm.start_practice()
+        # run_loop sets is_running=True on its first scheduled step; yield so the
+        # session is actually running before we exercise the live toggle.
+        await asyncio.sleep(0)
+        sm.toggle_experimental()
+        assert sm.practice_session.experimental is True
+        await sm.stop_practice()
+
+    async def test_toggle_experimental_noop_without_running_session(self, db, emu):
+        """No live session -> toggle is a silent no-op (no crash)."""
+        sm = make_sm(db, emu)
+        sm.toggle_experimental()  # practice_session is None
+        assert sm.practice_session is None
+
 
 class TestHyperPlayLifecycle:
     """Tests for start_hyper_play, stop_hyper_play, and _on_hyper_play_done."""
