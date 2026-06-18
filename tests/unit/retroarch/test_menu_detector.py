@@ -1,6 +1,7 @@
 """ControllerMenuDetector — R is a held modifier; X pressed after R = pause."""
 from spinlab.protocol import ControllerCommandEvent, ControllerMenuArmedEvent
 from spinlab.retroarch.menu_detector import (
+    BUTTON_A,
     BUTTON_LEFT,
     BUTTON_R,
     BUTTON_RIGHT,
@@ -172,3 +173,12 @@ def test_left_after_r_dispatches_prev_segment():
     ])
     cmds = _cmds(events)
     assert len(cmds) == 1 and cmds[0].command == "prev_segment"
+
+
+def test_a_pressed_after_r_dispatches_toggle_science():
+    """R held, then A pressed -> toggle_science. A shares the $17 byte with R/X,
+    so this is structurally identical to the R+X pause verb (fresh rising edge)."""
+    d = ControllerMenuDetector()
+    events = _run(d, [_snap(BUTTON_R), _snap(BUTTON_R | BUTTON_A)])
+    cmds = _cmds(events)
+    assert len(cmds) == 1 and cmds[0].command == "toggle_science"

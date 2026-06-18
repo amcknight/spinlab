@@ -863,6 +863,15 @@ class TestRMenuRouting:
         await sm.route_event(ControllerCommandEvent(command="pause"))
         sm.practice_session.toggle_pause.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_toggle_science_command_calls_toggle_experimental(self, db, emu):
+        from unittest.mock import MagicMock
+        from spinlab.protocol import ControllerCommandEvent
+        sm = make_sm(db, emu)
+        sm.toggle_experimental = MagicMock()
+        await sm.route_event(ControllerCommandEvent(command="toggle_science"))
+        sm.toggle_experimental.assert_called_once()
+
 
 class TestTogglePracticeCommand:
     @pytest.mark.asyncio

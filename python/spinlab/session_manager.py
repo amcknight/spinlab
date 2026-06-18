@@ -427,6 +427,8 @@ class SessionManager:
         elif event.command == "prev_segment":
             if self.mode == Mode.PRACTICE and self.practice_session:
                 await self.practice_session.go_prev()
+        elif event.command == "toggle_science":
+            self.toggle_experimental()
         else:
             logger.warning("unknown controller command: %r", event.command)
             return
