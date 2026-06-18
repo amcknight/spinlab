@@ -40,6 +40,8 @@ class _FakePausedSession:
         self.paused = paused
         self.paused_at_epoch = paused_at_epoch
         self.pause_offset_sec = pause_offset_sec
+        self.grind_segment_id = None  # real PracticeSession always sets this
+        self.is_running = True  # a paused session is still running
 
 
 def _seed_db(tmp_path) -> tuple[Database, str, str]:

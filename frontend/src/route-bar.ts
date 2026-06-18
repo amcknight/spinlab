@@ -77,6 +77,9 @@ export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
   const pausedBadge = pausedAt != null
     ? `<span class="rb-paused">PAUSED</span>`
     : "";
+  const grindBadge = rs.grind_segment_id != null
+    ? `<span class="rb-grind">⟳ Grinding</span>`
+    : "";
   const menuHint = rs.menu_armed
     ? `<div class="rb-menu-hint">R menu — X: Pause</div>`
     : "";
@@ -120,7 +123,7 @@ export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
   host.innerHTML = `
     <div class="rb-root">
       <div class="rb-left">
-        <div class="rb-title">${escapeHtml(data.title)}${frozenBadge}${pausedBadge}</div>
+        <div class="rb-title">${escapeHtml(data.title)}${frozenBadge}${pausedBadge}${grindBadge}</div>
         ${savedBlock}
         ${menuHint}
         ${skippedBlock}

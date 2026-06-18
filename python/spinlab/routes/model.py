@@ -369,6 +369,11 @@ def get_route_summary(
         "menu_armed": session.state.menu_armed,
         "session_paused_at": session_paused_at,
         "session_pause_offset_sec": session_pause_offset_sec,
+        # Only a LIVE grind session reports its pinned segment — once stopped,
+        # the route bar's frozen view must not keep showing the "Grinding" badge.
+        "grind_segment_id": (
+            ps.grind_segment_id if (ps is not None and ps.is_running) else None
+        ),
     }
 
 

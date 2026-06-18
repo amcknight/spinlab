@@ -17,6 +17,11 @@ export async function postPracticeStop(): Promise<void> {
   await postJSON("/api/practice/stop");
 }
 
+/** GrindOne: start practice pinned to one segment, repeating it every cycle. */
+export async function postGrind(segmentId: string): Promise<void> {
+  await postJSON("/api/practice/grind", { segment_id: segmentId });
+}
+
 export async function postHyperPlayStart(): Promise<void> {
   await postJSON("/api/hyperplay/start");
 }

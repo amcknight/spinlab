@@ -9,6 +9,7 @@ import {
   Tooltip,
 } from "chart.js";
 import { fetchJSON } from "./api";
+import { postGrind } from "./model-api";
 import { renderEmSuiteMatrix } from "./em-suite-matrix";
 import { segmentName, formatTime } from "./format";
 import type { EmSuiteMatrixResponse, SegmentHistory } from "./types";
@@ -91,6 +92,20 @@ export async function renderSegmentDetail(
   title.className = "detail-title";
   title.textContent = "Loading...";
   header.appendChild(title);
+
+  // GrindOne: pin this one segment and repeat it (manufacture practice depth /
+  // watch this segment's graph move). Starts practice in grind mode; the normal
+  // Stop button ends it. Errors (e.g. missing cold state) surface via toast.
+  const grindBtn = document.createElement("button");
+  grindBtn.className = "btn-grind";
+  grindBtn.textContent = "⟳ Grind this segment";
+  grindBtn.title = "Repeat just this segment over and over to build practice depth";
+  grindBtn.addEventListener("click", async () => {
+    grindBtn.disabled = true;
+    try { await postGrind(segmentId); }
+    finally { grindBtn.disabled = false; }
+  });
+  header.appendChild(grindBtn);
   container.appendChild(header);
 
   const toggleRow = document.createElement("div");

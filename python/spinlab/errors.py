@@ -117,6 +117,13 @@ class MissingSaveStatesError(ActionError):
     detail = "missing_save_states"
 
 
+class GrindSegmentNotPracticableError(ActionError):
+    """Grind practice was asked to pin a segment that doesn't exist for the
+    game or whose save state is missing on disk — so it can never load."""
+    http_code = 409
+    detail = "grind_segment_not_practicable"
+
+
 class NoDraftError(ActionError):
     http_code = 404
     detail = "no_draft"

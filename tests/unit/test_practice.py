@@ -594,3 +594,51 @@ class TestSegmentNavigation:
         await asyncio.wait_for(ps.run_one(), timeout=2.0)
         assert ps._cursor == 0          # nav moved the cursor back
         assert ps._nav_pending is False  # consumed by the nav branch
+
+
+class TestGrindOne:
+    """Repeat-one-segment mode: a pinned grind_segment_id is returned every
+    cycle, bypassing the scheduler + history cursor, so attempts pile on one
+    segment. Reuses the normal completion/recording path (no new data risk)."""
+
+    def _session(self, practice_db, grind_segment_id):
+        emu = AsyncMock(); emu.is_connected = True; emu.send_command = AsyncMock()
+        ps = PracticeSession(emu=emu, db=practice_db, game_id="g",
+                             scheduler=Scheduler(practice_db, "g"),
+                             grind_segment_id=grind_segment_id)
+        ps.is_running = True
+        return ps
+
+    def test_grind_pins_segment_and_tags_allocator(self, practice_db):
+        seg_id = practice_db._test_seg_id
+        ps = self._session(practice_db, seg_id)
+        entry = ps._segment_at_cursor()
+        assert entry is not None
+        assert entry.load_cmd.id == seg_id
+        # Grind attempts are attributable as such, not as an allocator pick.
+        assert entry.allocator == "grind_one"
+        # The scheduler/history path is bypassed entirely.
+        assert ps._history == []
+
+    def test_grind_returns_same_segment_after_cursor_advances(self, practice_db):
+        """Completion advances the cursor, but grind ignores it — the pinned
+        segment comes back every cycle."""
+        seg_id = practice_db._test_seg_id
+        ps = self._session(practice_db, seg_id)
+        first = ps._segment_at_cursor()
+        ps._advance_after_completion()  # cursor moves; grind must not care
+        second = ps._segment_at_cursor()
+        assert first.load_cmd.id == second.load_cmd.id == seg_id
+        assert ps._history == []
+
+    def test_grind_unknown_segment_ends_loop(self, practice_db):
+        ps = self._session(practice_db, "no-such-segment")
+        assert ps._segment_at_cursor() is None
+
+    def test_grind_missing_state_file_ends_loop(self, practice_db):
+        """If the pinned segment's state file vanishes, the loop ends cleanly
+        rather than looping on a non-loadable segment."""
+        seg_id = practice_db._test_seg_id
+        practice_db._test_state_file.unlink()
+        ps = self._session(practice_db, seg_id)
+        assert ps._segment_at_cursor() is None

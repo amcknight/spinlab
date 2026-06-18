@@ -405,6 +405,11 @@ class ReplayStartRequest(BaseModel):
     speed: int = SPEED_NORMAL
 
 
+class GrindStartRequest(BaseModel):
+    """Start practice pinned to one segment (GrindOne)."""
+    segment_id: str
+
+
 class ReferenceFinalizeRequest(BaseModel):
     name: str = "Untitled"
 
@@ -570,6 +575,7 @@ class RouteSummaryResponse(_BaseResponse):
     menu_armed: bool = False               # R held past threshold -> show 'X — Pause' hint
     session_paused_at: float | None = None # epoch seconds the current pause began; None = not paused
     session_pause_offset_sec: float = 0.0  # accumulated completed-pause seconds; route bar subtracts it
+    grind_segment_id: str | None = None    # GrindOne: the pinned segment, else None
 
 
 # ---------------------------------------------------------------------------

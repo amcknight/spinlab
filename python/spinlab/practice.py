@@ -36,6 +36,17 @@ logger = logging.getLogger(__name__)
 
 SEGMENT_LOAD_TIMEOUT_S = 1.0
 
+# Post-finish hold: how long the player sits in the completed level (watching
+# the fanfare) after the goal is detected, before the result is emitted and the
+# next segment loads. A short beat lets the completion register (attempt row +
+# graph tick) before the screen snaps away. Lowered 1000->500 on 2026-06-18 —
+# Andrew found the old 1s hold too long across all practice, not just Grind.
+DEFAULT_AUTO_ADVANCE_MS = 500
+# Grind reloads the SAME segment every cycle, so the full 1s "you finished" beat
+# is dead time between reps — a much shorter hold keeps strat-hunting snappy
+# while still letting the attempt land before the reload.
+GRIND_RELOAD_DELAY_MS = 250
+
 
 @dataclass(frozen=True)
 class _HistoryEntry:
@@ -55,15 +66,20 @@ class PracticeSession:
         game_id: str,
         *,
         scheduler: Scheduler,
-        auto_advance_delay_ms: int = 1000,
+        auto_advance_delay_ms: int = DEFAULT_AUTO_ADVANCE_MS,
         death_penalty_ms: int = 3200,
         on_attempt: Callable | None = None,
         on_segment_load: Callable | None = None,
         session_id: str | None = None,
+        grind_segment_id: str | None = None,
     ) -> None:
         self.emu = emu
         self.db = db
         self.game_id = game_id
+        # GrindOne: when set, every cycle re-loads this one segment (bypassing
+        # the scheduler + history cursor) to manufacture single-segment depth.
+        # The normal completion/recording path is reused unchanged.
+        self.grind_segment_id = grind_segment_id
         self.auto_advance_delay_ms = auto_advance_delay_ms
         self.death_penalty_ms = death_penalty_ms
         self.on_attempt = on_attempt
@@ -301,8 +317,9 @@ class PracticeSession:
                 await self.emu.send_command(self._current_load_cmd)
             logger.info("practice: resumed (segment=%s)", self.current_segment_id)
 
-    def _build_history_entry(self, picked) -> _HistoryEntry:
-        """Build the load command + allocator for a freshly-picked segment."""
+    def _build_history_entry(self, picked, allocator: str | None = None) -> _HistoryEntry:
+        """Build the load command + allocator for a picked segment. ``allocator``
+        defaults to the scheduler's last pick; grind passes an explicit tag."""
         expected_time_ms = None
         sel_out = picked.model_outputs.get(picked.selected_model)
         if sel_out and sel_out.total.expected_ms is not None and sel_out.total.expected_ms > 0:
@@ -322,13 +339,34 @@ class PracticeSession:
             auto_advance_delay_ms=self.auto_advance_delay_ms,
             death_penalty_ms=self.death_penalty_ms,
         )
-        return _HistoryEntry(load_cmd=load_cmd, allocator=self.scheduler.last_chosen_allocator)
+        chosen = allocator if allocator is not None else self.scheduler.last_chosen_allocator
+        return _HistoryEntry(load_cmd=load_cmd, allocator=chosen)
+
+    def _grind_entry(self) -> _HistoryEntry | None:
+        """Resolve the pinned grind segment into a load entry, re-read each cycle
+        so a fresh expected-time shows up and a vanished state file ends the loop.
+        Returns None when the segment is unknown or its state file is missing."""
+        segments = SegmentWithModel.load_all(
+            self.db, self.game_id, self.scheduler.estimator.name
+        )
+        picked = next(
+            (s for s in segments if s.segment_id == self.grind_segment_id), None
+        )
+        if picked is None or not picked.state_path or not os.path.exists(picked.state_path):
+            log.warn(
+                logger, "practice: grind segment not practicable — ending loop",
+                segment_id=self.grind_segment_id or "",
+            )
+            return None
+        return self._build_history_entry(picked, allocator="grind_one")
 
     def _segment_at_cursor(self) -> _HistoryEntry | None:
-        """Return the history entry to load this cycle. Appends a fresh
-        scheduler pick when the cursor is at/past the end; skips forward over
-        any stale revisit target whose state file has since vanished. Returns
-        None when the scheduler has nothing left."""
+        """Return the history entry to load this cycle. In grind mode, always the
+        pinned segment. Otherwise appends a fresh scheduler pick when the cursor
+        is at/past the end; skips forward over any stale revisit target whose
+        state file has since vanished. Returns None when nothing is left."""
+        if self.grind_segment_id is not None:
+            return self._grind_entry()
         while True:
             if self._cursor >= len(self._history):
                 picked = self.scheduler.pick_next()

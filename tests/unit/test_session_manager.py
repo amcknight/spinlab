@@ -18,6 +18,7 @@ from spinlab.db import Database
 from spinlab.errors import (
     AlreadyRunningError,
     DraftPendingError,
+    GrindSegmentNotPracticableError,
     MissingSaveStatesError,
     NotConnectedError,
     NotRunningError,
@@ -497,6 +498,23 @@ class TestPracticeLifecycle:
         sm.practice_session = fake_ps
         with pytest.raises(AlreadyRunningError):
             await sm.start_practice()
+
+    async def test_start_grind_rejects_unknown_segment(self, practice_db, emu):
+        sm = make_sm(practice_db, emu)
+        sm.game_id = "g"
+        with pytest.raises(GrindSegmentNotPracticableError):
+            await sm.start_practice(grind_segment_id="no-such-seg")
+
+    async def test_start_grind_passes_segment_to_session(self, practice_db, emu):
+        from spinlab.practice import GRIND_RELOAD_DELAY_MS
+        sm = make_sm(practice_db, emu)
+        sm.game_id = "g"
+        seg_id = practice_db._test_seg_id
+        await sm.start_practice(grind_segment_id=seg_id)
+        assert sm.practice_session.grind_segment_id == seg_id
+        # Grind reloads the same segment, so it uses the snappy reload delay.
+        assert sm.practice_session.auto_advance_delay_ms == GRIND_RELOAD_DELAY_MS
+        await sm.stop_practice()
 
     async def test_stop_practice_when_not_running(self, db, emu):
         sm = make_sm(db, emu)

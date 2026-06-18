@@ -996,6 +996,19 @@ h3 {
 .rb-saved-bad { color: var(--red); }
 .rb-skipped { font-size: 11px; }
 .rb-paused { color: var(--orange); margin-left: 0.5rem; font-weight: 600; }
+.rb-grind { color: var(--green); margin-left: 0.5rem; font-weight: 600; }
+.btn-grind {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--green);
+  color: var(--green);
+  cursor: pointer;
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.btn-grind:hover:not(:disabled) { background: var(--green); color: #111; }
+.btn-grind:disabled { opacity: 0.5; cursor: default; }
 .rb-menu-hint { font-size: 0.85em; margin-top: 0.15rem; color: var(--text-dim); }
 .rb-stats { display: flex; gap: 18px; }
 

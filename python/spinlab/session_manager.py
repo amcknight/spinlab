@@ -15,6 +15,7 @@ from .errors import (
     ActionError,
     AlreadyRunningError,
     DraftPendingError,
+    GrindSegmentNotPracticableError,
     MissingSaveStatesError,
     NoGameLoadedError,
     NotConnectedError,
@@ -661,7 +662,20 @@ class SessionManager:
         self.practice_session_snapshot = frozen
         logger.info("snapshot frozen: ended_at=%.1f", frozen.ended_at)
 
-    async def start_practice(self) -> ActionResult:
+    def _grind_segment_practicable(self, game_id: str, segment_id: str) -> bool:
+        """True iff ``segment_id`` exists for the game and its save state is on
+        disk — the precondition for pinning it as a grind target."""
+        import os
+
+        from .allocators import SegmentWithModel
+
+        estimator = self.get_scheduler().estimator.name
+        for seg in SegmentWithModel.load_all(self.db, game_id, estimator):
+            if seg.segment_id == segment_id:
+                return bool(seg.state_path) and os.path.exists(seg.state_path)
+        return False
+
+    async def start_practice(self, grind_segment_id: str | None = None) -> ActionResult:
         from .errors import SnapshotFailedError
 
         if self.capture.has_paused_run:
@@ -673,13 +687,29 @@ class SessionManager:
         if self.mode == Mode.REFERENCE:
             self._clear_ref_and_idle()
 
-        from .practice import PracticeSession
+        game_id = self.require_game()
+        if grind_segment_id is not None and not self._grind_segment_practicable(
+            game_id, grind_segment_id
+        ):
+            raise GrindSegmentNotPracticableError()
+
+        from .practice import (
+            DEFAULT_AUTO_ADVANCE_MS,
+            GRIND_RELOAD_DELAY_MS,
+            PracticeSession,
+        )
+        reload_delay = (
+            GRIND_RELOAD_DELAY_MS if grind_segment_id is not None
+            else DEFAULT_AUTO_ADVANCE_MS
+        )
         ps = PracticeSession(
-            emu=self.emu, db=self.db, game_id=self.require_game(),
+            emu=self.emu, db=self.db, game_id=game_id,
             scheduler=self.get_scheduler(),
+            auto_advance_delay_ms=reload_delay,
             death_penalty_ms=self.capture.condition_registry.death_penalty_ms,
             on_attempt=lambda _: asyncio.create_task(self._notify_sse()),
             on_segment_load=lambda _: asyncio.create_task(self._notify_sse()),
+            grind_segment_id=grind_segment_id,
         )
         self.practice_session = ps
         self.practice_task = asyncio.create_task(ps.run_loop())
