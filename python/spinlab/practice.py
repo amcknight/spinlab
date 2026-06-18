@@ -125,6 +125,12 @@ class PracticeSession:
         self.pause_offset_sec: float = 0.0
         self._current_load_cmd: PracticeLoadCmd | None = None
 
+        # --- Science / experimental mode (R-menu toggle) --------------------
+        # While True, recorded event rows are stamped experimental=True: they
+        # count toward floor/PB but are excluded from the expected-time model.
+        # Mid-session toggle; affects only attempts written after the flip.
+        self.experimental: bool = False
+
         # --- Segment history navigation (R+left/right) ----------------------
         # Browser-style: _history is the ordered segments loaded this session;
         # _cursor indexes the current one. A completed attempt advances the
@@ -234,6 +240,7 @@ class PracticeSession:
             source=AttemptSource.PRACTICE,
             chosen_allocator=self._last_allocator,
             is_hot=False,  # Practice always loads from a savestate → cold spawn.
+            experimental=self.experimental,
         )
         self.db.log_event_attempt(record)
         self._current_episode_id = event.episode_id
@@ -268,6 +275,14 @@ class PracticeSession:
         a regular Death.
         """
         await self.handle_death()
+
+    def toggle_experimental(self) -> None:
+        """Flip Science/no-record mode. Attempts recorded while True are flagged
+        experimental: excluded from the expected-time model, still counted for
+        floor/PB. Mid-session toggle; affects only attempts written after the flip."""
+        self.experimental = not self.experimental
+        logger.info("practice: experimental=%s (segment=%s)",
+                    self.experimental, self.current_segment_id)
 
     async def toggle_pause(self) -> None:
         """R-menu pause toggle. Pause drops the in-flight attempt and freezes

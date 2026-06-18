@@ -594,3 +594,21 @@ class TestSegmentNavigation:
         await asyncio.wait_for(ps.run_one(), timeout=2.0)
         assert ps._cursor == 0          # nav moved the cursor back
         assert ps._nav_pending is False  # consumed by the nav branch
+
+
+def test_experimental_toggle_stamps_event(practice_db):
+    from unittest.mock import AsyncMock
+
+    from spinlab.protocol import EventAttemptEmission
+    emu = AsyncMock(); emu.is_connected = True; emu.send_command = AsyncMock()
+    ps = PracticeSession(emu=emu, db=practice_db, game_id="g",
+                         scheduler=Scheduler(practice_db, "g"))
+    assert ps.experimental is False
+    ps.toggle_experimental()
+    assert ps.experimental is True
+    ps._last_allocator = None
+    ps.receive_event_attempt(EventAttemptEmission(
+        segment_id=practice_db._test_seg_id, episode_id="E1",
+        outcome="survived", time_ms=4200, timestamp_ms=0))
+    rows = practice_db.get_segment_event_rows(practice_db._test_seg_id)
+    assert rows[-1]["experimental"] == 1
