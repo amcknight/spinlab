@@ -91,33 +91,19 @@ describe("renderRouteBar", () => {
     renderRouteBar(host, { ...SESSION, routeSummary: { ...SESSION.routeSummary, n_skipped: 4 } });
     expect((host.textContent ?? "").toLowerCase()).toContain("estimable");
   });
-  it("shows a (frozen) badge when the session is frozen", () => {
+  it("pins elapsed at ended_at when frozen; status badges now live in the mode chip", () => {
     document.body.innerHTML = `<div id="h"></div>`;
     const host = document.getElementById("h")!;
     renderRouteBar(host, {
       title: "Beto · any%", gameId: "g", nowSeconds: 1060,
-      routeSummary: { ...SESSION.routeSummary, session_started_at: 1000, session_ended_at: 1060 },
+      routeSummary: { ...SESSION.routeSummary, session_started_at: 1000,
+        session_ended_at: 1060, experimental: true },
     });
-    expect(host.querySelector(".rb-frozen")).not.toBeNull();
-    expect(host.textContent).toContain("(frozen)");
-    // Elapsed is pinned by caller-supplied nowSeconds (= ended_at): 60s.
-    expect(host.textContent).toContain("0:01:00");
-  });
-  it("shows the Science badge when experimental", () => {
-    document.body.innerHTML = `<div id="h"></div>`;
-    const host = document.getElementById("h")!;
-    renderRouteBar(host, { ...SESSION, routeSummary: {
-      ...SESSION.routeSummary, experimental: true } });
-    expect(host.querySelector(".rb-science")).not.toBeNull();
-  });
-  it("shows no (frozen) badge for a live session", () => {
-    document.body.innerHTML = `<div id="h"></div>`;
-    const host = document.getElementById("h")!;
-    renderRouteBar(host, {
-      title: "Beto · any%", gameId: "g", nowSeconds: 1030,
-      routeSummary: { ...SESSION.routeSummary, session_started_at: 1000, session_ended_at: null },
-    });
+    // The frozen clock-pin is unchanged; "(frozen)" + the status badges
+    // (PAUSED / Science / Grinding) were retired into the top-right mode chip.
     expect(host.querySelector(".rb-frozen")).toBeNull();
+    expect(host.querySelector(".rb-science")).toBeNull();
+    expect(host.textContent).toContain("0:01:00");  // elapsed pinned to ended_at
   });
   it("hides Practice saved when no active session", () => {
     document.body.innerHTML = `<div id="h"></div>`;
@@ -145,7 +131,7 @@ describe("route bar pause + menu", () => {
       { session_paused_at: NOW_S - 100 },
       NOW_S + 9999,  // clock advanced; must NOT affect the frozen elapsed
     ));
-    expect(host.querySelector(".rb-paused")).not.toBeNull();
+    // (PAUSED badge moved to the mode chip; the clock-freeze behavior stays.)
     // elapsed = (NOW_S - 100) - (NOW_S - 3600) - 0 = 3500s = 0:58:20
     // Wait: started_at = NOW_S - 3600, paused_at = NOW_S - 100
     // effectiveNow = paused_at = NOW_S - 100

@@ -60,9 +60,9 @@ function diffDeaths(delta: number | null | undefined): StatDiff | null {
 
 export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
   const rs = data.routeSummary;
-  const frozenBadge = rs.session_ended_at != null
-    ? `<span class="rb-frozen">(frozen)</span>`
-    : "";
+  // Mode + practice sub-state (Paused / Science / Grinding) now live in the
+  // single top-right mode chip (see header.ts), driven by the reliable SSE
+  // AppState. The route bar no longer renders status badges or "(frozen)".
   const sessionStartedAt = rs.session_started_at ?? null;
   const sessionActive = sessionStartedAt != null;
   // Freeze the clock while paused: pin "now" to the pause-start and subtract
@@ -74,17 +74,8 @@ export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
   const elapsedSec = sessionActive
     ? Math.max(0, effectiveNow - sessionStartedAt - pauseOffset)
     : 0;
-  const pausedBadge = pausedAt != null
-    ? `<span class="rb-paused">PAUSED</span>`
-    : "";
-  const grindBadge = rs.grind_segment_id != null
-    ? `<span class="rb-grind">⟳ Grinding</span>`
-    : "";
   const menuHint = rs.menu_armed
     ? `<div class="rb-menu-hint">R menu — X: Pause</div>`
-    : "";
-  const scienceBadge = rs.experimental
-    ? `<span class="rb-science">\u{1F9EA} Science</span>`
     : "";
 
   // Tint Saved + rate green when the session is ahead (saved_ms > 0), red when
@@ -126,7 +117,7 @@ export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
   host.innerHTML = `
     <div class="rb-root">
       <div class="rb-left">
-        <div class="rb-title">${escapeHtml(data.title)}${frozenBadge}${pausedBadge}${grindBadge}${scienceBadge}</div>
+        <div class="rb-title">${escapeHtml(data.title)}</div>
         ${savedBlock}
         ${menuHint}
         ${skippedBlock}

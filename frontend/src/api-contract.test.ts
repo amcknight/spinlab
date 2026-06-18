@@ -31,6 +31,9 @@ const IDLE_STATE: AppState = {
   has_active_run: false,
   segments_missing_cold: 0,
   has_frozen_session: false,
+  practice_paused: false,
+  practice_experimental: false,
+  practice_grind: false,
 };
 
 const PRACTICE_STATE: AppState = {
@@ -91,6 +94,9 @@ const PRACTICE_STATE: AppState = {
   has_active_run: false,
   segments_missing_cold: 0,
   has_frozen_session: false,
+  practice_paused: false,
+  practice_experimental: false,
+  practice_grind: false,
 };
 
 const MODEL_RESPONSE: ModelData = {

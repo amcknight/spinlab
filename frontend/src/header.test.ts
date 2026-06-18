@@ -36,3 +36,26 @@ describe("cold-fill header controls", () => {
     expect((document.getElementById("cold-fill-exit") as HTMLElement).style.display).toBe("none");
   });
 });
+
+describe("practice mode chip sub-state", () => {
+  const label = () => document.getElementById("mode-label")!.textContent ?? "";
+
+  it("appends Science / Paused / Grinding to the Practicing chip", () => {
+    updateHeader(baseState({ mode: "practice", practice_experimental: true }));
+    expect(label()).toContain("Science");
+
+    updateHeader(baseState({ mode: "practice", practice_paused: true }));
+    expect(label()).toContain("Paused");
+
+    updateHeader(baseState({ mode: "practice", practice_grind: true, practice_experimental: true }));
+    expect(label()).toContain("Grinding");
+    expect(label()).toContain("Science");
+  });
+
+  it("plain Practicing chip carries no sub-state", () => {
+    updateHeader(baseState({ mode: "practice" }));
+    const txt = label();
+    expect(txt).toContain("Practicing");
+    expect(txt).not.toContain("·");
+  });
+});

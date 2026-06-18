@@ -131,8 +131,7 @@ describe("loadAndRenderLiveView", () => {
       segmentId: "s0", gameId: "g0", segmentName: "L1", title: "Beto · any%", hosts,
     });
     expect(spy).not.toHaveBeenCalled();          // frozen: no elapsed-tick interval
-    expect(hosts.routeBar.textContent).toContain("(frozen)");
-    expect(hosts.routeBar.textContent).toContain("0:01:00");  // 60s frozen elapsed
+    expect(hosts.routeBar.textContent).toContain("0:01:00");  // 60s frozen elapsed (pinned)
     spy.mockRestore();
     destroyLiveView();
   });
@@ -188,7 +187,6 @@ describe("loadAndRenderLiveView", () => {
 
     // Newest render is frozen -> no elapsed-tick interval may exist.
     expect(setSpy).not.toHaveBeenCalled();
-    expect(hosts.routeBar.textContent).toContain("(frozen)");
     setSpy.mockRestore();
     destroyLiveView();
   });

@@ -78,6 +78,12 @@ class StateBuilder:
             "replay": None,
             "paused_run": None,
             "cold_fill": None,
+            # Live practice sub-state — drives the single mode chip (Practicing ·
+            # Paused / · Science / · Grinding). False outside a live practice
+            # session. Set in _build_practice_state.
+            "practice_paused": False,
+            "practice_experimental": False,
+            "practice_grind": False,
             "has_active_run": ref_run_id is not None,
             # True only when a *frozen* snapshot persists (a clean stop stamped
             # ended_at). Distinguishes "idle with a frozen session to show" from
@@ -166,6 +172,9 @@ class StateBuilder:
         """Populate practice-specific fields into state dict."""
         ps = session.practice_session
         assert ps is not None  # caller checks before calling
+        base["practice_paused"] = ps.paused
+        base["practice_experimental"] = ps.experimental
+        base["practice_grind"] = ps.grind_segment_id is not None
         base["session"] = {
             "id": ps.session_id,
             "started_at": ps.started_at,

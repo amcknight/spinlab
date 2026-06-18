@@ -135,6 +135,11 @@ class AppState(_BaseResponse):
     replay: ReplayState | None
     paused_run: PausedRunState | None
     cold_fill: ColdFillState | None
+    # Live practice sub-state — drives the single mode chip. False outside a
+    # live practice session (always present per the contract above).
+    practice_paused: bool = False
+    practice_experimental: bool = False
+    practice_grind: bool = False
     has_active_run: bool
     # Count of active-run segments whose start has a hot but no cold save state
     # (i.e. cold-fill has something to do). 0 when there's no active run.
