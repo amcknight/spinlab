@@ -154,3 +154,16 @@ async def test_r_menu_next_segment_command(run_scenario):
     cmds = [e for e in events if isinstance(e, ControllerCommandEvent)]
     assert len(cmds) == 1, f"expected 1 command, got {cmds}"
     assert cmds[0].command == "next_segment"
+
+
+async def test_r_menu_toggle_science_command(run_scenario):
+    """Hold R, press A on real RA -> one ControllerCommandEvent('toggle_science').
+    A shares the $17 held byte with R/X, so this mirrors menu_pause — live
+    confirmation that the 0x80 bit reads and dispatches on real RA."""
+    from spinlab.protocol import ControllerCommandEvent, ControllerMenuArmedEvent
+    events = await run_scenario("menu_science.poke")
+    armed = [e for e in events if isinstance(e, ControllerMenuArmedEvent) and e.armed]
+    assert len(armed) >= 1, f"menu never armed: {events}"
+    cmds = [e for e in events if isinstance(e, ControllerCommandEvent)]
+    assert len(cmds) == 1, f"expected 1 toggle_science command, got {cmds}"
+    assert cmds[0].command == "toggle_science"

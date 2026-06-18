@@ -165,6 +165,7 @@ class Attempt:
     clean_tail_ms: int | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     invalidated: bool = False
+    experimental: bool = False
     chosen_allocator: str | None = None
 
     def __post_init__(self) -> None:
@@ -212,6 +213,9 @@ class EventAttempt:
     chosen_allocator: str | None = None
     invalidated: bool = False
     is_hot: bool = False
+    # "Science" attempt: counts toward floor/PB but excluded from the model.
+    # Mirrors ``invalidated`` but with the opposite floor behavior.
+    experimental: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def __post_init__(self) -> None:

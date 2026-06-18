@@ -44,6 +44,7 @@ class AttemptRow(TypedDict):
     clean_tail_ms: int | None
     created_at: str
     invalidated: int
+    experimental: int
 
 
 class RecentAttemptRow(TypedDict, total=False):
@@ -78,6 +79,7 @@ class EventAttemptRow(TypedDict):
     source: str
     chosen_allocator: str | None
     invalidated: int
+    experimental: int
     is_hot: int
     created_at: str
 
@@ -124,6 +126,7 @@ def _roll_up_episode(
         time_ms = None
         clean_tail_ms = None
     invalidated = any(int(e["invalidated"]) for e in events)
+    experimental = any(int(e["experimental"]) for e in events)
     return {
         "segment_id": last["segment_id"],
         "session_id": last["session_id"],
@@ -136,6 +139,7 @@ def _roll_up_episode(
         "created_at": last["created_at"],
         "chosen_allocator": last["chosen_allocator"],
         "invalidated": int(invalidated),
+        "experimental": int(experimental),
         "episode_id": last["episode_id"],
         # The closing event id is useful as a stable per-episode identifier
         # for the UI (used as the row key in Recent Attempts).
@@ -235,14 +239,16 @@ class AttemptsMixin:
         cur = self.conn.execute(
             """INSERT INTO attempts
                (segment_id, session_id, capture_run_id, episode_id, outcome,
-                time_ms, source, chosen_allocator, invalidated, is_hot, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                time_ms, source, chosen_allocator, invalidated, experimental,
+                is_hot, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event.segment_id, event.session_id, event.capture_run_id,
                 event.episode_id, event.outcome.value,
                 event.time_ms,
                 event.source.value if isinstance(event.source, AttemptSource) else event.source,
-                event.chosen_allocator, int(event.invalidated), int(event.is_hot),
+                event.chosen_allocator, int(event.invalidated),
+                int(event.experimental), int(event.is_hot),
                 event.created_at.isoformat(),
             ),
         )
@@ -478,5 +484,6 @@ def _group_episodes_to_attempt_rows(
             "clean_tail_ms": episode["clean_tail_ms"],
             "created_at": episode["created_at"],
             "invalidated": episode["invalidated"],
+            "experimental": episode["experimental"],
         })
     return out

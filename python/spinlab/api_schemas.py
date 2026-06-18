@@ -576,6 +576,8 @@ class RouteSummaryResponse(_BaseResponse):
     session_paused_at: float | None = None # epoch seconds the current pause began; None = not paused
     session_pause_offset_sec: float = 0.0  # accumulated completed-pause seconds; route bar subtracts it
     grind_segment_id: str | None = None    # GrindOne: the pinned segment, else None
+    # Science / no-record mode overlay.
+    experimental: bool = False             # live session in Science mode -> show 'Science' badge
 
 
 # ---------------------------------------------------------------------------

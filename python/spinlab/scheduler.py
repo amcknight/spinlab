@@ -46,7 +46,7 @@ def attempts_from_rows(rows: list[AttemptRow]) -> list[AttemptRecord]:
             created_at=r["created_at"],
         )
         for r in rows
-        if not r.get("invalidated", False)
+        if not r.get("invalidated", False) and not r.get("experimental", False)
     ]
 
 
@@ -57,16 +57,20 @@ def events_from_rows(rows: list[EventAttemptRow]) -> list[EventAttempt]:
     REPLAY events are excluded from EVERY model view that flows through this
     function — the sampler, the matrix route, the cold-distribution route —
     because replay times are fast-forward-collapsed and would corrupt all of
-    them. This is the single sampler-ingestion seam where that filter lives.
-    Only the raw ``db.get_segment_event_rows`` call remains unfiltered, for
-    any future pure-provenance need that explicitly wants all rows.
+    them. EXPERIMENTAL ("science") events are likewise excluded: the user
+    wasn't trying their hardest (strat-hunting), so they must not skew the
+    expected-time / reliability / distribution model. They still count toward
+    floor/gold, but that path runs through ``compute_golds``, not here. This is
+    the single sampler-ingestion seam where both filters live. Only the raw
+    ``db.get_segment_event_rows`` call remains unfiltered, for any future
+    pure-provenance need that explicitly wants all rows.
     """
     from datetime import datetime
 
     from spinlab.models import AttemptOutcome, EventAttempt
     out: list[EventAttempt] = []
     for r in rows:
-        if AttemptSource(r["source"]) is AttemptSource.REPLAY:
+        if AttemptSource(r["source"]) is AttemptSource.REPLAY or bool(r.get("experimental", 0)):
             continue
         out.append(EventAttempt(
             segment_id=r["segment_id"],

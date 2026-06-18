@@ -22,6 +22,12 @@ export async function postGrind(segmentId: string): Promise<void> {
   await postJSON("/api/practice/grind", { segment_id: segmentId });
 }
 
+// Toggles Science (no-record) mode on the live practice session. The route-bar
+// "Science" badge is the source-of-truth indicator; this just flips the toggle.
+export async function postScience(): Promise<void> {
+  await postJSON("/api/practice/science");
+}
+
 export async function postHyperPlayStart(): Promise<void> {
   await postJSON("/api/hyperplay/start");
 }

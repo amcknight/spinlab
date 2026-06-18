@@ -155,6 +155,34 @@ def test_compute_golds_excludes_invalidated_attempts(db_with_segment):
     assert golds["seg1"]["clean_gold_ms"] == 15000
 
 
+def test_compute_golds_includes_experimental(db_with_segment):
+    """Locks the floor-inclusion semantics: an EXPERIMENTAL ("science") clean
+    clear is excluded from the estimator (see events_from_rows) but STILL counts
+    toward floor/gold — a fast clean is achievable regardless of effort. The
+    faster experimental clear must therefore win gold.
+
+    compute_golds filters ONLY invalidated, so experimental flows through with
+    no code change. If this fails, do NOT add experimental handling to
+    compute_golds — it means the floor path filters more than expected and the
+    semantics need rethinking.
+    """
+    db = db_with_segment
+    # Normal serious clean clear.
+    db.log_event_attempt(EventAttempt(
+        segment_id="seg1", episode_id="epSerious", session_id="sess1",
+        source=AttemptSource.PRACTICE, outcome=AttemptOutcome.SURVIVED,
+        time_ms=5000, created_at=datetime.now(UTC),
+    ))
+    # Faster EXPERIMENTAL clean clear — excluded from the model, but a real PB.
+    db.log_event_attempt(EventAttempt(
+        segment_id="seg1", episode_id="epScience", session_id="sess1",
+        source=AttemptSource.PRACTICE, outcome=AttemptOutcome.SURVIVED,
+        time_ms=3000, created_at=datetime.now(UTC), experimental=True,
+    ))
+    golds = db.compute_golds("g1")
+    assert golds["seg1"]["clean_gold_ms"] == 3000
+
+
 # ---------------------------------------------------------------------------
 # Test 4 — Aborted episode
 # ---------------------------------------------------------------------------
@@ -236,6 +264,54 @@ def test_event_attempt_default_is_cold(db_with_segment: "Database"):
     ))
     rows = db_with_segment.get_segment_event_rows("seg1")
     assert rows[0]["is_hot"] == 0
+
+
+def test_log_event_attempt_persists_experimental(db_with_segment: "Database"):
+    """An EventAttempt flagged experimental round-trips as 1 through the event row."""
+    db_with_segment.log_event_attempt(EventAttempt(
+        segment_id="seg1",
+        episode_id="epExp",
+        outcome=AttemptOutcome.SURVIVED,
+        time_ms=4200,
+        session_id="sess1",
+        source=AttemptSource.PRACTICE,
+        experimental=True,
+    ))
+    rows = db_with_segment.get_segment_event_rows("seg1")
+    assert rows[0]["experimental"] == 1
+
+
+def test_event_attempt_default_is_not_experimental(db_with_segment: "Database"):
+    """An EventAttempt with no explicit experimental flag persists as 0."""
+    db_with_segment.log_event_attempt(EventAttempt(
+        segment_id="seg1",
+        episode_id="ep1",
+        outcome=AttemptOutcome.SURVIVED,
+        time_ms=1000,
+        session_id="sess1",
+        source=AttemptSource.PRACTICE,
+    ))
+    rows = db_with_segment.get_segment_event_rows("seg1")
+    assert rows[0]["experimental"] == 0
+
+
+def test_roll_up_episode_experimental_if_any_event(db_with_segment: "Database"):
+    """An episode rolls up experimental=1 if any of its events were experimental."""
+    common = dict(
+        segment_id="seg1", episode_id="epMixed", session_id="sess1",
+        source=AttemptSource.PRACTICE,
+    )
+    db_with_segment.log_event_attempt(EventAttempt(
+        outcome=AttemptOutcome.DIED, time_ms=3000,
+        created_at=datetime.now(UTC), experimental=True, **common,
+    ))
+    db_with_segment.log_event_attempt(EventAttempt(
+        outcome=AttemptOutcome.SURVIVED, time_ms=5000,
+        created_at=datetime.now(UTC), **common,
+    ))
+    rows = db_with_segment.get_segment_attempts("seg1")
+    assert len(rows) == 1
+    assert rows[0]["experimental"] == 1
 
 
 # ---------------------------------------------------------------------------

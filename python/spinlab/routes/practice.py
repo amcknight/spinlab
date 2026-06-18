@@ -34,3 +34,10 @@ async def practice_invalidate(session: SessionManager = Depends(get_session)):
     """Mark the current practice attempt as invalidated."""
     await session.invalidate_current_attempt()
     return {"status": "ok"}
+
+
+@router.post("/practice/science", response_model=OkResponse)
+async def practice_science(session: SessionManager = Depends(get_session)):
+    """Toggle Science/no-record mode on the live practice session."""
+    session.toggle_experimental()
+    return {"status": "ok"}

@@ -42,6 +42,7 @@ class _FakePausedSession:
         self.pause_offset_sec = pause_offset_sec
         self.grind_segment_id = None  # real PracticeSession always sets this
         self.is_running = True  # a paused session is still running
+        self.experimental = False
 
 
 def _seed_db(tmp_path) -> tuple[Database, str, str]:
@@ -195,3 +196,28 @@ class TestPauseOverlay:
         assert body["menu_armed"] is True
         assert body["session_paused_at"] == 100.0
         assert body["session_pause_offset_sec"] == 5.0
+
+
+class TestExperimentalOverlay:
+    def test_experimental_default_false_no_session(self, tmp_path):
+        client, _, game_id = _client(tmp_path)
+        body = client.get(f"/api/games/{game_id}/live-summary").json()
+        assert body["experimental"] is False
+
+    def test_experimental_reflects_live_session(self, tmp_path):
+        # A running (here paused) session whose experimental flag is set is
+        # surfaced verbatim in the summary.
+        db, seg_id, game_id = _seed_db(tmp_path)
+        snapshot = SessionSnapshot(
+            started_at=0.0, segments={},
+            route=RouteBaseline(exp_run_ms=250000.0, exp_deaths=20.0),
+        )
+        ps = _FakePausedSession(paused=True, paused_at_epoch=100.0, pause_offset_sec=5.0)
+        ps.experimental = True
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[get_db] = lambda: db
+        app.dependency_overrides[get_session] = lambda: _ActiveSessionStub(
+            snapshot, practice_session=ps)
+        body = TestClient(app).get(f"/api/games/{game_id}/live-summary").json()
+        assert body["experimental"] is True

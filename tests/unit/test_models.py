@@ -21,6 +21,11 @@ def test_attempt_requires_exactly_one_parent():
         Attempt(segment_id="s1", session_id="s", capture_run_id="r", completed=True)
 
 
+def test_attempt_defaults_experimental_false():
+    a = Attempt(segment_id="s", session_id="x", completed=True, time_ms=1000)
+    assert a.experimental is False
+
+
 class TestDeathExtras:
     def test_default_extras_is_none(self):
         from spinlab.models import ModelOutput, Estimate

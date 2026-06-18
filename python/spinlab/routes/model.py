@@ -374,6 +374,7 @@ def get_route_summary(
         "grind_segment_id": (
             ps.grind_segment_id if (ps is not None and ps.is_running) else None
         ),
+        "experimental": ps.experimental if (ps is not None and ps.is_running) else False,
     }
 
 
