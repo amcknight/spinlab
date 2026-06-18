@@ -21,6 +21,7 @@ const SESSION: RouteBarData = {
     menu_armed: false,
     session_paused_at: null,
     session_pause_offset_sec: 0,
+    experimental: false,
   },
   nowSeconds: NOW_S,
 };
@@ -101,6 +102,13 @@ describe("renderRouteBar", () => {
     expect(host.textContent).toContain("(frozen)");
     // Elapsed is pinned by caller-supplied nowSeconds (= ended_at): 60s.
     expect(host.textContent).toContain("0:01:00");
+  });
+  it("shows the Science badge when experimental", () => {
+    document.body.innerHTML = `<div id="h"></div>`;
+    const host = document.getElementById("h")!;
+    renderRouteBar(host, { ...SESSION, routeSummary: {
+      ...SESSION.routeSummary, experimental: true } });
+    expect(host.querySelector(".rb-science")).not.toBeNull();
   });
   it("shows no (frozen) badge for a live session", () => {
     document.body.innerHTML = `<div id="h"></div>`;

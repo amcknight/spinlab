@@ -80,6 +80,9 @@ export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
   const menuHint = rs.menu_armed
     ? `<div class="rb-menu-hint">R menu — X: Pause</div>`
     : "";
+  const scienceBadge = rs.experimental
+    ? `<span class="rb-science">\u{1F9EA} Science</span>`
+    : "";
 
   // Tint Saved + rate green when the session is ahead (saved_ms > 0), red when
   // behind (< 0), neutral otherwise. Lower run time = saved time = improvement.
@@ -120,7 +123,7 @@ export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
   host.innerHTML = `
     <div class="rb-root">
       <div class="rb-left">
-        <div class="rb-title">${escapeHtml(data.title)}${frozenBadge}${pausedBadge}</div>
+        <div class="rb-title">${escapeHtml(data.title)}${frozenBadge}${pausedBadge}${scienceBadge}</div>
         ${savedBlock}
         ${menuHint}
         ${skippedBlock}

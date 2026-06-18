@@ -14,6 +14,7 @@ import {
   patchAttemptInvalidated,
   postPracticeStart,
   postPracticeStop,
+  postScience,
   postHyperPlayStart,
   postHyperPlayStop,
 } from "./model-api";
@@ -162,6 +163,7 @@ export function updatePracticeCard(data: AppState): void {
 export function updatePracticeControls(data: AppState): void {
   const startBtn = document.getElementById("btn-practice-start") as HTMLButtonElement;
   const stopBtn = document.getElementById("btn-practice-stop") as HTMLElement;
+  const scienceBtn = document.getElementById("btn-practice-science") as HTMLElement;
   const srStartBtn = document.getElementById("btn-hyperplay-start") as HTMLButtonElement;
   const srStopBtn = document.getElementById("btn-hyperplay-stop") as HTMLElement;
   const isPracticing = data.mode === "practice";
@@ -170,6 +172,7 @@ export function updatePracticeControls(data: AppState): void {
   startBtn.style.display = isPracticing || isHyperPlay ? "none" : "";
   startBtn.disabled = !canStartPractice(data);
   stopBtn.style.display = isPracticing ? "" : "none";
+  scienceBtn.style.display = isPracticing ? "" : "none";
 
   srStartBtn.style.display = isPracticing || isHyperPlay ? "none" : "";
   srStartBtn.disabled = !canStartHyperPlay(data);
@@ -179,6 +182,7 @@ export function updatePracticeControls(data: AppState): void {
 export function initModelTab(): void {
   document.getElementById("btn-practice-start")!.addEventListener("click", () => postPracticeStart());
   document.getElementById("btn-practice-stop")!.addEventListener("click", () => postPracticeStop());
+  document.getElementById("btn-practice-science")!.addEventListener("click", () => postScience());
   document.getElementById("btn-hyperplay-start")!.addEventListener("click", () => postHyperPlayStart());
   document.getElementById("btn-hyperplay-stop")!.addEventListener("click", () => postHyperPlayStop());
 }

@@ -441,6 +441,18 @@ h3 {
   font-size: 12px;
 }
 .btn-danger:hover { opacity: 0.85; }
+.btn-science {
+  background: var(--orange);
+  color: #000;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+.btn-science:hover { opacity: 0.85; }
 .btn-sm {
   background: var(--card);
   color: var(--text);
@@ -996,6 +1008,7 @@ h3 {
 .rb-saved-bad { color: var(--red); }
 .rb-skipped { font-size: 11px; }
 .rb-paused { color: var(--orange); margin-left: 0.5rem; font-weight: 600; }
+.rb-science { color: var(--orange); margin-left: 0.5rem; font-weight: 600; }
 .rb-menu-hint { font-size: 0.85em; margin-top: 0.15rem; color: var(--text-dim); }
 .rb-stats { display: flex; gap: 18px; }
 
