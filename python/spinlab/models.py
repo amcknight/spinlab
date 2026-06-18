@@ -165,6 +165,7 @@ class Attempt:
     clean_tail_ms: int | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     invalidated: bool = False
+    experimental: bool = False
     chosen_allocator: str | None = None
 
     def __post_init__(self) -> None:
