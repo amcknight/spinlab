@@ -510,3 +510,53 @@ async def test_recv_event_timeout_returns_none(tmp_path):
     ev = await orch.recv_event(timeout=0.05)
     assert ev is None
     await orch.disconnect()
+
+
+# ------------------------------------------------------------------
+# Gamepad loop wiring
+# ------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_gamepad_loop_started_on_connect_stopped_on_disconnect(tmp_path):
+    from spinlab.retroarch.movies import MovieController
+
+    class _FakeGamepad:
+        def __init__(self):
+            self.bound = None
+            self.started = False
+            self.stopped = False
+        def bind(self, *, loop, on_event):
+            self.bound = (loop, on_event)
+        def start(self):
+            self.started = True
+        def stop(self):
+            self.stopped = True
+
+    gamepad = _FakeGamepad()
+    raclient = FakeRAClient()
+    poller = FakePoller()
+    movies = MovieController(
+        movie_io=FakeMovieIO(), raclient=raclient, enable=False,
+        on_event=lambda ev: None,
+    )
+    orch = RetroArchOrchestrator(
+        raclient=raclient,
+        poller=poller,
+        conditions=ConditionRegistry(),
+        practice_timing=PracticeTiming(),
+        hyper_play_timing=HyperPlayTiming(),
+        state_paths=StatePathResolver(tmp_path),
+        movies=movies,
+        gamepad=gamepad,
+    )
+    await orch.connect()
+    assert gamepad.started is True
+    assert gamepad.bound is not None
+    # on_event is the orchestrator's enqueue, so an event reaches orch.events.
+    _loop, on_event = gamepad.bound
+    orch.events.get_nowait()  # drain the RomInfoEvent emitted by connect()
+    on_event("sentinel")
+    assert orch.events.get_nowait() == "sentinel"
+
+    await orch.disconnect()
+    assert gamepad.stopped is True

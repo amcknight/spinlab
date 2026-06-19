@@ -30,3 +30,19 @@ scheduler:
 
 data:
   dir: "data"
+
+# Physical-gamepad menu (optional; requires `pip install -e ".[gamepad]"`).
+# Reads the controller directly, not the emulated SNES input. Button ids are
+# pygame indices and vary per controller/mode and your RetroArch remaps — run
+# `spinlab gamepad-probe` to discover them. Pick a no-game-function button for
+# `modifier` (e.g. a stick click) since it is HELD to open the menu.
+# gamepad:
+#   enabled: true
+#   device_index: 0
+#   modifier: 8
+#   buttons:
+#     pause: 9
+#     toggle_science: 10
+#     toggle_practice: 11
+#     prev_segment: 4
+#     next_segment: 5

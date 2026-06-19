@@ -16,6 +16,10 @@ dependencies = ["pyyaml>=6,<7", "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "numpy>
 # to install successfully but `pytest -m "not (emulator or slow or frontend)"`
 # fails with ModuleNotFoundError at collection time.
 dev = ["pytest", "pytest-asyncio", "pytest-cov", "httpx", "requests", "playwright>=1.58", "pytest-playwright>=0.7"]
+# Physical-gamepad menu input. pygame's joystick module reads the pad directly
+# (8bitdo in X-input or D-input mode). Optional: without it the gamepad menu is
+# inactive and the rest of the app runs unaffected.
+gamepad = ["pygame>=2.5,<3"]
 fits = [
     # Pin to the versions the prototype's validation harness was
     # frozen against (segments_experiment/requirements.txt). Newer

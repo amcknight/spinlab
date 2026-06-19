@@ -170,6 +170,13 @@ def main(args: list[str] | None = None) -> None:
     p_db_reset = db_sub.add_parser("reset", help="Delete and recreate the database")
     p_db_reset.add_argument("--config", default="config.yaml", help="Path to config.yaml")
 
+    p_probe = sub.add_parser(
+        "gamepad-probe", help="Print gamepad button indices as you press them"
+    )
+    p_probe.add_argument(
+        "--device", type=int, default=0, help="Joystick index to probe (default 0)"
+    )
+
     # Register the segments-v07 manual EB pool refit. Lives in its own
     # module so the JAX import stays lazy until `spinlab fit-pool` runs.
     from spinlab import cli_fit_pool
@@ -226,6 +233,10 @@ def main(args: list[str] | None = None) -> None:
                     wal.unlink()
             Database(str(db_path))
             print(f"Database reset: {db_path}")
+
+    elif parsed.command == "gamepad-probe":
+        from spinlab.gamepad.probe import run_probe
+        sys.exit(run_probe(parsed.device))
 
     elif parsed.command == "fit-pool":
         from spinlab import cli_fit_pool

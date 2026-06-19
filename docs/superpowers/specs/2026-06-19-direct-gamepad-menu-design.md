@@ -1,8 +1,17 @@
 ---
 title: Direct-gamepad menu (replace the WRAM R-menu)
 date: 2026-06-19
-status: approved
+status: implemented
 ---
+
+> **Implemented 2026-06-19** on branch `feat/gamepad-menu` via
+> `docs/superpowers/plans/2026-06-19-direct-gamepad-menu.md` (9 tasks). New
+> `spinlab.gamepad` package (detector / source / loop / probe), `gamepad:`
+> config section + `[gamepad]` pygame extra, `spinlab gamepad-probe` CLI; WRAM
+> menu fully retired from poller + snapshot. **Outstanding: the manual hardware
+> smoke test** — no controller in CI; Andrew must run `spinlab gamepad-probe`
+> with the 8bitdo, confirm X/Y and A/B give distinct indices, fill `config.yaml`,
+> and verify end-to-end dispatch before relying on it live.
 
 # Direct-gamepad menu
 

@@ -50,6 +50,38 @@ class TestAppConfig:
         with pytest.raises(KeyError):
             AppConfig.from_yaml(config_file)
 
+    def test_gamepad_defaults_to_disabled(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump({"data": {"dir": "data"}}))
+        cfg = AppConfig.from_yaml(config_file)
+        assert cfg.gamepad.enabled is False
+        assert cfg.gamepad.device_index == 0
+        assert cfg.gamepad.modifier is None
+        assert cfg.gamepad.buttons == {}
+
+    def test_gamepad_parses_full_section(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump({
+            "data": {"dir": "data"},
+            "gamepad": {
+                "enabled": True,
+                "device_index": 1,
+                "modifier": 8,
+                "buttons": {
+                    "pause": 9,
+                    "toggle_science": 10,
+                    "toggle_practice": 11,
+                    "prev_segment": 4,
+                    "next_segment": 5,
+                },
+            },
+        }))
+        cfg = AppConfig.from_yaml(config_file)
+        assert cfg.gamepad.enabled is True
+        assert cfg.gamepad.device_index == 1
+        assert cfg.gamepad.modifier == 8
+        assert cfg.gamepad.buttons["toggle_practice"] == 11
+
 
 def test_ra_movie_dir_parsed_from_yaml(tmp_path):
     cfg_yaml = tmp_path / "config.yaml"

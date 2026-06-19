@@ -123,14 +123,14 @@ class AttemptInvalidatedEvent:
 
 @dataclass(frozen=True)
 class ControllerCommandEvent:
-    """An R-menu command dispatched from the controller. command is a key from
-    the menu_detector COMMANDS registry (today only "pause")."""
+    """A gamepad-menu command dispatched from the controller. command is one of
+    the menu verbs (MENU_VERBS) mapped from a physical button in config."""
     command: str = ""
 
 @dataclass(frozen=True)
 class ControllerMenuArmedEvent:
-    """The R-menu arm state changed (R held past threshold / R released).
-    Drives the dashboard's 'X — Pause' hint."""
+    """The gamepad-menu arm state changed (configured modifier held → armed;
+    released → disarmed). Drives the route-bar menu hint."""
     armed: bool = False
 
 @dataclass(frozen=True)
