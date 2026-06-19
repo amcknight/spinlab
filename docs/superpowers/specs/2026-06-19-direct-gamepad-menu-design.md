@@ -33,14 +33,34 @@ controller's extra buttons (L2, R2, stick-clicks, etc.).
 
 Read the **physical gamepad directly** (not the SMW-emulated input) and retire the
 WRAM menu. The menu becomes emulator-agnostic and gains the full physical button
-set, and a modifier on an **SMW-unused button** (e.g. L2/R2) eliminates both the
-face-button merge and the gameplay collision in one move.
+set. Reading the real pad immediately fixes the face-button **merge** (every
+physical button is distinct). The gameplay **collision** is mitigated — not
+magically eliminated — by mapping onto buttons with no/rare game function; how well
+depends on the user's setup, which is exactly why the mapping is configurable.
+
+### Button-availability reality (why config is mandatory, not a nicety)
+There is **no universally-free button** to assume. Andrew is a "dirty remapper"
+running SMM2-style controls: **A is remapped to R2 (spin), and L / L2 are
+save-state / load-state.** So the buttons a naive design would grab for the menu
+(L2/R2) are already in heavy use, and a menu press there would spin Mario or
+save/load. The realistic free candidates are no-game-function buttons — **stick
+clicks (L3/R3), Home/Star/Capture** — but the exact set varies per user and
+controller. Consequences for the design:
+- The config must accept **any** button id for the modifier and each verb.
+- **Modifier choice matters most:** it's *held* to open the menu, so it should be a
+  button whose held action is harmless (ideally no game function — a stick click).
+  A modifier on save/load/spin would fire that action every time the menu opens.
+- Verbs placed on game-used buttons will still trigger their game action while the
+  modifier is held (the press reaches RetroArch too). That's an accepted,
+  user-chosen tradeoff — the `gamepad-probe` exists so the user can find their free
+  buttons and decide.
 
 ### Settled choices
 - **Replace** the WRAM (`$15`/`$17`) menu input entirely; gamepad is the sole menu
   input. No gamepad connected → the menu is simply inactive (use the UI buttons).
-- **Modifier-based** gesture (hold a modifier, press a verb), preferring SMW-unused
-  buttons for the modifier and verbs so menu presses mostly don't leak into play.
+- **Modifier-based** gesture (hold a modifier, press a verb). Prefer no-game-function
+  buttons (stick clicks / Home) for the modifier especially; the config allows any
+  button so the user maps around their own remaps (see Button-availability reality).
 - **Configurable** mapping (firm requirement), **one global mapping** in
   `config.yaml`. Per-game and **per-level overrides are deferred** — design the
   config so it's not painted into a corner, but do not build them now.
@@ -86,18 +106,19 @@ its *input* was WRAM bits. Generalize it from `(byte, bit)` keys to opaque
    gamepad:
      enabled: true
      device_index: 0          # which joystick (pygame index)
-     modifier: 6              # button id that opens the menu (e.g. L2)
+     modifier: 8              # button that OPENS the menu — pick a no-game-function
+                              # button (e.g. a stick click) so holding it is harmless
      buttons:
-       pause: 7               # R2
-       toggle_science: 8      # L3 (left stick click)
-       toggle_practice: 9     # R3
-       prev_segment: 4        # L1
-       next_segment: 5        # R1
+       pause: 9               # each verb -> a button id (a free button if you have
+       toggle_science: 10     # one; otherwise a game button you accept leaking)
+       toggle_practice: 11
+       prev_segment: 4
+       next_segment: 5
    ```
-   (IDs above are placeholders; real indices vary by controller/mode and are
-   discovered via the probe.) Parsed into a typed config object; the structure is
-   chosen so a future `per_game` / `per_level` override map can wrap it without a
-   rewrite.
+   (IDs are placeholders — real indices vary per controller/mode and Andrew's
+   remaps; discover them with the probe.) Parsed into a typed config object; the
+   structure is chosen so a future `per_game` / `per_level` override map can wrap it
+   without a rewrite.
 6. **`spinlab gamepad-probe` CLI** — prints each button index as it's pressed (and
    the active device list), so Andrew fills in the config. Replaces the WRAM
    controller probe for this purpose.
