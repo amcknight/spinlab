@@ -75,7 +75,7 @@ export function renderRouteBar(host: HTMLElement, data: RouteBarData): void {
     ? Math.max(0, effectiveNow - sessionStartedAt - pauseOffset)
     : 0;
   const menuHint = rs.menu_armed
-    ? `<div class="rb-menu-hint">R menu — X: Pause</div>`
+    ? `<div class="rb-menu-hint">R-menu · Y start/stop · X pause · A science · ◄ ► segment</div>`
     : "";
 
   // Tint Saved + rate green when the session is ahead (saved_ms > 0), red when

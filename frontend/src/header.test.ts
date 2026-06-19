@@ -52,10 +52,9 @@ describe("practice mode chip sub-state", () => {
     expect(label()).toContain("Science");
   });
 
-  it("plain Practicing chip carries no sub-state", () => {
-    updateHeader(baseState({ mode: "practice" }));
+  it("plain practice chip is just 'Practice' (no sub-state, no segment)", () => {
+    updateHeader(baseState({ mode: "practice", current_segment: { description: "L6" } as never }));
     const txt = label();
-    expect(txt).toContain("Practicing");
-    expect(txt).not.toContain("·");
+    expect(txt).toBe("Practice");  // tight: no "Practicing", no segment name
   });
 });

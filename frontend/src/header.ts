@@ -49,15 +49,14 @@ export function updateHeader(data: AppState): void {
     stopBtn.style.display = "";
   } else if (data.mode === "practice") {
     chip.classList.add("practicing");
-    const seg = data.current_segment;
-    // Single source of truth for practice sub-state (was scattered route-bar
-    // badges). Order: what's most salient to "what is the loop doing right now".
+    // Keep the chip tight so it never overflows the header: just the practice
+    // sub-state (Grinding / Science / Paused), or plain "Practice". The current
+    // segment is shown in the practice card, not here.
     const subs: string[] = [];
     if (data.practice_grind) subs.push("Grinding");
     if (data.practice_experimental) subs.push("Science");
     if (data.practice_paused) subs.push("Paused");
-    const sub = subs.length ? " · " + subs.join(" · ") : "";
-    label.textContent = "Practicing" + sub + (seg ? " — " + segmentName(seg) : "");
+    label.textContent = subs.length ? subs.join(" · ") : "Practice";
     stopBtn.style.display = "";
   } else if (data.mode === "hyper_play") {
     chip.classList.add("practicing");
