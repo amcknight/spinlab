@@ -12,7 +12,8 @@ class SystemState:
     mode: Mode = Mode.IDLE
     game_id: str | None = None
     game_name: str | None = None
-    # R-menu armed (R held past threshold). Drives the 'X — Pause' hint; pushed
-    # to the route bar via the live-summary payload. Mode-agnostic at the
-    # detector; the frontend only renders it during practice.
+    # Gamepad menu armed (the configured modifier is held — opens instantly, no
+    # hold-time threshold). Drives the route-bar menu hint; pushed to the route
+    # bar via the live-summary payload. Mode-agnostic at the detector; the
+    # frontend only renders it during practice.
     menu_armed: bool = False
