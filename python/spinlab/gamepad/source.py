@@ -29,7 +29,7 @@ def _import_pygame():
     desktop it is harmless (we never open a window).
     """
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
-    import pygame
+    import pygame  # type: ignore[import-not-found]  # optional [gamepad] extra
     return pygame
 
 

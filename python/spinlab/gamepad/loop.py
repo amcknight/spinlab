@@ -8,6 +8,7 @@ on the loop thread, exactly like poller-emitted events.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import time
@@ -42,7 +43,7 @@ class GamepadMenuLoop:
         self._source = source
         self._detector = detector
         self._period = period_sec
-        self._loop = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._on_event: Callable[[object], None] | None = None
         self._thread: threading.Thread | None = None
         self._stopped = False
@@ -70,9 +71,12 @@ class GamepadMenuLoop:
             self._thread = None
 
     def _poll_once(self) -> None:
+        # bind() (called before start()) guarantees both are set; assert narrows
+        # the Optional types for the checker and fails loud if the contract slips.
+        assert self._loop is not None and self._on_event is not None
         pressed = self._source.pressed()
         for event in self._detector.step(pressed):
-            # Marshal onto the asyncio loop thread; bind() guarantees both set.
+            # Marshal onto the asyncio loop thread.
             self._loop.call_soon_threadsafe(self._on_event, event)
 
     def _run(self) -> None:
