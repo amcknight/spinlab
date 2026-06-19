@@ -73,6 +73,7 @@ class RetroArchOrchestrator:
         hyper_play_timing: HyperPlayTiming,
         state_paths: StatePathResolver,
         movies: MovieController,
+        gamepad=None,
     ) -> None:
         self._raclient = raclient
         self._poller = poller
@@ -81,6 +82,7 @@ class RetroArchOrchestrator:
         self._hyper_play_timing = hyper_play_timing
         self._state_paths = state_paths
         self._movies = movies
+        self._gamepad = gamepad
 
         # EmuBackend public surface
         self.events: asyncio.Queue[object] = asyncio.Queue()
@@ -166,6 +168,12 @@ class RetroArchOrchestrator:
         self._running = True
         self._poller_task = asyncio.create_task(self._poller.run())
         self._tick_task = asyncio.create_task(self._tick_loop())
+        if self._gamepad is not None:
+            self._gamepad.bind(
+                loop=asyncio.get_running_loop(),
+                on_event=self._enqueue,
+            )
+            self._gamepad.start()
         logger.info("RetroArchOrchestrator connected")
         return True
 
@@ -186,6 +194,9 @@ class RetroArchOrchestrator:
                 except asyncio.CancelledError:
                     pass
             self._poller_task = None
+
+        if self._gamepad is not None:
+            self._gamepad.stop()
 
         if self._tick_task is not None:
             self._tick_task.cancel()

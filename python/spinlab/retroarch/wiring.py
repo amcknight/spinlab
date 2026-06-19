@@ -103,6 +103,9 @@ def build_orchestrator(config) -> RetroArchOrchestrator:
     )
     poller = Poller(deps, period_sec=DEFAULT_PERIOD_SEC)
 
+    from spinlab.gamepad.loop import build_gamepad_loop
+    gamepad = build_gamepad_loop(config.gamepad)
+
     movies = MovieController(
         movie_io=raclient.movie_io,
         raclient=raclient,
@@ -118,6 +121,7 @@ def build_orchestrator(config) -> RetroArchOrchestrator:
         hyper_play_timing=hyper_play_timing,
         state_paths=state_paths,
         movies=movies,
+        gamepad=gamepad,
     )
     deps.on_event = orch.on_poller_event
     return orch
