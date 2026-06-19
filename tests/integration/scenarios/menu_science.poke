@@ -1,9 +1,0 @@
-# menu_science — hold R ($17 bit 0x10) to arm the menu, then press A (0x80) to
-# dispatch the 'toggle_science' command. A shares the $17 byte with R/X, so this
-# mirrors menu_pause exactly: 0x10 from frame 1 opens the menu; 0x90 at frame 35
-# is the A rising edge (A was not held at the arm frame, so chord-suppression
-# does not block it).
-settle: 60
-
-1: controller_held=0x10
-35: controller_held=0x90

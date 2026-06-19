@@ -26,52 +26,24 @@ class MemorySnapshot:
     boss_defeat: int
     midway: int
     cp_entrance: int
-    # Controller 1 held buttons, byte 2 (A X L R). Read for the R-menu layer.
-    # Defaulted because transition detection never consults it — existing
-    # snapshot builders legitimately omit it; only read_snapshot + the menu
-    # detector set it.
-    controller_held: int = 0
-    # Controller 1 held buttons, byte 1 ($15: B Y Select Start + d-pad). Read
-    # for the R-menu layer (Y / d-pad commands live here). Defaulted for the
-    # same reason as controller_held — transition detection never consults it.
-    controller_held_1: int = 0
 
 
 def read_snapshot(client: NCIClient) -> MemorySnapshot:
-    """Read all 13 SMW state bytes via NCI into 7 contiguous-range READ_CORE_RAM calls.
+    """Read 11 SMW state bytes via NCI into 6 contiguous-range READ_CORE_RAM calls.
 
-    Clusters the 13 addresses into 7 reads instead of 13 individual reads.
-    Each NCI read is a UDP round-trip, so cutting from 13 to 7 round-trips per
-    snapshot is a measurable speedup for the 60Hz production poller and a ~30%
-    speedup for each frame of the test harness's poke loop.
+    Clusters the 11 addresses into 6 reads instead of 11 individual reads.
+    Each NCI read is a UDP round-trip, so clustering is a measurable speedup
+    for the 60Hz production poller and a ~30% speedup for each frame of the
+    test harness's poke loop.
 
     Cluster boundaries are picked so each reply stays well under the 4096-byte
     UDP receive buffer (each WRAM byte serializes to ~3 chars of hex+space in
     RA's text protocol).
-
-    Note: $15-$17 are read as one 3-byte cluster (the $16 pressed byte is read
-    but unused); it's a lone cluster far below the $0071+ low cluster.
     """
-    # $15..$17: held byte1 ($15, B Y Select Start + d-pad), pressed1 ($16,
-    # ignored), held byte2 ($17, A X L R). One cluster covers both held bytes
-    # the menu layer needs; still read FIRST as the write-barrier.
-    #
-    # Why read FIRST: this acts as the synchronous barrier that ensures any
-    # immediately-preceding WRITE_CORE_RAM 17 has been processed by RA before
-    # the rest of the snapshot reads proceed.  In the poke engine, FRAMEADVANCE
-    # is fire-and-forget: if it hasn't been processed yet when read_snapshot is
-    # called, RA serialises it between NCI commands and the $17 NMI-write could
-    # race with the later cluster reads.  Reading $15-$17 first collapses that
-    # race: RA must drain the write queue (FRAMEADVANCE + WRITE_CORE_RAM) before
-    # replying, so by the time the reply arrives, the NMI has already run and
-    # our re-write has already landed.
-    c_ctrl = client.read_ram(
-        a.ADDR_CONTROLLER_HELD_1,
-        a.ADDR_CONTROLLER_HELD - a.ADDR_CONTROLLER_HELD_1 + 1,
-    )
-    controller_held_1 = c_ctrl[0]
-    controller_held = c_ctrl[a.ADDR_CONTROLLER_HELD - a.ADDR_CONTROLLER_HELD_1]
-    # $0071..$010B: player_anim, game_mode, room_num  (155 bytes)
+    # $0071..$010B read FIRST as the write-barrier: in the poke harness,
+    # FRAMEADVANCE is fire-and-forget, so the first NCI read of the snapshot
+    # forces RA to drain its write queue (FRAMEADVANCE + any WRITE_CORE_RAM)
+    # before replying. Any read works as the barrier; this is just the first.
     c_low = client.read_ram(a.ADDR_PLAYER_ANIM, a.ADDR_ROOM_NUM - a.ADDR_PLAYER_ANIM + 1)
     # $0906..$0DD5: fanfare, exit_mode  (1232 bytes)
     c_mid = client.read_ram(a.ADDR_FANFARE, a.ADDR_EXIT_MODE - a.ADDR_FANFARE + 1)
@@ -95,6 +67,4 @@ def read_snapshot(client: NCIClient) -> MemorySnapshot:
         level_start=level_start,
         io_port    =io_port,
         cp_entrance=cp_entrance,
-        controller_held=controller_held,
-        controller_held_1=controller_held_1,
     )

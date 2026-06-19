@@ -1,8 +1,0 @@
-# menu_pause — hold R ($17 bit 0x10) to arm the menu, then press X (0x40)
-# to dispatch the 'pause' command. 0x10 from frame 1 arms at frame 30
-# (ARM_THRESHOLD_FRAMES); 0x50 at frame 35 is the X rising edge (X was not
-# held at the arm frame, so the chord-suppression seed does not block it).
-settle: 60
-
-1: controller_held=0x10
-35: controller_held=0x50

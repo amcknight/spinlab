@@ -35,7 +35,6 @@ import time
 from typing import Protocol
 
 from spinlab.retroarch.detector import TransitionDetector
-from spinlab.retroarch.menu_detector import ControllerMenuDetector
 from spinlab.retroarch.snapshot import read_snapshot
 from tests.integration.addresses import ADDR_MAP
 
@@ -102,7 +101,6 @@ class RAPokeEngine:
 
         held: dict[int, int] = {}
         detector = TransitionDetector()
-        menu = ControllerMenuDetector()
         events: list = []
         # Start the quiescence clock at last_poke_frame so we always run at
         # least QUIESCENCE_FRAMES past the last write before terminating —
@@ -121,7 +119,6 @@ class RAPokeEngine:
                 self._client.write_ram(addr, bytes([value & 0xFF]))
             snap = read_snapshot(self._client)  # type: ignore[arg-type]
             new_events = list(detector.step(snap, frame * FRAME_PERIOD_MS))
-            new_events.extend(menu.step(snap))
             events.extend(new_events)
             if new_events:
                 frame_of_last_event = frame
