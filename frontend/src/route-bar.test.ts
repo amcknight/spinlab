@@ -148,11 +148,13 @@ describe("route bar pause + menu", () => {
     expect(host.querySelector(".rb-saved")!.textContent).toMatch(/0:50:00/);
   });
 
-  it("shows the R-menu hint when armed", () => {
+  it("shows a generalized menu hint when the gamepad menu is armed", () => {
     document.body.innerHTML = `<div id="h"></div>`;
     const host = document.getElementById("h")!;
     renderRouteBar(host, dataWith({ menu_armed: true }));
     expect(host.querySelector(".rb-menu-hint")).not.toBeNull();
+    expect(host.querySelector(".rb-menu-hint")!.textContent).toContain("Menu armed");
+    expect(host.querySelector(".rb-menu-hint")!.textContent).not.toContain("R-menu");
   });
 
   it("no hint and no badge in the normal active case", () => {
