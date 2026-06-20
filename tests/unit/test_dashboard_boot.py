@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from unittest.mock import MagicMock
 
 
@@ -35,8 +34,6 @@ def test_prewarm_failure_does_not_crash_boot(monkeypatch):
     # raised inside the thread target is the thread's problem, not the
     # caller's. The call itself must return cleanly.
     dashboard._run_startup_hooks()
-    # Give the daemon thread a moment to die.
-    time.sleep(0.1)
 
 
 def test_prewarm_segments_model_handles_missing_extra(monkeypatch, caplog):
