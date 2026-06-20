@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from spinlab.api_schemas import AttemptPatchRequest, AttemptPatchResponse, SurgeryAttemptsResponse
+from spinlab.api_schemas import AttemptPatchRequest, AttemptPatchResponse, SurgeryAttempt, SurgeryAttemptsResponse
 from spinlab.db import Database
 from spinlab.session_manager import SessionManager
 
@@ -15,8 +15,8 @@ from ._deps import get_db, get_session
 router = APIRouter(prefix="/api")
 
 
-def surgery_rows(attempts: Sequence[Mapping[str, Any]]) -> list[dict]:
-    """Build SurgeryAttempt dicts from Database.get_segment_attempts output.
+def surgery_rows(attempts: Sequence[Mapping[str, Any]]) -> list[SurgeryAttempt]:
+    """Build SurgeryAttempt objects from Database.get_segment_attempts output.
 
     Order is chronological (created_at asc, 1-based). is_floor marks the row
     whose clean_tail equals the lowest clean_tail among valid (completed,
@@ -28,21 +28,23 @@ def surgery_rows(attempts: Sequence[Mapping[str, Any]]) -> list[dict]:
          if a["completed"] and not a["invalidated"] and a["clean_tail_ms"] is not None),
         default=None,
     )
-    rows: list[dict] = []
+    rows: list[SurgeryAttempt] = []
     for i, a in enumerate(ordered, start=1):
         ct = a["clean_tail_ms"]
-        rows.append({
-            "id": a["id"],
-            "order": i,
-            "clean_tail_ms": ct,
-            "total_ms": a["time_ms"],
-            "deaths": a["deaths"],
-            "created_at": a["created_at"],
-            "completed": bool(a["completed"]),
-            "invalidated": bool(a["invalidated"]),
-            "is_floor": floor_ms is not None and ct == floor_ms
-                        and bool(a["completed"]) and not bool(a["invalidated"]),
-        })
+        rows.append(SurgeryAttempt(
+            id=a["id"],
+            order=i,
+            clean_tail_ms=ct,
+            total_ms=a["time_ms"],
+            deaths=a["deaths"],
+            created_at=a["created_at"],
+            completed=bool(a["completed"]),
+            invalidated=bool(a["invalidated"]),
+            is_floor=(
+                floor_ms is not None and ct == floor_ms
+                and bool(a["completed"]) and not bool(a["invalidated"])
+            ),
+        ))
     return rows
 
 

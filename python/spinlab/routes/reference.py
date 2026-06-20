@@ -1,14 +1,17 @@
 """Reference CRUD, drafts, and replay routes."""
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from spinlab.api_schemas import (
     ActionResponse,
+    CaptureRunKind,
+    CaptureRunStatus,
     CaptureSessionsResponse,
     OkResponse,
+    Reference,
     ReferenceFinalizeRequest,
     ReferenceRenameRequest,
     ReferenceSegmentsResponse,
@@ -81,20 +84,28 @@ def list_references(session: SessionManager = Depends(get_session), db: Database
         return {"references": []}
     gid = session.game_id
     refs = db.list_capture_runs(gid)
-    out: list[dict] = []
+    out: list[Reference] = []
     for ref in refs:
-        d: dict = dict(ref)
-        ref_id = d["id"]
+        ref_id = ref["id"]
         sessions = db.list_capture_sessions_for_run(ref_id)
         if sessions:
-            d["has_replay"] = any(
+            has_replay = any(
                 (session.data_dir / gid / "rec" / f"{ref_id}__sess{s['ordinal']:03d}.replay").is_file()
                 for s in sessions
             )
         else:
             legacy_replay = session.data_dir / gid / "rec" / f"{ref_id}.replay"
-            d["has_replay"] = legacy_replay.is_file()
-        out.append(d)
+            has_replay = legacy_replay.is_file()
+        out.append(Reference(
+            id=ref["id"],
+            game_id=ref["game_id"],
+            name=ref["name"],
+            created_at=ref["created_at"],
+            status=cast(CaptureRunStatus, ref["status"]),
+            active=ref["active"],
+            kind=cast(CaptureRunKind, ref["kind"]),
+            has_replay=has_replay,
+        ))
     return {"references": out}
 
 

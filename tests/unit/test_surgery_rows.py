@@ -18,15 +18,15 @@ def test_surgery_rows_assigns_chronological_order_and_floor():
         _att(30, "2026-01-01T00:01:00+00:00", 11000, 11000, 0, 1, 0),  # floor
     ]
     rows = surgery_rows(raw)
-    by_id = {r["id"]: r for r in rows}
-    assert by_id[10]["order"] == 1
-    assert by_id[30]["order"] == 2
-    assert by_id[50]["order"] == 3
-    assert by_id[30]["is_floor"] is True
-    assert by_id[10]["is_floor"] is False
-    assert by_id[50]["is_floor"] is False
-    assert by_id[50]["total_ms"] == 19000
-    assert by_id[10]["invalidated"] is False
+    by_id = {r.id: r for r in rows}
+    assert by_id[10].order == 1
+    assert by_id[30].order == 2
+    assert by_id[50].order == 3
+    assert by_id[30].is_floor is True
+    assert by_id[10].is_floor is False
+    assert by_id[50].is_floor is False
+    assert by_id[50].total_ms == 19000
+    assert by_id[10].invalidated is False
 
 
 def test_surgery_rows_floor_ignores_invalidated_and_incomplete():
@@ -36,14 +36,14 @@ def test_surgery_rows_floor_ignores_invalidated_and_incomplete():
         _att(3, "2026-01-01T00:02:00+00:00", 12000, 12000, 0, 1, 0),  # the real floor
     ]
     rows = surgery_rows(raw)
-    by_id = {r["id"]: r for r in rows}
-    assert by_id[3]["is_floor"] is True
-    assert by_id[1]["is_floor"] is False
-    assert by_id[2]["is_floor"] is False
+    by_id = {r.id: r for r in rows}
+    assert by_id[3].is_floor is True
+    assert by_id[1].is_floor is False
+    assert by_id[2].is_floor is False
 
 
 def test_surgery_rows_incomplete_has_none_clean_tail_no_floor():
     raw = [_att(1, "2026-01-01T00:00:00+00:00", None, 9000, 2, 0, 0)]
     rows = surgery_rows(raw)
-    assert rows[0]["clean_tail_ms"] is None
-    assert rows[0]["is_floor"] is False
+    assert rows[0].clean_tail_ms is None
+    assert rows[0].is_floor is False

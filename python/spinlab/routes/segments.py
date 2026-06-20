@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 from spinlab.api_schemas import (
     ActionResponse,
+    ApiSegment,
     OkResponse,
     SegmentPatchRequest,
     SegmentPatchResponse,
@@ -36,25 +37,38 @@ def api_segments(session: SessionManager = Depends(get_session), db: Database = 
     else:
         rows = db.get_all_segments_with_model(
             session.game_id, primary_only=False, run_id=active_run)
-    out: list[dict] = []
+    out: list[ApiSegment] = []
     for r in rows:
-        d: dict = dict(r)
-        swid = d.get("start_waypoint_id")
-        ewid = d.get("end_waypoint_id")
+        swid = r["start_waypoint_id"]
+        ewid = r["end_waypoint_id"]
         start_wp = db.get_waypoint(swid) if swid else None
         end_wp = db.get_waypoint(ewid) if ewid else None
-        d["start_conditions"] = json.loads(start_wp.conditions_json) if start_wp else {}
-        d["end_conditions"] = json.loads(end_wp.conditions_json) if end_wp else {}
-        d["is_primary"] = bool(d.get("is_primary", 1))
         cold = db.get_save_state(swid, "cold") if swid else None
         has_cold = bool(cold and cold.state_path and os.path.exists(cold.state_path))
         if cold and cold.state_path and not has_cold:
             logger.warning(
                 "segment %s: cold state recorded at %s but file is missing on disk",
-                d.get("id"), cold.state_path,
+                r["id"], cold.state_path,
             )
-        d["has_cold_state"] = has_cold
-        out.append(d)
+        out.append(ApiSegment(
+            id=r["id"],
+            game_id=r["game_id"],
+            level_number=r["level_number"],
+            start_type=r["start_type"],
+            start_ordinal=r["start_ordinal"],
+            end_type=r["end_type"],
+            end_ordinal=r["end_ordinal"],
+            description=r["description"],
+            active=r["active"],
+            ordinal=r["ordinal"],
+            state_path=r["state_path"],
+            is_primary=bool(r.get("is_primary", 1)),
+            has_cold_state=has_cold,
+            start_waypoint_id=swid,
+            end_waypoint_id=ewid,
+            start_conditions=json.loads(start_wp.conditions_json) if start_wp else {},
+            end_conditions=json.loads(end_wp.conditions_json) if end_wp else {},
+        ))
     return {"segments": out}
 
 
