@@ -59,7 +59,7 @@ class HyperPlaySession:
         game_id: str,
         auto_advance_delay_ms: int = 1000,
         death_delay_ms: int = 0,
-        on_event: Callable | None = None,
+        on_event: Callable[[HyperPlayEvent | None], None] | None = None,
         session_id: str | None = None,
     ) -> None:
         # death_delay_ms: optional blackout (ms) between death detection and

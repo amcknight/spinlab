@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 logger = logging.getLogger(__name__)
 
 from spinlab.api_schemas import (
+    AllocatorWeightsRequest,
     AllocatorWeightsResponse,
     EmSuiteMatrixResponse,
     LiveSegmentViewResponse,
@@ -62,14 +63,14 @@ def api_model(session: SessionManager = Depends(get_session)):
 
 
 @router.post("/allocator-weights", response_model=AllocatorWeightsResponse)
-def set_allocator_weights(body: dict[str, int], session: SessionManager = Depends(get_session)):
+def set_allocator_weights(body: AllocatorWeightsRequest, session: SessionManager = Depends(get_session)):
     sched = session.get_scheduler()
     try:
-        sched.set_allocator_weights(body)
+        sched.set_allocator_weights(body.root)
     except (ValueError, TypeError) as e:
         logger.warning("set_allocator_weights: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
-    return {"weights": body}
+    return {"weights": body.root}
 
 
 @router.get("/segments/{segment_id}/history", response_model=SegmentHistory)

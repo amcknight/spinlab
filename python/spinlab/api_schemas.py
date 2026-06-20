@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, RootModel
 
 from spinlab.protocol import SPEED_NORMAL
 
@@ -194,6 +194,20 @@ class ModelData(_BaseResponse):
 # ---------------------------------------------------------------------------
 # Allocator config endpoint
 # ---------------------------------------------------------------------------
+
+class AllocatorWeightsRequest(RootModel[dict[str, int]]):
+    """Allocator weight map. Flat body: allocator-name → integer weight.
+
+    Each key is an allocator name (e.g. "random", "greedy", "round_robin");
+    values are non-negative integers. The server validates that weights are
+    non-negative and sum to a valid total; Pydantic validates that every value
+    is an int.
+
+    RootModel keeps the wire format as a plain JSON object (``{"random": 100}``)
+    rather than a nested ``{"weights": {...}}``, matching the existing frontend
+    call and the ``dict[str, int]`` body it replaces.
+    """
+
 
 class AllocatorWeightsResponse(_BaseResponse):
     weights: dict[str, int]

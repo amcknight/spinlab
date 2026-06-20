@@ -68,8 +68,8 @@ class PracticeSession:
         scheduler: Scheduler,
         auto_advance_delay_ms: int = DEFAULT_AUTO_ADVANCE_MS,
         death_penalty_ms: int = 3200,
-        on_attempt: Callable | None = None,
-        on_segment_load: Callable | None = None,
+        on_attempt: Callable[[Attempt], None] | None = None,
+        on_segment_load: Callable[[str], None] | None = None,
         session_id: str | None = None,
         grind_segment_id: str | None = None,
     ) -> None:
