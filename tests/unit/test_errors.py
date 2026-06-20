@@ -77,6 +77,20 @@ def _build_app_with_raising_route(exc_factory):
     return app
 
 
+@pytest.mark.parametrize("cls,http_code,detail", [
+    (NotConnectedError, 503, "not_connected"),
+    (DraftPendingError, 409, "draft_pending"),
+    (NoDraftError, 404, "no_draft"),
+])
+def test_handler_maps_action_error_to_response(cls, http_code, detail):
+    """The ActionError handler turns a raised error into its HTTP status + detail
+    body through a real request — distinct from test_action_error_attributes,
+    which only checks the exception's attributes, not the handler wiring."""
+    client = TestClient(_build_app_with_raising_route(cls))
+    resp = client.get("/boom")
+    assert resp.status_code == http_code
+    assert resp.json() == {"detail": detail}
+
 
 def test_no_paused_run_error_distinct_from_not_in_reference():
     from spinlab.errors import NoPausedRunError, NotInReferenceError
