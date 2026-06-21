@@ -237,6 +237,14 @@ class RAMovieIO:
             except PermissionError:
                 if attempt < MOVIE_POLL_ATTEMPTS - 1:
                     time.sleep(MOVIE_POLL_INTERVAL_SEC)
+        else:
+            # All retries exhausted: the source file is still locked. Surface it
+            # like _cleanup_staged does — a stranded .replay* makes the *next*
+            # record's "no new file appeared" mtime-diff confusing to debug.
+            log.warn(
+                logger, "record_movie: source cleanup failed; file left in place",
+                src=str(changed), attempts=MOVIE_POLL_ATTEMPTS,
+            )
         logger.info(
             'record_movie stop src="%s" dest="%s"', changed.name, dest_path,
         )
