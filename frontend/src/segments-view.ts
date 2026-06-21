@@ -133,10 +133,22 @@ function appendSegmentRows(tbody: HTMLElement, seg: ApiSegment): void {
   primaryTd.appendChild(cb);
   row.appendChild(primaryTd);
 
-  // Cold cell (filled in Task 3 with the Fill button; placeholder for now)
+  // Cold cell: present -> marker; missing -> Fill button
   const coldTd = document.createElement("td");
   coldTd.className = "seg-cold";
-  coldTd.textContent = seg.has_cold_state ? "✅" : "❌";
+  if (seg.has_cold_state) {
+    coldTd.textContent = "✅";
+  } else {
+    const fill = document.createElement("button");
+    fill.className = "btn-fill-gap";
+    fill.type = "button";
+    fill.textContent = "❌ Fill";
+    fill.addEventListener("click", async () => {
+      const res = await startFillGap(seg.id);
+      if (res.status === "started") { fill.textContent = "⏳"; fill.disabled = true; }
+    });
+    coldTd.appendChild(fill);
+  }
   row.appendChild(coldTd);
 
   tbody.appendChild(row);
@@ -152,6 +164,20 @@ function appendSegmentRows(tbody: HTMLElement, seg: ApiSegment): void {
   detailTd.innerHTML =
     `<span class="seg-detail-item">Conditions: ${conds}</span>` +
     `<span class="seg-detail-item">Session: ${session}</span>`;
+  if ((seg as any).state_path) {
+    detailTd.insertAdjacentHTML("beforeend", `<span class="seg-detail-item">state: ${(seg as any).state_path}</span>`);
+  }
+  const delBtn = document.createElement("button");
+  delBtn.className = "btn-x";
+  delBtn.type = "button";
+  delBtn.textContent = "Delete";
+  delBtn.addEventListener("click", async () => {
+    if (!confirm("Remove this segment?")) return;
+    await deleteSegment(seg.id);
+    row.remove();
+    detail.remove();
+  });
+  detailTd.appendChild(delBtn);
   detail.appendChild(detailTd);
   tbody.appendChild(detail);
 
@@ -167,4 +193,15 @@ export async function fetchSegments(gameId: string): Promise<ApiSegment[]> {
   if (!resp.ok) throw new Error(`fetch failed: ${resp.status}`);
   const data = await resp.json();
   return data.segments;
+}
+
+export async function deleteSegment(segmentId: string): Promise<void> {
+  const resp = await fetch(`/api/segments/${encodeURIComponent(segmentId)}`, { method: "DELETE" });
+  if (!resp.ok) throw new Error(`delete failed: ${resp.status}`);
+}
+
+export async function startFillGap(segmentId: string): Promise<{ status?: string }> {
+  const resp = await fetch(`/api/segments/${encodeURIComponent(segmentId)}/fill-gap`, { method: "POST" });
+  if (!resp.ok) throw new Error(`fill-gap failed: ${resp.status}`);
+  return resp.json();
 }

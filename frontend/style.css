@@ -508,6 +508,20 @@ h3 {
 }
 .run-delete-buttons button { width: 100%; }
 
+/* Merged Setup segments table */
+.segments-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.segments-table th {
+  text-align: left; color: var(--text-dim);
+  padding: 4px 5px; border-bottom: 1px solid var(--card);
+}
+.segments-table td { padding: 4px 5px; border-bottom: 1px solid var(--surface); }
+.seg-expander {
+  background: none; border: none; color: var(--text-dim);
+  cursor: pointer; font-size: 11px; padding: 0 2px;
+}
+.seg-detail td { color: var(--text-dim); background: var(--surface); }
+.seg-detail-item { margin-right: 16px; }
+
 /* Segment table */
 #segment-table {
   width: 100%;

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { groupByLevel, formatConditions, renderSegmentsView, coldCaptureButtonEnabled, coldCaptureButtonVisible } from "./segments-view";
+import { describe, it, expect, vi } from "vitest";
+import { groupByLevel, formatConditions, renderSegmentsView, coldCaptureButtonEnabled, coldCaptureButtonVisible, deleteSegment, startFillGap } from "./segments-view";
 
 describe("groupByLevel", () => {
   it("groups segments by level_number preserving ordinal order", () => {
@@ -90,5 +90,37 @@ describe("formatConditions", () => {
     const out = formatConditions({ powerup: "big", on_yoshi: true });
     expect(out).toMatch(/powerup=big/);
     expect(out).toMatch(/on_yoshi=true/);
+  });
+});
+
+describe("renderSegmentsView cold cell", () => {
+  it("renders a Fill button (not a checkmark) when has_cold_state is false", () => {
+    const container = document.createElement("div");
+    const segs = [
+      { id: "a", level_number: 1, ordinal: 1, start_type: "entrance", start_ordinal: 0,
+        end_type: "goal", end_ordinal: 0, start_conditions: {}, end_conditions: {},
+        is_primary: false, has_cold_state: false, description: "", session_ordinal: 1 },
+    ] as any[];
+    renderSegmentsView(container, segs);
+    const btn = container.querySelector(".seg-cold .btn-fill-gap") as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    expect(btn.textContent).toContain("Fill");
+  });
+});
+
+describe("segment action helpers", () => {
+  it("deleteSegment issues DELETE to /api/segments/{id}", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    await deleteSegment("seg1");
+    expect(fetchMock).toHaveBeenCalledWith("/api/segments/seg1", { method: "DELETE" });
+  });
+
+  it("startFillGap POSTs to /api/segments/{id}/fill-gap", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ status: "started" }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const out = await startFillGap("seg1");
+    expect(fetchMock).toHaveBeenCalledWith("/api/segments/seg1/fill-gap", { method: "POST" });
+    expect(out.status).toBe("started");
   });
 });
