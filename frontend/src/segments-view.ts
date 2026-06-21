@@ -1,4 +1,4 @@
-import { shortEndpoint } from "./format";
+import { shortEndpoint, segmentName } from "./format";
 import type { ApiSegment } from "./types";
 
 export function coldCaptureButtonEnabled(mode: string, hasActiveRun: boolean, emuConnected: boolean): boolean {
@@ -44,6 +44,15 @@ export function formatConditions(conds: Record<string, string | boolean>): strin
   return keys.map(k => `${k}=${conds[k]}`).join(", ");
 }
 
+export async function patchDescription(segmentId: string, description: string): Promise<void> {
+  const resp = await fetch(`/api/segments/${encodeURIComponent(segmentId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ description }),
+  });
+  if (!resp.ok) throw new Error(`patch failed: ${resp.status}`);
+}
+
 export async function patchIsPrimary(segmentId: string, isPrimary: boolean): Promise<void> {
   const resp = await fetch(`/api/segments/${encodeURIComponent(segmentId)}`, {
     method: "PATCH",
@@ -63,52 +72,94 @@ export function renderSegmentsView(container: HTMLElement, segs: ApiSegment[]): 
     h.textContent = `Level ${level}`;
     section.appendChild(h);
     const table = document.createElement("table");
+    table.className = "segments-table";
     table.innerHTML =
-      "<thead><tr><th>Segment</th><th>Conditions</th><th>Primary</th><th>Cold</th></tr></thead>";
+      "<thead><tr><th></th><th>Segment</th><th>Name</th><th>Primary</th><th>Cold</th></tr></thead>";
     const tbody = document.createElement("tbody");
     for (const seg of grouped[level] ?? []) {
-      const tr = document.createElement("tr");
-      const segLabel = shortEndpoint(seg.start_type, seg.start_ordinal) +
-        " \u2192 " + shortEndpoint(seg.end_type, seg.end_ordinal);
-      const conds = formatConditions(seg.start_conditions);
-
-      const segTd = document.createElement("td");
-      segTd.textContent = segLabel;
-      tr.appendChild(segTd);
-
-      const condTd = document.createElement("td");
-      condTd.className = "dim";
-      condTd.textContent = conds;
-      tr.appendChild(condTd);
-
-      const primaryTd = document.createElement("td");
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = seg.is_primary;
-      cb.addEventListener("change", async () => {
-        cb.disabled = true;
-        try { await patchIsPrimary(seg.id, cb.checked); seg.is_primary = cb.checked; }
-        catch (err) { cb.checked = seg.is_primary; alert(String(err)); }
-        finally { cb.disabled = false; }
-      });
-      primaryTd.appendChild(cb);
-      tr.appendChild(primaryTd);
-
-      const coldTd = document.createElement("td");
-      coldTd.textContent = seg.has_cold_state ? "✓" : "✗";
-      // ✓ (present) is muted; ✗ (missing) stays prominent — missing is the signal.
-      coldTd.className = seg.has_cold_state ? "dim" : "";
-      coldTd.title = seg.has_cold_state
-        ? "cold state captured"
-        : "cold state missing — needs capture";
-      tr.appendChild(coldTd);
-
-      tbody.appendChild(tr);
+      appendSegmentRows(tbody, seg);
     }
     table.appendChild(tbody);
     section.appendChild(table);
     container.appendChild(section);
   }
+}
+
+function appendSegmentRows(tbody: HTMLElement, seg: ApiSegment): void {
+  const segLabel = shortEndpoint(seg.start_type, seg.start_ordinal) +
+    " → " + shortEndpoint(seg.end_type, seg.end_ordinal);
+
+  const row = document.createElement("tr");
+  row.className = "seg-row";
+
+  // Expander
+  const expTd = document.createElement("td");
+  const exp = document.createElement("button");
+  exp.className = "seg-expander";
+  exp.type = "button";
+  exp.textContent = "▸"; // right-pointing triangle ▸
+  expTd.appendChild(exp);
+  row.appendChild(expTd);
+
+  // Segment label
+  const segTd = document.createElement("td");
+  segTd.textContent = segLabel;
+  row.appendChild(segTd);
+
+  // Editable name
+  const nameTd = document.createElement("td");
+  const nameInput = document.createElement("input");
+  nameInput.className = "segment-name-input";
+  nameInput.value = seg.description || "";
+  nameInput.placeholder = segmentName(seg);
+  nameInput.addEventListener("focusout", async () => {
+    try { await patchDescription(seg.id, nameInput.value); }
+    catch (err) { alert(String(err)); }
+  });
+  nameTd.appendChild(nameInput);
+  row.appendChild(nameTd);
+
+  // Primary checkbox (existing behavior)
+  const primaryTd = document.createElement("td");
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = seg.is_primary;
+  cb.addEventListener("change", async () => {
+    cb.disabled = true;
+    try { await patchIsPrimary(seg.id, cb.checked); seg.is_primary = cb.checked; }
+    catch (err) { cb.checked = seg.is_primary; alert(String(err)); }
+    finally { cb.disabled = false; }
+  });
+  primaryTd.appendChild(cb);
+  row.appendChild(primaryTd);
+
+  // Cold cell (filled in Task 3 with the Fill button; placeholder for now)
+  const coldTd = document.createElement("td");
+  coldTd.className = "seg-cold";
+  coldTd.textContent = seg.has_cold_state ? "✅" : "❌";
+  row.appendChild(coldTd);
+
+  tbody.appendChild(row);
+
+  // Detail row
+  const detail = document.createElement("tr");
+  detail.className = "seg-detail";
+  detail.style.display = "none";
+  const detailTd = document.createElement("td");
+  detailTd.colSpan = 5;
+  const conds = formatConditions(seg.start_conditions);
+  const session = seg.session_ordinal == null ? "—" : String(seg.session_ordinal);
+  detailTd.innerHTML =
+    `<span class="seg-detail-item">Conditions: ${conds}</span>` +
+    `<span class="seg-detail-item">Session: ${session}</span>`;
+  detail.appendChild(detailTd);
+  tbody.appendChild(detail);
+
+  exp.addEventListener("click", () => {
+    const open = detail.style.display !== "none";
+    detail.style.display = open ? "none" : "";
+    exp.textContent = open ? "▸" : "▾";
+  });
 }
 
 export async function fetchSegments(gameId: string): Promise<ApiSegment[]> {

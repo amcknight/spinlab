@@ -16,23 +16,48 @@ describe("groupByLevel", () => {
 });
 
 describe("renderSegmentsView", () => {
-  it("renders a Cold column with ✓ when has_cold_state and ✗ otherwise", () => {
+  it("shows a cold-present marker when has_cold_state is true", () => {
     const container = document.createElement("div");
     const segs = [
       { id: "a", level_number: 1, ordinal: 1, start_type: "entrance", start_ordinal: 0,
         end_type: "goal", end_ordinal: 0, start_conditions: {}, end_conditions: {},
-        is_primary: true, has_cold_state: true },
-      { id: "b", level_number: 1, ordinal: 2, start_type: "entrance", start_ordinal: 0,
-        end_type: "goal", end_ordinal: 0, start_conditions: {}, end_conditions: {},
-        is_primary: false, has_cold_state: false },
+        is_primary: true, has_cold_state: true, description: "", session_ordinal: 1 },
     ] as any[];
     renderSegmentsView(container, segs);
-    const headers = Array.from(container.querySelectorAll("th")).map(th => th.textContent);
-    expect(headers).toContain("Cold");
-    const rows = container.querySelectorAll("tbody tr");
-    expect(rows.length).toBe(2);
-    expect(rows[0]?.textContent).toContain("✓");
-    expect(rows[1]?.textContent).toContain("✗");
+    expect(container.querySelector(".seg-cold")?.textContent).toBe("✅");
+  });
+});
+
+describe("renderSegmentsView merged table", () => {
+  it("renders an editable name input with description as value and segment label as placeholder", () => {
+    const container = document.createElement("div");
+    const segs = [
+      { id: "a", level_number: 1, ordinal: 1, start_type: "entrance", start_ordinal: 0,
+        end_type: "goal", end_ordinal: 0, start_conditions: {}, end_conditions: {},
+        is_primary: true, has_cold_state: true, description: "Yoshi spot", session_ordinal: 2 },
+    ] as any[];
+    renderSegmentsView(container, segs);
+    const input = container.querySelector("input.segment-name-input") as HTMLInputElement;
+    expect(input).not.toBeNull();
+    expect(input.value).toBe("Yoshi spot");
+    expect(input.placeholder.length).toBeGreaterThan(0);
+  });
+
+  it("hides the detail row until the expander is clicked, then shows Conditions and Session #", () => {
+    const container = document.createElement("div");
+    const segs = [
+      { id: "a", level_number: 1, ordinal: 1, start_type: "entrance", start_ordinal: 0,
+        end_type: "goal", end_ordinal: 0, start_conditions: { powerup: "cape" },
+        end_conditions: {}, is_primary: true, has_cold_state: true,
+        description: "", session_ordinal: 2 },
+    ] as any[];
+    renderSegmentsView(container, segs);
+    const detail = container.querySelector("tr.seg-detail") as HTMLElement;
+    expect(detail.style.display).toBe("none");
+    (container.querySelector(".seg-expander") as HTMLElement).click();
+    expect(detail.style.display).not.toBe("none");
+    expect(detail.textContent).toContain("powerup=cape");
+    expect(detail.textContent).toContain("2"); // session ordinal
   });
 });
 
