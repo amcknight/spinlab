@@ -65,24 +65,28 @@ export async function patchIsPrimary(segmentId: string, isPrimary: boolean): Pro
 export function renderSegmentsView(container: HTMLElement, segs: ApiSegment[]): void {
   const grouped = groupByLevel(segs);
   container.innerHTML = "";
+  // One table for all levels — a single column header at the top, with each
+  // level introduced by a compact full-width divider row. (Was one table +
+  // <h3> per level, which repeated the header and ate vertical space.)
+  const table = document.createElement("table");
+  table.className = "segments-table";
+  table.innerHTML =
+    "<thead><tr><th></th><th>Segment</th><th>Name</th><th>Primary</th><th>Cold</th></tr></thead>";
+  const tbody = document.createElement("tbody");
   for (const level of Object.keys(grouped)) {
-    const section = document.createElement("section");
-    section.className = "segments-level";
-    const h = document.createElement("h3");
-    h.textContent = `Level ${level}`;
-    section.appendChild(h);
-    const table = document.createElement("table");
-    table.className = "segments-table";
-    table.innerHTML =
-      "<thead><tr><th></th><th>Segment</th><th>Name</th><th>Primary</th><th>Cold</th></tr></thead>";
-    const tbody = document.createElement("tbody");
+    const divider = document.createElement("tr");
+    divider.className = "seg-level-divider";
+    const dividerTd = document.createElement("td");
+    dividerTd.colSpan = 5;
+    dividerTd.textContent = `Level ${level}`;
+    divider.appendChild(dividerTd);
+    tbody.appendChild(divider);
     for (const seg of grouped[level] ?? []) {
       appendSegmentRows(tbody, seg);
     }
-    table.appendChild(tbody);
-    section.appendChild(table);
-    container.appendChild(section);
   }
+  table.appendChild(tbody);
+  container.appendChild(table);
 }
 
 function appendSegmentRows(tbody: HTMLElement, seg: ApiSegment): void {
@@ -137,12 +141,16 @@ function appendSegmentRows(tbody: HTMLElement, seg: ApiSegment): void {
   const coldTd = document.createElement("td");
   coldTd.className = "seg-cold";
   if (seg.has_cold_state) {
+    // present cold state is muted (the signal is what's MISSING)
     coldTd.textContent = "✅";
+    coldTd.classList.add("dim");
+    coldTd.title = "cold state captured";
   } else {
     const fill = document.createElement("button");
     fill.className = "btn-fill-gap";
     fill.type = "button";
     fill.textContent = "❌ Fill";
+    fill.title = "cold state missing — capture it";
     fill.addEventListener("click", async () => {
       try {
         const res = await startFillGap(seg.id);

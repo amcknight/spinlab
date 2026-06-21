@@ -43,6 +43,27 @@ describe("renderSegmentsView merged table", () => {
     expect(input.placeholder.length).toBeGreaterThan(0);
   });
 
+  it("renders a single table with one header row and a compact divider per level", () => {
+    const container = document.createElement("div");
+    const segs = [
+      { id: "a", level_number: 1, ordinal: 1, start_type: "entrance", start_ordinal: 0,
+        end_type: "goal", end_ordinal: 0, start_conditions: {}, end_conditions: {},
+        is_primary: true, has_cold_state: true, description: "", session_ordinal: 1 },
+      { id: "b", level_number: 2, ordinal: 1, start_type: "entrance", start_ordinal: 0,
+        end_type: "goal", end_ordinal: 0, start_conditions: {}, end_conditions: {},
+        is_primary: true, has_cold_state: true, description: "", session_ordinal: 1 },
+    ] as any[];
+    renderSegmentsView(container, segs);
+    // One table, one set of column headers (not one per level).
+    expect(container.querySelectorAll("table").length).toBe(1);
+    expect(container.querySelectorAll("thead").length).toBe(1);
+    // One compact divider row per level, labelled "Level N".
+    const dividers = container.querySelectorAll("tr.seg-level-divider");
+    expect(dividers.length).toBe(2);
+    expect(dividers[0]?.textContent).toBe("Level 1");
+    expect(dividers[1]?.textContent).toBe("Level 2");
+  });
+
   it("hides the detail row until the expander is clicked, then shows Conditions and Session #", () => {
     const container = document.createElement("div");
     const segs = [
