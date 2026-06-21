@@ -27,22 +27,6 @@ class CaptureRunRow(TypedDict):
     kind: str
 
 
-class ReferenceSegmentRow(TypedDict):
-    id: str
-    game_id: str
-    level_number: int
-    start_type: str
-    start_ordinal: int
-    end_type: str
-    end_ordinal: int
-    description: str
-    active: int
-    ordinal: int
-    capture_run_id: str | None
-    capture_session_id: str | None
-    session_ordinal: int | None
-    state_path: str | None
-
 
 class CaptureRunsMixin:
     """Reference run CRUD and draft lifecycle.
@@ -308,23 +292,3 @@ class CaptureRunsMixin:
             # capture_sessions CASCADE from capture_runs
             self.conn.execute("DELETE FROM capture_runs WHERE id = ?", (run_id,))
 
-    def get_segments_by_reference(self, capture_run_id: str) -> list[ReferenceSegmentRow]:
-        # state_path is always NULL — populate via waypoint_save_states join in caller.
-        cur = self.conn.execute(
-            """SELECT s.id, s.game_id, s.level_number, s.start_type, s.start_ordinal,
-                      s.end_type, s.end_ordinal, s.description, s.active, s.ordinal,
-                      s.capture_run_id, s.capture_session_id,
-                      cs.ordinal AS session_ordinal,
-                      NULL AS state_path
-               FROM segments s
-               LEFT JOIN capture_sessions cs ON s.capture_session_id = cs.id
-               WHERE s.active = 1
-                 AND s.id IN (
-                   SELECT DISTINCT a.segment_id FROM attempts a
-                   WHERE a.capture_run_id = ? AND a.invalidated = 0
-                 )
-               ORDER BY s.ordinal""",
-            (capture_run_id,),
-        )
-        actual_cols = [desc[0] for desc in cur.description]
-        return [dict(zip(actual_cols, row)) for row in cur.fetchall()]  # type: ignore[return-value]

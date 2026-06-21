@@ -322,35 +322,6 @@ def test_list_capture_sessions_includes_segment_count(db):
     assert counts == {"s1": 2, "s2": 1}
 
 
-def test_get_segments_by_reference_includes_session_ordinal(db):
-    db.upsert_game("smw", "SMW", "any%")
-    db.create_capture_run("run_z", "smw", "Z", kind="live")
-    db.create_capture_session("s1", "run_z", 1)
-    db.create_capture_session("s2", "run_z", 2)
-    db.conn.execute(
-        "INSERT INTO segments (id, game_id, level_number, start_type, "
-        "start_ordinal, end_type, end_ordinal, capture_session_id, "
-        "capture_run_id, created_at, updated_at)VALUES "
-        "('a', 'smw', 1, 'entrance', 0, 'goal', 0, 's1', 'run_z', "
-        "datetime('now'), datetime('now')), "
-        "('b', 'smw', 1, 'entrance', 0, 'goal', 0, 's2', 'run_z', "
-        "datetime('now'), datetime('now')), "
-        "('c', 'smw', 1, 'entrance', 0, 'goal', 0, NULL, 'run_z', "
-        "datetime('now'), datetime('now'))"
-    )
-    db.conn.commit()
-    for seg_id in ("a", "b", "c"):
-        db.log_event_attempt(EventAttempt(
-            segment_id=seg_id, episode_id=f"ep_{seg_id}",
-            outcome=AttemptOutcome.SURVIVED, time_ms=1000,
-            capture_run_id="run_z", source=AttemptSource.REFERENCE,
-        ))
-    segs = db.get_segments_by_reference("run_z")
-    by_id = {s["id"]: s for s in segs}
-    assert by_id["a"]["session_ordinal"] == 1
-    assert by_id["b"]["session_ordinal"] == 2
-    assert by_id["c"]["session_ordinal"] is None
-
 
 def test_finalize_rebuilds_scheduler_even_when_zero_segments(db):
     """Activating a reference invalidates scheduler state regardless of how many

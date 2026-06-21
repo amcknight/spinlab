@@ -169,8 +169,7 @@ class SegmentsMixin:
 
         ``run_id`` scopes to segments the run *traversed* (at least one
         non-invalidated attempt in the ``attempts`` table), not segments it
-        owns; ``None`` = whole game. Mirrors ``get_segments_by_reference`` and
-        ``count_segments_traversed_in_run``.
+        owns; ``None`` = whole game. Mirrors ``count_segments_traversed_in_run``.
         """
         params: list = [game_id]
         run_clause = ""

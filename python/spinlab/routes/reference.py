@@ -14,7 +14,6 @@ from spinlab.api_schemas import (
     Reference,
     ReferenceFinalizeRequest,
     ReferenceRenameRequest,
-    ReferenceSegmentsResponse,
     ReferencesResponse,
     ReplayExistsResponse,
     ReplayStartRequest,
@@ -180,7 +179,3 @@ def activate_reference(ref_id: str, db: Database = Depends(get_db)):
     db.set_active_capture_run(ref_id)
     return {"status": "ok"}
 
-
-@router.get("/references/{ref_id}/segments", response_model=ReferenceSegmentsResponse)
-def get_reference_segments(ref_id: str, db: Database = Depends(get_db)):
-    return {"segments": db.get_segments_by_reference(ref_id)}

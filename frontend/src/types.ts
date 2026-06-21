@@ -36,7 +36,6 @@ export type ApiSegment = S["ApiSegment"];
 
 export type Reference = S["Reference"];
 export type CaptureSession = S["CaptureSession"];
-export type ReferenceSegment = S["ReferenceSegment"];
 
 export type SegmentHistory = S["SegmentHistory"];
 export type SegmentAttempt = S["SegmentAttempt"];
@@ -69,7 +68,7 @@ export type AttemptPatchResponse = S["AttemptPatchResponse"];
 
 /** Any object with segment-naming fields, used by segmentName/shortSegName.
  *  Not part of any API response — intentionally structural so it accepts
- *  both ApiSegment and ReferenceSegment without coupling to either. */
+ *  any segment-shaped object without coupling to a specific API type. */
 export interface SegmentLike {
   description?: string | null;
   level_number: number;

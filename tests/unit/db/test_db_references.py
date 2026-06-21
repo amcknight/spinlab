@@ -193,34 +193,6 @@ class TestSegmentEdit:
         rows = db.get_all_segments_with_model("g")
         assert len(rows) == 0  # deactivated
 
-    def test_get_segments_by_reference(self, db):
-        db.create_capture_run("ref1", "g", "Run 1")
-        segs = [_make_segment(db, "g", i, ordinal=i + 1, ref_id="ref1") for i in range(3)]
-        for s in segs:
-            db.log_event_attempt(EventAttempt(
-                segment_id=s.id, episode_id=f"ep_{s.id}",
-                outcome=AttemptOutcome.SURVIVED, time_ms=1000,
-                capture_run_id="ref1", source=AttemptSource.REFERENCE,
-            ))
-        rows = db.get_segments_by_reference("ref1")
-        assert len(rows) == 3
-        assert rows[0]["ordinal"] == 1
-
-    def test_get_segments_by_reference_includes_traversed_not_just_owned(self, db):
-        """A re-recording run shows segments it traversed even though an
-        earlier run still *owns* the row (capture_run_id)."""
-        db.create_capture_run("old", "g", "Old Run")
-        db.promote_draft("old", "Old Run")
-        db.create_capture_run("new", "g", "New Run")
-        seg = _make_segment(db, "g", 1, ordinal=1, ref_id="old")
-        db.log_event_attempt(EventAttempt(
-            segment_id=seg.id, episode_id="ep1",
-            outcome=AttemptOutcome.SURVIVED, time_ms=1000,
-            capture_run_id="new", source=AttemptSource.REFERENCE,
-        ))
-        rows = db.get_segments_by_reference("new")
-        assert [r["id"] for r in rows] == [seg.id]
-
 
 class TestStatusColumn:
     def test_create_capture_run_starts_as_draft(self, tmp_db):

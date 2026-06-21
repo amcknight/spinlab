@@ -337,36 +337,3 @@ class TestReplayStop:
         assert resp.json()["status"] == "stopped"
 
 
-class TestReferenceSegments:
-    def test_get_reference_segments(self, client, db):
-        """GET /api/references/:id/segments returns segments for that reference."""
-        db.create_capture_run("ref1", "test_game", "Run 1")
-        s = Segment(id="s1", game_id="test_game", level_number=1,
-                    start_type="entrance", start_ordinal=0,
-                    end_type="goal", end_ordinal=0,
-                    capture_run_id="ref1")
-        db.upsert_segment(s)
-        db.log_event_attempt(EventAttempt(
-            segment_id="s1", episode_id="ep1",
-            outcome=AttemptOutcome.SURVIVED, time_ms=1000,
-            capture_run_id="ref1", source=AttemptSource.REFERENCE,
-        ))
-
-        resp = client.get("/api/references/ref1/segments")
-        assert resp.status_code == 200
-        segs = resp.json()["segments"]
-        assert len(segs) == 1
-        assert segs[0]["id"] == "s1"
-
-    def test_get_reference_segments_empty(self, client, db):
-        """GET /api/references/:id/segments returns empty list when no segments."""
-        db.create_capture_run("ref1", "test_game", "Run 1")
-        resp = client.get("/api/references/ref1/segments")
-        assert resp.status_code == 200
-        assert resp.json()["segments"] == []
-
-    def test_get_reference_segments_unknown_ref(self, client):
-        """GET /api/references/:id/segments returns empty for unknown ref."""
-        resp = client.get("/api/references/nonexistent/segments")
-        assert resp.status_code == 200
-        assert resp.json()["segments"] == []

@@ -4,7 +4,6 @@ import type {
   ModelData,
   SessionInfo,
   Reference,
-  ReferenceSegment,
   SegmentHistory,
 } from "./types";
 

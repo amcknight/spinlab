@@ -390,26 +390,6 @@ class CaptureSessionsResponse(_BaseResponse):
     sessions: list[CaptureSession]
 
 
-class ReferenceSegment(_BaseResponse):
-    id: str
-    game_id: str
-    level_number: int
-    start_type: str
-    start_ordinal: int
-    end_type: str
-    end_ordinal: int
-    description: str
-    active: int
-    ordinal: int | None = None
-    capture_run_id: str | None = None
-    capture_session_id: str | None = None
-    session_ordinal: int | None = None
-    state_path: str | None = None
-
-
-class ReferenceSegmentsResponse(_BaseResponse):
-    segments: list[ReferenceSegment]
-
 
 class ReplayExistsResponse(_BaseResponse):
     exists: bool
