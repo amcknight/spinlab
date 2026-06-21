@@ -22,6 +22,9 @@ class SegmentRow(TypedDict):
     is_primary: int
     start_waypoint_id: str | None
     end_waypoint_id: str | None
+    # ordinal of the capture session that owns the segment row (display-only,
+    # for the merged Setup table's Session # column); None when no owning session.
+    session_ordinal: int | None
     state_path: str | None
 
 
