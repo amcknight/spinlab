@@ -154,6 +154,28 @@ def test_on_hyper_play_done_clean_completion_freezes_snapshot(monkeypatch):
     assert sm.practice_session_snapshot.ended_at == 1717_000_060.0
 
 
+def test_on_session_done_ignores_when_mode_already_changed(monkeypatch):
+    """_on_session_done must no-op if the live mode no longer matches the
+    session that finished — e.g. the user already switched to REFERENCE. This
+    guards against a late done-callback clobbering a newer mode."""
+    from spinlab.models import Mode
+
+    sm = _make_sm_with_segments(["s0"])
+    sm.mode = Mode.REFERENCE  # live mode differs from the finishing session
+    sm._take_session_snapshot()  # type: ignore[attr-defined]
+    assert sm.practice_session_snapshot is not None
+
+    monkeypatch.setattr(sm, "_notify_sse", lambda: None)
+    import asyncio as _asyncio
+    monkeypatch.setattr(_asyncio, "create_task", lambda coro: None)
+
+    sm._on_session_done(_fake_task(exc=RuntimeError("boom")), Mode.PRACTICE, "practice")
+
+    # Mode untouched, snapshot untouched — the stale callback did nothing.
+    assert sm.mode == Mode.REFERENCE
+    assert sm.practice_session_snapshot is not None
+
+
 def test_take_session_snapshot_logs_segment_count_on_success(caplog):
     """Successful snapshot capture emits an INFO log with the segment count."""
     import logging
