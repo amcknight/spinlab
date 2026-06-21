@@ -677,17 +677,36 @@ class SessionManager:
                 return bool(seg.state_path) and os.path.exists(seg.state_path)
         return False
 
-    async def start_practice(self, grind_segment_id: str | None = None) -> ActionResult:
-        from .errors import SnapshotFailedError
-
+    def _preflight_session_start(self, running_session) -> None:
+        """Shared pre-checks for starting an interactive (practice/hyper-play)
+        session. Raises a typed error if start is not currently allowed, and
+        clears a lingering REFERENCE mode so the new session starts from IDLE."""
         if self.capture.has_paused_run:
             raise DraftPendingError()
-        if self.practice_session and self.practice_session.is_running:
+        if running_session is not None and running_session.is_running:
             raise AlreadyRunningError()
         if not self.emu.is_connected:
             raise NotConnectedError()
         if self.mode == Mode.REFERENCE:
             self._clear_ref_and_idle()
+
+    def _snapshot_or_rollback(self, rollback: Callable[[], None]) -> None:
+        """Capture the start-of-session snapshot; on failure run the caller's
+        rollback, return to a clean IDLE, and surface a typed SnapshotFailedError.
+        The route needs a clean IDLE *now* and a typed error to retry — the
+        done-callback would eventually clear mode but not in time for the caller."""
+        from .errors import SnapshotFailedError
+
+        try:
+            self._take_session_snapshot()
+        except Exception as exc:
+            rollback()
+            self.mode = Mode.IDLE
+            self._clear_session_snapshot()
+            raise SnapshotFailedError() from exc
+
+    async def start_practice(self, grind_segment_id: str | None = None) -> ActionResult:
+        self._preflight_session_start(self.practice_session)
 
         game_id = self.require_game()
         if grind_segment_id is not None and not self._grind_segment_practicable(
@@ -714,22 +733,18 @@ class SessionManager:
             grind_segment_id=grind_segment_id,
         )
         self.practice_session = ps
-        self.practice_task = asyncio.create_task(ps.run_loop())
+        practice_task = asyncio.create_task(ps.run_loop())
+        self.practice_task = practice_task
         self.practice_task.add_done_callback(self._on_practice_done)
         self.mode = Mode.PRACTICE
-        try:
-            self._take_session_snapshot()
-        except Exception as exc:
-            # Roll back the half-started session so the caller can retry.
-            # The done-callback would also clear mode eventually, but the
-            # route needs a clean IDLE *now* and a typed error to surface.
+
+        def _rollback() -> None:
             ps.is_running = False
-            self.practice_task.cancel()
+            practice_task.cancel()
             self.practice_session = None
             self.practice_task = None
-            self.mode = Mode.IDLE
-            self._clear_session_snapshot()
-            raise SnapshotFailedError() from exc
+
+        self._snapshot_or_rollback(_rollback)
         await self._notify_sse()
         return ActionResult(status=Status.STARTED, session_id=ps.session_id)
 
@@ -794,16 +809,7 @@ class SessionManager:
 
 
     async def start_hyper_play(self) -> ActionResult:
-        from .errors import SnapshotFailedError
-
-        if self.capture.has_paused_run:
-            raise DraftPendingError()
-        if self.hyper_play_session and self.hyper_play_session.is_running:
-            raise AlreadyRunningError()
-        if not self.emu.is_connected:
-            raise NotConnectedError()
-        if self.mode == Mode.REFERENCE:
-            self._clear_ref_and_idle()
+        self._preflight_session_start(self.hyper_play_session)
 
         from .hyper_play import HyperPlaySession
         try:
@@ -815,19 +821,18 @@ class SessionManager:
             raise MissingSaveStatesError()
 
         self.hyper_play_session = sr
-        self.hyper_play_task = asyncio.create_task(sr.run_loop())
+        hyper_play_task = asyncio.create_task(sr.run_loop())
+        self.hyper_play_task = hyper_play_task
         self.hyper_play_task.add_done_callback(self._on_hyper_play_done)
         self.mode = Mode.HYPER_PLAY
-        try:
-            self._take_session_snapshot()
-        except Exception as exc:
+
+        def _rollback() -> None:
             sr.is_running = False
-            self.hyper_play_task.cancel()
+            hyper_play_task.cancel()
             self.hyper_play_session = None
             self.hyper_play_task = None
-            self.mode = Mode.IDLE
-            self._clear_session_snapshot()
-            raise SnapshotFailedError() from exc
+
+        self._snapshot_or_rollback(_rollback)
         await self._notify_sse()
         return ActionResult(status=Status.STARTED, session_id=sr.session_id)
 
