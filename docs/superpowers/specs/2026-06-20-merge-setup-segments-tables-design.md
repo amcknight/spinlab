@@ -85,21 +85,29 @@ Level 6
 
 ## Data source — one API change (access only, not storage)
 
-The merged table is run-scoped, so it reads from the run-scoped query
-(`get_segments_by_reference`, already traversal-membership based on `main`).
-That serialization (`ReferenceSegment`) currently lacks three fields the merged
-table needs, which today come only from the game-scoped `ApiSegment`:
+Investigation of the code corrected the original assumption here. The
+`/api/segments` endpoint (`ApiSegment`) is **already run-scoped** to the active
+reference run (`get_all_segments_with_model(..., run_id=active_run)`) and
+**already returns** `is_primary`, `has_cold_state`, and `start_conditions`. It is
+the right foundation for the merged table — it has 3 of the 4 fields the merge
+needs and derives `has_cold_state` correctly (the editor endpoint's `state_path`
+is hard-coded NULL and unreliable).
 
-- `is_primary`
-- `has_cold_state`
-- `start_conditions`
+The only field `ApiSegment` lacks is `session_ordinal` (for the detail-row
+Session # display).
 
-**Change:** widen the run-scoped segment serialization to include these three
-fields. They already exist on the segment rows in the DB and are already
-returned by `ApiSegment` — this is purely widening what the run-scoped endpoint
-exposes. **No migration, no new column, no change to where or how anything is
-stored.** Result: the merged table reads everything from a single fetch and the
-dual-fetch in `manage.ts` / `segments-view.ts` collapses to one.
+**Change:** add `session_ordinal: int | None` to `ApiSegment` — widen the query
+(`get_all_segments_with_model`) with a `LEFT JOIN capture_sessions` selecting
+`cs.ordinal`, and pass it through in the `/api/segments` route. The value already
+exists in the DB; this only widens what the endpoint exposes. **No migration, no
+new column, no change to where or how anything is stored.** Result: the merged
+table reads everything from the single existing `/api/segments` fetch
+(`segments-view.ts`), and `manage.ts`'s separate `/api/references/{id}/segments`
+fetch + `#segment-body` render is removed.
+
+The now-unused editor endpoint (`/api/references/{id}/segments`,
+`get_segments_by_reference`, `ReferenceSegment`, `ReferenceSegmentsResponse`) is
+deleted as a final cleanup, gated on confirming no other consumer.
 
 ## Preserved behaviors
 
@@ -110,12 +118,14 @@ dual-fetch in `manage.ts` / `segments-view.ts` collapses to one.
 
 ## Removed
 
-- The standalone game-scoped grouped view (`#segments-view-container` and
-  `segments-view.ts`'s render path) — its capabilities (Primary, Conditions,
-  Cold, Level grouping) all fold into the merged table.
+- The editor table in `manage.ts` (`#segment-body` render loop + its
+  `/api/references/{id}/segments` fetch + the `#segment-body` event wiring in
+  `initManageTab`). Its capabilities (editable Name, fill-gap, delete, Session #)
+  fold into the merged table, which is `segments-view.ts`'s renderer extended.
 - The explicit **Level** column (now a section header).
-- Cross-run segment rows — a run-scoped table only lists the active run's
-  traversed segments.
+- A duplicated container: there are currently two segment containers on Setup
+  (`#segment-table` in the Segments section, `#segments-view-container` at the
+  bottom). After the merge there is one, in the Segments section.
 
 ## Placement
 
