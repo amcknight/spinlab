@@ -144,8 +144,12 @@ function appendSegmentRows(tbody: HTMLElement, seg: ApiSegment): void {
     fill.type = "button";
     fill.textContent = "❌ Fill";
     fill.addEventListener("click", async () => {
-      const res = await startFillGap(seg.id);
-      if (res.status === "started") { fill.textContent = "⏳"; fill.disabled = true; }
+      try {
+        const res = await startFillGap(seg.id);
+        if (res.status === "started") { fill.textContent = "⏳"; fill.disabled = true; }
+      } catch (err) {
+        alert(String(err));
+      }
     });
     coldTd.appendChild(fill);
   }
@@ -164,8 +168,12 @@ function appendSegmentRows(tbody: HTMLElement, seg: ApiSegment): void {
   detailTd.innerHTML =
     `<span class="seg-detail-item">Conditions: ${conds}</span>` +
     `<span class="seg-detail-item">Session: ${session}</span>`;
-  if ((seg as any).state_path) {
-    detailTd.insertAdjacentHTML("beforeend", `<span class="seg-detail-item">state: ${(seg as any).state_path}</span>`);
+  const sp = (seg as any).state_path;
+  if (sp) {
+    const stateSpan = document.createElement("span");
+    stateSpan.className = "seg-detail-item";
+    stateSpan.textContent = `state: ${sp}`;
+    detailTd.appendChild(stateSpan);
   }
   const delBtn = document.createElement("button");
   delBtn.className = "btn-x";
@@ -173,9 +181,13 @@ function appendSegmentRows(tbody: HTMLElement, seg: ApiSegment): void {
   delBtn.textContent = "Delete";
   delBtn.addEventListener("click", async () => {
     if (!confirm("Remove this segment?")) return;
-    await deleteSegment(seg.id);
-    row.remove();
-    detail.remove();
+    try {
+      await deleteSegment(seg.id);
+      row.remove();
+      detail.remove();
+    } catch (err) {
+      alert(String(err));
+    }
   });
   detailTd.appendChild(delBtn);
   detail.appendChild(detailTd);

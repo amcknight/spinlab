@@ -123,4 +123,29 @@ describe("segment action helpers", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/segments/seg1/fill-gap", { method: "POST" });
     expect(out.status).toBe("started");
   });
+
+  it("deleteSegment throws when fetch resolves with ok: false", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(deleteSegment("x")).rejects.toThrow();
+  });
+
+  it("startFillGap throws when fetch resolves with ok: false", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(startFillGap("x")).rejects.toThrow();
+  });
+});
+
+describe("renderSegmentsView cold cell checkmark", () => {
+  it("renders checkmark text when has_cold_state is true", () => {
+    const container = document.createElement("div");
+    const segs = [
+      { id: "b", level_number: 1, ordinal: 1, start_type: "entrance", start_ordinal: 0,
+        end_type: "goal", end_ordinal: 0, start_conditions: {}, end_conditions: {},
+        is_primary: true, has_cold_state: true, description: "", session_ordinal: 1 },
+    ] as any[];
+    renderSegmentsView(container, segs);
+    expect(container.querySelector(".seg-cold")?.textContent).toBe("✅");
+  });
 });
