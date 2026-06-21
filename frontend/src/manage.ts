@@ -1,6 +1,5 @@
-import { segmentName, shortEndpoint, formatTime } from "./format";
 import { fetchJSON, postJSON } from "./api";
-import type { AppState, CaptureSession, Reference, ReferenceSegment } from "./types";
+import type { AppState, CaptureSession, Reference } from "./types";
 
 let lastState: AppState | null = null;
 // Id of the currently-active reference run, tracked from /api/references so the
@@ -11,28 +10,10 @@ let activeRefId: string | null = null;
 export async function fetchManage(): Promise<void> {
   const refsData = await fetchJSON<{ references: Reference[] }>("/api/references");
   if (!refsData) return;
-  const refs = refsData.references;
-
-  let segments: ReferenceSegment[] = [];
-  const captureId = lastState?.capture_run_id;
-  if (captureId) {
-    const segData = await fetchJSON<{ segments: ReferenceSegment[] }>(
-      "/api/references/" + captureId + "/segments",
-    );
-    segments = segData?.segments || [];
-  } else {
-    const active = refs.find((r) => r.active);
-    if (active) {
-      const segData = await fetchJSON<{ segments: ReferenceSegment[] }>(
-        "/api/references/" + active.id + "/segments",
-      );
-      segments = segData?.segments || [];
-    }
-  }
-  updateManage(refs, segments);
+  updateManage(refsData.references);
 }
 
-function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
+function updateManage(refs: Reference[]): void {
   const btnStart = document.getElementById("btn-ref-start") as HTMLButtonElement;
   const btnReplay = document.getElementById("btn-replay") as HTMLButtonElement;
   const pausedRunCard = document.getElementById("paused-run-card") as HTMLElement;
@@ -97,32 +78,6 @@ function updateManage(refs: Reference[], segments: ReferenceSegment[]): void {
       cfBanner.style.display = "none";
     }
   }
-
-  const body = document.getElementById("segment-body")!;
-  body.innerHTML = "";
-  segments.forEach((s) => {
-    const tr = document.createElement("tr");
-    const hasState = s.state_path != null;
-    const stateCell = hasState
-      ? '<span class="state-ok">✅</span>'
-      : '<button class="btn-fill-gap" data-id="' + s.id + '">❌</button>';
-    tr.innerHTML =
-      '<td>' + (s.session_ordinal ?? '—') + '</td>' +
-      '<td><input class="segment-name-input" value="' +
-      (s.description || "") +
-      '" ' +
-      'placeholder="' + segmentName(s) + '" ' +
-      'data-id="' + s.id + '" data-field="description"></td>' +
-      "<td>" + s.level_number + "</td>" +
-      "<td>" +
-      shortEndpoint(s.start_type, s.start_ordinal) +
-      " → " +
-      shortEndpoint(s.end_type, s.end_ordinal) +
-      "</td>" +
-      "<td>" + stateCell + "</td>" +
-      '<td><button class="btn-x" data-id="' + s.id + '">✕</button></td>';
-    body.appendChild(tr);
-  });
 }
 
 async function renderSessionsList(runId: string): Promise<void> {
@@ -157,37 +112,6 @@ export function updateManageState(data: AppState): void {
 }
 
 export function initManageTab(): void {
-  document.getElementById("segment-body")!.addEventListener("focusout", async (e) => {
-    const target = e.target as HTMLElement;
-    if (!target.classList.contains("segment-name-input")) return;
-    const input = target as HTMLInputElement;
-    const id = input.dataset.id;
-    const field = input.dataset.field;
-    const value = input.value;
-    await fetchJSON("/api/segments/" + id, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [field!]: value }),
-    });
-  });
-
-  document.getElementById("segment-body")!.addEventListener("click", async (e) => {
-    const target = e.target as HTMLElement;
-    if (target.classList.contains("btn-fill-gap")) {
-      const id = target.dataset.id;
-      const data = await postJSON<{ status?: string }>("/api/segments/" + id + "/fill-gap");
-      if (data?.status === "started") {
-        target.textContent = "⏳";
-        (target as HTMLButtonElement).disabled = true;
-      }
-      return;
-    }
-    if (!target.classList.contains("btn-x")) return;
-    if (!confirm("Remove this segment?")) return;
-    await fetchJSON("/api/segments/" + target.dataset.id, { method: "DELETE" });
-    fetchManage();
-  });
-
   document.getElementById("btn-ref-start")!.addEventListener("click", () => {
     if (!lastState?.emu_connected) return;
     postJSON("/api/reference/start");

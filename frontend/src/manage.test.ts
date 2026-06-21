@@ -22,7 +22,6 @@ beforeEach(() => {
     <div id="recording-seg-count"></div>
     <div id="cold-fill-banner"></div>
     <div id="reset-status"></div>
-    <table><tbody id="segment-body"></tbody></table>
     <table><tbody id="sessions-body"></tbody></table>
   `;
   // Stub confirm so discard prompt doesn't block tests

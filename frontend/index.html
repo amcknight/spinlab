@@ -134,7 +134,7 @@
             </details>
           </div>
 
-          <!-- Segments table -->
+          <!-- Segments table (merged: run-scoped, level-grouped, editable) -->
           <div class="manage-section">
             <h3>Segments</h3>
             <div id="segments-toolbar">
@@ -142,19 +142,7 @@
                       title="Capture the missing cold states for the active run">Start Cold Capture</button>
             </div>
             <div id="cold-fill-banner" style="display:none"></div>
-            <table id="segment-table">
-              <thead>
-                <tr>
-                  <th>Session</th>
-                  <th>Name</th>
-                  <th>Level</th>
-                  <th>Segment</th>
-                  <th>State</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="segment-body"></tbody>
-            </table>
+            <div id="segments-view-container"></div>
           </div>
 
           <!-- Data section -->
@@ -165,8 +153,6 @@
             <p id="reset-status" class="dim"></p>
           </div>
 
-          <!-- former Segments tab — populated by fetchAndRenderSegments on Setup show -->
-          <div id="segments-view-container"></div>
         </section>
       </main>
     </div>
