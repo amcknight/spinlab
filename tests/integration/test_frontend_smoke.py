@@ -168,14 +168,14 @@ async def test_practice_card_frozen_layout_targets_exist(page):
 async def test_segments_tab_lists_seeded_segments(page):
     pg, _errors = page
     await _goto_setup(pg)
-    # segments-view.ts renders one <section.segments-level> per distinct
-    # level_number. seed_basic_game seeds three distinct levels.
-    await pg.wait_for_selector("#segments-view-container section.segments-level", timeout=5000)
-    sections = await pg.locator("#segments-view-container section.segments-level").count()
-    assert sections >= 1
-    # Each section contains a tbody with one <tr> per segment at that level.
-    rows = await pg.locator("#segments-view-container section.segments-level tbody tr").count()
-    assert rows >= 1
+    # segments-view.ts renders ONE <table.segments-table> for all levels, with a
+    # compact <tr.seg-level-divider> introducing each distinct level_number and a
+    # <tr.seg-row> per segment. seed_basic_game seeds multiple levels/segments.
+    await pg.wait_for_selector("#segments-view-container table.segments-table", timeout=5000)
+    dividers = await pg.locator("#segments-view-container tr.seg-level-divider").count()
+    assert dividers >= 1, "Segments table should render a level divider per level"
+    rows = await pg.locator("#segments-view-container tr.seg-row").count()
+    assert rows >= 1, "Segments table should render a row per seeded segment"
     cold_header_count = await pg.locator(
         "#segments-view-container th", has_text="Cold"
     ).count()
