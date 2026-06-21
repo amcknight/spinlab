@@ -163,17 +163,19 @@ function appendSegmentRows(tbody: HTMLElement, seg: ApiSegment): void {
   detail.style.display = "none";
   const detailTd = document.createElement("td");
   detailTd.colSpan = 5;
-  const conds = formatConditions(seg.start_conditions);
+  // Build detail items as DOM nodes with textContent — keeps the row uniformly
+  // injection-proof (no innerHTML) and consistent across all fields.
+  const detailItem = (text: string): HTMLSpanElement => {
+    const span = document.createElement("span");
+    span.className = "seg-detail-item";
+    span.textContent = text;
+    return span;
+  };
   const session = seg.session_ordinal == null ? "—" : String(seg.session_ordinal);
-  detailTd.innerHTML =
-    `<span class="seg-detail-item">Conditions: ${conds}</span>` +
-    `<span class="seg-detail-item">Session: ${session}</span>`;
-  const sp = (seg as any).state_path;
-  if (sp) {
-    const stateSpan = document.createElement("span");
-    stateSpan.className = "seg-detail-item";
-    stateSpan.textContent = `state: ${sp}`;
-    detailTd.appendChild(stateSpan);
+  detailTd.appendChild(detailItem(`Conditions: ${formatConditions(seg.start_conditions)}`));
+  detailTd.appendChild(detailItem(`Session: ${session}`));
+  if (seg.state_path) {
+    detailTd.appendChild(detailItem(`state: ${seg.state_path}`));
   }
   const delBtn = document.createElement("button");
   delBtn.className = "btn-x";
