@@ -228,6 +228,7 @@ class ApiSegment(_BaseResponse):
     description: str
     active: int
     ordinal: int | None = None
+    session_ordinal: int | None = None
     state_path: str | None = None
     is_primary: bool
     has_cold_state: bool

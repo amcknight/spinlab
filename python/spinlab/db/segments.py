@@ -145,6 +145,7 @@ class SegmentsMixin:
                        s.end_type, s.end_ordinal, s.description,
                        s.active, s.ordinal, s.is_primary,
                        s.start_waypoint_id, s.end_waypoint_id,
+                       cs.ordinal AS session_ordinal,
                        (SELECT wss.state_path FROM waypoint_save_states wss
                         WHERE wss.waypoint_id = s.start_waypoint_id
                         ORDER BY CASE wss.variant_type
@@ -154,6 +155,7 @@ class SegmentsMixin:
                                  END
                         LIMIT 1) AS state_path
                 FROM segments s
+                LEFT JOIN capture_sessions cs ON s.capture_session_id = cs.id
                 WHERE s.game_id = ? AND s.active = 1 {primary_clause} {run_clause}
                 ORDER BY s.ordinal, s.level_number""",
             params,

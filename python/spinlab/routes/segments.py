@@ -61,6 +61,7 @@ def api_segments(session: SessionManager = Depends(get_session), db: Database = 
             description=r["description"],
             active=r["active"],
             ordinal=r["ordinal"],
+            session_ordinal=r["session_ordinal"],
             state_path=r["state_path"],
             is_primary=bool(r.get("is_primary", 1)),
             has_cold_state=has_cold,

@@ -2,7 +2,7 @@
 import pytest
 
 from spinlab.db import Database
-from spinlab.models import Attempt, Segment
+from spinlab.models import Attempt, AttemptOutcome, AttemptSource, EventAttempt, Segment
 
 
 @pytest.fixture
@@ -83,6 +83,33 @@ def test_get_all_segments_with_model(db):
     assert len(results) == 2
     assert results[0]["level_number"] <= results[1]["level_number"]
     assert "id" in results[0]  # segment columns present
+
+
+def test_get_all_segments_with_model_includes_session_ordinal(tmp_path):
+    """get_all_segments_with_model exposes the owning capture session's ordinal."""
+    db = Database(tmp_path / "test.db")
+    db.upsert_game("g", "Game", "any%")
+    db.create_capture_run("run1", "g", "Run 1")
+    db.promote_draft("run1", "Run 1")
+    db.create_capture_session(session_id="csess1", capture_run_id="run1", ordinal=1)
+    seg = _make_segment(db, "g", 1, ordinal=1, ref_id="run1")
+    # Link segment to capture session so the JOIN can find it.
+    db.conn.execute(
+        "UPDATE segments SET capture_session_id = ? WHERE id = ?",
+        ("csess1", seg.id),
+    )
+    db.conn.commit()
+    # Stamp a non-invalidated attempt so run-scoped filtering works.
+    db.log_event_attempt(EventAttempt(
+        segment_id=seg.id, episode_id="ep1",
+        outcome=AttemptOutcome.SURVIVED, time_ms=1000,
+        capture_run_id="run1", source=AttemptSource.REFERENCE,
+    ))
+
+    rows = db.get_all_segments_with_model("g", primary_only=False, run_id="run1")
+
+    assert len(rows) == 1
+    assert rows[0]["session_ordinal"] == 1
 
 
 def test_segments_ordered_by_ordinal(tmp_path):
