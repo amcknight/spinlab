@@ -143,6 +143,33 @@ class TestInstallConditionRegistry:
         assert len(sm.capture.condition_registry.definitions) == 1
         assert not any(isinstance(c, SetConditionsCmd) for c in emu.sent_commands)
 
+    async def test_rom_info_resolves_file_when_dir_shadows_rom(
+        self, db, emu, tmp_path, monkeypatch
+    ):
+        """RA reports the ROM basename without extension (e.g. "JUMP"). If a
+        directory named "JUMP" sits next to "JUMP.smc" in rom_dir, the extension
+        probe must still resolve to the .smc file — not treat the directory as
+        the ROM and crash reading it (PermissionError on Windows).
+        Regression: laptop had both `JUMP/` and `JUMP.smc`; handler crashed and
+        the game never loaded (UI stuck "Disconnected")."""
+        roms = tmp_path / "roms"
+        roms.mkdir()
+        (roms / "JUMP").mkdir()  # directory that shadows the ROM basename
+        (roms / "JUMP.smc").write_bytes(b"\x00" * 512)
+
+        sm = _make_sm(db, emu, rom_dir=roms)
+
+        async def fake_install(game_id: str) -> None:
+            pass
+
+        monkeypatch.setattr(sm, "install_condition_registry", fake_install)
+
+        await sm.route_event(RomInfoEvent(filename="JUMP"))
+
+        # The game must be loaded (checksum of the .smc file), not left unset.
+        assert sm.game_id is not None
+        assert not sm.game_id.startswith("file_")
+
     async def test_rom_info_triggers_install(self, db, emu, tmp_path, monkeypatch):
         """rom_info event calls install_condition_registry for the resolved game_id."""
         rom_file = tmp_path / "roms" / "test.sfc"

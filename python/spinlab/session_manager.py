@@ -259,14 +259,19 @@ class SessionManager:
         # was the root cause of the 2026-05-18 `test_replay_produces_
         # segments` intermittent failure where mode=replay but
         # sections_captured=0 for the full 120s timeout.
+        # `.is_file()`, not `.exists()`: RA reports the extensionless basename,
+        # and a directory sharing that basename (e.g. a `JUMP/` folder next to
+        # `JUMP.smc`) satisfies `.exists()` but is not a readable ROM — reading
+        # it as bytes raises PermissionError on Windows and crashes this handler,
+        # leaving the game unloaded (UI stuck "Disconnected").
         rom_path = self.rom_dir / filename
-        if not rom_path.exists():
+        if not rom_path.is_file():
             for ext in (".smc", ".sfc", ".fig", ".swc"):
                 candidate = self.rom_dir / f"{filename}{ext}"
-                if candidate.exists():
+                if candidate.is_file():
                     rom_path = candidate
                     break
-        if rom_path.exists():
+        if rom_path.is_file():
             from spinlab.romid import game_name_from_filename, rom_checksum
             checksum = rom_checksum(rom_path)
             name = game_name_from_filename(filename)
