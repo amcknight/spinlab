@@ -57,7 +57,14 @@
       "mcp__plugin_playwright_playwright__browser_take_screenshot",
       "Bash(python -m pytest:*)",
       "Bash(tasklist:*)",
-      "Bash(sc query:*)"
+      "Bash(sc query:*)",
+      "Bash(pip install:*)",
+      "Bash(python -m playwright install chromium)",
+      "Bash(npm install:*)",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_click",
+      "mcp__plugin_playwright_playwright__browser_close",
+      "Bash(netstat -ano)"
     ],
     "additionalDirectories": [
       "C:\\Users\\thedo\\git\\spinlab\\data"
